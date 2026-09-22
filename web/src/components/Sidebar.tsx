@@ -67,10 +67,11 @@ export function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavi
           className="flex items-center gap-2.5 hover:opacity-80 transition-opacity"
         >
           <img
-            src="/infovision-logo.png"
+            src="/logo.png"
             alt="InfoVision Intelligence"
-            className="h-7"
+            className="h-7 w-7 rounded-md object-cover"
           />
+          <span className="text-sm font-bold text-slate-900">InfoVision</span>
         </button>
         <button
           onClick={() => onNavigate("landing")}

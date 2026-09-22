@@ -79,9 +79,16 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
               backgroundColor: "#ffffff",
               boxShadow: "0 1px 3px rgba(91,44,157,0.08), 0 4px 16px rgba(91,44,157,0.04)",
             }}>
-              <span className="h-10 flex items-center gap-1.5 text-xl font-bold" style={{ letterSpacing: "-0.01em" }}>
-                <span style={{ color: "#5B2C9D" }}>InfoVision</span>
-                <span style={{ color: "#1e1833", fontWeight: 500 }}>Intelligence</span>
+              <span className="h-10 flex items-center gap-2.5">
+                <img
+                  src="/logo.png"
+                  alt="InfoVision Intelligence"
+                  className="h-9 w-9 rounded-lg object-cover"
+                />
+                <span className="text-xl font-bold" style={{ letterSpacing: "-0.01em" }}>
+                  <span style={{ color: "#5B2C9D" }}>InfoVision</span>{" "}
+                  <span style={{ color: "#1e1833", fontWeight: 500 }}>Intelligence</span>
+                </span>
               </span>
             </div>
             <h1 className="mb-3" style={{ fontSize: 38, fontWeight: 700, letterSpacing: "-0.02em", lineHeight: 1.15, color: "#1e1833" }}>
