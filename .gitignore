@@ -1,0 +1,38 @@
+# Secrets
+.env
+.env.local
+*.env.local
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Node / frontend build output
+node_modules/
+web/dist/
+web/tsconfig.tsbuildinfo
+agent/static/assets/
+agent/static/index.html
+
+# Runtime data (databases, uploads, rendered deliverables, local settings)
+agent/data/memory.db
+agent/data/memory.db-shm
+agent/data/memory.db-wal
+agent/data/settings.json
+agent/data/uploads/*
+!agent/data/uploads/.gitkeep
+agent/data/briefs/*
+!agent/data/briefs/.gitkeep
+agent/data/rendered/*
+!agent/data/rendered/.gitkeep
+
+# Local scratch / logs
+backend.out.log
+backend.err.log
+*.log
+
+# OS
+Thumbs.db
+.DS_Store
