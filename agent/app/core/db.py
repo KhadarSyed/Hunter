@@ -1167,6 +1167,16 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
         "UPDATE intel_projects SET brand = NULLIF(TRIM(json_extract(spec_json, '$.client')), '') WHERE brand IS NULL",
     ]),
     (5, "foreign-key indexes", [f"CREATE INDEX IF NOT EXISTS idx_{t}_{c} ON {t}({c})" for t, c in _FK_INDEXES]),
+    # Resolved brand/product logos (first lookup source; see domains/research/brandfetch.py).
+    (6, "brand logo cache", ["""
+        CREATE TABLE IF NOT EXISTS brand_logos (
+            brand_key  TEXT PRIMARY KEY,   -- normalised name (lower-case, single spaces)
+            brand_name TEXT NOT NULL,
+            logo_url   TEXT,               -- NULL = nothing found (retried after a while)
+            domain     TEXT,
+            source     TEXT NOT NULL,      -- brandfetch | google | none
+            fetched_at REAL NOT NULL
+        )"""]),
 ]
 
 

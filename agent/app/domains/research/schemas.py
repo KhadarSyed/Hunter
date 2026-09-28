@@ -69,3 +69,6 @@ class ResearchApprovalResult(ApiModel):
 class BrandLogoResponse(ApiModel):
     brand_name: str
     logo_url: str | None = None
+    source: str | None = None  # brandfetch | google | none
+    domain: str | None = None
+    cached: bool = False  # True = served from the brand_logos table
