@@ -131,3 +131,26 @@ def get_news_approvals(research_id: int) -> dict[int, dict]:
     ).fetchall()
     conn.close()
     return {row["item_index"]: dict(row) for row in rows}
+
+
+# ─── Brand logos ─────────────────────────────────────────────────────────────
+
+def get_brand_logo(brand_key: str) -> Optional[dict]:
+    conn = _conn()
+    row = conn.execute("SELECT * FROM brand_logos WHERE brand_key = ?", (brand_key,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def save_brand_logo(brand_key: str, brand_name: str, logo_url: str | None,
+                    domain: str | None, source: str) -> None:
+    conn = _conn()
+    conn.execute(
+        "INSERT INTO brand_logos (brand_key, brand_name, logo_url, domain, source, fetched_at) "
+        "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(brand_key) DO UPDATE SET brand_name = excluded.brand_name, "
+        "logo_url = excluded.logo_url, domain = excluded.domain, source = excluded.source, "
+        "fetched_at = excluded.fetched_at",
+        (brand_key, brand_name, logo_url, domain, source, time.time()),
+    )
+    conn.commit()
+    conn.close()

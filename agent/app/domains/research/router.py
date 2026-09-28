@@ -263,5 +263,5 @@ def approve_news_item(research_id: Annotated[int, Path(ge=1)], req: NewsApproval
 
 @router.get("/brandfetch/logo", response_model=BrandLogoResponse)
 def get_brand_logo_route(brand_name: str):
-    logo_url = brandfetch_client.get_brand_logo_url(brand_name)
-    return {"brand_name": brand_name, "logo_url": logo_url}
+    """Logo for a brand/product: saved brand_logos table first, then Brandfetch, then Google."""
+    return brandfetch_client.resolve_logo(brand_name)
