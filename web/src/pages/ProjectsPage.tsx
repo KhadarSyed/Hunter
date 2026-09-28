@@ -192,7 +192,7 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
   }, [projects, query]);
 
   const select = (p: ProjectSummary, page: string) => {
-    setActiveProject({ id: p.id, name: p.project_name, project_type: (p.project_type as ProjectType) || projectType });
+    setActiveProject({ id: p.id, name: p.project_name, project_type: (p.project_type as ProjectType) || projectType, brand: p.brand });
     onNavigate(page);
   };
   const confirmDelete = async () => {

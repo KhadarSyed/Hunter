@@ -327,7 +327,7 @@ export const intelApi = {
   listProjects: (type?: string) => get<ProjectSummary[]>(type ? `/projects?type=${type}` : "/projects"),
 
   createProject: (name: string, spec: Record<string, unknown> = {}, project_type: string = "research", brand?: string) =>
-    post<{ id: number; project_name: string; project_type: string; spec: Record<string, unknown> }>("/projects", {
+    post<{ id: number; project_name: string; project_type: string; brand?: string | null; spec: Record<string, unknown> }>("/projects", {
       project_name: name,
       spec,
       project_type,
@@ -335,10 +335,10 @@ export const intelApi = {
     }),
 
   getProject: (projectId: number) =>
-    get<{ id: number; project_name: string; project_type: string; spec: Record<string, unknown> }>(`/projects/${projectId}`),
+    get<{ id: number; project_name: string; project_type: string; brand?: string | null; spec: Record<string, unknown> }>(`/projects/${projectId}`),
 
   updateProject: (id: number, body: { project_name?: string; spec?: Record<string, unknown>; brand?: string }) =>
-    put<{ id: number; project_name: string; project_type: string; spec: Record<string, unknown> }>(`/projects/${id}`, body),
+    put<{ id: number; project_name: string; project_type: string; brand?: string | null; spec: Record<string, unknown> }>(`/projects/${id}`, body),
 
   /** Deletes the project and all of its pipeline data (irreversible). */
   deleteProject: (id: number) =>

@@ -6,6 +6,7 @@ interface RecentProject {
   id: number;
   project_name: string;
   project_type: string;
+  brand?: string | null;
   updated_at: number;
 }
 
@@ -39,6 +40,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
       id: proj.id,
       name: proj.project_name,
       project_type: pType,
+      brand: proj.brand,
     });
     onNavigate(pType === "monitoring_qc" ? "qc-upload" : "dashboard");
   };

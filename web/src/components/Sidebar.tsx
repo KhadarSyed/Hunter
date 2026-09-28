@@ -3,6 +3,7 @@ import type { Page } from "../App";
 import { useProject } from "../context/project-context";
 import { intelApi } from "../services/intel-api";
 import { PencilIcon } from "./icons";
+import { BrandLogo } from "./BrandLogo";
 import { SettingsPanel } from "./SettingsPanel";
 
 interface NavItem {
@@ -132,12 +133,16 @@ export function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavi
       {activeProject && (
         <div className="relative px-4 py-2.5 border-b border-slate-100">
           <div className="flex items-center gap-2">
-            <div
-              className="w-5 h-5 rounded flex items-center justify-center text-white text-[10px] font-bold shrink-0"
-              style={{ backgroundColor: accentColor }}
-            >
-              {isQC ? "Q" : "R"}
-            </div>
+            {activeProject.brand ? (
+              <BrandLogo brandName={activeProject.brand} size={20} rounded="lg" className="bg-white ring-1 ring-slate-200" />
+            ) : (
+              <div
+                className="w-5 h-5 rounded flex items-center justify-center text-white text-[10px] font-bold shrink-0"
+                style={{ backgroundColor: accentColor }}
+              >
+                {isQC ? "Q" : "R"}
+              </div>
+            )}
             <span className="text-xs font-medium text-slate-700 truncate">{activeProject.name}</span>
             <button
               onClick={openEditPopover}

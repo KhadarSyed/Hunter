@@ -151,7 +151,7 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
       ? await intelApi.updateProject(targetId, { project_name: projectName.trim(), spec: { ...existingSpec, ...spec }, brand })
       : await intelApi.createProject(projectName.trim(), spec, projectType, brand || undefined);
     if (targetId === null) setSavedProjectId(result.id);
-    setActiveProject({ id: result.id, name: result.project_name, project_type: (result.project_type as ProjectType) || projectType });
+    setActiveProject({ id: result.id, name: result.project_name, project_type: (result.project_type as ProjectType) || projectType, brand: result.brand ?? (brand || null) });
     return result;
   };
 

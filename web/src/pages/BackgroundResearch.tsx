@@ -358,7 +358,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
         }
 
         const result = await intelApi.startResearch(spec, projectId);
-        setActiveProject({ id: result.project_id, name: activeProject?.name ?? "Research Project", project_type: activeProject?.project_type ?? "research" });
+        setActiveProject({ id: result.project_id, name: activeProject?.name ?? "Research Project", project_type: activeProject?.project_type ?? "research", brand: activeProject?.brand });
 
         // Hand off to useJobStatus: the effect watching `researchStatus` /
         // `researchPollError` drives the rest of the flow (progress updates,
