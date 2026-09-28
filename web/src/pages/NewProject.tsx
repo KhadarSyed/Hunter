@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useProject, type ProjectType } from "../lib/project-context";
-import { intelApi } from "../lib/intel-api";
+import { useProject, type ProjectType } from "../context/project-context";
+import { intelApi } from "../services/intel-api";
 
 const DRAFT_KEY = "infovision-project-draft";
 

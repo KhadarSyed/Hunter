@@ -7,30 +7,30 @@ at http://localhost:8000 is all you need — bookmarkable, no Vite required.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import threading
-import time
 import uuid
 from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import memory
-from . import intelligence_store
-from .config import Settings, load_settings, save_settings, ensure_dirs
-from .llm_provider import build_llm_client
-from .ollama_client import OllamaClient
-from .pipeline import run_pipeline, run_template_pipeline
-from .watcher import BriefWatcher
-from .intelligence_api import router as intel_router, set_broadcast as intel_set_broadcast
+from .core import store as intelligence_store
+from .core.config import AGENT_DIR, Settings, ensure_dirs, load_settings, save_settings
+from .core.events import set_broadcast as intel_set_broadcast
+from .core.llm_provider import build_llm_client
+from .core.ollama_client import OllamaClient
+from .deck import memory
+from .deck.pipeline import run_pipeline, run_template_pipeline
+from .deck.watcher import BriefWatcher
+from .domains import router as intel_router
 
 app = FastAPI(title="Hunter Brief-to-Deck Agent")
 app.add_middleware(
@@ -41,7 +41,7 @@ app.add_middleware(
 )
 app.include_router(intel_router)
 
-STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+STATIC_DIR = AGENT_DIR / "static"
 
 _run_lock = threading.Lock()
 _run_busy = False

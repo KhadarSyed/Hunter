@@ -1,5 +1,5 @@
 import { DEMO_WORKFLOW_STAGES } from "../data/demo";
-import { useProject } from "../lib/project-context";
+import { useProject } from "../context/project-context";
 
 function StageCard({ stage, index, onClick }: { stage: typeof DEMO_WORKFLOW_STAGES[0]; index: number; onClick?: () => void }) {
   const isCompleted = stage.status === "completed";

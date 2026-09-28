@@ -9,16 +9,15 @@ Two products live in one app:
 1. **Brief-to-Deck agent** (the original tool, see `README.md`) — watches a folder for client
    briefs, retrieves matching slides from an indexed historical deck library, drafts missing
    content, and assembles a branded PowerPoint via Windows COM automation.
-   Entry points: `pipeline.py`, `deck_builder.py`, `deck_index.py`, `retrieval.py`,
+   Lives in `agent/app/deck/`: `pipeline.py`, `deck_builder.py`, `deck_index.py`, `retrieval.py`,
    `slide_copy_com.py`, `chart_builders.py`, `watcher.py`, `memory.py` → `agent/data/memory.db`.
 2. **Hunter Intelligence Platform** (the actively developed product, see
    `docs/CURRENT_STATUS.md` and `handover/HANDOVER.md`) — a 15-stage research pipeline (brief →
    scope → background research → search strategy → data sources → research execution → evidence
    library → insights → storyline → slide intelligence → presentation composer → PPTX/Word
    renderers → publishing gateway) plus a separate **QC flow** for cleaning Meltwater/Empower
-   Excel exports. Entry points: `intelligence_api.py` (~3,400 lines, all `/api/intel/*` routes),
-   `intelligence_store.py` (~6,100 lines, SQLite layer, 58+ tables in `agent/data/intelligence.db`),
-   and one service module per stage (see Architecture below).
+   Excel exports. Lives in `agent/app/domains/<stage>/` (one folder per stage, see Backend layout
+   below); `domains/__init__.py` mounts every stage router under `/api/intel`.
 
 Both are mounted on the same FastAPI app (`agent/app/main.py`) and the same React SPA. When
 orienting in this codebase, first figure out which of the two systems a file belongs to — they
@@ -59,6 +58,26 @@ cd web && npx tsc --noEmit
 
 ## Architecture
 
+### Backend layout (FastAPI, Django-style feature folders)
+
+```
+agent/app/
+  main.py              FastAPI app: mounts domains router, /ws, Brief-to-Deck REST, serves SPA
+  core/                shared infra — config.py (DATA_DIR/UPLOAD_DIR/EXPORT_DIR), db.py (_conn,
+                       schema bootstrap), events.py (WebSocket broadcast), store.py (facade that
+                       re-exports every domain repository), LLM clients (llm_provider.py & co.)
+  domains/<stage>/     router.py (APIRouter, bare sub-paths) · schemas.py (Pydantic) ·
+                       repository.py (SQLite) · service modules (service.py, renderer.py, …)
+  deck/                Brief-to-Deck product
+  agents/  methods/    LLM agents and pluggable deterministic analysis methods
+```
+
+Rules: services call persistence through `from ...core import store` (add new SQL functions to
+the owning `domains/<stage>/repository.py`, never to `store.py`); build file paths from
+`core.config` constants, never from `Path(__file__)`; services never import a `router.py`.
+Frontend (`web/src/`): `pages/` · `components/` · `context/` (React providers) · `hooks/` ·
+`services/` (REST + WebSocket clients) · `types/` · `data/` (demo fixtures).
+
 - **Backend:** Python FastAPI (`agent/app/main.py`), single process, single-threaded pipeline
   execution (`_run_lock` in `main.py` — only one Brief-to-Deck run at a time by design, since
   PowerPoint COM automation and the local LLM are both single-consumer on this machine).
@@ -66,16 +85,17 @@ cd web && npx tsc --noEmit
   holds a `useState<Page>` and switches on it; there is no deep linking or browser back/forward.
   ~27 page components in `web/src/pages/`, one per pipeline stage or QC step.
 - **Database:** despite the docs (`handover/HANDOVER.md`, `docs/CURRENT_STATUS.md`) describing
-  two separate SQLite files, `memory.py` and `intelligence_store.py` both actually connect to the
+  two separate SQLite files, `deck/memory.py` and `core/db.py` both actually connect to the
   same `config.MEMORY_DB_PATH` (`agent/data/memory.db`) — verify with
-  `grep sqlite3.connect agent/app/memory.py agent/app/intelligence_store.py` before trusting the
+  `grep sqlite3.connect agent/app/deck/memory.py agent/app/core/db.py` before trusting the
   "separate `intelligence.db`" claim in older docs. Both Brief-to-Deck tables (runs/events/chat/
   slide_index) and every Intelligence Platform table (projects/specs/strategies/jobs/evidence/
   insights/storylines/renders/QC, 58+ tables) live in this one file.
-- **LLM chain:** `agent/app/llm_provider.py::build_llm_client(settings)` is the single factory
-  used everywhere a chat/embedding client is needed (`get_llm_client()` in `anthropic_client.py`,
-  and the former direct `OllamaClient(...)` construction sites in `pipeline.py`, `main.py`,
-  `planner_service.py`, `llm_synthesis.py`). It returns a `HybridLLMClient` that routes:
+- **LLM chain:** `agent/app/core/llm_provider.py::build_llm_client(settings)` is the single factory
+  used everywhere a chat/embedding client is needed (`get_llm_client()` in `core/anthropic_client.py`,
+  and the former direct `OllamaClient(...)` construction sites in `deck/pipeline.py`, `main.py`,
+  `domains/plan/service.py`, `core/llm_synthesis.py`). All clients live in `core/`. It returns a
+  `HybridLLMClient` that routes:
   - **Chat:** Azure OpenAI (`azure_openai_client.py`, `AZURE_OPENAI_*` env vars) → Anthropic
     (`anthropic_client.py`, `ANTHROPIC_API_KEY`) → local Ollama (`ollama_client.py`, `qwen2.5:3b`).
   - **Embeddings:** NVIDIA NIM (`nvidia_embed_client.py`, `NVIDIA_EMBED_*` env vars) → local
@@ -92,42 +112,48 @@ cd web && npx tsc --noEmit
 
 ### Intelligence Platform stage → module map
 
-Each stage is a backend service module + one or more frontend pages. Consult
+Each stage is a `domains/<stage>/` folder + one or more frontend pages (paths below are relative
+to `agent/app/domains/` unless they start with `agents/` or `methods/`). Consult
 `docs/CURRENT_STATUS.md` for exhaustive per-stage detail (DB tables, endpoint counts, test
 counts) before assuming a stage is unbuilt — most of the pipeline is fully implemented and tested,
 not scaffolding.
 
 | Stage | Backend | Frontend |
 |---|---|---|
-| Brief & Scope | `brief_parser.py`, `agents/brief_scope.py`, `research_spec_service.py` | `NewProject.tsx`, `BriefScopeReview.tsx` |
-| Background Research | `background_brief_service.py`, `web_research_adapter.py`, `agents/brand_intelligence.py` | `BackgroundResearch.tsx` |
-| Search Strategy | `agents/meltwater_query_builder.py`, `_build_deterministic_strategy()` in `intelligence_api.py` | `SearchStrategy.tsx` |
-| Query Evaluation | `agents/query_evaluator.py` | `QueryEvaluation.tsx` |
-| Research Plan / Execution | `planner_service.py`, `executor_service.py`, `methods/` (12 pluggable deterministic analysis methods, decorator-registered) | `ResearchPlan.tsx`, `ResearchExecution.tsx` |
-| Evidence Library | `evidence_library.py` | `EvidenceLibrary.tsx` |
-| Analysis & Insights | `insight_generator.py`, `sov_analyzer.py`, `theme_classifier.py` | `AnalysisPage.tsx`, `InsightsPage.tsx` |
-| Storyline | `storyline_builder.py` | `StorylinePage.tsx` |
-| Slide Intelligence | `slide_extractor.py`, `slide_retrieval.py`, `slide_intelligence.py` | `SlideIntelligencePage.tsx` |
-| Presentation Composer | `presentation_composer.py` | `PresentationComposerPage.tsx` |
-| PPTX / Word Renderers | `pptx_renderer.py`, `word_renderer.py` | `PowerPointRendererPage.tsx`, `WordRendererPage.tsx` |
-| Publishing Gateway | `publishing_gateway.py` | `PublishingGatewayPage.tsx` |
-| Pipeline Orchestrator (cross-stage) | `pipeline_orchestrator.py` — dependency graph, topological sort, caching, 5 execution modes | `PipelineOrchestratorPage.tsx` |
-| QC flow (separate from the pipeline) | `qc_parser.py`, `qc_service.py`, `qc_export.py` | `QCUpload.tsx` → `QCFieldMapping.tsx` → `QCResults.tsx` → `QCExport.tsx` |
+| Projects & jobs | `projects/` | `LandingPage.tsx`, `Dashboard.tsx` |
+| Brief & Scope | `brief/parser.py`, `agents/brief_scope.py`, `spec/service.py`, `spec/renderer.py` | `NewProject.tsx`, `BriefScopeReview.tsx` |
+| Background Research | `research/service.py`, `research/web_research.py`, `research/news_search.py`, `agents/brand_intelligence.py` | `BackgroundResearch.tsx` |
+| Search Strategy + dataset evaluation | `strategy/router.py` (`_build_deterministic_strategy()`), `agents/meltwater_query_builder.py`, `agents/query_evaluator.py` | `SearchStrategy.tsx`, `QueryEvaluation.tsx` |
+| Research Plan / Execution | `plan/service.py`, `execution/service.py`, `methods/` (12 pluggable deterministic analysis methods, decorator-registered) | `ResearchPlan.tsx`, `ResearchExecution.tsx` |
+| Evidence Library | `library/service.py` | `EvidenceLibrary.tsx` |
+| Analysis & Insights | `insights/service.py`, `insights/sov_analyzer.py`, `insights/theme_classifier.py` | `AnalysisPage.tsx`, `InsightsPage.tsx` |
+| Storyline | `storyline/service.py` | `StorylinePage.tsx` |
+| Slide Intelligence | `slides/extractor.py`, `slides/retrieval.py`, `slides/service.py` | `SlideIntelligencePage.tsx` |
+| Presentation Composer | `composer/service.py` | `PresentationComposerPage.tsx` |
+| PPTX / Word Renderers | `rendering/pptx.py`, `rendering/word.py` | `PowerPointRendererPage.tsx`, `WordRendererPage.tsx` |
+| Publishing Gateway | `publishing/service.py` | `PublishingGatewayPage.tsx` |
+| Pipeline Orchestrator (cross-stage) | `pipeline/service.py` — dependency graph, topological sort, caching, 5 execution modes | `PipelineOrchestratorPage.tsx` |
+| QC flow (separate from the pipeline) | `qc/parser.py`, `qc/service.py`, `qc/export.py`, `qc/source_retrieval.py` | `QCUpload.tsx` → `QCFieldMapping.tsx` → `QCResults.tsx` → `QCExport.tsx` |
+
+Note: 11 pages (`ResearchPlan`, `EvidenceLibrary`, `InsightsPage`, `StorylinePage`,
+`SlideIntelligencePage`, `PresentationComposerPage`, `PowerPointRendererPage`, `WordRendererPage`,
+`PublishingGatewayPage`, `PipelineOrchestratorPage`, `QueryEvaluation`) and 4 components
+(`LiveFeed`, `RunStatus`, `SettingsPanel`, `TopHeader`) exist but are not rendered from `App.tsx`.
 
 ## Critical Patterns
 
-- **LLM fallback chain:** implemented via `_get_llm()` in `background_brief_service.py` and
-  `get_llm_client()` in `intelligence_api.py`. `_compose_with_llm()` returns `(sections, bool)` —
+- **LLM fallback chain:** implemented via `_get_llm()` in `domains/research/service.py` and
+  `get_llm_client()` (`core/anthropic_client.py`, used by the research/strategy/spec routers). `_compose_with_llm()` returns `(sections, bool)` —
   the bool tracks whether the LLM *actually* produced the content (vs. an exception being caught
   and rule-based fallback silently substituted). This drives the `enrichment_status` field
   (`"llm_synthesized"` vs `"web_only"` vs `"rule_based"`) — never infer LLM success from whether a
   client object is truthy.
 - **Competitor extraction stays in sync across three files.** Natural-language brief text is
-  parsed with multiple regex patterns duplicated in `intelligence_api.py`
-  (`_extract_competitors_from_text`), `background_brief_service.py` (`_extract_competitors`), and
-  `web_research_adapter.py` (`_extract_competitors`). Changing one without the other two
+  parsed with multiple regex patterns duplicated in `domains/strategy/router.py`
+  (`_extract_competitors_from_text`), `domains/research/service.py` (`_extract_competitors`), and
+  `domains/research/web_research.py` (`_extract_competitors`). Changing one without the other two
   reintroduces the bug this was built to fix.
-- **Strategy generation always resolves to deterministic.** In `intelligence_api.py`, four
+- **Strategy generation always resolves to deterministic.** In `domains/strategy/router.py`, four
   failure paths (no LLM reachable, LLM timeout, LLM exception, empty LLM result) all funnel into
   `_build_deterministic_strategy(spec, raw_brief_text)` rather than returning an error — a failed
   LLM call must never surface as "generation failed" in the UI.
@@ -146,7 +172,7 @@ not scaffolding.
   or deterministic. Check `.env`'s `ANTHROPIC_API_KEY` before assuming Claude synthesis is live.
 - **JBL vs Jabil entity confusion** — research results can include Jabil Inc. (ticker "JBL") or the
   WWE commentator "JBL" instead of the intended speaker/brand; entity disambiguation in
-  `web_research_adapter.py` is incomplete.
+  `domains/research/web_research.py` is incomplete.
 - **No URL routing** in the frontend — state-based page switching only, no deep linking or
   browser back/forward.
 - **Slide Intelligence classification is keyword-based**, not LLM-based — nuanced slide purposes

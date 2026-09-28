@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { intelApi } from "../lib/intel-api";
-import { useActiveProjectId } from "../lib/project-context";
+import { intelApi } from "../services/intel-api";
+import { useActiveProjectId } from "../context/project-context";
 import type {
   PCPresentation,
   WordRenderResult,
@@ -10,7 +10,7 @@ import type {
   WordRenderHistory,
   WordValidation,
   RenderTheme,
-} from "../data/contracts";
+} from "../types/contracts";
 
 interface Props {
   onNavigate: (page: string) => void;

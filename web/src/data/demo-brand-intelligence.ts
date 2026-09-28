@@ -3,7 +3,7 @@ import type {
   NewsContextRecord,
   SearchImplication,
   SourceRecord,
-} from "./contracts";
+} from "../types/contracts";
 
 export const DEMO_BRAND_INTELLIGENCE: BrandIntelligenceOutput = {
   brand_overview: {

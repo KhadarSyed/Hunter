@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useDemoState } from "../lib/demo-state";
-import { useProject } from "../lib/project-context";
+import { useDemoState } from "../context/demo-state";
+import { useProject } from "../context/project-context";
 
 function Card({ title, children, className = "" }: { title: string; children: React.ReactNode; className?: string }) {
   return (

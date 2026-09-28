@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { useActiveProjectId } from "../lib/project-context";
-import { intelApi } from "../lib/intel-api";
+import { useActiveProjectId } from "../context/project-context";
+import { intelApi } from "../services/intel-api";
 
 const SEV = {
   critical: { bg: "#FEF2F2", border: "#FECACA", text: "#991B1B", dot: "#DC2626", label: "Critical" },

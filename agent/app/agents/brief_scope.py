@@ -19,7 +19,7 @@ import re
 import time
 from typing import Any, Callable, Optional
 
-from ..ollama_client import OllamaClient
+from ..core.ollama_client import OllamaClient
 
 EventFn = Callable[[str, dict], None]
 
@@ -68,10 +68,14 @@ You do NOT research. You only interpret what the client is asking.
 ━━━ ENTITY VALIDATION ━━━
 
 For every named entity, provide:
-- type: one of brand, competitor, audience, category, topic, campaign, product, executive, geography
+- type: one of brand, competitor, audience, category, topic, campaign, product, executive, geography, event
 - confidence: high / medium / low
 - alternatives_considered: other possible interpretations (REQUIRED)
 - reasoning: why your interpretation is correct and others are wrong
+
+For entities typed "product", you may optionally add a "group" field (e.g. "flagship",
+"new_launch", "discontinued") to indicate the product's role in the lineup. Omit it when the
+brief gives no basis for a product grouping — it is optional, not required.
 
 Example:
 Brief says "Conduct analysis for Mrs. T's with focus on Mom's"
@@ -108,10 +112,11 @@ Return ONLY a JSON object with these exact keys:
   "validated_entities": [
     {
       "name": "exact name from brief",
-      "type": "brand|competitor|audience|category|topic|campaign|product|executive|geography",
+      "type": "brand|competitor|audience|category|topic|campaign|product|executive|geography|event",
       "confidence": "high|medium|low",
       "alternatives_considered": ["other interpretations considered"],
-      "reasoning": "why this interpretation is correct"
+      "reasoning": "why this interpretation is correct",
+      "group": "optional — product entities only: flagship|new_launch|discontinued, etc."
     }
   ],
   "research_questions": [
@@ -204,7 +209,7 @@ Return ONLY a JSON object with these exact keys:
 
 ENTITY_TYPES = frozenset({
     "brand", "competitor", "audience", "category", "topic",
-    "campaign", "product", "executive", "geography",
+    "campaign", "product", "executive", "geography", "event",
 })
 
 CONFIDENCE_LEVELS = frozenset({"high", "medium", "low"})

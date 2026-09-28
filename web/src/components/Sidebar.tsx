@@ -1,23 +1,40 @@
+import { Fragment, useState } from "react";
 import type { Page } from "../App";
-import { useProject } from "../lib/project-context";
+import { useProject } from "../context/project-context";
+import { intelApi } from "../services/intel-api";
+import { PencilIcon } from "./icons";
+import { SettingsPanel } from "./SettingsPanel";
 
 interface NavItem {
   page: Page | null;
   label: string;
   icon: string;
   comingSoon?: boolean;
+  /** Group heading rendered above this item. */
+  section?: string;
 }
 
 const RESEARCH_NAV: NavItem[] = [
   { page: "dashboard", label: "Dashboard", icon: "grid" },
   { page: "new-project", label: "Projects", icon: "folder" },
-  { page: "brief-scope-review", label: "Brief & Scope", icon: "file-text" },
+  { page: "brief-scope-review", label: "Brief & Scope", icon: "file-text", section: "Scope" },
   { page: "background-research", label: "Background Research", icon: "globe" },
-  { page: "search-strategy", label: "Search Strategy", icon: "search" },
+  { page: "search-strategy", label: "Search Strategy", icon: "search", section: "Research" },
+  { page: "query-evaluation", label: "Query Evaluation", icon: "check-circle" },
   { page: "data-sources", label: "Data Sources", icon: "database" },
+  { page: "research-plan", label: "Research Plan", icon: "columns" },
   { page: "research-execution", label: "Research Execution", icon: "play" },
-  { page: "analysis", label: "Analysis", icon: "lightbulb" },
+  { page: "evidence-library", label: "Evidence Library", icon: "database" },
+  { page: "analysis", label: "Analysis", icon: "lightbulb", section: "Analysis" },
+  { page: "insights", label: "Insights", icon: "lightbulb" },
+  { page: "storyline", label: "Storyline", icon: "file-text" },
+  { page: "slide-intelligence", label: "Slide Intelligence", icon: "grid", section: "Deliver" },
+  { page: "presentation-composer", label: "Presentation Composer", icon: "columns" },
+  { page: "powerpoint-renderer", label: "PowerPoint Renderer", icon: "file-text" },
+  { page: "word-renderer", label: "Word Renderer", icon: "file-text" },
+  { page: "publishing-gateway", label: "Publishing Gateway", icon: "upload" },
   { page: "deliverables", label: "Deliverables", icon: "download" },
+  { page: "pipeline-orchestrator", label: "Pipeline Orchestrator", icon: "settings", section: "Operations" },
 ];
 
 const QC_NAV: NavItem[] = [
@@ -52,12 +69,42 @@ function NavIcon({ name, size = 16 }: { name: string; size?: number }) {
 }
 
 export function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavigate: (page: string) => void }) {
-  const { activeProject } = useProject();
+  const { activeProject, setActiveProject } = useProject();
   const isQCPage = QC_PAGES.has(currentPage);
   const isQC = isQCPage || activeProject?.project_type === "monitoring_qc";
   const navItems = isQC ? QC_NAV : RESEARCH_NAV;
 
   const accentColor = isQC ? "#0F7B6C" : "#5B2C9D";
+
+  const [showSettings, setShowSettings] = useState(false);
+  const [editingProject, setEditingProject] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [savingName, setSavingName] = useState(false);
+  const [editNameError, setEditNameError] = useState("");
+
+  const openEditPopover = () => {
+    if (!activeProject) return;
+    setEditName(activeProject.name);
+    setEditNameError("");
+    setEditingProject(true);
+  };
+
+  const closeEditPopover = () => setEditingProject(false);
+
+  const handleSaveName = async () => {
+    if (!activeProject || !editName.trim()) return;
+    setSavingName(true);
+    setEditNameError("");
+    try {
+      const updated = await intelApi.updateProject(activeProject.id, { project_name: editName.trim() });
+      setActiveProject({ ...activeProject, name: updated.project_name });
+      setEditingProject(false);
+    } catch (err) {
+      setEditNameError(err instanceof Error ? err.message : "Failed to save project name");
+    } finally {
+      setSavingName(false);
+    }
+  };
 
   return (
     <aside className="w-56 border-r border-slate-200 bg-white flex flex-col shrink-0">
@@ -83,7 +130,7 @@ export function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavi
       </div>
 
       {activeProject && (
-        <div className="px-4 py-2.5 border-b border-slate-100">
+        <div className="relative px-4 py-2.5 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <div
               className="w-5 h-5 rounded flex items-center justify-center text-white text-[10px] font-bold shrink-0"
@@ -92,7 +139,65 @@ export function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavi
               {isQC ? "Q" : "R"}
             </div>
             <span className="text-xs font-medium text-slate-700 truncate">{activeProject.name}</span>
+            <button
+              onClick={openEditPopover}
+              className="ml-auto shrink-0 w-5 h-5 flex items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+              title="Edit project"
+            >
+              <PencilIcon size={12} />
+            </button>
           </div>
+
+          {editingProject && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={closeEditPopover} />
+              <div className="absolute left-4 top-full mt-1 w-64 bg-white border border-slate-200 rounded-lg shadow-lg z-50 p-3">
+                <label className="block text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-1">
+                  Project name
+                </label>
+                <input
+                  autoFocus
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSaveName();
+                    if (e.key === "Escape") closeEditPopover();
+                  }}
+                  className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded-md focus:outline-none focus:ring-1"
+                  style={{ ["--tw-ring-color" as string]: accentColor }}
+                />
+                {editNameError && (
+                  <div className="text-[11px] text-red-600 mt-1">{editNameError}</div>
+                )}
+                <div className="flex items-center justify-between mt-2.5">
+                  <button
+                    onClick={() => onNavigate("brief-scope-review")}
+                    className="text-[11px] font-medium hover:underline"
+                    style={{ color: accentColor }}
+                  >
+                    Edit spec &rarr;
+                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={closeEditPopover}
+                      className="text-[11px] px-2 py-1 rounded-md text-slate-500 hover:bg-slate-100"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSaveName}
+                      disabled={savingName || !editName.trim()}
+                      className="text-[11px] px-2.5 py-1 rounded-md text-white font-medium disabled:opacity-50"
+                      style={{ backgroundColor: accentColor }}
+                    >
+                      {savingName ? "Saving..." : "Save"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -130,8 +235,13 @@ export function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavi
           }
 
           return (
+            <Fragment key={item.label}>
+            {item.section && (
+              <div className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                {item.section}
+              </div>
+            )}
             <button
-              key={item.label}
               onClick={() => item.page && onNavigate(item.page)}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-colors ${
                 isActive
@@ -146,16 +256,21 @@ export function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavi
               <NavIcon name={item.icon} size={15} />
               <span className="text-[13px]">{item.label}</span>
             </button>
+            </Fragment>
           );
         })}
       </nav>
 
       <div className="p-3 border-t border-slate-100">
-        <button className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors">
+        <button
+          onClick={() => setShowSettings(true)}
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors"
+        >
           <NavIcon name="settings" size={15} />
           <span className="text-[13px]">Settings</span>
         </button>
       </div>
+      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
     </aside>
   );
 }

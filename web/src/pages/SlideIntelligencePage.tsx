@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
-import { intelApi } from "../lib/intel-api";
+import { intelApi } from "../services/intel-api";
 import type {
   SIDashboard,
   SISlide,
   SIPresentation,
   SITemplateFamily,
   SIDetectedProject,
-} from "../data/contracts";
+} from "../types/contracts";
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 

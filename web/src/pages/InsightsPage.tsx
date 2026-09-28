@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
-import { intelApi } from "../lib/intel-api";
-import type { Insight, InsightDetail, InsightsSummary } from "../data/contracts";
-import { useActiveProjectId } from "../lib/project-context";
+import { intelApi } from "../services/intel-api";
+import type { Insight, InsightDetail, InsightsSummary } from "../types/contracts";
+import { useActiveProjectId } from "../context/project-context";
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 

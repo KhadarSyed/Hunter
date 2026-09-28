@@ -13,8 +13,7 @@ __pycache__/
 node_modules/
 web/dist/
 web/tsconfig.tsbuildinfo
-agent/static/assets/
-agent/static/index.html
+agent/static/
 
 # Runtime data (databases, uploads, rendered deliverables, local settings)
 agent/data/memory.db
@@ -27,11 +26,14 @@ agent/data/briefs/*
 !agent/data/briefs/.gitkeep
 agent/data/rendered/*
 !agent/data/rendered/.gitkeep
+agent/data/exports/
+agent/data/specifications/
 
 # Local scratch / logs
 backend.out.log
 backend.err.log
 *.log
+.playwright-mcp/
 
 # OS
 Thumbs.db

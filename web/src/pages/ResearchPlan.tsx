@@ -1,14 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
-import { useDemoState } from "../lib/demo-state";
-import { intelApi, type PlanResult, type JobStatus } from "../lib/intel-api";
-import { useActiveProjectId } from "../lib/project-context";
+import { useDemoState } from "../context/demo-state";
+import { intelApi, type PlanResult, type JobStatus } from "../services/intel-api";
+import { useActiveProjectId } from "../context/project-context";
 import type {
   ResearchPlanData,
   PlanObjective,
   ExecutionUnit,
   PlanValidation,
   AnalysisMethodSummary,
-} from "../data/contracts";
+} from "../types/contracts";
 
 function Badge({ label, variant }: { label: string; variant: "high" | "medium" | "low" | "clean" | "warnings" | "blocked" | "pending" | "approved" | "rejected" | "draft" | string }) {
   const colors: Record<string, string> = {

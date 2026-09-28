@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { useActiveProjectId } from "../lib/project-context";
-import { intelApi } from "../lib/intel-api";
+import { useActiveProjectId } from "../context/project-context";
+import { intelApi } from "../services/intel-api";
 
 interface QCReport {
   id: number;
