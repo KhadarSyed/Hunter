@@ -3,7 +3,7 @@ import { Icon } from "@iconify/react";
 import { BrandLogo } from "../components/BrandLogo";
 import { CountryFlag } from "../components/CountryFlag";
 import { useProject, type ProjectType } from "../context/project-context";
-import { intelApi, type ProjectSummary } from "../services/intel-api";
+import { intelApi, type BriefSource, type ProjectSummary } from "../services/intel-api";
 
 interface Props {
   onNavigate: (page: string) => void;
@@ -25,6 +25,34 @@ function gradientFor(brand: string): string {
   let h = 0;
   for (const ch of brand.toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return BRAND_GRADIENTS[h % BRAND_GRADIENTS.length];
+}
+
+// How the brief was provided: uploaded file type or pasted text.
+const BRIEF_SOURCES: Record<string, { label: string; icon: string }> = {
+  pdf: { label: "PDF", icon: "vscode-icons:file-type-pdf2" },
+  docx: { label: "Word", icon: "vscode-icons:file-type-word" },
+  doc: { label: "Word", icon: "vscode-icons:file-type-word" },
+  pptx: { label: "PowerPoint", icon: "vscode-icons:file-type-powerpoint" },
+  ppt: { label: "PowerPoint", icon: "vscode-icons:file-type-powerpoint" },
+  xlsx: { label: "Excel", icon: "vscode-icons:file-type-excel" },
+  xls: { label: "Excel", icon: "vscode-icons:file-type-excel" },
+  txt: { label: "TXT file", icon: "vscode-icons:file-type-text" },
+  text: { label: "Text", icon: "lucide:text-cursor-input" },
+};
+
+function BriefSourceChip({ source }: { source: BriefSource | null }) {
+  if (!source) return null;
+  const meta = BRIEF_SOURCES[source.type] ?? { label: source.type.toUpperCase(), icon: "lucide:file" };
+  const title = source.file_name ? `Brief uploaded as ${source.file_name}` : "Brief entered as text";
+  return (
+    <span
+      title={title}
+      className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-white/90 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-800 shadow-sm backdrop-blur"
+    >
+      <Icon icon={meta.icon} width={14} className={source.type === "text" ? "text-slate-500" : ""} aria-hidden />
+      {meta.label}
+    </span>
+  );
 }
 
 const DAY = 86_400;
@@ -52,6 +80,7 @@ function ProjectCard({ project, onOpen, onEdit, onDelete }: ProjectCardProps) {
       <button onClick={onOpen} className="relative h-48 w-full overflow-hidden text-left" aria-label={`Open ${project.project_name}`}>
         <div className={`absolute inset-0 bg-gradient-to-br ${brand ? gradientFor(brand) : NO_BRAND_GRADIENT}`} />
         <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(white_1px,transparent_1px)] [background-size:14px_14px]" />
+        <BriefSourceChip source={project.brief_source} />
         {brand && (
           <span className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white backdrop-blur">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />

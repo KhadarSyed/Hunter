@@ -31,6 +31,8 @@ def _card_fields(spec: dict) -> dict:
         "description": text,
         "geography": spec.get("geography") or scope.get("geography") or "",
         "client": spec.get("client") or "",
+        # {"type": "pdf"|"docx"|...|"text", "file_name": ...}; older projects: pasted text
+        "brief_source": spec.get("brief_source") or ({"type": "text"} if spec.get("raw_brief") else None),
     }
 
 
