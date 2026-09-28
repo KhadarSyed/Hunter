@@ -37,6 +37,47 @@ SECTION_TITLES = {
     "approval_status": "Approval Status",
 }
 
+# Fields the analyst sets on the New Project form. The brief_scope LLM only sees the
+# brief text, so it cannot know them and tends to answer "not specified".
+_FORM_FIELDS = ("raw_brief", "client", "geography", "research_type", "time_period")
+_SCOPE_FROM_FORM = {"geography": "geography", "time_period": "time_period"}  # included_scope key -> form key
+_UNSPECIFIED = ("", "not specified", "unspecified", "n/a", "none", "unknown", "tbd")
+# form key -> keywords identifying an LLM "missing information" item that the form answers
+_ANSWERED_BY_FORM = {
+    "geography": ("geograph", "country", "countries", "region", "market"),
+    "time_period": ("time period", "timeframe", "time frame", "date range", "period of analysis", "time range"),
+}
+
+
+def _is_unspecified(value) -> bool:
+    return not value or (isinstance(value, str) and value.strip().lower().rstrip(".") in _UNSPECIFIED)
+
+
+def _apply_form_context(llm_spec: dict, form_spec: dict) -> dict:
+    """Merge the analyst's form choices into an LLM-generated spec: form fields are kept,
+    and scope values the LLM left unspecified are filled from the form. Values the LLM
+    did extract from the brief win."""
+    merged = {**llm_spec, **{k: form_spec[k] for k in _FORM_FIELDS if form_spec.get(k)}}
+    scope = dict(merged.get("included_scope") or {})
+    for scope_key, form_key in _SCOPE_FROM_FORM.items():
+        if form_spec.get(form_key) and _is_unspecified(scope.get(scope_key)):
+            scope[scope_key] = form_spec[form_key]
+    merged["included_scope"] = scope
+    methodology = merged.get("methodology")
+    if form_spec.get("research_type") and (not isinstance(methodology, dict) or _is_unspecified(methodology.get("primary"))):
+        merged["methodology"] = {**(methodology if isinstance(methodology, dict) else {}),
+                                 "primary": form_spec["research_type"]}
+    # The LLM lists what the brief text lacks; drop items the form already answered so the
+    # analyst is not asked for geography / time period they just selected.
+    answered = [kws for form_key, kws in _ANSWERED_BY_FORM.items() if form_spec.get(form_key)]
+    missing = merged.get("missing_information")
+    if answered and isinstance(missing, list):
+        def still_missing(item) -> bool:
+            text = (item.get("item") or item.get("question") or "") if isinstance(item, dict) else str(item)
+            return not any(kw in text.lower() for kws in answered for kw in kws)
+        merged["missing_information"] = [i for i in missing if still_missing(i)]
+    return merged
+
 
 def generate_spec(
     project_id: int,
@@ -70,7 +111,7 @@ def generate_spec(
             max_retries=2,
         )
         if result.get("spec"):
-            project_spec = result["spec"]
+            project_spec = _apply_form_context(result["spec"], project_spec)
             store.update_project_spec(project_id, project_spec)
 
     sections = _build_sections(project_spec, raw_brief_text or project_spec.get("raw_brief", ""))
@@ -152,7 +193,7 @@ def regenerate_spec(
             brief_filename=project.get("project_name", ""),
         )
         if result.get("spec"):
-            project_spec = result["spec"]
+            project_spec = _apply_form_context(result["spec"], project_spec)
             store.update_project_spec(project_id, project_spec)
 
     sections = _build_sections(project_spec, raw_brief_text or project_spec.get("raw_brief", ""))
