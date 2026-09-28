@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useDemoState } from "../context/demo-state";
 import { useProject, useActiveProjectId } from "../context/project-context";
+import { BrandLogo } from "../components/BrandLogo";
 import { intelApi } from "../services/intel-api";
 
 interface StageInfo {
@@ -200,10 +201,16 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
           <div className="relative px-8 py-7 flex items-center gap-8">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-3 mb-1">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm"
-                  style={{ background: "linear-gradient(135deg, #5B2C9D, #7C4DFF)" }}>
-                  {projectName.charAt(0)}
-                </div>
+                {activeProject?.brand ? (
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-white shadow-sm ring-1 ring-slate-200 shrink-0">
+                    <BrandLogo brandName={activeProject.brand} size={28} rounded="lg" />
+                  </div>
+                ) : (
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm"
+                    style={{ background: "linear-gradient(135deg, #5B2C9D, #7C4DFF)" }}>
+                    {projectName.charAt(0)}
+                  </div>
+                )}
                 <div>
                   <h1 className="text-xl font-bold text-slate-900">{projectName}</h1>
                   <p className="text-xs text-slate-500">{stats.researchType}</p>

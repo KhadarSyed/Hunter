@@ -7,6 +7,8 @@ interface ActiveProject {
   id: number;
   name: string;
   project_type: ProjectType;
+  /** Client/brand name — shown as the Brandfetch logo in the sidebar and dashboard. */
+  brand?: string | null;
 }
 
 interface ProjectContextValue {
@@ -83,7 +85,14 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     intelApi
       .getProject(stored.id)
       .then((p) => {
-        if (p.project_name !== stored.name) clearProject();
+        if (p.project_name !== stored.name) {
+          clearProject();
+        } else if ((p.brand ?? null) !== (stored.brand ?? null)) {
+          // Refresh the brand of a project persisted before brands existed (no version bump).
+          const refreshed = { ...stored, brand: p.brand ?? null };
+          setActiveProjectRaw(refreshed);
+          persistProject(refreshed);
+        }
       })
       .catch((e) => {
         if (e instanceof Error && e.message.startsWith("404")) clearProject();
