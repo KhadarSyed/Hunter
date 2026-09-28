@@ -1,7 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { intelApi, type BriefResult, type BriefData, type BriefSection, type JobStatus, type SourceRef } from "../lib/intel-api";
-import { useDemoState } from "../lib/demo-state";
-import { useProject, useActiveProjectId } from "../lib/project-context";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { intelApi, type BriefResult, type BriefData, type BriefSection, type JobStatus, type SourceRef } from "../services/intel-api";
+import { useDemoState } from "../context/demo-state";
+import { useProject, useActiveProjectId } from "../context/project-context";
+import { useJobStatus } from "../hooks/useJobStatus";
+import { BrandLogo } from "../components/BrandLogo";
 
 type PageState = "idle" | "researching" | "composing" | "ready" | "failed";
 
@@ -84,7 +86,7 @@ function CitationLink({ refId, sources }: { refId: string; sources: SourceLookup
   );
 }
 
-function renderContent(content: string, sources: SourceLookup = {}) {
+function renderContent(content: string, sources: SourceLookup = {}, sectionKey = "") {
   if (!content) return null;
   const lines = content.split("\n");
   const elements: React.ReactNode[] = [];
@@ -151,9 +153,14 @@ function renderContent(content: string, sources: SourceLookup = {}) {
     }
 
     if (trimmed.startsWith("## ")) {
+      const headingText = trimmed.slice(3);
+      // Competitor Developments headings are bare competitor/brand names (no
+      // "|" separator, unlike the dated headings used elsewhere) — show a logo.
+      const isCompetitorHeading = sectionKey === "competitor_developments" && !headingText.includes("|");
       elements.push(
-        <div key={i} className="font-bold text-[15px] text-[#5B2C9D] mt-7 mb-3 pb-1.5 border-b border-[#5B2C9D]/15">
-          {trimmed.slice(3)}
+        <div key={i} className="flex items-center gap-2 font-bold text-[15px] text-[#5B2C9D] mt-7 mb-3 pb-1.5 border-b border-[#5B2C9D]/15">
+          {isCompetitorHeading && <BrandLogo brandName={headingText} size={20} />}
+          {headingText}
         </div>
       );
       continue;
@@ -237,18 +244,71 @@ export function BackgroundResearch({ onNavigate }: Props) {
   const [rendering, setRendering] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [activeTab, setActiveTab] = useState<string>("");
+  const [researchJobId, setResearchJobId] = useState<string | null>(null);
+  const [searchDegraded, setSearchDegraded] = useState(false);
 
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  const stopPolling = useCallback(() => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-  }, []);
+  const fetchResearchStatus = useMemo(
+    () => (researchJobId ? () => intelApi.getResearchStatus(researchJobId) : null),
+    [researchJobId]
+  );
+  const { status: researchStatus, error: researchPollError } = useJobStatus<JobStatus>(fetchResearchStatus);
 
-  useEffect(() => () => stopPolling(), [stopPolling]);
+  const proceedToComposing = useCallback(async () => {
+    if (!projectId) return;
+    setPageState("composing");
+    setProgress({ pct: 92, message: "Synthesizing analytical brief with AI — this may take up to 2 minutes..." });
+    try {
+      try {
+        const research = await intelApi.getResearch(projectId);
+        setSearchDegraded(Boolean(research?.research?.search_degraded));
+      } catch {
+        // Non-critical — the banner just won't show if this lookup fails.
+      }
+      const briefResponse = await intelApi.generateBrief(projectId);
+      setBriefResult({
+        brief_id: briefResponse.brief_id,
+        version: 1,
+        approval_status: "pending",
+        brief: briefResponse.brief,
+        docx_path: null,
+        docx_generated_at: null,
+        research_approved: false,
+        created_at: Date.now() / 1000,
+        updated_at: Date.now() / 1000,
+      });
+      setPageState("ready");
+      if (briefResponse.brief?.section_order?.length) {
+        setActiveTab(briefResponse.brief.section_order[0]);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Generation failed";
+      setError(msg);
+      setPageState("failed");
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!researchStatus) return;
+    setProgress({ pct: Math.min(researchStatus.progress_pct, 90), message: researchStatus.progress_message });
+    if (researchStatus.status === "completed") {
+      setResearchJobId(null);
+      void proceedToComposing();
+    } else if (researchStatus.status === "failed") {
+      setResearchJobId(null);
+      setError(researchStatus.error || "Research failed");
+      setPageState("failed");
+    }
+  }, [researchStatus, proceedToComposing]);
+
+  useEffect(() => {
+    if (researchPollError) {
+      setResearchJobId(null);
+      setError("Lost connection to server");
+      setPageState("failed");
+    }
+  }, [researchPollError]);
 
   useEffect(() => {
     if (projectId && pageState === "idle" && !briefResult) {
@@ -300,46 +360,15 @@ export function BackgroundResearch({ onNavigate }: Props) {
         const result = await intelApi.startResearch(spec, projectId);
         setActiveProject({ id: result.project_id, name: activeProject?.name ?? "Research Project", project_type: activeProject?.project_type ?? "research" });
 
-        await new Promise<void>((resolve, reject) => {
-          pollRef.current = setInterval(async () => {
-            try {
-              const status: JobStatus = await intelApi.getResearchStatus(result.job_id);
-              setProgress({ pct: Math.min(status.progress_pct, 90), message: status.progress_message });
-
-              if (status.status === "completed") {
-                stopPolling();
-                resolve();
-              } else if (status.status === "failed") {
-                stopPolling();
-                reject(new Error(status.error || "Research failed"));
-              }
-            } catch {
-              stopPolling();
-              reject(new Error("Lost connection to server"));
-            }
-          }, 2000);
-        });
+        // Hand off to useJobStatus: the effect watching `researchStatus` /
+        // `researchPollError` drives the rest of the flow (progress updates,
+        // then proceedToComposing()) once the research job reaches a
+        // terminal state.
+        setResearchJobId(result.job_id);
+        return;
       }
 
-      setPageState("composing");
-      setProgress({ pct: 92, message: "Synthesizing analytical brief with AI — this may take up to 2 minutes..." });
-
-      const briefResponse = await intelApi.generateBrief(projectId);
-      setBriefResult({
-        brief_id: briefResponse.brief_id,
-        version: 1,
-        approval_status: "pending",
-        brief: briefResponse.brief,
-        docx_path: null,
-        docx_generated_at: null,
-        research_approved: false,
-        created_at: Date.now() / 1000,
-        updated_at: Date.now() / 1000,
-      });
-      setPageState("ready");
-      if (briefResponse.brief?.section_order?.length) {
-        setActiveTab(briefResponse.brief.section_order[0]);
-      }
+      await proceedToComposing();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Generation failed";
       setError(msg);
@@ -523,6 +552,26 @@ export function BackgroundResearch({ onNavigate }: Props) {
           )}
         </div>
       </div>
+
+      {searchDegraded && (
+        <div className="shrink-0 px-6 py-2.5 bg-amber-50 border-b border-amber-200 flex items-center gap-2.5">
+          <svg className="w-4 h-4 text-amber-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <span className="text-xs text-amber-800">
+            Primary search sources unavailable — showing results from Google News RSS only, coverage may be reduced.
+          </span>
+          <button
+            onClick={() => setSearchDegraded(false)}
+            className="ml-auto text-amber-500 hover:text-amber-700"
+            aria-label="Dismiss"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M6 6l12 12M6 18L18 6" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       {/* Idle State */}
       {pageState === "idle" && !briefResult && (
@@ -750,7 +799,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
                   />
                 ) : (
                   <div className="text-[13.5px] text-slate-700 leading-[1.85] max-w-3xl font-reading">
-                    {renderContent(currentSection.content, sourceLookup)}
+                    {renderContent(currentSection.content, sourceLookup, activeTab)}
                   </div>
                 )
               ) : (
@@ -761,7 +810,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
             {/* Bottom Bar: Approval + Navigation */}
             <div className="shrink-0 px-6 py-3 border-t border-slate-200 bg-white flex items-center justify-between">
               <button
-                onClick={() => onNavigate("brief-scope")}
+                onClick={() => onNavigate("brief-scope-review")}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
               >
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6" /></svg>
@@ -803,7 +852,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
       {pageState !== "ready" && (
         <div className="shrink-0 px-6 py-3 border-t border-slate-200 bg-white flex items-center justify-between">
           <button
-            onClick={() => onNavigate("brief-scope")}
+            onClick={() => onNavigate("brief-scope-review")}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
           >
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6" /></svg>

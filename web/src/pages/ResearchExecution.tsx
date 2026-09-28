@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { useDemoState } from "../lib/demo-state";
-import { intelApi, type JobStatus } from "../lib/intel-api";
-import { useActiveProjectId } from "../lib/project-context";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useDemoState } from "../context/demo-state";
+import { intelApi, type JobStatus } from "../services/intel-api";
+import { useActiveProjectId } from "../context/project-context";
+import { useJobStatus } from "../hooks/useJobStatus";
 
 interface UnitRow {
   id: number;
@@ -261,7 +262,6 @@ export function ResearchExecution({
     "units",
   );
   const [evidence, setEvidence] = useState<unknown[]>([]);
-  const pollRef = useRef<ReturnType<typeof setInterval>>();
 
   const [liveElapsed, setLiveElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval>>();
@@ -313,36 +313,39 @@ export function ResearchExecution({
     fetchStatus();
   }, [fetchStatus]);
 
+  // Refresh execution status on a 2s interval while a run or job is active.
+  const shouldPollRun = run?.status === "running" || run?.status === "paused" || !!jobId;
+  const fetchRunStatus = useMemo(
+    () => (shouldPollRun ? () => intelApi.getExecutionStatus(projectId) : null),
+    [shouldPollRun, projectId],
+  );
+  const { status: polledRun } = useJobStatus<RunStatus>(fetchRunStatus, {
+    // Run refresh is enabled/disabled externally via `shouldPollRun` (which
+    // reacts to run/job state), not by a per-tick terminal check.
+    isTerminal: () => false,
+  });
   useEffect(() => {
-    if (
-      run?.status === "running" ||
-      run?.status === "paused" ||
-      jobId
-    ) {
-      const poll = async () => {
-        await fetchStatus();
-        if (jobId) {
-          try {
-            const job = await intelApi.getJob(jobId);
-            if (job.status === "failed") {
-              setError(job.error || "Execution failed");
-              setJobId(null);
-              setStarting(false);
-              clearInterval(pollRef.current);
-            } else if (job.status === "completed") {
-              setJobId(null);
-              setStarting(false);
-              await fetchStatus();
-            }
-          } catch {
-            // job endpoint not available, rely on execution status
-          }
-        }
-      };
-      pollRef.current = setInterval(poll, 2000);
-      return () => clearInterval(pollRef.current);
+    if (polledRun) setRun(polledRun);
+  }, [polledRun]);
+
+  // Watch the started job (if any) until it completes or fails.
+  const fetchJobStatus = useMemo(
+    () => (jobId ? () => intelApi.getJob(jobId) : null),
+    [jobId],
+  );
+  const { status: polledJob } = useJobStatus<JobStatus>(fetchJobStatus);
+  useEffect(() => {
+    if (!polledJob) return;
+    if (polledJob.status === "failed") {
+      setError(polledJob.error || "Execution failed");
+      setJobId(null);
+      setStarting(false);
+    } else if (polledJob.status === "completed") {
+      setJobId(null);
+      setStarting(false);
+      fetchStatus();
     }
-  }, [run?.status, jobId, fetchStatus]);
+  }, [polledJob, fetchStatus]);
 
   useEffect(() => {
     if (

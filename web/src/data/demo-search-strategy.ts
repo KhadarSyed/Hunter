@@ -2,7 +2,7 @@ import type {
   MeltwaterStrategyOutput,
   QueryModule,
   ResearchQuestionQuery,
-} from "./contracts";
+} from "../types/contracts";
 
 export const DEMO_QUERY_MODULES: QueryModule[] = [
   {

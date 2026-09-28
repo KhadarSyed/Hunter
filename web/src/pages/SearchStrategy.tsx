@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as XLSX from "xlsx";
-import { intelApi, type StrategyResult, type JobStatus, type EvaluationResult } from "../lib/intel-api";
-import { useActiveProjectId, useProject } from "../lib/project-context";
-import { useDemoState } from "../lib/demo-state";
+import { intelApi, type StrategyResult, type JobStatus, type EvaluationResult } from "../services/intel-api";
+import { useActiveProjectId, useProject } from "../context/project-context";
+import { useDemoState } from "../context/demo-state";
 
 type Tab = "overview" | "modules" | "queries" | "exclusions" | "filters" | "score" | "evaluation";
 type LiveState = "idle" | "generating" | "completed" | "failed";

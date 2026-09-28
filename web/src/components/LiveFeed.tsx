@@ -1,5 +1,5 @@
 import React from "react";
-import { RunEvent } from "../lib/api";
+import { RunEvent } from "../services/api";
 import { iconForEvent, CheckIcon, AlertIcon } from "./icons";
 
 function describeEvent(ev: RunEvent): { label: string; detail?: string } {

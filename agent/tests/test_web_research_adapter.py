@@ -7,13 +7,8 @@ import pytest
 
 os.environ.setdefault("HUNTER_AGENT_DATA_DIR", tempfile.mkdtemp())
 
-from agent.app.web_research_adapter import (
-    EntityValidator,
-    _classify_source_tier,
-    _parse_date,
-    _deduplicate_results,
-    _is_blocked,
-    build_search_queries,
+from agent.app.domains.research.web_research import (
+    EntityValidator, _classify_source_tier, _parse_date, _deduplicate_results, _is_blocked, build_search_queries,
 )
 
 

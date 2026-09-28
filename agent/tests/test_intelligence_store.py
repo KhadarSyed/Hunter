@@ -8,8 +8,8 @@ import pytest
 
 os.environ.setdefault("HUNTER_AGENT_DATA_DIR", tempfile.mkdtemp())
 
-from agent.app import intelligence_store as store
-from agent.app import config
+from agent.app.core import store
+from agent.app.core import config
 
 @pytest.fixture(autouse=True)
 def fresh_db(tmp_path):

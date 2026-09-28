@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import { intelApi } from "../lib/intel-api";
-import { useActiveProjectId, useProject } from "../lib/project-context";
-import { useDemoState } from "../lib/demo-state";
+import { intelApi } from "../services/intel-api";
+import { useActiveProjectId, useProject } from "../context/project-context";
+import { useDemoState } from "../context/demo-state";
 
 const V = "#5B2C9D";
 

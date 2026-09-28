@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
-import { intelApi } from "../lib/intel-api";
-import type { Storyline, StorylineDetail, StorylineSummary, StoryNodeEnriched } from "../data/contracts";
-import { useActiveProjectId } from "../lib/project-context";
+import { intelApi } from "../services/intel-api";
+import type { Storyline, StorylineDetail, StorylineSummary, StoryNodeEnriched } from "../types/contracts";
+import { useActiveProjectId } from "../context/project-context";
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 

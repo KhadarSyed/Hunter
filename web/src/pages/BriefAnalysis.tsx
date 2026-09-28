@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { DEMO_ANALYSIS_STEPS } from "../data/demo";
-import { useProject } from "../lib/project-context";
+import { useProject } from "../context/project-context";
 
 type StepStatus = "completed" | "running" | "waiting";
 

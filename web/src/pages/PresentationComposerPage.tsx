@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { intelApi } from "../lib/intel-api";
-import type { PCPresentation, PCSlide, PCPresentationDetail, PCPresentationSummary, PCValidation } from "../data/contracts";
-import { useActiveProjectId } from "../lib/project-context";
+import { intelApi } from "../services/intel-api";
+import type { PCPresentation, PCSlide, PCPresentationDetail, PCPresentationSummary, PCValidation } from "../types/contracts";
+import { useActiveProjectId } from "../context/project-context";
 
 const PURPOSE_COLORS: Record<string, string> = {
   cover: "bg-purple-100 text-purple-700",

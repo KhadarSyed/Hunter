@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { RunEvent, RunSummary, api } from "../lib/api";
+import { RunEvent, RunSummary, api } from "../services/api";
 import { DownloadIcon } from "./icons";
 
 export function RunStatus({ run, events }: { run: RunSummary | null; events: RunEvent[] }) {

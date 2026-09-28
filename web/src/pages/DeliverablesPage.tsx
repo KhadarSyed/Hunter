@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { intelApi } from "../lib/intel-api";
-import { useActiveProjectId } from "../lib/project-context";
+import { intelApi } from "../services/intel-api";
+import { useActiveProjectId } from "../context/project-context";
 
 type Phase =
   | "idle"

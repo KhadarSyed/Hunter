@@ -16,7 +16,7 @@ import re
 import time
 from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
-from ..ollama_client import OllamaClient
+from ..core.ollama_client import OllamaClient
 
 EventFn = Callable[[str, dict], None]
 

@@ -20,7 +20,7 @@ from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
-from ..ollama_client import OllamaClient
+from ..core.ollama_client import OllamaClient
 
 EventFn = Callable[[str, dict], None]
 
@@ -43,6 +43,18 @@ syntax.  You do NOT execute searches.  You only build queries.
 5. WILDCARDS: Use * for stemming -- invest* matches invest, investing, investment.
 6. NOT must follow another term or group -- never start a query with NOT.
 7. Each query should be under 4000 characters for Meltwater compatibility.
+8. THREE-GROUP STRUCTURE: build the "balanced" query (and any competitive-landscape
+   query) as three AND-joined groups, each an OR of related terms, followed by the
+   exclusions:
+   (brand OR competitors) AND (category OR products) AND (concepts OR issues OR
+   events OR people) NOT (exclusions)
+   The third group -- concepts, issues, events, and people -- should be populated
+   from validated_entities typed "topic", "event", or "executive". Only include this
+   third AND-group when such entities exist for the brief; when none exist, fall
+   back to the two-group form (brand) AND (category/products) NOT (exclusions) rather
+   than emitting an empty AND (). When the third group is used, add a corresponding
+   query-module entry (e.g. "Concepts, issues & people") listing those terms under
+   "primary".
 
 === OUTPUT REQUIREMENTS ===
 

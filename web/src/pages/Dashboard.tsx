@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
-import { useDemoState } from "../lib/demo-state";
-import { useProject, useActiveProjectId } from "../lib/project-context";
-import { intelApi } from "../lib/intel-api";
+import { useDemoState } from "../context/demo-state";
+import { useProject, useActiveProjectId } from "../context/project-context";
+import { intelApi } from "../services/intel-api";
 
 interface StageInfo {
   id: string;

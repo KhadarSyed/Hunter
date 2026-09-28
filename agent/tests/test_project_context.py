@@ -17,7 +17,7 @@ import unittest
 
 os.environ.setdefault("HUNTER_AGENT_DATA_DIR", tempfile.mkdtemp())
 
-from agent.app import intelligence_store as store
+from agent.app.core import store
 
 
 def _init_db():
@@ -128,7 +128,7 @@ class TestProjectAPIEndpoints(unittest.TestCase):
     def setUpClass(cls):
         _init_db()
         from fastapi.testclient import TestClient
-        from agent.app.intelligence_api import router
+        from agent.app.domains import router
         from fastapi import FastAPI
         app = FastAPI()
         app.include_router(router)
@@ -223,7 +223,7 @@ class TestStaleProjectContextRegression(unittest.TestCase):
     def setUpClass(cls):
         _init_db()
         from fastapi.testclient import TestClient
-        from agent.app.intelligence_api import router
+        from agent.app.domains import router
         from fastapi import FastAPI
         app = FastAPI()
         app.include_router(router)

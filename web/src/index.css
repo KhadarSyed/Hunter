@@ -8,6 +8,14 @@
   --color-brand-600: #2563eb;
   --color-brand-700: #1d4ed8;
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  /* App primary (violet) and QC accent (teal) — see CLAUDE.md's documented
+     brand colors. Previously only inline arbitrary-value Tailwind classes
+     (bg-[#5B2C9D], etc., ~20+ in BackgroundResearch.tsx); these are the first
+     shared tokens for them. Introduced here for FloatingProgressPanel.tsx —
+     intentionally not used to repaint any existing page. */
+  --color-violet: #5b2c9d;
+  --color-qc-teal: #0f7b6c;
 }
 
 html, body, #root {

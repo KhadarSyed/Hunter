@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { useActiveProjectId } from "../lib/project-context";
-import { intelApi } from "../lib/intel-api";
+import { useActiveProjectId } from "../context/project-context";
+import { intelApi } from "../services/intel-api";
 
 const QC_FIELDS = [
   { key: "headline", label: "Headline", required: true },

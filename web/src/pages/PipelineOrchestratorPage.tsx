@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
-import { intelApi } from "../lib/intel-api";
-import { useActiveProjectId } from "../lib/project-context";
+import { intelApi } from "../services/intel-api";
+import { useActiveProjectId } from "../context/project-context";
 import type {
   PipelineProjectStatus,
   PipelineStageStatus,
   PipelineLog,
   PipelineTimelineEntry,
   PipelineDependencyNode,
-} from "../data/contracts";
+} from "../types/contracts";
 
 const STAGE_LABELS: Record<string, string> = {
   brief_scope: "Brief & Scope",

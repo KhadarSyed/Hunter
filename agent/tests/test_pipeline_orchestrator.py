@@ -6,13 +6,14 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 import unittest
 
 os.environ.setdefault("HUNTER_AGENT_DATA_DIR", tempfile.mkdtemp())
 
-from agent.app import config
-from agent.app import intelligence_store as store
-from agent.app import pipeline_orchestrator as orch
+from agent.app.core import config
+from agent.app.core import store
+from agent.app.domains.pipeline import service as orch
 
 
 def _make_project(name="Test Project"):
@@ -23,6 +24,19 @@ def _make_project(name="Test Project"):
         "research_questions": [],
     }
     return store.create_project(name, spec)
+
+
+def _wait_for_run_terminal(run_id, timeout=5.0):
+    """start_pipeline() runs in a background thread and returns "started"
+    immediately; poll the persisted run record for a terminal status."""
+    deadline = time.time() + timeout
+    run = store.get_pipeline_run(run_id)
+    while time.time() < deadline:
+        run = store.get_pipeline_run(run_id)
+        if run and run.get("status") not in ("pending", "running", None):
+            return run
+        time.sleep(0.05)
+    return run
 
 
 class DependencyManagerTest(unittest.TestCase):
@@ -572,11 +586,15 @@ class ExecutionEngineTest(unittest.TestCase):
         result = orch.start_pipeline(
             self.project_id, mode="single", single_stage="brief_scope")
         self.assertIn("run_id", result)
-        self.assertIn(result.get("status", ""), ("completed", "cached"))
+        self.assertEqual(result.get("status"), "started")
+        run = _wait_for_run_terminal(result["run_id"])
+        self.assertIsNotNone(run)
+        self.assertIn(run.get("status"), ("completed", "cached"))
 
     def test_single_stage_creates_run_record(self):
         result = orch.start_pipeline(
             self.project_id, mode="single", single_stage="brief_scope")
+        _wait_for_run_terminal(result["run_id"])
         run = store.get_pipeline_run(result["run_id"])
         self.assertIsNotNone(run)
         self.assertEqual(run["execution_mode"], "single")
@@ -584,6 +602,7 @@ class ExecutionEngineTest(unittest.TestCase):
     def test_single_stage_creates_log_entries(self):
         result = orch.start_pipeline(
             self.project_id, mode="single", single_stage="brief_scope")
+        _wait_for_run_terminal(result["run_id"])
         logs = store.get_pipeline_logs(result["run_id"])
         self.assertGreater(len(logs), 0)
 

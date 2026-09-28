@@ -11,10 +11,10 @@ import unittest
 
 os.environ.setdefault("HUNTER_AGENT_DATA_DIR", tempfile.mkdtemp())
 
-from agent.app import config
-from agent.app import intelligence_store as store
-from agent.app import evidence_library as elib
-from agent.app import insight_generator as igen
+from agent.app.core import config
+from agent.app.core import store
+from agent.app.domains.library import service as elib
+from agent.app.domains.insights import service as igen
 
 
 DEFAULT_OBJECTIVES = [

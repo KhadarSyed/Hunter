@@ -10,14 +10,14 @@ import unittest
 
 os.environ.setdefault("HUNTER_AGENT_DATA_DIR", tempfile.mkdtemp())
 
-from agent.app import config
-from agent.app import intelligence_store as store
-from agent.app import slide_extractor as extractor
-from agent.app import slide_retrieval as retrieval
-from agent.app import slide_intelligence as si
-from agent.app import evidence_library as elib
-from agent.app import insight_generator as igen
-from agent.app import storyline_builder as sbuilder
+from agent.app.core import config
+from agent.app.core import store
+from agent.app.domains.slides import extractor
+from agent.app.domains.slides import retrieval
+from agent.app.domains.slides import service as si
+from agent.app.domains.library import service as elib
+from agent.app.domains.insights import service as igen
+from agent.app.domains.storyline import service as sbuilder
 
 
 DEFAULT_OBJECTIVES = [

@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
-import { intelApi as api } from "../lib/intel-api";
-import { useActiveProjectId } from "../lib/project-context";
+import { intelApi as api } from "../services/intel-api";
+import { useActiveProjectId } from "../context/project-context";
 import type {
   PubValidationResult, PubDiffReport, PubReadinessSummary,
   PubVersion, PubApproval, PubAuditEntry, PubPackage, PubIssue,
-} from "../data/contracts";
+} from "../types/contracts";
 
 interface Props { onNavigate: (page: string) => void }
 

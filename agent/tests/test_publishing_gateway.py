@@ -11,9 +11,9 @@ import unittest
 
 os.environ.setdefault("HUNTER_AGENT_DATA_DIR", tempfile.mkdtemp())
 
-from agent.app import config
-from agent.app import intelligence_store as store
-from agent.app import publishing_gateway as pub
+from agent.app.core import config
+from agent.app.core import store
+from agent.app.domains.publishing import service as pub
 
 
 def _init_db():
@@ -671,7 +671,7 @@ class APIEndpointTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         _init_db()
-        from agent.app.intelligence_api import router
+        from agent.app.domains import router
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
         app = FastAPI()

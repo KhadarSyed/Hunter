@@ -1,6 +1,42 @@
-import { useState, useEffect, useCallback } from "react";
-import { useProject, useActiveProjectId } from "../lib/project-context";
-import { intelApi, type SpecResult, type SpecReadiness, type SpecClarification } from "../lib/intel-api";
+import { useState, useEffect, useCallback, useRef } from "react";
+import type { ReactNode } from "react";
+import { useProject, useActiveProjectId } from "../context/project-context";
+import { intelApi, type SpecResult, type SpecReadiness, type SpecClarification } from "../services/intel-api";
+import { BrandLogo } from "../components/BrandLogo";
+
+// Mouse-tracked radial spotlight, adapted from reactbits' SpotlightCard
+// (components/SpotlightCard) for this app's light theme and violet brand
+// accent — the dark-theme original tracks the same pointer math but painted
+// a white glow over a neutral-900 card; here it's a faint violet wash over
+// the existing slate-50 card background.
+function SpotlightPanel({ children, className = "" }: { children: ReactNode; className?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const [opacity, setOpacity] = useState(0);
+
+  return (
+    <div
+      ref={ref}
+      onMouseMove={(e) => {
+        if (!ref.current) return;
+        const rect = ref.current.getBoundingClientRect();
+        setPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+      }}
+      onMouseEnter={() => setOpacity(1)}
+      onMouseLeave={() => setOpacity(0)}
+      className={`relative overflow-hidden ${className}`}
+    >
+      <div
+        className="pointer-events-none absolute inset-0 transition-opacity duration-500 ease-out"
+        style={{
+          opacity,
+          background: `radial-gradient(420px circle at ${pos.x}px ${pos.y}px, rgba(91,44,157,0.07), transparent 70%)`,
+        }}
+      />
+      <div className="relative">{children}</div>
+    </div>
+  );
+}
 
 export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) => void }) {
   const { activeProject } = useProject();
@@ -343,20 +379,41 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
   return (
     <div className="p-8 max-w-3xl mx-auto space-y-5 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Brief & Scope</h1>
-          <p className="text-sm text-slate-500 mt-0.5">{activeProject?.name}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {isApproved && <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100">Approved</span>}
-          <button
-            onClick={handleDownloadDocx}
-            disabled={downloading}
-            className="text-xs font-medium text-[#5B2C9D] border border-[#5B2C9D]/20 px-3 py-1.5 rounded-lg hover:bg-[#5B2C9D]/5 transition-colors disabled:opacity-40"
-          >
-            {downloading ? "Exporting..." : "Export Full Spec"}
-          </button>
+      <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="absolute inset-0 opacity-[0.04]" style={{
+          background: "radial-gradient(ellipse at 15% 30%, #5B2C9D 0%, transparent 60%), radial-gradient(ellipse at 90% 80%, #7C4DFF 0%, transparent 55%)"
+        }} />
+        <div className="relative flex items-center justify-between px-6 py-5">
+          <div className="flex items-center gap-3">
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm shrink-0"
+              style={{ background: "linear-gradient(135deg, #5B2C9D, #7C4DFF)" }}
+            >
+              {(activeProject?.name || "B").charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <h1 className="text-xl font-semibold text-slate-900">Brief & Scope</h1>
+              <p className="text-sm text-slate-500 mt-0.5">{activeProject?.name}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {isApproved && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200 shadow-sm">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-pulse-dot absolute inline-flex h-full w-full rounded-full bg-emerald-500" />
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+                </span>
+                Approved
+              </span>
+            )}
+            <button
+              onClick={handleDownloadDocx}
+              disabled={downloading}
+              className="text-xs font-medium text-[#5B2C9D] border border-[#5B2C9D]/20 px-3 py-1.5 rounded-lg hover:bg-[#5B2C9D]/5 transition-colors disabled:opacity-40"
+            >
+              {downloading ? "Exporting..." : "Export Full Spec"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -366,7 +423,7 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
 
       {/* What we understood */}
       {(summaryText || editing) && (
-        <div className="bg-slate-50 border border-slate-200 rounded-xl p-5">
+        <SpotlightPanel className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
           <div className="flex items-center justify-between mb-2">
             <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">What we understood</div>
             {!editing ? (
@@ -414,8 +471,20 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
                       </div>
                     ))}
                     {compNames.length > 0 && (
-                      <div className="text-xs text-slate-500">
-                        <span className="font-semibold text-slate-600">Competitors:</span> {compNames.join(", ")}
+                      <div className="flex items-start gap-2 text-xs text-slate-500 basis-full">
+                        <span className="font-semibold text-slate-600 shrink-0 pt-1.5">Competitors:</span>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {compNames.map((name, i) => (
+                            <span
+                              key={name}
+                              className="group inline-flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border border-slate-200 bg-white shadow-sm hover:shadow-md hover:border-[#5B2C9D]/30 hover:-translate-y-0.5 transition-all animate-fade-in"
+                              style={{ animationDelay: `${i * 60}ms` }}
+                            >
+                              <BrandLogo brandName={name} size={20} />
+                              <span className="text-xs font-medium text-slate-700 group-hover:text-[#5B2C9D] transition-colors">{name}</span>
+                            </span>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -473,7 +542,7 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
               </div>
             </div>
           )}
-        </div>
+        </SpotlightPanel>
       )}
 
       {/* Questions that need answers */}
