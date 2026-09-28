@@ -338,7 +338,10 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
                 </svg>
                 <div className="text-left">
                   <p className="text-sm font-medium text-slate-700">{pendingFile.name} <span className="text-slate-400 font-normal">({Math.max(1, Math.round(pendingFile.size / 1024))} KB)</span></p>
-                  <p className="text-xs text-violet-600">Ready — click <span className="font-semibold">Extract Text</span> to read this file</p>
+                  <p className="text-xs text-violet-600">
+                    Ready — click <span className="font-semibold">Extract Text</span>
+                    {briefText.trim() ? " to replace the current brief with this file's text" : " to read this file"}
+                  </p>
                 </div>
                 <button type="button" aria-label="Remove selected file"
                   onClick={(e) => { e.stopPropagation(); setPendingFile(null); }}
