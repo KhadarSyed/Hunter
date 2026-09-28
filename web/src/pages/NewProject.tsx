@@ -63,6 +63,10 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
   const [extractionNote, setExtractionNote] = useState("");
   // Uploaded file behind the brief text; null = typed/pasted text.
   const [briefSource, setBriefSource] = useState<BriefSource | null>(null);
+  // File chosen but not yet extracted: the primary button reads "Extract Text" until it is.
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  // Set once a new project is saved, so retrying Analyze Brief updates it instead of duplicating.
+  const [savedProjectId, setSavedProjectId] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Edit mode: load the project's saved brief by id.
@@ -87,7 +91,7 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
       .finally(() => setLoadingProject(false));
   }, [editingId]);
 
-  const handleBriefFile = useCallback(async (file: File) => {
+  const handleBriefFile = useCallback(async (file: File): Promise<boolean> => {
     setUploadingBrief(true);
     setError("");
     setExtractionNote("");
@@ -100,19 +104,31 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
           ? `Text extracted from ${file.name} with NVIDIA ${result.model ?? "Nemotron-Parse"}${result.pages ? ` (${result.pages} page${result.pages > 1 ? "s" : ""})` : ""} — review before analysing.`
           : `Text extracted from ${file.name} — review before analysing.`,
       );
+      return true;
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to parse file");
+      return false;
     } finally {
       setUploadingBrief(false);
     }
   }, []);
 
-  const onDrop = useCallback((e: React.DragEvent) => {
+  const selectFile = (file: File) => {
+    setPendingFile(file);
+    setError("");
+    setExtractionNote("");
+  };
+
+  const extractText = async () => {
+    if (pendingFile && (await handleBriefFile(pendingFile))) setPendingFile(null);
+  };
+
+  const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
     const file = e.dataTransfer.files?.[0];
-    if (file) handleBriefFile(file);
-  }, [handleBriefFile]);
+    if (file) selectFile(file);
+  };
 
   useEffect(() => {
     if (!draftSaved) return;
@@ -130,9 +146,11 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
    *  Brand = the Client field (drives the Brandfetch logo on the project card). */
   const persistProject = async (spec: Record<string, unknown>) => {
     const brand = client.trim();
-    const result = editingId !== null
-      ? await intelApi.updateProject(editingId, { project_name: projectName.trim(), spec: { ...existingSpec, ...spec }, brand })
+    const targetId = editingId ?? savedProjectId;
+    const result = targetId !== null
+      ? await intelApi.updateProject(targetId, { project_name: projectName.trim(), spec: { ...existingSpec, ...spec }, brand })
       : await intelApi.createProject(projectName.trim(), spec, projectType, brand || undefined);
+    if (targetId === null) setSavedProjectId(result.id);
     setActiveProject({ id: result.id, name: result.project_name, project_type: (result.project_type as ProjectType) || projectType });
     return result;
   };
@@ -155,8 +173,9 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
     if (!briefText.trim() || !projectName.trim()) return;
     setCreating(true);
     setError("");
-    setLlmStatus(editingId !== null ? "Updating project..." : "Creating project...");
+    setLlmStatus(editingId !== null || savedProjectId !== null ? "Updating project..." : "Creating project...");
     const brand = client || projectName;
+    let saved = false;
     try {
       // Seed spec; the Brief & Scope analysis below replaces it and detects the primary brand.
       const spec = {
@@ -196,12 +215,16 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
         time_period: timePeriod,
       };
       const result = await persistProject(spec);
+      saved = true;
       setLlmStatus("Analyzing brief with LLM — this may take 1–2 minutes...");
       await intelApi.generateSpec(result.id, briefText.trim(), true);
       localStorage.removeItem(DRAFT_KEY);
       onNavigate("brief-scope-review");
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Analysis failed");
+      const msg = e instanceof Error ? e.message : "unknown error";
+      setError(saved
+        ? `Project saved, but the brief analysis failed (${msg}). Click Analyze Brief to retry.`
+        : `Could not save the project: ${msg}`);
       setCreating(false);
       setLlmStatus("");
     }
@@ -225,7 +248,7 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
         </nav>
         <h1 className="mt-2 text-xl font-semibold text-slate-900">{title}</h1>
         <p className="text-sm text-slate-500 mt-0.5">
-          {isQC ? "Name the QC project, then upload the monitoring report." : "Add the client brief — the project is saved when you click Analyze Brief."}
+          {isQC ? "Name the QC project, then upload the monitoring report." : "Upload the client brief and click Extract Text (or paste it) — the project is saved when you click Analyze Brief."}
         </p>
         {draft && <span className="text-xs text-slate-400">Draft from {new Date(draft.savedAt).toLocaleDateString()}</span>}
       </div>
@@ -302,12 +325,38 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
             <input ref={fileInputRef} type="file" accept=".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.txt" className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];
-                if (file) handleBriefFile(file);
+                if (file) selectFile(file);
                 e.target.value = "";
               }}
             />
             {uploadingBrief ? (
-              <p className="text-sm font-medium text-violet-600">Extracting text from file...</p>
+              <p className="text-sm font-medium text-violet-600">Extracting text from {pendingFile?.name ?? "file"} with NVIDIA...</p>
+            ) : pendingFile ? (
+              <div className="flex items-center justify-center gap-3">
+                <svg className="text-violet-500 shrink-0" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" />
+                </svg>
+                <div className="text-left">
+                  <p className="text-sm font-medium text-slate-700">{pendingFile.name} <span className="text-slate-400 font-normal">({Math.max(1, Math.round(pendingFile.size / 1024))} KB)</span></p>
+                  <p className="text-xs text-violet-600">Ready — click <span className="font-semibold">Extract Text</span> to read this file</p>
+                </div>
+                <button type="button" aria-label="Remove selected file"
+                  onClick={(e) => { e.stopPropagation(); setPendingFile(null); }}
+                  className="ml-2 rounded-md px-2 py-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">✕</button>
+              </div>
+            ) : briefSource?.file_name ? (
+              <div className="flex items-center justify-center gap-3">
+                <svg className="text-emerald-600 shrink-0" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="m9 15 2 2 4-4" />
+                </svg>
+                <div className="text-left">
+                  <p className="text-sm font-medium text-slate-700">{briefSource.file_name}</p>
+                  <p className="text-xs text-emerald-700">Text extracted ✓ — click or drop another file to replace</p>
+                </div>
+                <button type="button" aria-label="Remove file and its extracted text"
+                  onClick={(e) => { e.stopPropagation(); setBriefSource(null); setBriefText(""); setExtractionNote(""); }}
+                  className="ml-2 rounded-md px-2 py-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">✕</button>
+              </div>
             ) : (
               <>
                 <svg className="mx-auto mb-3 text-slate-300 group-hover:text-violet-400 transition-colors" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -353,10 +402,17 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
                 {draftSaved ? "Saved" : "Save Draft"}
               </button>
             )}
-            <button disabled={!briefText.trim() || !projectName.trim() || creating} onClick={handleAnalyze}
-              className="px-5 py-2.5 text-sm font-medium text-white rounded-lg shadow-sm disabled:opacity-40 disabled:cursor-not-allowed bg-[#5B2C9D] hover:bg-[#4A2380]">
-              {creating ? "Analyzing..." : "Analyze Brief"}
-            </button>
+            {pendingFile ? (
+              <button disabled={uploadingBrief || creating} onClick={extractText}
+                className="px-5 py-2.5 text-sm font-medium text-white rounded-lg shadow-sm disabled:opacity-40 disabled:cursor-not-allowed bg-[#5B2C9D] hover:bg-[#4A2380]">
+                {uploadingBrief ? "Extracting..." : "Extract Text"}
+              </button>
+            ) : (
+              <button disabled={!briefText.trim() || !projectName.trim() || creating} onClick={handleAnalyze}
+                className="px-5 py-2.5 text-sm font-medium text-white rounded-lg shadow-sm disabled:opacity-40 disabled:cursor-not-allowed bg-[#5B2C9D] hover:bg-[#4A2380]">
+                {creating ? "Analyzing..." : "Analyze Brief"}
+              </button>
+            )}
           </>
         )}
       </div>
