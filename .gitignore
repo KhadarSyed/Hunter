@@ -39,3 +39,9 @@ backend.err.log
 # OS
 Thumbs.db
 .DS_Store
+
+# Tests are kept local only (not pushed)
+agent/tests/
+agent/output/test_*.pptx
+.playwright-mcp/
+.tours/
