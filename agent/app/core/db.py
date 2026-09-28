@@ -5,11 +5,14 @@ Every domains/<name>/repository.py opens connections through _conn() here.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import time
 from typing import Optional
 
 from . import config
+
+logger = logging.getLogger(__name__)
 
 INTELLIGENCE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS intel_projects (
@@ -1136,11 +1139,34 @@ CREATE INDEX IF NOT EXISTS idx_datasets_project ON intel_datasets(project_id);
 """
 
 
-_DATASET_MIGRATIONS = [
-    "ALTER TABLE intel_datasets ADD COLUMN processing_status TEXT DEFAULT 'done'",
-    "ALTER TABLE intel_datasets ADD COLUMN processing_error TEXT",
-    "ALTER TABLE intel_datasets ADD COLUMN research_question_id TEXT",
-    "ALTER TABLE intel_projects ADD COLUMN project_type TEXT NOT NULL DEFAULT 'research'",
+# Versioned, forward-only migrations, applied once each and recorded in
+# schema_migrations. Append new entries; never edit or reorder applied ones.
+# ADD COLUMN on a DB that already has the column (pre-versioning DBs) is tolerated.
+_FK_INDEXES = [
+    ("intel_query_versions", "strategy_id"), ("intel_sample_evaluations", "project_id"),
+    ("intel_sample_evaluations", "strategy_id"), ("intel_news_approvals", "research_id"),
+    ("intel_execution_runs", "plan_id"), ("intel_si_storyline_matches", "slide_id"),
+    ("intel_pub_diff_reports", "project_id"), ("intel_pub_packages", "validation_id"),
+    ("intel_pub_packages", "version_id"), ("intel_pub_approvals", "version_id"),
+    ("intel_pub_downloads", "package_id"), ("qc_reports", "project_id"),
+    ("qc_configs", "report_id"), ("qc_findings", "report_id"), ("qc_findings", "run_id"),
+    ("qc_runs", "report_id"), ("qc_exports", "run_id"),
+]
+
+MIGRATIONS: list[tuple[int, str, list[str]]] = [
+    (1, "dataset processing columns", [
+        "ALTER TABLE intel_datasets ADD COLUMN processing_status TEXT DEFAULT 'done'",
+        "ALTER TABLE intel_datasets ADD COLUMN processing_error TEXT",
+        "ALTER TABLE intel_datasets ADD COLUMN research_question_id TEXT",
+    ]),
+    (2, "project type", ["ALTER TABLE intel_projects ADD COLUMN project_type TEXT NOT NULL DEFAULT 'research'"]),
+    (3, "qc source cache text", ["ALTER TABLE qc_source_cache ADD COLUMN extracted_text TEXT"]),
+    # Brand = the Client name entered on the New Project form (drives the Brandfetch logo).
+    (4, "project brand", [
+        "ALTER TABLE intel_projects ADD COLUMN brand TEXT",
+        "UPDATE intel_projects SET brand = NULLIF(TRIM(json_extract(spec_json, '$.client')), '') WHERE brand IS NULL",
+    ]),
+    (5, "foreign-key indexes", [f"CREATE INDEX IF NOT EXISTS idx_{t}_{c} ON {t}({c})" for t, c in _FK_INDEXES]),
 ]
 
 
@@ -1225,28 +1251,51 @@ CREATE TABLE IF NOT EXISTS qc_exports (
 
 
 def _conn() -> sqlite3.Connection:
+    """Open a connection. Cheap (SQLite is in-process), so repositories open one per call;
+    WAL mode is persistent and set once in init_intelligence_db()."""
     conn = sqlite3.connect(str(config.MEMORY_DB_PATH), check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
+    conn.execute("PRAGMA synchronous=NORMAL")  # safe with WAL; avoids an fsync per commit
+    # Foreign keys are declared but deliberately NOT enforced: existing code paths (and
+    # tests) insert child rows before/without their parents. Deleting a project cleans
+    # up its children explicitly (projects/repository.delete_project) instead.
     return conn
 
 
-def init_intelligence_db():
+def _apply_migrations(conn: sqlite3.Connection) -> list[int]:
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS schema_migrations "
+        "(version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at REAL NOT NULL)"
+    )
+    done = {r[0] for r in conn.execute("SELECT version FROM schema_migrations")}
+    applied = []
+    for version, name, statements in MIGRATIONS:
+        if version in done:
+            continue
+        with conn:  # one transaction per migration
+            for sql in statements:
+                try:
+                    conn.execute(sql)
+                except sqlite3.OperationalError as e:
+                    if "duplicate column name" not in str(e):
+                        raise
+            conn.execute("INSERT INTO schema_migrations VALUES (?, ?, ?)", (version, name, time.time()))
+        applied.append(version)
+    return applied
+
+
+def init_intelligence_db() -> None:
     conn = _conn()
-    conn.executescript(INTELLIGENCE_SCHEMA)
-    conn.executescript(QC_SCHEMA)
-    for mig in _DATASET_MIGRATIONS:
-        try:
-            conn.execute(mig)
-        except sqlite3.OperationalError:
-            pass
     try:
-        conn.execute("ALTER TABLE qc_source_cache ADD COLUMN extracted_text TEXT")
-    except sqlite3.OperationalError:
-        pass
-    conn.commit()
-    conn.close()
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.executescript(INTELLIGENCE_SCHEMA)
+        conn.executescript(QC_SCHEMA)
+        applied = _apply_migrations(conn)
+        if applied:
+            logger.info("Applied DB migrations %s", applied)
+    finally:
+        conn.close()
 
 
 # ─── QC Source Cache ────────────────────────────────────────────────────────

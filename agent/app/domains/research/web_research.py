@@ -527,7 +527,7 @@ class LiveWebResearchAdapter:
                 in_range.append(r)
             else:
                 r["_date_status"] = "out_of_range"
-                r["_date_note"] = f"Outside range; retained as background context"
+                r["_date_note"] = "Outside range; retained as background context"
                 context_only.append(r)
 
         # Classify source quality

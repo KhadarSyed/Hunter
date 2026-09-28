@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from typing import Any, Callable, Optional, Protocol, runtime_checkable
+from typing import Any, Callable, Protocol, runtime_checkable
 
 from ..core.ollama_client import OllamaClient
 

@@ -8,10 +8,13 @@ import json
 import re
 from datetime import date
 from pathlib import Path
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from ..core.config import Settings, load_settings
 from ..core.llm_provider import build_llm_client
+
+if TYPE_CHECKING:  # annotation only; runtime client comes from build_llm_client()
+    from ..core.ollama_client import OllamaClient
 from ..domains.brief.parser import guess_client_name, parse_brief
 from . import deck_builder, deck_index, memory, retrieval
 

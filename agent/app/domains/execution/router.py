@@ -2,23 +2,34 @@
 from __future__ import annotations
 
 import logging
-import threading
 import uuid
-from typing import Optional
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Path, Query
 
 from ...core import store
+from ...core.api import OkResponse
 from ...core.events import broadcast as _broadcast
+from ...core.jobs import submit
 from . import service as executor_service
-from .schemas import ExecutionStartRequest, RetryUnitRequest
+from .schemas import (
+    EvidenceRecord,
+    ExecutionJobStarted,
+    ExecutionLogRecord,
+    ExecutionResumeStarted,
+    ExecutionStartRequest,
+    ExecutionStatusResponse,
+    RetryUnitCompleted,
+    RetryUnitFailed,
+    RetryUnitRequest,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-@router.post("/execution/start")
+@router.post("/execution/start", response_model=ExecutionJobStarted)
 def start_execution(req: ExecutionStartRequest):
     """Start executing the approved Research Plan."""
 
@@ -74,12 +85,12 @@ def start_execution(req: ExecutionStartRequest):
             _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "failed",
                          "error": str(e)})
 
-    threading.Thread(target=worker, daemon=True).start()
+    submit(worker, name="execution:start")
     return {"job_id": job_id, "project_id": req.project_id}
 
 
-@router.get("/execution/{project_id}")
-def get_execution_status(project_id: int):
+@router.get("/execution/{project_id}", response_model=ExecutionStatusResponse)
+def get_execution_status(project_id: Annotated[int, Path(ge=1)]):
     """Get the current execution status for a project."""
     status = executor_service.get_execution_status(project_id)
     if not status:
@@ -87,8 +98,8 @@ def get_execution_status(project_id: int):
     return status
 
 
-@router.post("/execution/{run_id}/pause")
-def pause_execution(run_id: int):
+@router.post("/execution/{run_id}/pause", response_model=OkResponse)
+def pause_execution(run_id: Annotated[int, Path(ge=1)]):
     """Pause a running execution."""
     ok = executor_service.pause_execution(run_id)
     if not ok:
@@ -97,8 +108,8 @@ def pause_execution(run_id: int):
     return {"ok": True}
 
 
-@router.post("/execution/{run_id}/resume")
-def resume_execution(run_id: int, req: ExecutionStartRequest):
+@router.post("/execution/{run_id}/resume", response_model=ExecutionResumeStarted)
+def resume_execution(run_id: Annotated[int, Path(ge=1)], req: ExecutionStartRequest):
     """Resume a paused execution."""
 
     job_id = f"exec_resume_{uuid.uuid4().hex[:8]}"
@@ -121,12 +132,12 @@ def resume_execution(run_id: int, req: ExecutionStartRequest):
         except Exception as e:
             store.update_job(job_id, status="failed", error=str(e))
 
-    threading.Thread(target=worker, daemon=True).start()
+    submit(worker, name="execution:resume")
     return {"job_id": job_id}
 
 
-@router.post("/execution/{run_id}/cancel")
-def cancel_execution(run_id: int):
+@router.post("/execution/{run_id}/cancel", response_model=OkResponse)
+def cancel_execution(run_id: Annotated[int, Path(ge=1)]):
     """Cancel a running execution."""
     ok = executor_service.cancel_execution(run_id)
     if not ok:
@@ -135,8 +146,8 @@ def cancel_execution(run_id: int):
     return {"ok": True}
 
 
-@router.post("/execution/{run_id}/retry/{unit_id}")
-def retry_execution_unit(run_id: int, unit_id: str, req: RetryUnitRequest):
+@router.post("/execution/{run_id}/retry/{unit_id}", response_model=RetryUnitCompleted | RetryUnitFailed)
+def retry_execution_unit(run_id: Annotated[int, Path(ge=1)], unit_id: str, req: RetryUnitRequest):
     """Retry a single failed execution unit."""
 
     result = executor_service.retry_unit(req.project_id, run_id, unit_id)
@@ -147,13 +158,13 @@ def retry_execution_unit(run_id: int, unit_id: str, req: RetryUnitRequest):
     return result
 
 
-@router.get("/execution/{run_id}/evidence")
-def get_execution_evidence(run_id: int, unit_id: Optional[str] = None):
+@router.get("/execution/{run_id}/evidence", response_model=list[EvidenceRecord])
+def get_execution_evidence(run_id: Annotated[int, Path(ge=1)], unit_id: Optional[str] = None):
     """Get evidence collected during execution."""
     return store.get_evidence(run_id, unit_id)
 
 
-@router.get("/execution/{run_id}/logs")
-def get_execution_logs(run_id: int, limit: int = 100):
+@router.get("/execution/{run_id}/logs", response_model=list[ExecutionLogRecord])
+def get_execution_logs(run_id: Annotated[int, Path(ge=1)], limit: Annotated[int, Query(ge=1, le=1000)] = 100):
     """Get execution logs."""
     return store.get_execution_logs(run_id, limit)

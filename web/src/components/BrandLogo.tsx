@@ -27,9 +27,12 @@ interface BrandLogoProps {
   brandName: string;
   size?: number;
   className?: string;
+  /** Corner style of the logo/monogram (default: circle). */
+  rounded?: "full" | "lg";
 }
 
-export function BrandLogo({ brandName, size = 20, className = "" }: BrandLogoProps) {
+export function BrandLogo({ brandName, size = 20, className = "", rounded = "full" }: BrandLogoProps) {
+  const radius = rounded === "full" ? "rounded-full" : "rounded-lg";
   const [logoUrl, setLogoUrl] = useState<string | null | undefined>(() =>
     logoCache.get(brandName)
   );
@@ -75,7 +78,7 @@ export function BrandLogo({ brandName, size = 20, className = "" }: BrandLogoPro
   if (logoUrl === undefined) {
     return (
       <span
-        className={`inline-block rounded-full bg-slate-100 shrink-0 ${className}`}
+        className={`inline-block ${radius} bg-slate-100 shrink-0 ${className}`}
         style={dimension}
         aria-hidden="true"
       />
@@ -88,7 +91,7 @@ export function BrandLogo({ brandName, size = 20, className = "" }: BrandLogoPro
       <img
         src={logoUrl}
         alt={`${brandName} logo`}
-        className={`rounded-full object-cover shrink-0 ${className}`}
+        className={`${radius} ${rounded === "full" ? "object-cover" : "object-contain"} shrink-0 ${className}`}
         style={dimension}
         onError={() => setImgFailed(true)}
       />
@@ -99,7 +102,7 @@ export function BrandLogo({ brandName, size = 20, className = "" }: BrandLogoPro
   const initial = brandName.trim().charAt(0).toUpperCase() || "?";
   return (
     <span
-      className={`inline-flex items-center justify-center rounded-full font-semibold shrink-0 ${monogramClasses(brandName)} ${className}`}
+      className={`inline-flex items-center justify-center ${radius} font-semibold shrink-0 ${monogramClasses(brandName)} ${className}`}
       style={{ ...dimension, fontSize: Math.max(9, size * 0.5) }}
       aria-hidden="true"
     >

@@ -1,17 +1,26 @@
-"""Central configuration for the Hunter brief-to-deck agent.
+"""Central configuration.
 
-Settings are stored in data/settings.json and can be edited from the UI Settings
-panel; this module holds the defaults and the load/save helpers.
+Two kinds of settings live here:
+- `AppSettings` — process/environment config (CORS, API key, log level, provider keys),
+  read once from environment variables / .env and validated at startup.
+- `Settings` — the Brief-to-Deck agent's user-editable folders and models, stored in
+  data/settings.json and edited from the UI Settings panel.
 """
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from pathlib import Path
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 APP_DIR = Path(__file__).resolve().parent.parent  # agent/app
 AGENT_DIR = APP_DIR.parent                         # agent/
-DATA_DIR = AGENT_DIR / "data"
+# HUNTER_AGENT_DATA_DIR lets tests (and deployments) keep data out of agent/data.
+DATA_DIR = Path(os.getenv("HUNTER_AGENT_DATA_DIR") or AGENT_DIR / "data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR = DATA_DIR / "uploads"
 EXPORT_DIR = DATA_DIR / "exports"
@@ -68,3 +77,36 @@ def save_settings(settings: Settings) -> None:
 def ensure_dirs(settings: Settings) -> None:
     for d in (settings.briefs_dir, settings.output_dir):
         Path(d).mkdir(parents=True, exist_ok=True)
+
+
+class AppSettings(BaseSettings):
+    """Environment configuration, validated once at startup (see get_app_settings)."""
+
+    model_config = SettingsConfigDict(env_file=AGENT_DIR.parent / ".env", env_file_encoding="utf-8", extra="ignore")
+
+    app_name: str = "Hunter Intelligence Platform"
+    app_version: str = "1.0.0"
+    environment: str = Field("development", description="development | production")
+    log_level: str = "INFO"
+    # Browser origins allowed to call the API (Vite dev server + the backend-served SPA).
+    cors_origins: list[str] = [
+        "http://localhost:5173", "http://127.0.0.1:5173",
+        "http://localhost:8002", "http://127.0.0.1:8002",
+    ]
+    # Shared secret for /api/* (header X-API-Key, or ?api_key= for the WebSocket).
+    # Empty = auth disabled, which is only allowed when environment != production.
+    api_key: str = ""
+    brandfetch_api_key: str = ""
+    brandfetch_client_id: str = ""
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment.lower() == "production"
+
+
+@lru_cache
+def get_app_settings() -> AppSettings:
+    settings = AppSettings()
+    if settings.is_production and not settings.api_key:
+        raise RuntimeError("API_KEY must be set when ENVIRONMENT=production")
+    return settings

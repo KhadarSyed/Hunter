@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
+import { intelApi } from "../services/intel-api";
 
 export type ProjectType = "research" | "monitoring_qc";
 
@@ -72,6 +73,22 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     persistProject(null);
     setProjectVersion((v) => v + 1);
   }, []);
+
+  // The persisted project may have been deleted server-side (or its id reused by a
+  // new project after a reset). Verify it once on load; clear it only when the server
+  // says it is gone or is a different project — a network error keeps it.
+  useEffect(() => {
+    const stored = loadPersistedProject();
+    if (!stored) return;
+    intelApi
+      .getProject(stored.id)
+      .then((p) => {
+        if (p.project_name !== stored.name) clearProject();
+      })
+      .catch((e) => {
+        if (e instanceof Error && e.message.startsWith("404")) clearProject();
+      });
+  }, [clearProject]);
 
   return (
     <ProjectContext.Provider value={{ activeProject, setActiveProject, clearProject, projectVersion }}>

@@ -10,32 +10,46 @@ import concurrent.futures
 import csv
 import logging
 import re
-import threading
 import time
 import uuid
 from pathlib import Path
+from typing import Annotated
 
 import openpyxl
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import Path as PathParam
 
 from ...agents.meltwater_query_builder import run as run_mqb
 from ...agents.meltwater_query_builder import validate_boolean_syntax
 from ...agents.query_evaluator import evaluate_sample
 from ...core import store
 from ...core.anthropic_client import get_llm_client
+from ...core.api import OkResponse
 from ...core.config import UPLOAD_DIR
 from ...core.events import broadcast as _broadcast
+from ...core.jobs import submit
 from ..research.schemas import ApproveRequest
 from .schemas import (
+    DatasetRecord,
+    DatasetUploadResponse,
     EditQueryRequest,
+    EditQueryResponse,
     EditRQRequest,
+    EvaluationUploadResponse,
     FinalApprovalRequest,
+    FinalApprovalResult,
     GenerateStrategyRequest,
+    QueryVersion,
+    SampleEvaluationRecord,
+    SearchStrategyResponse,
+    StrategyJobStarted,
 )
 
 logger = logging.getLogger(__name__)
 
 STRATEGY_LLM_TIMEOUT = 300
+
+IdPath = Annotated[int, PathParam(ge=1)]
 
 router = APIRouter()
 
@@ -312,7 +326,7 @@ def _build_deterministic_strategy(spec: dict, raw_brief_text: str = "") -> dict:
     }
 
 
-@router.post("/strategy/generate")
+@router.post("/strategy/generate", response_model=StrategyJobStarted)
 def generate_search_strategy(req: GenerateStrategyRequest):
     project = store.get_project(req.project_id)
     if not project:
@@ -450,12 +464,12 @@ def generate_search_strategy(req: GenerateStrategyRequest):
             store.update_job(job_id, status="failed", error=str(e))
             _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "failed", "error": str(e)})
 
-    threading.Thread(target=worker, daemon=True).start()
+    submit(worker, name="strategy:generate")
     return {"job_id": job_id, "project_id": req.project_id}
 
 
-@router.get("/strategy/{project_id}")
-def get_search_strategy(project_id: int):
+@router.get("/strategy/{project_id}", response_model=SearchStrategyResponse)
+def get_search_strategy(project_id: IdPath):
     strategy = store.get_latest_strategy(project_id)
     if not strategy:
         raise HTTPException(404, "No strategy found for this project")
@@ -472,8 +486,8 @@ def get_search_strategy(project_id: int):
     }
 
 
-@router.post("/strategy/{strategy_id}/edit-query")
-def edit_query(strategy_id: int, req: EditQueryRequest):
+@router.post("/strategy/{strategy_id}/edit-query", response_model=EditQueryResponse)
+def edit_query(strategy_id: IdPath, req: EditQueryRequest):
     issues = validate_boolean_syntax(req.query_text)
     version_id = store.update_strategy_query(strategy_id, req.query_type, req.query_text)
     return {
@@ -483,36 +497,36 @@ def edit_query(strategy_id: int, req: EditQueryRequest):
     }
 
 
-@router.get("/strategy/{strategy_id}/versions")
-def get_query_versions(strategy_id: int):
+@router.get("/strategy/{strategy_id}/versions", response_model=list[QueryVersion])
+def get_query_versions(strategy_id: IdPath):
     return store.get_query_versions(strategy_id)
 
 
-@router.post("/strategy/{strategy_id}/approve")
-def approve_search_strategy(strategy_id: int, req: ApproveRequest):
+@router.post("/strategy/{strategy_id}/approve", response_model=OkResponse)
+def approve_search_strategy(strategy_id: IdPath, req: ApproveRequest):
     store.approve_strategy(strategy_id, req.reviewer)
     _broadcast({"type": "intel_strategy_approved", "strategy_id": strategy_id})
     return {"ok": True}
 
 
-@router.put("/strategy/{strategy_id}/research-question")
-def edit_research_question(strategy_id: int, req: EditRQRequest):
+@router.put("/strategy/{strategy_id}/research-question", response_model=OkResponse)
+def edit_research_question(strategy_id: IdPath, req: EditRQRequest):
     ok = store.update_research_question(strategy_id, req.question_id, req.question, req.query)
     if not ok:
         raise HTTPException(404, "Research question not found")
     return {"ok": True}
 
 
-@router.delete("/strategy/{strategy_id}/research-question/{question_id}")
-def delete_research_question(strategy_id: int, question_id: str):
+@router.delete("/strategy/{strategy_id}/research-question/{question_id}", response_model=OkResponse)
+def delete_research_question(strategy_id: IdPath, question_id: str):
     ok = store.delete_research_question(strategy_id, question_id)
     if not ok:
         raise HTTPException(404, "Research question not found")
     return {"ok": True}
 
 
-@router.post("/strategy/{project_id}/final-approve")
-def final_query_approval(project_id: int, req: FinalApprovalRequest):
+@router.post("/strategy/{project_id}/final-approve", response_model=FinalApprovalResult)
+def final_query_approval(project_id: IdPath, req: FinalApprovalRequest):
     strategy = store.get_latest_strategy(project_id)
     if not strategy:
         raise HTTPException(404, "No strategy found")
@@ -765,7 +779,7 @@ def _process_dataset_bg(dataset_id: int, file_path: str, file_name: str, project
                      "error": str(e)})
 
 
-@router.post("/dataset/upload")
+@router.post("/dataset/upload", response_model=DatasetUploadResponse)
 async def upload_dataset(
     project_id: int,
     file: UploadFile = File(...),
@@ -794,11 +808,8 @@ async def upload_dataset(
     job_id = str(uuid.uuid4())
     store.create_job(job_id, project_id, "dataset_upload")
 
-    threading.Thread(
-        target=_process_dataset_bg,
-        args=(dataset_id, str(dest), file.filename or safe_name, project_id, job_id),
-        daemon=True,
-    ).start()
+    submit(_process_dataset_bg, dataset_id, str(dest), file.filename or safe_name, project_id, job_id,
+           name="strategy:dataset-parse")
 
     return {
         "dataset_id": dataset_id,
@@ -809,8 +820,8 @@ async def upload_dataset(
     }
 
 
-@router.get("/dataset/{project_id}")
-def get_dataset(project_id: int, scope: str = "latest"):
+@router.get("/dataset/{project_id}", response_model=DatasetRecord | list[DatasetRecord])
+def get_dataset(project_id: IdPath, scope: str = "latest"):
     if scope == "all":
         return store.get_datasets_by_project(project_id)
     dataset = store.get_latest_dataset(project_id)
@@ -819,20 +830,20 @@ def get_dataset(project_id: int, scope: str = "latest"):
     return dataset
 
 
-@router.post("/dataset/{dataset_id}/approve")
-def approve_dataset(dataset_id: int):
+@router.post("/dataset/{dataset_id}/approve", response_model=OkResponse)
+def approve_dataset(dataset_id: IdPath):
     store.approve_dataset(dataset_id)
     _broadcast({"type": "intel_dataset_approved", "dataset_id": dataset_id})
     return {"ok": True}
 
 
-@router.delete("/dataset/{dataset_id}")
-def delete_dataset(dataset_id: int):
+@router.delete("/dataset/{dataset_id}", response_model=OkResponse)
+def delete_dataset(dataset_id: IdPath):
     store.delete_dataset(dataset_id)
     return {"ok": True}
 
 
-@router.post("/evaluation/upload")
+@router.post("/evaluation/upload", response_model=EvaluationUploadResponse)
 async def upload_sample_dataset(
     project_id: int,
     strategy_id: int,
@@ -884,12 +895,12 @@ async def upload_sample_dataset(
             store.update_job(job_id, status="failed", error=str(e))
             _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "failed", "error": str(e)})
 
-    threading.Thread(target=worker, daemon=True).start()
+    submit(worker, name="strategy:sample-evaluation")
     return {"job_id": job_id, "eval_id": eval_id}
 
 
-@router.get("/evaluation/{project_id}")
-def get_evaluation(project_id: int):
+@router.get("/evaluation/{project_id}", response_model=SampleEvaluationRecord)
+def get_evaluation(project_id: IdPath):
     evaluation = store.get_latest_evaluation(project_id)
     if not evaluation:
         raise HTTPException(404, "No evaluation found")

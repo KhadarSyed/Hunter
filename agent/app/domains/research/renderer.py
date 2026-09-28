@@ -712,7 +712,7 @@ def _render_source_register(doc: Document, content: str) -> None:
             run.font.bold = True
             run.font.name = "Calibri"
 
-            run = p.add_run(f"   ")
+            run = p.add_run("   ")
             run.font.size = Pt(9)
 
             _add_rich_text(p, rest, size=Pt(9), append=True)

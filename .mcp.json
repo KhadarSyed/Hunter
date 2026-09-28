@@ -2,7 +2,16 @@
   "mcpServers": {
     "playwright": {
       "command": "npx",
-      "args": ["@playwright/mcp@latest"]
+      "args": [
+        "@playwright/mcp@latest"
+      ]
+    },
+    "brandfetch": {
+      "type": "http",
+      "url": "https://mcp.brandfetch.io/mcp",
+      "headers": {
+        "Authorization": "Bearer ${BRANDFETCH_API_KEY}"
+      }
     }
   }
 }

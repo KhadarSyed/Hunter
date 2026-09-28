@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 from ..core.ollama_client import OllamaClient
 

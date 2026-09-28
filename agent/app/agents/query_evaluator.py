@@ -17,7 +17,7 @@ import csv
 import os
 import re
 import time
-from collections import Counter, defaultdict
+from collections import Counter
 from difflib import SequenceMatcher
 from typing import Any, Callable
 

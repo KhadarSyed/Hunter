@@ -16,7 +16,7 @@ import json
 import logging
 import re
 import time
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 

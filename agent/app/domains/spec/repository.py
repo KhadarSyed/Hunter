@@ -8,18 +8,20 @@ import time
 from typing import Any, Optional
 
 from ...core.db import _conn
+from ..projects.repository import get_project, update_project
 
 # ─── Project Spec Update ──────────────────────────────────────────────────────
 
+# Fields entered on the New Project form. The Brief & Scope LLM spec does not carry
+# them, so they are kept from the current spec when the analysis saves its result.
+FORM_FIELDS = ("raw_brief", "client", "geography", "research_type", "time_period")
+
+
 def update_project_spec(project_id: int, spec: dict) -> bool:
-    conn = _conn()
-    conn.execute(
-        "UPDATE intel_projects SET spec_json = ?, updated_at = ? WHERE id = ?",
-        (json.dumps(spec), time.time(), project_id),
-    )
-    conn.commit()
-    conn.close()
-    return True
+    """Save the Brief & Scope spec, preserving the form fields (name and brand unchanged)."""
+    current = (get_project(project_id) or {}).get("spec") or {}
+    kept = {k: current[k] for k in FORM_FIELDS if current.get(k) and not spec.get(k)}
+    return update_project(project_id, spec={**spec, **kept})
 
 
 # ─── Research Specifications ──────────────────────────────────────────────────

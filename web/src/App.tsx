@@ -6,6 +6,7 @@ import { ProjectProvider, useProject } from "./context/project-context";
 import { LandingPage } from "./pages/LandingPage";
 import { Dashboard } from "./pages/Dashboard";
 import { NewProject } from "./pages/NewProject";
+import { ProjectsPage } from "./pages/ProjectsPage";
 import { BriefAnalysis } from "./pages/BriefAnalysis";
 import { BriefScopeReview } from "./pages/BriefScopeReview";
 import { BackgroundResearch } from "./pages/BackgroundResearch";
@@ -37,8 +38,12 @@ type PageProps = { onNavigate: (page: string) => void };
 const PAGES = {
   landing: LandingPage,
   dashboard: Dashboard,
+  projects: ProjectsPage,
+  "qc-projects": (p: PageProps) => <ProjectsPage {...p} projectType="monitoring_qc" />,
   "new-project": NewProject,
   "new-qc-project": (p: PageProps) => <NewProject {...p} projectType="monitoring_qc" />,
+  "edit-project": (p: PageProps) => <NewProject {...p} mode="edit" />,
+  "edit-qc-project": (p: PageProps) => <NewProject {...p} projectType="monitoring_qc" mode="edit" />,
   "brief-analysis": BriefAnalysis,
   "brief-scope-review": BriefScopeReview,
   "background-research": BackgroundResearch,
