@@ -28,6 +28,7 @@ agent/data/rendered/*
 !agent/data/rendered/.gitkeep
 agent/data/exports/
 agent/data/specifications/
+agent/data/backups/
 
 # Local scratch / logs
 backend.out.log

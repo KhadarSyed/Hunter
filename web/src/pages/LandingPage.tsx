@@ -30,7 +30,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
   }, []);
 
   const handleWorkflow = (type: ProjectType) => {
-    onNavigate(type === "research" ? "new-project" : "new-qc-project");
+    onNavigate(type === "research" ? "projects" : "qc-projects");
   };
 
   const handleSelectRecent = (proj: RecentProject) => {

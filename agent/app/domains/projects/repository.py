@@ -13,12 +13,36 @@ from ...core.db import _conn
 
 # ─── Projects ────────────────────────────────────────────────────────────────
 
-def create_project(name: str, spec: dict, project_type: str = "research") -> int:
+DESCRIPTION_MAX_CHARS = 220
+
+
+def _card_fields(spec: dict) -> dict:
+    """Display fields for the project list, derived from the stored spec."""
+    text = ""
+    for key in ("executive_interpretation", "research_objective", "raw_brief"):
+        val = spec.get(key)
+        if isinstance(val, str) and val.strip():
+            text = " ".join(val.split())
+            break
+    if len(text) > DESCRIPTION_MAX_CHARS:
+        text = text[: DESCRIPTION_MAX_CHARS - 1].rstrip() + "…"
+    scope = spec.get("included_scope") if isinstance(spec.get("included_scope"), dict) else {}
+    return {
+        "description": text,
+        "geography": spec.get("geography") or scope.get("geography") or "",
+        "client": spec.get("client") or "",
+    }
+
+
+def create_project(name: str, spec: dict, project_type: str = "research", brand: str | None = None) -> int:
+    """Create a project. `brand` is the Client name from the New Project form (drives the
+    Brandfetch logo); it is stored as entered and never inferred from the brief."""
     conn = _conn()
     now = time.time()
     cur = conn.execute(
-        "INSERT INTO intel_projects (project_name, spec_json, project_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-        (name, json.dumps(spec), project_type, now, now),
+        "INSERT INTO intel_projects (project_name, spec_json, project_type, brand, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (name, json.dumps(spec), project_type, (brand or "").strip() or None, now, now),
     )
     pid = cur.lastrowid
     conn.commit()
@@ -36,27 +60,33 @@ def get_project(project_id: int) -> Optional[dict]:
 
 
 def list_projects(project_type: str | None = None) -> list[dict]:
-    conn = _conn()
+    """Projects for the list page, newest first, with card fields (brand, description,
+    geography, client) resolved server-side so the page needs a single request."""
+    sql = "SELECT id, project_name, project_type, brand, spec_json, created_at, updated_at FROM intel_projects"
+    params: tuple = ()
     if project_type:
-        rows = conn.execute(
-            "SELECT id, project_name, project_type, created_at, updated_at FROM intel_projects WHERE project_type = ? ORDER BY updated_at DESC",
-            (project_type,),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT id, project_name, project_type, created_at, updated_at FROM intel_projects ORDER BY updated_at DESC"
-        ).fetchall()
+        sql += " WHERE project_type = ?"
+        params = (project_type,)
+    conn = _conn()
+    rows = conn.execute(sql + " ORDER BY updated_at DESC", params).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        spec = json.loads(d.pop("spec_json") or "{}")
+        out.append({**d, **_card_fields(spec)})
+    return out
 
 
-def update_project(project_id: int, project_name: str | None = None, spec: dict | None = None) -> bool:
-    """Partially update a project's name and/or spec. Both params optional; only provided fields change."""
+def update_project(
+    project_id: int, project_name: str | None = None, spec: dict | None = None, brand: str | None = None
+) -> bool:
+    """Partially update a project; only provided fields change (brand only when passed)."""
     conn = _conn()
     conn.execute(
         "UPDATE intel_projects SET project_name = COALESCE(?, project_name), "
-        "spec_json = COALESCE(?, spec_json), updated_at = ? WHERE id = ?",
-        (project_name, json.dumps(spec) if spec is not None else None, time.time(), project_id),
+        "spec_json = COALESCE(?, spec_json), brand = COALESCE(?, brand), updated_at = ? WHERE id = ?",
+        (project_name, json.dumps(spec) if spec is not None else None, brand, time.time(), project_id),
     )
     conn.commit()
     conn.close()
@@ -82,8 +112,6 @@ def get_or_create_project(spec: dict) -> int:
         return row["id"]
     return create_project(name, spec)
 
-
-# ─── Jobs ──────────────────────────────────────────────────────────────
 
 # ─── Jobs ────────────────────────────────────────────────────────────────────
 
@@ -177,3 +205,76 @@ def cancel_stale_running_jobs():
     )
     conn.commit()
     conn.close()
+
+
+# ─── Project deletion ───────────────────────────────────────────────────────
+
+# Parent links that exist in practice but are not declared as FOREIGN KEYs in the schema.
+_UNDECLARED_LINKS: list[tuple[str, str, str]] = [  # (child table, child column, parent table)
+    ("intel_word_jobs", "presentation_id", "intel_pc_presentations"),
+    ("intel_word_documents", "presentation_id", "intel_pc_presentations"),
+    ("intel_word_history", "presentation_id", "intel_pc_presentations"),
+    ("intel_word_metrics", "job_id", "intel_word_jobs"),
+    ("intel_si_storyline_matches", "storyline_id", "intel_storylines"),
+]
+_ROOT = "intel_projects"
+_DELETE_CHUNK = 500  # stay under SQLite's bound-parameter limit
+
+
+def _child_links(conn) -> dict[str, list[tuple[str, str]]]:
+    """parent table -> [(child table, child column)]: the schema's declared FKs, every
+    table with a project_id column, and _UNDECLARED_LINKS."""
+    links: dict[str, set[tuple[str, str]]] = {}
+    tables = [r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+    for t in tables:
+        for fk in conn.execute(f"PRAGMA foreign_key_list('{t}')"):
+            parent, col = fk[2], fk[3]
+            if parent != t:  # skip self-references (e.g. library canonical_id)
+                links.setdefault(parent, set()).add((t, col))
+        if t != _ROOT and any(c[1] == "project_id" for c in conn.execute(f"PRAGMA table_info('{t}')")):
+            links.setdefault(_ROOT, set()).add((t, "project_id"))
+    for child, col, parent in _UNDECLARED_LINKS:
+        if child in tables:
+            links.setdefault(parent, set()).add((child, col))
+    return {k: sorted(v) for k, v in links.items()}
+
+
+def delete_project(project_id: int) -> dict[str, int] | None:
+    """Delete a project and every row that belongs to it (children first) in one
+    transaction. Returns rows deleted per table, or None if the project doesn't exist.
+    Files on disk (uploads, rendered decks) are left in place."""
+    conn = _conn()
+    try:
+        if not conn.execute("SELECT 1 FROM intel_projects WHERE id = ?", (project_id,)).fetchone():
+            return None
+        links = _child_links(conn)
+        plan: list[tuple[str, list]] = []  # (table, ids), deepest first
+        seen: set[tuple[str, object]] = set()
+
+        def collect(table: str, ids: list) -> None:
+            for child, col in links.get(table, []):
+                found = []
+                for i in range(0, len(ids), _DELETE_CHUNK):
+                    chunk = ids[i:i + _DELETE_CHUNK]
+                    marks = ",".join("?" * len(chunk))
+                    found += [r[0] for r in conn.execute(f'SELECT id FROM "{child}" WHERE "{col}" IN ({marks})', chunk)]
+                found = [x for x in found if (child, x) not in seen]
+                if found:
+                    seen.update((child, x) for x in found)
+                    collect(child, found)
+                    plan.append((child, found))
+
+        collect(_ROOT, [project_id])
+        plan.append((_ROOT, [project_id]))
+        deleted: dict[str, int] = {}
+        with conn:
+            for table, ids in plan:
+                for i in range(0, len(ids), _DELETE_CHUNK):
+                    chunk = ids[i:i + _DELETE_CHUNK]
+                    marks = ",".join("?" * len(chunk))
+                    deleted[table] = deleted.get(table, 0) + conn.execute(
+                        f'DELETE FROM "{table}" WHERE id IN ({marks})', chunk).rowcount
+        return deleted
+    finally:
+        conn.close()

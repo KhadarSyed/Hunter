@@ -15,7 +15,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -23,6 +22,7 @@ from typing import Callable
 
 from ...core import store
 from ...core.events import broadcast as _broadcast
+from ...core.jobs import submit
 
 logger = logging.getLogger(__name__)
 
@@ -711,7 +711,7 @@ def _execute_single_stage(run_id: str, project_id: int, stage_id: str) -> dict:
                         result_summary=result)
 
         store.add_pipeline_metric(
-            project_id, f"stage_execution_time", elapsed_ms,
+            project_id, "stage_execution_time", elapsed_ms,
             stage_id=stage_id, run_id=run_id, unit="ms",
         )
 
@@ -908,8 +908,7 @@ def start_pipeline(project_id: int, mode: str = "full",
             return {"error": "No remaining stages to resume"}
         store.update_pipeline_run(run_id, status="running")
         _log(run_id, None, f"Pipeline resumed with {len(remaining)} remaining stages")
-        threading.Thread(target=_run_pipeline_bg, args=(run_id, project_id, remaining),
-                         daemon=True).start()
+        submit(_run_pipeline_bg, run_id, project_id, remaining, name="pipeline:resume")
         return {"run_id": run_id, "status": "started"}
 
     stages = _determine_stages(project_id, mode, start_stage, single_stage)
@@ -925,8 +924,7 @@ def start_pipeline(project_id: int, mode: str = "full",
         user=user,
     )
 
-    threading.Thread(target=_run_pipeline_bg, args=(run_id, project_id, stages),
-                     daemon=True).start()
+    submit(_run_pipeline_bg, run_id, project_id, stages, name="pipeline:run")
     return {"run_id": run_id, "status": "started"}
 
 
@@ -957,8 +955,7 @@ def resume_pipeline(run_id: str) -> dict:
         return {"error": "No remaining stages"}
     store.update_pipeline_run(run_id, status="running")
     _log(run_id, None, f"Pipeline resumed with {len(remaining)} remaining stages")
-    threading.Thread(target=_run_pipeline_bg, args=(run_id, run["project_id"], remaining),
-                     daemon=True).start()
+    submit(_run_pipeline_bg, run_id, run["project_id"], remaining, name="pipeline:resume")
     return {"run_id": run_id, "status": "started"}
 
 

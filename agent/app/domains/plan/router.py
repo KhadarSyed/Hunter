@@ -2,23 +2,33 @@
 from __future__ import annotations
 
 import logging
-import threading
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Path
 
 from ...core import store
+from ...core.api import OkResponse
 from ...core.events import broadcast as _broadcast
+from ...core.jobs import submit
 from ..strategy.schemas import GenerateStrategyRequest
 from . import service as planner_service
-from .schemas import PlanApproveRequest, PlanRegenerateRequest, PlanRejectRequest
+from .schemas import (
+    PlanApproveRequest,
+    PlanBlocked,
+    PlanJobStarted,
+    PlanPrerequisitesResponse,
+    PlanRegenerateRequest,
+    PlanRejectRequest,
+    ResearchPlanRecord,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-@router.post("/plan/generate")
+@router.post("/plan/generate", response_model=PlanJobStarted | PlanBlocked)
 def generate_research_plan(req: GenerateStrategyRequest):
     """Generate a Research Plan for the given project."""
 
@@ -68,12 +78,12 @@ def generate_research_plan(req: GenerateStrategyRequest):
             store.update_job(job_id, status="failed", error=str(e))
             _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "failed", "error": str(e)})
 
-    threading.Thread(target=worker, daemon=True).start()
+    submit(worker, name="plan:generate")
     return {"job_id": job_id, "project_id": req.project_id}
 
 
-@router.get("/plan/{project_id}")
-def get_research_plan(project_id: int):
+@router.get("/plan/{project_id}", response_model=ResearchPlanRecord)
+def get_research_plan(project_id: Annotated[int, Path(ge=1)]):
     """Get the latest Research Plan for a project."""
     plan = store.get_latest_plan(project_id)
     if not plan:
@@ -81,8 +91,8 @@ def get_research_plan(project_id: int):
     return plan
 
 
-@router.post("/plan/{plan_id}/approve")
-def approve_research_plan(plan_id: int, req: PlanApproveRequest):
+@router.post("/plan/{plan_id}/approve", response_model=OkResponse)
+def approve_research_plan(plan_id: Annotated[int, Path(ge=1)], req: PlanApproveRequest):
     """Approve a Research Plan."""
     ok = store.approve_plan(plan_id, req.reviewer)
     if not ok:
@@ -91,8 +101,8 @@ def approve_research_plan(plan_id: int, req: PlanApproveRequest):
     return {"ok": True}
 
 
-@router.post("/plan/{plan_id}/reject")
-def reject_research_plan(plan_id: int, req: PlanRejectRequest):
+@router.post("/plan/{plan_id}/reject", response_model=OkResponse)
+def reject_research_plan(plan_id: Annotated[int, Path(ge=1)], req: PlanRejectRequest):
     """Reject a Research Plan."""
     ok = store.reject_plan(plan_id, req.notes)
     if not ok:
@@ -100,13 +110,13 @@ def reject_research_plan(plan_id: int, req: PlanRejectRequest):
     return {"ok": True}
 
 
-@router.post("/plan/regenerate")
+@router.post("/plan/regenerate", response_model=PlanJobStarted | PlanBlocked)
 def regenerate_research_plan(req: PlanRegenerateRequest):
     """Regenerate a plan — same as generate but implies a prior plan exists."""
     return generate_research_plan(GenerateStrategyRequest(project_id=req.project_id))
 
 
-@router.post("/plan/validate")
+@router.post("/plan/validate", response_model=PlanPrerequisitesResponse)
 def validate_plan_prerequisites(req: GenerateStrategyRequest):
     """Check whether prerequisites are met for plan generation."""
     return planner_service.validate_prerequisites(req.project_id)

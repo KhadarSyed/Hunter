@@ -658,7 +658,7 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
 
       {!isApproved && (
         <div className="flex items-center justify-between pt-2">
-          <button onClick={() => onNavigate("new-project")} className="text-sm text-slate-400 hover:text-slate-600 transition-colors">
+          <button onClick={() => onNavigate("projects")} className="text-sm text-slate-400 hover:text-slate-600 transition-colors">
             Back to Projects
           </button>
           <div className="flex items-center gap-3">
@@ -684,7 +684,7 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
 
       {isApproved && (
         <div className="flex items-center justify-between pt-2">
-          <button onClick={() => onNavigate("new-project")} className="text-sm text-slate-400 hover:text-slate-600 transition-colors">
+          <button onClick={() => onNavigate("projects")} className="text-sm text-slate-400 hover:text-slate-600 transition-colors">
             Back to Projects
           </button>
           <button

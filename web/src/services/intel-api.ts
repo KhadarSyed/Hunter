@@ -301,25 +301,41 @@ export interface GenerateSpecResult {
 
 // ─── API Functions ──────────────────────────────────────────────────────────
 
+/** Row returned by GET /projects — card fields are resolved server-side. */
+export interface ProjectSummary {
+  id: number;
+  project_name: string;
+  project_type: string;
+  /** Primary brand (spec.commissioning_brand.name) — fed to Brandfetch for the logo. */
+  brand: string | null;
+  description: string;
+  geography: string;
+  client: string;
+  created_at: number;
+  updated_at: number;
+}
+
 export const intelApi = {
   // Projects
-  listProjects: (type?: string) =>
-    get<{ id: number; project_name: string; project_type: string; created_at: number; updated_at: number }[]>(
-      type ? `/projects?type=${type}` : "/projects"
-    ),
+  listProjects: (type?: string) => get<ProjectSummary[]>(type ? `/projects?type=${type}` : "/projects"),
 
-  createProject: (name: string, spec: Record<string, unknown> = {}, project_type: string = "research") =>
+  createProject: (name: string, spec: Record<string, unknown> = {}, project_type: string = "research", brand?: string) =>
     post<{ id: number; project_name: string; project_type: string; spec: Record<string, unknown> }>("/projects", {
       project_name: name,
       spec,
       project_type,
+      brand,
     }),
 
   getProject: (projectId: number) =>
     get<{ id: number; project_name: string; project_type: string; spec: Record<string, unknown> }>(`/projects/${projectId}`),
 
-  updateProject: (id: number, body: { project_name?: string; spec?: Record<string, unknown> }) =>
+  updateProject: (id: number, body: { project_name?: string; spec?: Record<string, unknown>; brand?: string }) =>
     put<{ id: number; project_name: string; project_type: string; spec: Record<string, unknown> }>(`/projects/${id}`, body),
+
+  /** Deletes the project and all of its pipeline data (irreversible). */
+  deleteProject: (id: number) =>
+    del<{ ok: boolean; project_id: number; rows_deleted: number; tables: Record<string, number> }>(`/projects/${id}`),
 
   // Presentation Composer — list presentations
   pcPresentations: (projectId: number) =>
@@ -494,7 +510,7 @@ export const intelApi = {
     del<{ ok: boolean }>(`/strategy/${strategyId}/research-question/${questionId}`),
 
   // Brief file upload
-  parseBriefFile: async (file: File): Promise<{ text: string; file_name: string; ocr_used?: boolean }> => {
+  parseBriefFile: async (file: File): Promise<{ text: string; file_name: string; ocr_used?: boolean; extraction_method?: "nvidia" | "native"; model?: string | null; pages?: number | null }> => {
     const form = new FormData();
     form.append("file", file);
     const res = await fetch(`${API_BASE}/brief/parse-file`, { method: "POST", body: form });

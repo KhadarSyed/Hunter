@@ -8,19 +8,26 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import logging
-import threading
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Path
 
 from ...agents.brand_intelligence import run as run_bi
 from ...core import store
 from ...core.anthropic_client import get_llm_client
+from ...core.api import OkResponse
 from ...core.events import broadcast as _broadcast
+from ...core.jobs import submit
 from . import brandfetch as brandfetch_client
 from .schemas import (
     ApproveRequest,
+    BrandLogoResponse,
     NewsApprovalRequest,
+    ResearchApprovalResult,
+    ResearchJobStarted,
+    ResearchJobStatus,
+    ResearchResults,
     RevisionRequest,
     StartResearchRequest,
 )
@@ -33,7 +40,7 @@ LLM_ENRICHMENT_TIMEOUT = 120
 router = APIRouter()
 
 
-@router.post("/research/start")
+@router.post("/research/start", response_model=ResearchJobStarted)
 def start_background_research(req: StartResearchRequest):
     """Start a live background research job."""
     spec = req.spec
@@ -150,11 +157,11 @@ def start_background_research(req: StartResearchRequest):
             _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "failed",
                          "error": str(e)})
 
-    threading.Thread(target=worker, daemon=True).start()
+    submit(worker, name="research:background")
     return {"job_id": job_id, "project_id": project_id}
 
 
-@router.get("/research/status/{job_id}")
+@router.get("/research/status/{job_id}", response_model=ResearchJobStatus)
 def get_research_status(job_id: str):
     job = store.get_job(job_id)
     if not job:
@@ -192,8 +199,8 @@ def _research_blocking_reasons(web_data: dict) -> list[str]:
     return blocking_reasons
 
 
-@router.get("/research/{project_id}")
-def get_research_results(project_id: int):
+@router.get("/research/{project_id}", response_model=ResearchResults)
+def get_research_results(project_id: Annotated[int, Path(ge=1)]):
     research = store.get_latest_research(project_id)
     if not research:
         raise HTTPException(404, "No research found for this project")
@@ -225,8 +232,8 @@ def get_research_results(project_id: int):
     }
 
 
-@router.post("/research/{research_id}/approve")
-def approve_background_research(research_id: int, req: ApproveRequest):
+@router.post("/research/{research_id}/approve", response_model=ResearchApprovalResult)
+def approve_background_research(research_id: Annotated[int, Path(ge=1)], req: ApproveRequest):
     research = store.get_research_by_id(research_id)
     if not research:
         raise HTTPException(404, "Research not found")
@@ -240,21 +247,21 @@ def approve_background_research(research_id: int, req: ApproveRequest):
     return {"ok": True, "approved": True, "overridden": bool(blocking_reasons)}
 
 
-@router.post("/research/{research_id}/revise")
-def request_research_revision(research_id: int, req: RevisionRequest):
+@router.post("/research/{research_id}/revise", response_model=OkResponse)
+def request_research_revision(research_id: Annotated[int, Path(ge=1)], req: RevisionRequest):
     store.reject_research(research_id, req.notes)
     return {"ok": True}
 
 
-@router.post("/research/{research_id}/news-approval")
-def approve_news_item(research_id: int, req: NewsApprovalRequest):
+@router.post("/research/{research_id}/news-approval", response_model=OkResponse)
+def approve_news_item(research_id: Annotated[int, Path(ge=1)], req: NewsApprovalRequest):
     store.update_news_approval(research_id, req.item_index, req.status, req.notes)
     return {"ok": True}
 
 
 # ─── Brandfetch ────────────────────────────────────────────────────────
 
-@router.get("/brandfetch/logo")
+@router.get("/brandfetch/logo", response_model=BrandLogoResponse)
 def get_brand_logo_route(brand_name: str):
     logo_url = brandfetch_client.get_brand_logo_url(brand_name)
     return {"brand_name": brand_name, "logo_url": logo_url}

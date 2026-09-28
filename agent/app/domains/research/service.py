@@ -120,7 +120,7 @@ def compose_brief(project_id: int, research_id: int, spec: dict, research_data: 
     brief = {
         "title": f"{brand_name} U.S. Competitive News Brief{title_period}",
         "subtitle": "ANALYST BRIEFING",
-        "purpose": f"Purpose: Provide analysts with a concise starting point before deeper media, consumer or competitive analysis. This is a curated brief of material developments, not an exhaustive clipping report.",
+        "purpose": "Purpose: Provide analysts with a concise starting point before deeper media, consumer or competitive analysis. This is a curated brief of material developments, not an exhaustive clipping report.",
         "research_subject": research_subject,
         "brand_name": brand_name,
         "category": category,
@@ -494,12 +494,12 @@ def _build_executive_summary_basic(subject, brand_name, category, brand_items,
     if brand_themes.get("campaigns", 0) > 2:
         implications.append(f"- **Marketing investment**: Significant campaign activity suggests {display_name} is investing in brand visibility — assess whether messaging is differentiated vs. competitors")
     if brand_themes.get("announcements", 0) > 2:
-        implications.append(f"- **Product news cycle**: Multiple product announcements indicate an active innovation pipeline — monitor competitor responses and market reception")
+        implications.append("- **Product news cycle**: Multiple product announcements indicate an active innovation pipeline — monitor competitor responses and market reception")
     if competitor_items:
         comp_names = list({ci.get("_competitor", "") for ci in competitor_items if ci.get("_competitor")})[:5]
         implications.append(f"- **Competitive pressure**: Monitor moves from {', '.join(comp_names)} — their activity levels suggest they are actively investing in the same space")
     if brand_themes.get("controversies", 0) > 0:
-        implications.append(f"- **Reputation watch**: Risk signals detected — review controversy items for potential brand impact and prepare response strategies")
+        implications.append("- **Reputation watch**: Risk signals detected — review controversy items for potential brand impact and prepare response strategies")
     if gaps:
         gap_list = ", ".join(str(g) for g in gaps[:3])
         implications.append(f"- **Research gaps**: Analyst follow-up needed on: {gap_list}")

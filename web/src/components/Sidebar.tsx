@@ -16,7 +16,7 @@ interface NavItem {
 
 const RESEARCH_NAV: NavItem[] = [
   { page: "dashboard", label: "Dashboard", icon: "grid" },
-  { page: "new-project", label: "Projects", icon: "folder" },
+  { page: "projects", label: "Projects", icon: "folder" },
   { page: "brief-scope-review", label: "Brief & Scope", icon: "file-text", section: "Scope" },
   { page: "background-research", label: "Background Research", icon: "globe" },
   { page: "search-strategy", label: "Search Strategy", icon: "search", section: "Research" },
@@ -38,13 +38,13 @@ const RESEARCH_NAV: NavItem[] = [
 ];
 
 const QC_NAV: NavItem[] = [
-  { page: "new-qc-project", label: "Projects", icon: "folder" },
+  { page: "qc-projects", label: "Projects", icon: "folder" },
   { page: "qc-upload", label: "Upload Report", icon: "upload" },
   { page: "qc-results", label: "QC Results", icon: "check-circle" },
   { page: "qc-export", label: "Export", icon: "download" },
 ];
 
-const QC_PAGES = new Set<string>(["new-qc-project", "qc-upload", "qc-field-mapping", "qc-results", "qc-export"]);
+const QC_PAGES = new Set<string>(["qc-projects", "new-qc-project", "edit-qc-project", "qc-upload", "qc-field-mapping", "qc-results", "qc-export"]);
 
 function NavIcon({ name, size = 16 }: { name: string; size?: number }) {
   const props = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
@@ -215,8 +215,8 @@ export function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavi
         {navItems.map((item) => {
           const isActive =
             item.page === currentPage ||
-            (item.page === "new-project" && currentPage === "new-project") ||
-            (item.page === "new-qc-project" && currentPage === "new-qc-project") ||
+            (item.page === "projects" && (currentPage === "new-project" || currentPage === "edit-project")) ||
+            (item.page === "qc-projects" && (currentPage === "new-qc-project" || currentPage === "edit-qc-project")) ||
             (item.page === "brief-scope-review" && (currentPage === "brief-scope-review" || currentPage === "brief-analysis"));
 
           if (item.comingSoon) {
