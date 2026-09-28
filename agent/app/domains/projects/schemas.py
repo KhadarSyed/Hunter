@@ -53,6 +53,7 @@ class ProjectListItem(ApiModel):
     description: str | None = None
     geography: str | None = None
     client: str | None = None
+    brief_source: dict | None = None  # {type: pdf|docx|pptx|xlsx|doc|ppt|xls|txt|text, file_name}
 
 
 class JobResponse(ApiModel):

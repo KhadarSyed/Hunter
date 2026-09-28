@@ -13,6 +13,7 @@ import time
 from typing import Any
 
 from ...core import store
+from .repository import FORM_FIELDS
 
 SECTION_TITLES = {
     "project_understanding": "Project Understanding",
@@ -37,9 +38,9 @@ SECTION_TITLES = {
     "approval_status": "Approval Status",
 }
 
-# Fields the analyst sets on the New Project form. The brief_scope LLM only sees the
-# brief text, so it cannot know them and tends to answer "not specified".
-_FORM_FIELDS = ("raw_brief", "client", "geography", "research_type", "time_period")
+# Fields the analyst sets on the New Project form (single definition in repository.py).
+# The brief_scope LLM only sees the brief text, so it cannot know them.
+_FORM_FIELDS = FORM_FIELDS
 _SCOPE_FROM_FORM = {"geography": "geography", "time_period": "time_period"}  # included_scope key -> form key
 _UNSPECIFIED = ("", "not specified", "unspecified", "n/a", "none", "unknown", "tbd")
 # form key -> keywords identifying an LLM "missing information" item that the form answers

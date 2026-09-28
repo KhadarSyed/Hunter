@@ -301,6 +301,11 @@ export interface GenerateSpecResult {
 
 // ─── API Functions ──────────────────────────────────────────────────────────
 
+export interface BriefSource {
+  type: string; // pdf | docx | doc | pptx | ppt | xlsx | xls | txt | text
+  file_name?: string;
+}
+
 /** Row returned by GET /projects — card fields are resolved server-side. */
 export interface ProjectSummary {
   id: number;
@@ -311,6 +316,8 @@ export interface ProjectSummary {
   description: string;
   geography: string;
   client: string;
+  /** Where the brief came from: an uploaded file type (pdf, docx, ...) or "text" (pasted). */
+  brief_source: BriefSource | null;
   created_at: number;
   updated_at: number;
 }

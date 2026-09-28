@@ -14,7 +14,7 @@ from ..projects.repository import get_project, update_project
 
 # Fields entered on the New Project form. The Brief & Scope LLM spec does not carry
 # them, so they are kept from the current spec when the analysis saves its result.
-FORM_FIELDS = ("raw_brief", "client", "geography", "research_type", "time_period")
+FORM_FIELDS = ("raw_brief", "brief_source", "client", "geography", "research_type", "time_period")
 
 
 def update_project_spec(project_id: int, spec: dict) -> bool:

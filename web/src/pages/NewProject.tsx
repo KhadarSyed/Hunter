@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { CountryFlag, GEOGRAPHIES } from "../components/CountryFlag";
 import { useProject, type ProjectType } from "../context/project-context";
-import { intelApi } from "../services/intel-api";
+import { intelApi, type BriefSource } from "../services/intel-api";
 
 const DRAFT_KEY = "infovision-project-draft";
 
@@ -61,6 +61,8 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
   const [uploadingBrief, setUploadingBrief] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [extractionNote, setExtractionNote] = useState("");
+  // Uploaded file behind the brief text; null = typed/pasted text.
+  const [briefSource, setBriefSource] = useState<BriefSource | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Edit mode: load the project's saved brief by id.
@@ -78,6 +80,8 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
         setResearchType(str(s.research_type, "Social Listening"));
         setTimePeriod(str(s.time_period, "Past 30 days"));
         setBriefText(str(s.raw_brief));
+        const src = s.brief_source as BriefSource | undefined;
+        setBriefSource(src && src.type !== "text" ? src : null);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load project"))
       .finally(() => setLoadingProject(false));
@@ -90,6 +94,7 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
     try {
       const result = await intelApi.parseBriefFile(file);
       setBriefText(result.text);
+      setBriefSource({ type: (file.name.split(".").pop() || "file").toLowerCase(), file_name: file.name });
       setExtractionNote(
         result.extraction_method === "nvidia"
           ? `Text extracted from ${file.name} with NVIDIA ${result.model ?? "Nemotron-Parse"}${result.pages ? ` (${result.pages} page${result.pages > 1 ? "s" : ""})` : ""} — review before analysing.`
@@ -184,6 +189,7 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
         confidence: { overall: "medium", entity: "high", scope: "medium", methodology: "medium" },
         validation: { errors: 0, warnings: 0 },
         raw_brief: briefText.trim(),
+        brief_source: briefSource ?? { type: "text" },
         client,
         geography,
         research_type: researchType,
@@ -276,7 +282,10 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
         <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
           <label className="block">
             <span className="block text-xs font-medium text-slate-500 mb-1.5">Client Brief</span>
-            <textarea rows={12} value={briefText} onChange={(e) => setBriefText(e.target.value)}
+            <textarea rows={12} value={briefText} onChange={(e) => {
+                setBriefText(e.target.value);
+                if (!e.target.value.trim()) { setBriefSource(null); setExtractionNote(""); }
+              }}
               placeholder="Paste your client brief here..." className={`${INPUT} resize-y leading-relaxed`} />
           </label>
           {extractionNote && <p className="text-xs text-emerald-700">{extractionNote}</p>}
