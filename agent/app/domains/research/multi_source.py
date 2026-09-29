@@ -266,6 +266,19 @@ def _map_batch(llm_client, batch: list[dict]) -> dict | None:
         return None
 
 
+def _coerce_to_markdown(value) -> str:
+    """The reduce LLM call is prompted for markdown strings per section, but a model can still
+    return a raw JSON list or dict for a given key — coerce it into the same bullet/heading
+    shape the prompt asked for, so every section["content"] downstream is always a str."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "\n".join(f"- {_coerce_to_markdown(item)}" for item in value)
+    if isinstance(value, dict):
+        return "\n\n".join(f"## {k}\n{_coerce_to_markdown(v)}" for k, v in value.items())
+    return "" if value is None else str(value)
+
+
 def _reduce_batches(llm_client, batch_summaries: list[dict], brand_name: str) -> dict:
     summary_block = _json.dumps(batch_summaries, indent=2)
     prompt = (
@@ -298,7 +311,7 @@ def _reduce_batches(llm_client, batch_summaries: list[dict], brand_name: str) ->
         cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned)
         cleaned = re.sub(r'\s*```$', '', cleaned)
     parsed = _json.loads(cleaned)
-    return {key: parsed.get(key, "") for key in _REDUCE_KEYS}
+    return {key: _coerce_to_markdown(parsed.get(key, "")) for key in _REDUCE_KEYS}
 
 
 def summarize_map_reduce(project_id: int, spec: dict, llm_client, emit=None) -> dict:
