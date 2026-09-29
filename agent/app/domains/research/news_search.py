@@ -23,7 +23,7 @@ import logging
 import os
 import re
 import xml.etree.ElementTree as ET
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from typing import TypedDict
 from urllib.parse import quote, urlparse
@@ -366,8 +366,11 @@ def _within_range(date_str: str, date_range: tuple) -> bool:
         logger.debug("Unparseable date %r — dropping item under stringent date filter", date_str)
         return False
     start = _coerce_datetime(date_range[0])
-    end = _coerce_datetime(date_range[1])
-    return start <= parsed <= end
+    # +1 day, exclusive upper bound: date_range[1] is coerced to midnight of that date, so
+    # without this an item published any time later that same day (almost always true for
+    # "today", the most relevant part of a short window) would fail the range check.
+    end = _coerce_datetime(date_range[1]) + timedelta(days=1)
+    return start <= parsed < end
 
 
 def _recency_hours_for_range(date_range: tuple | None) -> int:
@@ -409,21 +412,38 @@ def fetch_and_normalize(
     if date_range is not None:
         recency_days = max(1, (date.today() - _coerce_datetime(date_range[0]).date()).days)
 
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    pool = ThreadPoolExecutor(max_workers=3)
+    results_by_source: dict[str, list[dict]] = {"serpapi": [], "tavily": [], "google_news_rss": []}
+    try:
         futures = {
             pool.submit(_search_serpapi, query, country, max_results, recency_days): "serpapi",
             pool.submit(_search_tavily, tavily_query or query, country, max_results, date_range): "tavily",
             pool.submit(_search_google_news_rss, query,
                         recency_hours=_recency_hours_for_range(date_range), country=country): "google_news_rss",
         }
-        results_by_source: dict[str, list[dict]] = {"serpapi": [], "tavily": [], "google_news_rss": []}
-        for future in as_completed(futures, timeout=DEFAULT_TIMEOUT + 5):
-            source = futures[future]
-            try:
-                results_by_source[source] = future.result()
-            except Exception:
-                logger.exception("%s fetch raised unexpectedly", source)
-                results_by_source[source] = []
+        try:
+            for future in as_completed(futures, timeout=DEFAULT_TIMEOUT + 5):
+                source = futures[future]
+                try:
+                    results_by_source[source] = future.result()
+                except Exception:
+                    logger.exception("%s fetch raised unexpectedly", source)
+                    results_by_source[source] = []
+        except TimeoutError:
+            # as_completed's own timeout, not an individual source's — at least one future is
+            # still running. Collect whatever already finished; abandon the rest (contributing
+            # nothing) rather than let this propagate and fail the whole caller, honoring this
+            # function's documented "never raises" contract.
+            for future, source in futures.items():
+                if future.done():
+                    try:
+                        results_by_source[source] = future.result()
+                    except Exception:
+                        results_by_source[source] = []
+                else:
+                    logger.warning("%s fetch timed out — abandoning, contributing nothing", source)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
     serpapi_raw = results_by_source["serpapi"]
     tavily_raw = results_by_source["tavily"]
