@@ -216,14 +216,15 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
       };
       const result = await persistProject(spec);
       saved = true;
-      setLlmStatus("Analyzing brief with LLM — this may take 1–2 minutes...");
+      // Starts generation in the background and returns immediately with a job_id;
+      // Brief & Scope picks up the running job and streams its progress from there.
       await intelApi.generateSpec(result.id, briefText.trim(), true);
       localStorage.removeItem(DRAFT_KEY);
       onNavigate("brief-scope-review");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "unknown error";
       setError(saved
-        ? `Project saved, but the brief analysis failed (${msg}). Click Analyze Brief to retry.`
+        ? `Project saved, but starting the brief analysis failed (${msg}). Click Analyze Brief to retry.`
         : `Could not save the project: ${msg}`);
       setCreating(false);
       setLlmStatus("");

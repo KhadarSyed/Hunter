@@ -244,6 +244,8 @@ export interface SpecData {
   section_titles: Record<string, string>;
   sections: Record<string, SpecSection>;
   source_spec: Record<string, unknown>;
+  /** Industry classification identified from the brief (agents/brief_scope.py RULE #8). */
+  industry?: { name: string; reasoning: string } | Record<string, never>;
   generated_at: number;
 }
 
@@ -252,6 +254,7 @@ export interface SpecResult {
   project_id: number;
   version: number;
   spec_json: string;
+  raw_brief_text: string | null;
   spec: SpecData;
   status: string;
   readiness_status: string;
@@ -297,6 +300,22 @@ export interface GenerateSpecResult {
   spec: SpecData;
   readiness: SpecReadiness;
   clarifications: { question: string; section_key: string; is_blocking: boolean }[];
+}
+
+/** Ack for POST /spec/generate — the job runs in the background; track it via `job_id`
+ * (WS `intel_job_update` messages carrying this job_id, or poll with `getJob`). */
+export interface SpecGenerationStarted {
+  job_id: string;
+  project_id: number;
+  status: string;
+}
+
+export interface PexelsImageResponse {
+  query: string;
+  image_url: string | null;
+  photographer: string | null;
+  source_url: string | null;
+  cached: boolean;
 }
 
 // ─── API Functions ──────────────────────────────────────────────────────────
@@ -404,8 +423,10 @@ export const intelApi = {
     get<BriefVersion[]>(`/brief/versions/${projectId}`),
 
   // Research Specification
+  /** Starts spec generation in the background; returns immediately with a job_id.
+   * Track progress via WS `intel_job_update` messages or `intelApi.getJob(job_id)`. */
   generateSpec: (projectId: number, rawBriefText = "", useLlm = false) =>
-    post<GenerateSpecResult>("/spec/generate", {
+    post<SpecGenerationStarted>("/spec/generate", {
       project_id: projectId,
       raw_brief_text: rawBriefText,
       use_llm: useLlm,
@@ -423,6 +444,9 @@ export const intelApi = {
       content,
       analyst_note: analystNote,
     }),
+
+  updateSpecIndustry: (specId: number, name: string, reasoning = "") =>
+    post<{ status: string; spec_id: number }>(`/spec/${specId}/industry`, { name, reasoning }),
 
   approveSpecSection: (specId: number, sectionKey: string, reviewer = "analyst") =>
     post<{ status: string; section_key: string }>(`/spec/${specId}/section/approve`, {
@@ -448,8 +472,10 @@ export const intelApi = {
   rejectSpec: (specId: number, reason = "", reviewer = "analyst") =>
     post<{ status: string; spec_id: number }>(`/spec/${specId}/reject`, { reason, reviewer }),
 
+  /** Starts spec re-analysis ("Reanalyze") in the background; returns immediately with
+   * a job_id — same async pattern as generateSpec(). */
   regenerateSpec: (specId: number, rawBriefText = "", useLlm = false, confirmOverwriteLocked = false) =>
-    post<{ spec_id: number; spec: SpecData; readiness: SpecReadiness }>(`/spec/${specId}/regenerate`, {
+    post<SpecGenerationStarted>(`/spec/${specId}/regenerate`, {
       raw_brief_text: rawBriefText,
       use_llm: useLlm,
       confirm_overwrite_locked: confirmOverwriteLocked,
@@ -527,6 +553,10 @@ export const intelApi = {
   // Brandfetch logo lookup
   getBrandLogo: (brandName: string) =>
     get<{ brand_name: string; logo_url: string | null }>(`/brandfetch/logo?brand_name=${encodeURIComponent(brandName)}`),
+
+  // Pexels dynamic background image lookup
+  getPexelsImage: (query: string) =>
+    get<PexelsImageResponse>(`/pexels/image?query=${encodeURIComponent(query)}`),
 
   // Sample Evaluation
   uploadSample: async (projectId: number, strategyId: number, file: File) => {

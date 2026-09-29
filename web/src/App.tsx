@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef, type ComponentType } from "react";
+import { useState, useEffect, useRef, useCallback, type ComponentType } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { FloatingProgressPanel } from "./components/FloatingProgressPanel";
 import { DemoStateProvider, useDemoState } from "./context/demo-state";
-import { ProjectProvider, useProject } from "./context/project-context";
+import { ProjectProvider, useProject, type ProjectType } from "./context/project-context";
+import { intelApi } from "./services/intel-api";
 import { LandingPage } from "./pages/LandingPage";
 import { Dashboard } from "./pages/Dashboard";
 import { NewProject } from "./pages/NewProject";
@@ -74,10 +75,32 @@ export type Page = keyof typeof PAGES;
 
 const isPage = (p: string): p is Page => p in PAGES;
 
-function ProjectDemoSync({ children }: { children: React.ReactNode }) {
-  const { projectVersion } = useProject();
+/** URL shape: `/{projectId}/{pageSlug}` once a project is active, else `/{pageSlug}` —
+ * the page slug is the same id used internally (PAGES keys / onNavigate strings), so
+ * there is exactly one name for each page, not a separate URL-vs-internal mapping. */
+function parseUrl(pathname: string): { projectId: number | null; page: Page | null } {
+  const segments = pathname.split("/").filter(Boolean).map(decodeURIComponent);
+  if (segments.length === 0) return { projectId: null, page: null };
+  const maybeId = Number(segments[0]);
+  if (Number.isInteger(maybeId) && maybeId > 0) {
+    const pageSeg = segments[1];
+    return { projectId: maybeId, page: pageSeg && isPage(pageSeg) ? pageSeg : null };
+  }
+  return { projectId: null, page: isPage(segments[0]) ? segments[0] : null };
+}
+
+function buildUrl(projectId: number | null, page: Page): string {
+  return projectId ? `/${projectId}/${page}` : `/${page}`;
+}
+
+/** Routing + demo-sync shell — rendered inside ProjectProvider/DemoStateProvider so it
+ * can read/write the active project as the URL and in-app navigation change. */
+function AppShell() {
+  const { activeProject, setActiveProject, projectVersion } = useProject();
   const { resetDemoState } = useDemoState();
   const prevVersion = useRef(projectVersion);
+  const activeProjectRef = useRef(activeProject);
+  activeProjectRef.current = activeProject;
 
   useEffect(() => {
     if (projectVersion !== prevVersion.current) {
@@ -86,36 +109,80 @@ function ProjectDemoSync({ children }: { children: React.ReactNode }) {
     }
   }, [projectVersion, resetDemoState]);
 
-  return <>{children}</>;
-}
+  const [page, setPageState] = useState<Page>(() => parseUrl(window.location.pathname).page ?? "landing");
+  const [hydrated, setHydrated] = useState(false);
 
-export default function App() {
-  const [page, setPage] = useState<Page>("landing");
+  const hydrateProjectFromUrl = useCallback((projectId: number) => {
+    if (projectId === activeProjectRef.current?.id) return;
+    intelApi.getProject(projectId).then((p) => {
+      setActiveProject({
+        id: p.id, name: p.project_name,
+        project_type: (p.project_type as ProjectType) || "research",
+        brand: p.brand ?? null,
+      });
+    }).catch(() => { /* stale/invalid project id in the URL — keep whatever page was requested */ });
+  }, [setActiveProject]);
+
+  // Hydrate once on mount: a deep-linked/refreshed URL wins over the persisted project.
+  useEffect(() => {
+    const parsed = parseUrl(window.location.pathname);
+    if (parsed.page) setPageState(parsed.page);
+    if (parsed.projectId) hydrateProjectFromUrl(parsed.projectId);
+    setHydrated(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Browser back/forward.
+  useEffect(() => {
+    const onPopState = () => {
+      const parsed = parseUrl(window.location.pathname);
+      setPageState(parsed.page ?? "landing");
+      if (parsed.projectId) hydrateProjectFromUrl(parsed.projectId);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [hydrateProjectFromUrl]);
+
+  // Keep the URL in sync (replaceState — no new history entry) whenever the resolved
+  // page/project drifts from it, e.g. once setActiveProject's async update lands after
+  // an onNavigate() call that fired before it (see navigate() below).
+  useEffect(() => {
+    if (!hydrated) return;
+    const url = buildUrl(activeProject?.id ?? null, page);
+    if (window.location.pathname !== url) window.history.replaceState(null, "", url);
+  }, [page, activeProject?.id, hydrated]);
 
   const navigate = (p: string) => {
-    if (isPage(p)) setPage(p);
-    else console.warn(`Unknown page "${p}"`);
+    if (!isPage(p)) { console.warn(`Unknown page "${p}"`); return; }
+    setPageState(p);
+    window.history.pushState(null, "", buildUrl(activeProject?.id ?? null, p));
   };
 
   const CurrentPage: ComponentType<PageProps> = PAGES[page];
 
   return (
+    <>
+      <div className="flex h-screen bg-white font-sans text-slate-900">
+        {page !== "landing" && <Sidebar currentPage={page} onNavigate={navigate} />}
+        <div className="flex-1 flex flex-col min-w-0">
+          <main className="flex-1 overflow-auto bg-slate-50/50">
+            <CurrentPage onNavigate={navigate} />
+          </main>
+        </div>
+      </div>
+      {/* Sibling to the page outlet above, not nested inside it — this is what
+          lets it persist across `page` navigation while a stage keeps running
+          in the background. */}
+      <FloatingProgressPanel />
+    </>
+  );
+}
+
+export default function App() {
+  return (
     <ProjectProvider>
       <DemoStateProvider>
-        <ProjectDemoSync>
-          <div className="flex h-screen bg-white font-sans text-slate-900">
-            {page !== "landing" && <Sidebar currentPage={page} onNavigate={navigate} />}
-            <div className="flex-1 flex flex-col min-w-0">
-              <main className="flex-1 overflow-auto bg-slate-50/50">
-                <CurrentPage onNavigate={navigate} />
-              </main>
-            </div>
-          </div>
-          {/* Sibling to the page outlet above, not nested inside it — this is what
-              lets it persist across `page` navigation while a stage keeps running
-              in the background. */}
-          <FloatingProgressPanel />
-        </ProjectDemoSync>
+        <AppShell />
       </DemoStateProvider>
     </ProjectProvider>
   );
