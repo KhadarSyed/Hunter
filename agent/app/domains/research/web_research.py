@@ -700,6 +700,21 @@ class LiveWebResearchAdapter:
         end = date.today()
         tp = time_period.lower()
 
+        # An explicit "YYYY-MM-DD to YYYY-MM-DD" range (Brief & Scope's LLM sometimes writes a
+        # concrete range instead of relative wording like "past 7 days") — use its DURATION,
+        # applied back from today, rather than the literal dates, so a rerun days later still
+        # searches a fresh window instead of the spec's original, now-stale absolute dates.
+        explicit_dates = re.findall(r"\d{4}-\d{2}-\d{2}", time_period)
+        if len(explicit_dates) >= 2:
+            try:
+                d1 = datetime.strptime(explicit_dates[0], "%Y-%m-%d").date()
+                d2 = datetime.strptime(explicit_dates[1], "%Y-%m-%d").date()
+                duration = abs((d2 - d1).days)
+                if duration > 0:
+                    return end - timedelta(days=duration), end
+            except ValueError:
+                pass
+
         if "12 month" in tp or "past year" in tp:
             start = end - timedelta(days=365)
         elif "6 month" in tp:
