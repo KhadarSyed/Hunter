@@ -874,7 +874,14 @@ def run(
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _build_user_prompt(brief_text: str, filename: str) -> str:
-    parts = ["Analyze this client brief and return a Project Specification as JSON.\n"]
+    from datetime import datetime
+    now = datetime.now()
+    parts = [
+        f"Today's date is {now.strftime('%Y-%m-%d')} ({now.strftime('%A')}), "
+        f"current time {now.strftime('%H:%M')}. Use this, not your own assumption, for any "
+        "relative date/time reasoning ('past 30 days', 'this year', etc.).",
+        "Analyze this client brief and return a Project Specification as JSON.\n",
+    ]
     if filename:
         parts.append(f"Filename: {filename}\n")
     parts.append(f"--- BRIEF START ---\n{brief_text}\n--- BRIEF END ---")
