@@ -92,14 +92,40 @@ def compose_brief(project_id: int, research_id: int, spec: dict, research_data: 
     llm_succeeded = False
 
     if llm_client:
-        logger.info("Using LLM to synthesize analytical brief content")
-        sections, llm_succeeded = _compose_with_llm(
-            llm_client, brand_name, research_subject, category, competitors,
-            brand_items, competitor_items, industry_items, research_gaps,
-            metadata, source_register, source_lookup, spec
-        )
+        from . import multi_source
+        logger.info("Using map-reduce LLM summarization to synthesize analytical brief content")
+        try:
+            map_reduce_sections = multi_source.summarize_map_reduce(project_id, spec, llm_client)
+        except Exception:
+            logger.exception("Map-reduce summarization failed")
+            map_reduce_sections = {}
+
+        if map_reduce_sections:
+            sections = {}
+            for key in ["company_introduction", "executive_summary", "brand_developments",
+                        "brand_narrative", "competitor_developments", "industry_context"]:
+                title = SECTION_TITLES.get(key, key.replace("_", " ").title())
+                if key == "brand_developments":
+                    title = f"{brand_name}: Material Developments"
+                sections[key] = {"title": title, "content": map_reduce_sections.get(key, ""), "edited": False}
+
+            sections["key_issues"] = {"title": SECTION_TITLES["key_issues"], "content": "", "edited": False}
+            industry_content = sections["industry_context"]["content"]
+            if "## Key issues to monitor" in industry_content:
+                parts = industry_content.split("## Key issues to monitor", 1)
+                sections["industry_context"]["content"] = parts[0].rstrip()
+                sections["key_issues"]["content"] = parts[1].lstrip().lstrip("#").lstrip()
+
+            sections["methodology"] = {
+                "title": SECTION_TITLES["methodology"],
+                "content": map_reduce_sections.get("methodology", ""),
+                "edited": False,
+            }
+            sections["source_register"] = _build_source_register_section(source_register)
+            llm_succeeded = True
+
     if not sections:
-        logger.warning("No LLM available — falling back to rule-based brief")
+        logger.warning("No LLM available or zero research items — falling back to rule-based brief")
         sections = _compose_rule_based(
             brand_name, research_subject, category, competitors,
             brand_items, competitor_items, industry_items, research_gaps,
