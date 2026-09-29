@@ -187,17 +187,17 @@ def upsert_research_item(project_id: int, research_id: int | None, item: dict) -
     conn.execute(
         "INSERT INTO intel_research_items "
         "(project_id, research_id, topic, source_api, platform, publication, "
-        "published_date, title, content, url, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "published_date, title, content, url, author, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(project_id, url) DO UPDATE SET "
         "research_id = excluded.research_id, topic = excluded.topic, "
         "source_api = excluded.source_api, platform = excluded.platform, "
         "publication = excluded.publication, published_date = excluded.published_date, "
-        "title = excluded.title, content = excluded.content",
+        "title = excluded.title, content = excluded.content, author = excluded.author",
         (
             project_id, research_id, item["topic"], item["source_api"], item.get("platform"),
             item.get("publication"), item["published_date"], item.get("title"),
-            item.get("content"), item["url"], now,
+            item.get("content"), item["url"], item.get("author"), now,
         ),
     )
     conn.commit()

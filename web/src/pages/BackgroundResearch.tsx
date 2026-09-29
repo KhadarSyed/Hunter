@@ -4,6 +4,7 @@ import { useDemoState } from "../context/demo-state";
 import { useProject, useActiveProjectId } from "../context/project-context";
 import { useJobStatus } from "../hooks/useJobStatus";
 import { BrandLogo } from "../components/BrandLogo";
+import { ResearchItemsTable } from "../components/ResearchItemsTable";
 
 type PageState = "idle" | "researching" | "composing" | "ready" | "failed";
 
@@ -721,6 +722,22 @@ export function BackgroundResearch({ onNavigate }: Props) {
                   </button>
                 );
               })}
+              <button
+                onClick={() => handleTabChange("all_articles")}
+                className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-left text-xs font-medium transition-all ${
+                  activeTab === "all_articles"
+                    ? "bg-[#5B2C9D]/8 text-[#5B2C9D] border-r-2 border-[#5B2C9D]"
+                    : "text-slate-600 hover:bg-slate-50 hover:text-slate-800"
+                }`}
+              >
+                <svg
+                  className={`w-4 h-4 shrink-0 ${activeTab === "all_articles" ? "text-[#5B2C9D]" : "text-slate-400"}`}
+                  viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"
+                >
+                  <path d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                <span className="truncate">All Articles</span>
+              </button>
             </div>
 
             {/* Research Gaps */}
@@ -768,7 +785,11 @@ export function BackgroundResearch({ onNavigate }: Props) {
           {/* Content Pane — Right */}
           <div className="flex-1 flex flex-col min-w-0">
             {/* Section Header */}
-            {currentSection && (
+            {activeTab === "all_articles" ? (
+              <div className="shrink-0 px-6 py-3 border-b border-slate-100 bg-white flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-[#5B2C9D] uppercase tracking-wide">All Articles</h2>
+              </div>
+            ) : currentSection && (
               <div className="shrink-0 px-6 py-3 border-b border-slate-100 bg-white flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-[#5B2C9D] uppercase tracking-wide">{currentSection.title}</h2>
                 <div className="flex items-center gap-2">
@@ -790,7 +811,13 @@ export function BackgroundResearch({ onNavigate }: Props) {
 
             {/* Scrollable Content */}
             <div ref={contentRef} className="flex-1 overflow-y-auto px-8 py-6">
-              {currentSection ? (
+              {activeTab === "all_articles" ? (
+                projectId ? (
+                  <ResearchItemsTable projectId={projectId} />
+                ) : (
+                  <div className="text-sm text-slate-400 italic">No active project.</div>
+                )
+              ) : currentSection ? (
                 editingSection === activeTab ? (
                   <textarea
                     value={editContent}

@@ -1210,6 +1210,9 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
         "CREATE INDEX IF NOT EXISTS idx_research_items_project ON intel_research_items(project_id)",
         "CREATE INDEX IF NOT EXISTS idx_research_items_project_date ON intel_research_items(project_id, published_date)",
     ]),
+    (9, "research item author", [
+        "ALTER TABLE intel_research_items ADD COLUMN author TEXT",
+    ]),
 ]
 
 

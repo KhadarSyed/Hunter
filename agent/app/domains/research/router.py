@@ -30,13 +30,15 @@ from .schemas import (
     NewsApprovalRequest,
     PexelsImageResponse,
     ResearchApprovalResult,
+    ResearchItemsListResponse,
+    ResearchItemView,
     ResearchJobStarted,
     ResearchJobStatus,
     ResearchResults,
     RevisionRequest,
     StartResearchRequest,
 )
-from .web_research import LiveWebResearchAdapter
+from .web_research import EntityValidator, LiveWebResearchAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -333,3 +335,71 @@ def fetch_preview(req: FetchPreviewRequest):
 
     submit(worker, name=f"research:fetch-preview:{req.project_id}")
     return FetchPreviewStarted(job_id=job_id, project_id=req.project_id)
+
+
+@router.get("/research/{project_id}/items", response_model=ResearchItemsListResponse)
+def get_research_items_route(project_id: Annotated[int, Path(ge=1)]):
+    """Every persisted research item for a project's latest run (scoped to that run's date
+    range), enriched with which brand/competitor/product keywords each item matched and
+    whether it passed entity-relevance validation — for the analyst-facing sources table.
+    This is the full underlying item set, not the already-filtered news_items/source_register
+    the composed Brief uses."""
+    project = store.get_project(project_id)
+    if not project:
+        raise HTTPException(404, f"Project {project_id} not found")
+    spec = project.get("spec", {})
+
+    research = store.get_latest_research(project_id)
+    date_range = None
+    if research:
+        metadata = research["research"].get("metadata", {})
+        start_str = metadata.get("date_range_start", "")
+        end_str = metadata.get("date_range_end", "")
+        if start_str and end_str:
+            from datetime import datetime
+            date_range = (
+                datetime.fromisoformat(start_str).date(),
+                datetime.fromisoformat(end_str).date(),
+            )
+
+    if date_range:
+        since, until = multi_source_module.date_range_to_timestamps(date_range)
+        items = store.get_research_items(project_id, since=since, until=until)
+    else:
+        items = store.get_research_items(project_id)
+
+    adapter = LiveWebResearchAdapter()
+    brand_name = adapter._extract_brand_name(spec)
+    category = adapter._extract_category(spec)
+    geography = adapter._extract_geography(spec)
+    exclude_patterns = adapter._extract_exclusions(spec)
+    validator = EntityValidator(brand_name, category, geography, exclude_patterns)
+
+    entities = spec.get("validated_entities", [])
+    keyword_terms = [brand_name] if brand_name else []
+    keyword_terms += [e["name"] for e in entities
+                       if isinstance(e, dict) and e.get("type") in ("competitor", "product") and e.get("name")]
+
+    from urllib.parse import urlparse
+
+    result_items = []
+    for item in items:
+        title = item.get("title") or ""
+        content = item.get("content") or ""
+        url = item.get("url") or ""
+        haystack = f"{title} {content}".lower()
+        matched = [t for t in keyword_terms if t and t.lower() in haystack]
+        validation = validator.validate(title, content, url)
+        try:
+            domain = urlparse(url).netloc.lower().removeprefix("www.")
+        except Exception:
+            domain = None
+        result_items.append(ResearchItemView(
+            id=item["id"], topic=item["topic"], source_api=item["source_api"],
+            publication=item.get("publication"), domain=domain or None,
+            title=title or None, content=content or None, url=url,
+            author=item.get("author"), published_date=item["published_date"],
+            keywords_matched=matched, relevant=validation["relevant"],
+        ))
+
+    return ResearchItemsListResponse(items=result_items, total=len(result_items))

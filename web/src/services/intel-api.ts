@@ -103,6 +103,26 @@ export interface NewsItem {
   approval_notes?: string;
 }
 
+export interface ResearchItem {
+  id: number;
+  topic: string;
+  source_api: string;
+  publication: string | null;
+  domain: string | null;
+  title: string | null;
+  content: string | null;
+  url: string;
+  author: string | null;
+  published_date: number;
+  keywords_matched: string[];
+  relevant: boolean;
+}
+
+export interface ResearchItemsResult {
+  items: ResearchItem[];
+  total: number;
+}
+
 export interface StrategyResult {
   strategy_id: number;
   version: number;
@@ -376,6 +396,9 @@ export const intelApi = {
 
   getResearch: (projectId: number) =>
     get<ResearchResult>(`/research/${projectId}`),
+
+  getResearchItems: (projectId: number) =>
+    get<ResearchItemsResult>(`/research/${projectId}/items`),
 
   approveResearch: (researchId: number, reviewer = "analyst") =>
     post<{ ok: boolean }>(`/research/${researchId}/approve`, { reviewer }),

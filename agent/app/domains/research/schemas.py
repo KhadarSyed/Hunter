@@ -89,3 +89,23 @@ class FetchPreviewRequest(BaseModel):
 class FetchPreviewStarted(ApiModel):
     job_id: str
     project_id: int
+
+
+class ResearchItemView(ApiModel):
+    id: int
+    topic: str
+    source_api: str
+    publication: str | None = None
+    domain: str | None = None
+    title: str | None = None
+    content: str | None = None
+    url: str
+    author: str | None = None
+    published_date: float
+    keywords_matched: list[str] = []
+    relevant: bool = True
+
+
+class ResearchItemsListResponse(ApiModel):
+    items: list[ResearchItemView]
+    total: int
