@@ -77,6 +77,7 @@ class BrandLogoResponse(ApiModel):
 class PexelsImageResponse(ApiModel):
     query: str
     image_url: str | None = None
+    video_url: str | None = None
     photographer: str | None = None
     source_url: str | None = None
     cached: bool = False  # True = served from the pexels_images table

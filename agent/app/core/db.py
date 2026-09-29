@@ -1216,6 +1216,9 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
     (10, "research item thumbnail", [
         "ALTER TABLE intel_research_items ADD COLUMN thumbnail_url TEXT",
     ]),
+    (11, "pexels video cache", [
+        "ALTER TABLE pexels_images ADD COLUMN video_url TEXT",
+    ]),
 ]
 
 

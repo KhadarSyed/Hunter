@@ -281,9 +281,10 @@ def get_brand_logo_route(brand_name: str):
 
 @router.get("/pexels/image", response_model=PexelsImageResponse)
 def get_pexels_image_route(query: str):
-    """Dynamic background image for a query (typically a brand/project name):
-    saved pexels_images table first, then the Pexels Search API."""
-    return pexels_client.resolve_background_image(query)
+    """Dynamic background media for a query (typically a brand/project name):
+    saved pexels_images table first, then the Pexels Video Search API, falling
+    back to the Photo Search API when no video result exists."""
+    return pexels_client.resolve_background_video(query)
 
 
 # ─── Multi-source fetch preview ─────────────────────────────────────────────

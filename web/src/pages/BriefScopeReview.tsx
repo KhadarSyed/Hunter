@@ -203,6 +203,7 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
   const [reanalyzeText, setReanalyzeText] = useState("");
   const [reanalyzing, setReanalyzing] = useState(false);
   const [bgImage, setBgImage] = useState<string | null>(null);
+  const [bgVideo, setBgVideo] = useState<string | null>(null);
   const [pexelsSourceUrl, setPexelsSourceUrl] = useState<string | null>(null);
   const [summaryExpanded, setSummaryExpanded] = useState(false);
   const [entityView, setEntityView] = useState<"chips" | "table">("chips");
@@ -277,6 +278,7 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
     intelApi.getPexelsImage(bgQuery).then((res) => {
       if (cancelled) return;
       setBgImage(res.image_url);
+      setBgVideo(res.video_url);
       setPexelsSourceUrl(res.source_url);
     }).catch(() => {});
     return () => { cancelled = true; };
@@ -675,10 +677,21 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
       <div className={`grid grid-cols-1 gap-5 ${hasScope ? "md:grid-cols-2" : ""}`}>
       {/* Header */}
       <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        {bgImage ? (
+        {bgVideo ? (
+          <>
+            <video
+              src={bgVideo}
+              poster={bgImage || undefined}
+              autoPlay muted loop playsInline
+              className="absolute inset-0 w-full h-full object-cover"
+              aria-hidden="true"
+            />
+            <div className="absolute inset-0 bg-gradient-to-r from-white/90 via-white/60 to-white/25" />
+          </>
+        ) : bgImage ? (
           <>
             <img src={bgImage} alt="" className="absolute inset-0 w-full h-full object-cover" aria-hidden="true" />
-            <div className="absolute inset-0 bg-gradient-to-br from-white/95 via-white/90 to-white/80" />
+            <div className="absolute inset-0 bg-gradient-to-r from-white/90 via-white/60 to-white/25" />
           </>
         ) : (
           <div className="absolute inset-0 opacity-[0.04]" style={{
@@ -769,10 +782,10 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
               </div>
             )}
           </div>
-          {bgImage && (
+          {(bgVideo || bgImage) && (
             <a href={pexelsSourceUrl || undefined} target="_blank" rel="noopener noreferrer"
                className="absolute bottom-1.5 right-2.5 text-[9px] text-slate-400 hover:text-slate-600 transition-colors">
-              Photo via Pexels
+              {bgVideo ? "Video via Pexels" : "Photo via Pexels"}
             </a>
           )}
         </div>
@@ -843,7 +856,7 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
 
       {/* What we understood + Optional clarifications */}
       {(hasWhatWeUnderstood || hasAdvisory) && (
-      <div className={`grid grid-cols-1 gap-5 ${hasWhatWeUnderstood && hasAdvisory ? "md:grid-cols-2" : ""}`}>
+      <div className="grid grid-cols-1 gap-5">
       {hasWhatWeUnderstood && (
         <SpotlightPanel className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
           <div className="flex items-center justify-between mb-2">
@@ -881,7 +894,7 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
 
           {!editing ? (
             <>
-              <p className="text-sm text-slate-700 leading-relaxed max-w-prose">
+              <p className="text-sm text-slate-700 leading-relaxed">
                 {summaryText}
                 {summaryIsLong && (
                   <button

@@ -334,6 +334,7 @@ export interface SpecGenerationStarted {
 export interface PexelsImageResponse {
   query: string;
   image_url: string | null;
+  video_url: string | null;
   photographer: string | null;
   source_url: string | null;
   cached: boolean;
