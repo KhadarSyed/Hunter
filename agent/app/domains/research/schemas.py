@@ -80,3 +80,12 @@ class PexelsImageResponse(ApiModel):
     photographer: str | None = None
     source_url: str | None = None
     cached: bool = False  # True = served from the pexels_images table
+
+
+class FetchPreviewRequest(BaseModel):
+    project_id: int
+
+
+class FetchPreviewStarted(ApiModel):
+    job_id: str
+    project_id: int

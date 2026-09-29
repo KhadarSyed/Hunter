@@ -20,10 +20,13 @@ from ...core.api import OkResponse
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from . import brandfetch as brandfetch_client
+from . import multi_source as multi_source_module
 from . import pexels as pexels_client
 from .schemas import (
     ApproveRequest,
     BrandLogoResponse,
+    FetchPreviewRequest,
+    FetchPreviewStarted,
     NewsApprovalRequest,
     PexelsImageResponse,
     ResearchApprovalResult,
@@ -276,3 +279,54 @@ def get_pexels_image_route(query: str):
     """Dynamic background image for a query (typically a brand/project name):
     saved pexels_images table first, then the Pexels Search API."""
     return pexels_client.resolve_background_image(query)
+
+
+# ─── Multi-source fetch preview ─────────────────────────────────────────────
+
+@router.post("/research/fetch-preview", response_model=FetchPreviewStarted)
+def fetch_preview(req: FetchPreviewRequest):
+    """Run the multi-source fetch engine directly (no full research/brief flow) — for testing
+    the Boolean query builder + 3-source fan-out independently, and the entry point Research
+    Execution (stage 6) will call later with an analyst-approved query."""
+    project = store.get_project(req.project_id)
+    if not project:
+        raise HTTPException(404, f"Project {req.project_id} not found")
+
+    job_id = f"fetch_preview_{uuid.uuid4().hex[:12]}"
+    store.create_job(job_id, req.project_id, "research_fetch_preview")
+
+    def worker():
+        store.update_job(job_id, status="running", progress_pct=5, progress_message="Building queries")
+        _broadcast({"type": "intel_job_update", "job_id": job_id, "project_id": req.project_id,
+                     "job_type": "research_fetch_preview", "status": "running",
+                     "progress_pct": 5, "message": "Building queries"})
+        try:
+            spec = project.get("spec", {})
+            topics = multi_source_module.build_boolean_queries(spec)
+            adapter = LiveWebResearchAdapter()
+            date_range = adapter._extract_date_range(spec)
+            geography = adapter._extract_geography(spec)
+
+            def on_event(step, payload):
+                store.update_job(job_id, progress_pct=50, progress_message=step)
+                _broadcast({"type": "intel_job_update", "job_id": job_id, "project_id": req.project_id,
+                             "job_type": "research_fetch_preview", "status": "running",
+                             "progress_pct": 50, "message": step, "detail": payload})
+
+            result = multi_source_module.fetch_and_persist(
+                project_id=req.project_id, topics=topics, date_range=date_range,
+                geography=geography, emit=on_event,
+            )
+            store.update_job(job_id, status="completed", progress_pct=100,
+                             progress_message="Fetch complete", result=result)
+            _broadcast({"type": "intel_job_update", "job_id": job_id, "project_id": req.project_id,
+                         "job_type": "research_fetch_preview", "status": "completed",
+                         "progress_pct": 100, "message": "Fetch complete", **result})
+        except Exception as e:
+            logger.exception("fetch-preview failed for project %s", req.project_id)
+            store.update_job(job_id, status="failed", error=str(e))
+            _broadcast({"type": "intel_job_update", "job_id": job_id, "project_id": req.project_id,
+                         "job_type": "research_fetch_preview", "status": "failed", "message": str(e)})
+
+    submit(worker, name=f"research:fetch-preview:{req.project_id}")
+    return FetchPreviewStarted(job_id=job_id, project_id=req.project_id)
