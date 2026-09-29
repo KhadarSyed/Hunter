@@ -1177,6 +1177,16 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             source     TEXT NOT NULL,      -- brandfetch | google | none
             fetched_at REAL NOT NULL
         )"""]),
+    # Resolved Pexels background images, keyed by search query (see domains/research/pexels.py).
+    (7, "pexels image cache", ["""
+        CREATE TABLE IF NOT EXISTS pexels_images (
+            query_key    TEXT PRIMARY KEY,  -- normalised query (lower-case, single spaces)
+            query_text   TEXT NOT NULL,
+            image_url    TEXT,              -- NULL = nothing found (retried after a while)
+            photographer TEXT,
+            source_url   TEXT,
+            fetched_at   REAL NOT NULL
+        )"""]),
 ]
 
 

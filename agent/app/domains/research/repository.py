@@ -154,3 +154,26 @@ def save_brand_logo(brand_key: str, brand_name: str, logo_url: str | None,
     )
     conn.commit()
     conn.close()
+
+
+# ─── Pexels background images ────────────────────────────────────────────────
+
+def get_pexels_image(query_key: str) -> Optional[dict]:
+    conn = _conn()
+    row = conn.execute("SELECT * FROM pexels_images WHERE query_key = ?", (query_key,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def save_pexels_image(query_key: str, query_text: str, image_url: str | None,
+                      photographer: str | None, source_url: str | None) -> None:
+    conn = _conn()
+    conn.execute(
+        "INSERT INTO pexels_images (query_key, query_text, image_url, photographer, source_url, fetched_at) "
+        "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(query_key) DO UPDATE SET query_text = excluded.query_text, "
+        "image_url = excluded.image_url, photographer = excluded.photographer, "
+        "source_url = excluded.source_url, fetched_at = excluded.fetched_at",
+        (query_key, query_text, image_url, photographer, source_url, time.time()),
+    )
+    conn.commit()
+    conn.close()

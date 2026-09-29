@@ -72,3 +72,11 @@ class BrandLogoResponse(ApiModel):
     source: str | None = None  # brandfetch | google | none
     domain: str | None = None
     cached: bool = False  # True = served from the brand_logos table
+
+
+class PexelsImageResponse(ApiModel):
+    query: str
+    image_url: str | None = None
+    photographer: str | None = None
+    source_url: str | None = None
+    cached: bool = False  # True = served from the pexels_images table

@@ -20,10 +20,12 @@ from ...core.api import OkResponse
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from . import brandfetch as brandfetch_client
+from . import pexels as pexels_client
 from .schemas import (
     ApproveRequest,
     BrandLogoResponse,
     NewsApprovalRequest,
+    PexelsImageResponse,
     ResearchApprovalResult,
     ResearchJobStarted,
     ResearchJobStatus,
@@ -265,3 +267,12 @@ def approve_news_item(research_id: Annotated[int, Path(ge=1)], req: NewsApproval
 def get_brand_logo_route(brand_name: str):
     """Logo for a brand/product: saved brand_logos table first, then Brandfetch, then Google."""
     return brandfetch_client.resolve_logo(brand_name)
+
+
+# ─── Pexels ────────────────────────────────────────────────────────────────
+
+@router.get("/pexels/image", response_model=PexelsImageResponse)
+def get_pexels_image_route(query: str):
+    """Dynamic background image for a query (typically a brand/project name):
+    saved pexels_images table first, then the Pexels Search API."""
+    return pexels_client.resolve_background_image(query)
