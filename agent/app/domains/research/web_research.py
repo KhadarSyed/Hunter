@@ -81,6 +81,26 @@ def _is_blocked(url: str) -> bool:
     return False
 
 
+# Mirrors web/src/components/CountryFlag.tsx's GEOGRAPHIES + ALIASES — the New Project form's
+# Geography dropdown stores the full country name (used there for flag rendering), but
+# SerpAPI's `gl` param and Tavily's date-range logic need a 2-letter ISO 3166-1 alpha-2 code.
+_COUNTRY_ISO_CODES = {
+    "united states": "US", "usa": "US", "us": "US",
+    "united kingdom": "GB", "uk": "GB", "great britain": "GB", "gb": "GB",
+    "canada": "CA", "india": "IN", "australia": "AU", "germany": "DE",
+    "france": "FR", "spain": "ES", "italy": "IT", "netherlands": "NL",
+    "singapore": "SG", "japan": "JP", "united arab emirates": "AE", "uae": "AE",
+    "brazil": "BR", "mexico": "MX",
+}
+
+
+def _country_to_iso_code(country: str) -> str:
+    """Full country name or ISO code -> 2-letter ISO 3166-1 alpha-2 code. Falls back to "US"
+    for an unmapped/unknown value rather than passing an arbitrary string through to APIs
+    that require a real code (e.g. SerpAPI's gl param, which rejects anything else)."""
+    return _COUNTRY_ISO_CODES.get(country.strip().lower(), "US")
+
+
 def _classify_source_tier(url: str) -> str:
     domain = _extract_domain(url)
     if any(domain == d or domain.endswith("." + d) for d in TIER_1_DOMAINS):
@@ -673,7 +693,7 @@ class LiveWebResearchAdapter:
         if isinstance(scope, dict):
             countries = scope.get("countries", [])
             if countries:
-                return countries[0]
+                return _country_to_iso_code(countries[0])
         return "US"
 
     def _extract_audience(self, spec: dict) -> str:

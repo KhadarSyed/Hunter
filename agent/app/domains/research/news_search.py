@@ -58,7 +58,7 @@ DEFAULT_RSS_RECENCY_HOURS = 24 * 7  # 7 days — reasonable "fresh news" default
 SOCIAL_PLATFORM_DOMAINS = {
     "twitter.com": "twitter", "x.com": "twitter", "instagram.com": "instagram",
     "facebook.com": "facebook", "reddit.com": "reddit", "linkedin.com": "linkedin",
-    "tiktok.com": "tiktok",
+    "tiktok.com": "tiktok", "truthsocial.com": "truth_social",
 }
 MAX_RSS_RECENCY_HOURS = 24 * 365
 
