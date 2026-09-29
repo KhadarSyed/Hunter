@@ -69,8 +69,8 @@ def start_background_research(req: StartResearchRequest):
                 msg_map = {
                     "research_started": ("Searching official sources", 10),
                     "research_queries_built": ("Search queries prepared", 15),
-                    "research_searching": (f"Searching: {payload.get('family', '')}", None),
-                    "fetching_topic": (f"Searching: {payload.get('topic', '')}", None),
+                    "fetching_topic": (
+                        f"Searching: {payload.get('display_label') or payload.get('topic', '')}", None),
                     "fetch_complete": (
                         f"Fetch complete — {payload.get('items_fetched', 0)} items found", 58),
                     "research_filtering": ("Filtering irrelevant results", 60),
@@ -83,7 +83,7 @@ def start_background_research(req: StartResearchRequest):
                 }
                 if event_type in msg_map:
                     msg, pct = msg_map[event_type]
-                    if event_type in ("research_searching", "fetching_topic"):
+                    if event_type == "fetching_topic":
                         idx = payload.get("index", 0)
                         total = payload.get("total", 1)
                         pct = 15 + int(45 * idx / max(total, 1))

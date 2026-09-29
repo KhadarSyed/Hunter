@@ -25,6 +25,9 @@ class TopicQuery:
     topic: str
     boolean_query: str   # SerpAPI + Google News RSS (Boolean/Google search syntax)
     natural_query: str    # Tavily (plain language, no operators)
+    # Human-readable label for progress UI — distinct from natural_query, which repeats the
+    # full brand/competitor OR-list on every topic (noisy once shown topic after topic).
+    display_label: str = ""
 
 
 def _entities_by_type(spec: dict, entity_type: str) -> list[str]:
@@ -73,6 +76,7 @@ def build_boolean_queries(spec: dict) -> list[TopicQuery]:
         topic="brand_activity",
         boolean_query=f"{brand_group_bool} AND (news OR announcement OR campaign){exclusion}",
         natural_query=f"{brand_group_natural} news and announcements",
+        display_label="Brand News & Announcements",
     ))
 
     if category:
@@ -80,11 +84,13 @@ def build_boolean_queries(spec: dict) -> list[TopicQuery]:
             topic="competitive_landscape",
             boolean_query=f'{brand_group_bool} AND "{category}"{exclusion}',
             natural_query=f"{brand_group_natural} {category} market",
+            display_label="Competitive Landscape",
         ))
         topics.append(TopicQuery(
             topic="category_trends",
             boolean_query=f'{brand_group_bool} AND "{category}" AND (trend OR market){exclusion}',
             natural_query=f"{category} market trends: {brand_group_natural}",
+            display_label="Category & Market Trends",
         ))
 
     if products:
@@ -92,6 +98,7 @@ def build_boolean_queries(spec: dict) -> list[TopicQuery]:
             topic="product_mentions",
             boolean_query=f"{brand_group_bool} AND {_or_group(products)}{exclusion}",
             natural_query=f"{brand_group_natural} — {', '.join(products)}",
+            display_label="Product Mentions",
         ))
 
     for event in events:
@@ -99,6 +106,7 @@ def build_boolean_queries(spec: dict) -> list[TopicQuery]:
             topic=f"event_{event.lower().replace(' ', '_')}",
             boolean_query=f'{brand_group_bool} AND "{event}"{exclusion}',
             natural_query=f"{brand_group_natural} — {event}",
+            display_label=f"Event: {event}",
         ))
 
     research_questions = spec.get("research_questions", [])
@@ -111,6 +119,7 @@ def build_boolean_queries(spec: dict) -> list[TopicQuery]:
             topic=f"research_question_{i + 1}",
             boolean_query=f'{brand_group_bool} AND "{phrase}"{exclusion}',
             natural_query=f"{brand_group_natural} {phrase}",
+            display_label=phrase,
         ))
 
     return topics
@@ -201,7 +210,8 @@ def fetch_and_persist(
             source_status[key] = "degraded"
 
     for i, topic in enumerate(topics):
-        _emit("fetching_topic", {"topic": topic.topic, "index": i + 1, "total": len(topics)})
+        _emit("fetching_topic", {"topic": topic.topic, "display_label": topic.display_label,
+                                  "index": i + 1, "total": len(topics)})
 
         general_result = news_search.fetch_and_normalize(
             query=topic.boolean_query, country=geography, date_range=date_range,

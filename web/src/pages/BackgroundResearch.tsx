@@ -3,7 +3,10 @@ import { intelApi, type BriefResult, type BriefData, type BriefSection, type Job
 import { useDemoState } from "../context/demo-state";
 import { useProject, useActiveProjectId } from "../context/project-context";
 import { useJobStatus } from "../hooks/useJobStatus";
+import { useAgentSocket } from "../hooks/useAgentSocket";
+import type { WsMessage } from "../services/ws";
 import { BrandLogo } from "../components/BrandLogo";
+import { CountryFlag } from "../components/CountryFlag";
 import { ResearchItemsTable } from "../components/ResearchItemsTable";
 
 type PageState = "idle" | "researching" | "composing" | "ready" | "failed";
@@ -32,7 +35,24 @@ const SECTION_SHORT_LABELS: Record<string, string> = {
   methodology: "Methodology",
 };
 
-function ProgressBar({ pct, message, startedAt }: { pct: number; message: string; startedAt: number | null }) {
+interface ProgressLogEntry {
+  message: string;
+  pct: number;
+  at: number;
+}
+
+function ProgressBar({
+  pct, message, startedAt, geography, timePeriod, log, showLog, onToggleLog,
+}: {
+  pct: number;
+  message: string;
+  startedAt: number | null;
+  geography?: string;
+  timePeriod?: string;
+  log: ProgressLogEntry[];
+  showLog: boolean;
+  onToggleLog: () => void;
+}) {
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
@@ -47,6 +67,14 @@ function ProgressBar({ pct, message, startedAt }: { pct: number; message: string
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
+      {geography && (
+        <div className="flex items-center gap-2 text-xs text-slate-500 pb-3 border-b border-slate-100">
+          <span className="text-slate-400 uppercase tracking-wide text-[10px] font-semibold">Scope</span>
+          <CountryFlag country={geography} size={14} showLabel />
+          {timePeriod && <span className="text-slate-300">·</span>}
+          {timePeriod && <span>{timePeriod}</span>}
+        </div>
+      )}
       <div className="flex items-center justify-between text-sm">
         <div className="flex items-center gap-2.5">
           <div className="relative w-5 h-5 shrink-0">
@@ -63,6 +91,30 @@ function ProgressBar({ pct, message, startedAt }: { pct: number; message: string
       <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
         <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: "linear-gradient(90deg, #5B2C9D, #7C4DFF)" }} />
       </div>
+      {log.length > 0 && (
+        <div className="pt-1 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={onToggleLog}
+            className="flex items-center gap-1.5 text-[11px] font-medium text-slate-400 hover:text-slate-600 transition-colors"
+          >
+            <svg className={`w-3 h-3 transition-transform ${showLog ? "rotate-180" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+            {showLog ? "Hide" : "Show"} search log ({log.length})
+          </button>
+          {showLog && (
+            <div className="mt-2 max-h-40 overflow-y-auto space-y-1">
+              {log.map((entry, i) => (
+                <div key={i} className="text-[11px] text-slate-500 flex items-start gap-2">
+                  <span className="text-slate-300 tabular-nums shrink-0 w-8">{entry.pct}%</span>
+                  <span>{entry.message}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -289,6 +341,10 @@ export function BackgroundResearch({ onNavigate }: Props) {
   const [activeTab, setActiveTab] = useState<string>("");
   const [researchJobId, setResearchJobId] = useState<string | null>(null);
   const [searchDegraded, setSearchDegraded] = useState(false);
+  const [progressLog, setProgressLog] = useState<ProgressLogEntry[]>([]);
+  const [showProgressLog, setShowProgressLog] = useState(false);
+  const [scopeGeography, setScopeGeography] = useState("");
+  const [scopeTimePeriod, setScopeTimePeriod] = useState("");
 
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -297,6 +353,29 @@ export function BackgroundResearch({ onNavigate }: Props) {
     [researchJobId]
   );
   const { status: researchStatus, error: researchPollError } = useJobStatus<JobStatus>(fetchResearchStatus);
+
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    intelApi.getProject(projectId).then((project) => {
+      if (cancelled) return;
+      const spec = project.spec as Record<string, unknown> | undefined;
+      if (spec && typeof spec.geography === "string") setScopeGeography(spec.geography);
+      if (spec && typeof spec.time_period === "string") setScopeTimePeriod(spec.time_period);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  const handleResearchProgress = useCallback((msg: WsMessage) => {
+    if (msg.type !== "intel_job_update" || !researchJobId || msg.job_id !== researchJobId) return;
+    const message = typeof msg.message === "string" ? msg.message : "";
+    const pct = typeof msg.progress_pct === "number" ? msg.progress_pct : 0;
+    if (message) {
+      setProgressLog((prev) => [...prev, { message, pct, at: Date.now() }].slice(-50));
+    }
+  }, [researchJobId]);
+
+  useAgentSocket(handleResearchProgress);
 
   const proceedToComposing = useCallback(async () => {
     if (!projectId) return;
@@ -378,6 +457,8 @@ export function BackgroundResearch({ onNavigate }: Props) {
     setPageState("researching");
     setProgress({ pct: 0, message: "Starting web research..." });
     setStartedAt(Date.now());
+    setProgressLog([]);
+    setShowProgressLog(false);
 
     try {
       let hasResearch = false;
@@ -695,7 +776,16 @@ export function BackgroundResearch({ onNavigate }: Props) {
               })}
             </div>
 
-            <ProgressBar pct={progress.pct} message={progress.message} startedAt={startedAt} />
+            <ProgressBar
+              pct={progress.pct}
+              message={progress.message}
+              startedAt={startedAt}
+              geography={scopeGeography}
+              timePeriod={scopeTimePeriod}
+              log={progressLog}
+              showLog={showProgressLog}
+              onToggleLog={() => setShowProgressLog((v) => !v)}
+            />
 
             <p className="text-center text-xs text-slate-400">
               {pageState === "composing"
