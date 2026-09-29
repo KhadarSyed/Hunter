@@ -6,6 +6,19 @@ function faviconUrl(domain: string | null): string | null {
   return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`;
 }
 
+function sourceLabel(sourceApi: string): string {
+  switch (sourceApi) {
+    case "google_news_rss":
+      return "Google RSS";
+    case "tavily":
+      return "Tavily";
+    case "serpapi":
+      return "SerpAPI";
+    default:
+      return sourceApi;
+  }
+}
+
 function formatDate(ts: number): string {
   try {
     return new Date(ts * 1000).toLocaleDateString(undefined, {
@@ -69,6 +82,7 @@ export function ResearchItemsTable({ projectId }: ResearchItemsTableProps) {
             <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
               <tr>
                 <th className="text-left px-3 py-2 font-medium text-slate-500 w-40">Publisher</th>
+                <th className="text-left px-3 py-2 font-medium text-slate-500 w-24">Source</th>
                 <th className="text-left px-3 py-2 font-medium text-slate-500">Title</th>
                 <th className="text-left px-3 py-2 font-medium text-slate-500">Content</th>
                 <th className="text-left px-3 py-2 font-medium text-slate-500 w-28">Author</th>
@@ -98,6 +112,11 @@ export function ResearchItemsTable({ projectId }: ResearchItemsTableProps) {
                           {item.publication || item.domain || "Unknown"}
                         </span>
                       </div>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span className="px-1.5 py-0.5 bg-slate-50 text-slate-600 rounded text-[10px] whitespace-nowrap">
+                        {sourceLabel(item.source_api)}
+                      </span>
                     </td>
                     <td className="px-3 py-2.5 max-w-xs">
                       <a

@@ -51,6 +51,15 @@ SOCIAL_DOMAINS = {
 
 DEFAULT_TIMEOUT = 15
 DEFAULT_RSS_RECENCY_HOURS = 24 * 7  # 7 days — reasonable "fresh news" default window
+
+# Single source of truth for "is this a social platform" — used both to classify a fetched
+# item's platform (multi_source._platform_for_url) and to bias a fetch toward these domains
+# (multi_source's social-preference query variant, Tavily's include_domains).
+SOCIAL_PLATFORM_DOMAINS = {
+    "twitter.com": "twitter", "x.com": "twitter", "instagram.com": "instagram",
+    "facebook.com": "facebook", "reddit.com": "reddit", "linkedin.com": "linkedin",
+    "tiktok.com": "tiktok",
+}
 MAX_RSS_RECENCY_HOURS = 24 * 365
 
 
@@ -147,7 +156,8 @@ def _normalize_serpapi_item(item: dict) -> dict:
 # Tavily
 # --------------------------------------------------------------------------
 
-def _search_tavily(query: str, country: str, max_results: int, date_range: tuple | None = None) -> list[dict]:
+def _search_tavily(query: str, country: str, max_results: int, date_range: tuple | None = None,
+                    include_domains: list[str] | None = None) -> list[dict]:
     """Raw Tavily Search API (topic=news) results. Returns [] on any failure (missing key,
     network error, rate limit, bad response) rather than raising. `country` is accepted for
     signature symmetry with `_search_serpapi` but not sent — Tavily's `country` parameter takes
@@ -172,6 +182,9 @@ def _search_tavily(query: str, country: str, max_results: int, date_range: tuple
     if date_range is not None:
         payload["start_date"] = _coerce_datetime(date_range[0]).strftime("%Y-%m-%d")
         payload["end_date"] = _coerce_datetime(date_range[1]).strftime("%Y-%m-%d")
+    if include_domains:
+        payload["include_domains"] = include_domains
+        payload["include_domains_mode"] = "filter"
     try:
         r = requests.post(TAVILY_API_URL, json=payload, timeout=DEFAULT_TIMEOUT)
         if r.status_code != 200:
@@ -202,6 +215,20 @@ def _normalize_tavily_item(item: dict) -> dict:
 # Google News RSS
 # --------------------------------------------------------------------------
 
+def _resolve_redirect_url(url: str) -> str:
+    """Google News RSS's <link> is always a news.google.com redirect wrapper, never the real
+    article URL — Google doesn't expose the target in the feed by design. Follow the HTTP
+    redirect chain to the real destination. Best-effort: returns the original url unchanged
+    on any failure (timeout, network error, blocked, etc.), never raises."""
+    try:
+        resp = requests.get(url, timeout=DEFAULT_TIMEOUT, allow_redirects=True, stream=True,
+                             headers={"User-Agent": "Mozilla/5.0"})
+        resp.close()
+        return resp.url
+    except Exception:
+        return url
+
+
 def _search_google_news_rss(query: str, recency_hours: int, country: str) -> list[dict]:
     """Raw Google News RSS results (keyless). Returns [] on any failure."""
     full_query = query
@@ -220,7 +247,7 @@ def _search_google_news_rss(query: str, recency_hours: int, country: str) -> lis
     channel = root.find("channel")
     items = channel.findall("item") if channel is not None else []
 
-    results = []
+    parsed = []
     for item in items:
         title_raw = _xml_text(item.find("title"))
         source_el = item.find("source")
@@ -232,7 +259,7 @@ def _search_google_news_rss(query: str, recency_hours: int, country: str) -> lis
         if not publisher and " - " in title_raw:
             headline, _, publisher = title_raw.rpartition(" - ")
 
-        results.append({
+        parsed.append({
             "title": headline.strip(),
             "link": _xml_text(item.find("link")).strip(),
             "publisher": publisher.strip(),
@@ -240,7 +267,20 @@ def _search_google_news_rss(query: str, recency_hours: int, country: str) -> lis
             "snippet": _strip_html(_xml_text(item.find("description"))),
             "author": "",
         })
-    return results
+
+    # Resolve every redirect concurrently — sequential resolution of up to max_results items
+    # (each a real network round-trip) would make this the slowest of the 3 sources by far.
+    from concurrent.futures import ThreadPoolExecutor
+
+    links = [p["link"] for p in parsed if p["link"]]
+    if links:
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            resolved = dict(zip(links, pool.map(_resolve_redirect_url, links)))
+        for p in parsed:
+            if p["link"] in resolved:
+                p["link"] = resolved[p["link"]]
+
+    return parsed
 
 
 def _xml_text(element: ET.Element | None) -> str:
@@ -391,6 +431,7 @@ def fetch_and_normalize(
     date_range: tuple | None = None,
     max_results: int = 20,
     tavily_query: str | None = None,
+    include_domains: list[str] | None = None,
 ) -> dict:
     """Search SerpAPI + Tavily + Google News RSS concurrently, normalize into social/traditional
     media buckets, dedupe by URL. Never raises — a down source just contributes nothing.
@@ -417,7 +458,7 @@ def fetch_and_normalize(
     try:
         futures = {
             pool.submit(_search_serpapi, query, country, max_results, recency_days): "serpapi",
-            pool.submit(_search_tavily, tavily_query or query, country, max_results, date_range): "tavily",
+            pool.submit(_search_tavily, tavily_query or query, country, max_results, date_range, include_domains): "tavily",
             pool.submit(_search_google_news_rss, query,
                         recency_hours=_recency_hours_for_range(date_range), country=country): "google_news_rss",
         }

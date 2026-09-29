@@ -116,18 +116,12 @@ def build_boolean_queries(spec: dict) -> list[TopicQuery]:
     return topics
 
 
-_SOCIAL_PLATFORM_DOMAINS = {
-    "twitter.com": "twitter", "x.com": "twitter", "instagram.com": "instagram",
-    "facebook.com": "facebook", "reddit.com": "reddit", "linkedin.com": "linkedin",
-}
-
-
 def _platform_for_url(url: str) -> str | None:
     try:
         host = urlparse(url).netloc.lower().removeprefix("www.")
     except Exception:
         return None
-    for domain, platform in _SOCIAL_PLATFORM_DOMAINS.items():
+    for domain, platform in news_search.SOCIAL_PLATFORM_DOMAINS.items():
         if host == domain or host.endswith("." + domain):
             return platform
     return None
@@ -163,6 +157,20 @@ def _to_normalized_items(bucket_result: dict, topic: str) -> list[dict]:
     return items
 
 
+MAX_RESULTS_PER_SOURCE = 40  # per source, per fetch call (general or social-biased) — up from
+                              # 15; Tavily/SerpAPI both support well beyond this per call
+
+
+def _build_social_query(boolean_query: str) -> str:
+    """Bias a Boolean query toward social platforms via site: operators — works natively for
+    SerpAPI/Google News RSS's Google-search-flavored syntax. Tavily gets its own include_domains
+    restriction instead (see fetch_and_persist), since Tavily's natural-language search doesn't
+    parse embedded site: operators as a filter."""
+    domains = sorted(news_search.SOCIAL_PLATFORM_DOMAINS.keys())
+    site_group = "(" + " OR ".join(f"site:{d}" for d in domains) + ")"
+    return f"({boolean_query}) AND {site_group}"
+
+
 def fetch_and_persist(
     project_id: int,
     topics: list[TopicQuery],
@@ -171,9 +179,12 @@ def fetch_and_persist(
     research_id: int | None = None,
     emit=None,
 ) -> dict:
-    """Fetch every topic query (each topic itself fans out to 3 sources concurrently inside
-    fetch_and_normalize), normalize, and upsert into intel_research_items as results arrive —
-    a worker crash mid-run still leaves partial results queryable."""
+    """Fetch every topic query. Each topic makes TWO fetch_and_normalize calls (each itself
+    fanning out to 3 sources concurrently): a general call, and a social-biased call restricted
+    to known social platforms — so social coverage gets its own guaranteed budget rather than
+    competing for space within one shared result window. Normalizes and upserts into
+    intel_research_items as results arrive — a worker crash mid-run still leaves partial
+    results queryable. Overlapping URLs between the two calls are deduped before persisting."""
     def _emit(step: str, payload: dict) -> None:
         if emit:
             emit(step, payload)
@@ -181,23 +192,44 @@ def fetch_and_persist(
     items_fetched = 0
     items_persisted = 0
     source_status: dict[str, str] = {"tavily": "ok", "serpapi": "ok", "google_rss": "ok"}
+    social_domains = list(news_search.SOCIAL_PLATFORM_DOMAINS.keys())
 
-    for i, topic in enumerate(topics):
-        _emit("fetching_topic", {"topic": topic.topic, "index": i + 1, "total": len(topics)})
-        bucket_result = news_search.fetch_and_normalize(
-            query=topic.boolean_query,
-            country=geography,
-            date_range=date_range,
-            max_results=15,
-            tavily_query=topic.natural_query,
-        )
+    def _track_failures(bucket_result: dict) -> None:
         for failed in bucket_result.get("failed_sources", []):
             key = "google_rss" if failed == "google_news_rss" else failed
             source_status[key] = "degraded"
 
-        normalized = _to_normalized_items(bucket_result, topic.topic)
-        items_fetched += len(normalized)
-        for item in normalized:
+    for i, topic in enumerate(topics):
+        _emit("fetching_topic", {"topic": topic.topic, "index": i + 1, "total": len(topics)})
+
+        general_result = news_search.fetch_and_normalize(
+            query=topic.boolean_query, country=geography, date_range=date_range,
+            max_results=MAX_RESULTS_PER_SOURCE, tavily_query=topic.natural_query,
+        )
+        _track_failures(general_result)
+
+        social_result = news_search.fetch_and_normalize(
+            query=_build_social_query(topic.boolean_query), country=geography,
+            date_range=date_range, max_results=MAX_RESULTS_PER_SOURCE,
+            tavily_query=topic.natural_query, include_domains=social_domains,
+        )
+        _track_failures(social_result)
+
+        # Social items first: kept ahead of the general call's items so they're never crowded
+        # out downstream (e.g. LLM map-reduce batching, which processes items in this order).
+        social_items = _to_normalized_items(social_result, topic.topic)
+        general_items = _to_normalized_items(general_result, topic.topic)
+
+        seen_urls: set[str] = set()
+        combined: list[dict] = []
+        for item in social_items + general_items:
+            if item["url"] in seen_urls:
+                continue
+            seen_urls.add(item["url"])
+            combined.append(item)
+
+        items_fetched += len(combined)
+        for item in combined:
             repository.upsert_research_item(project_id, research_id, item)
             items_persisted += 1
 
