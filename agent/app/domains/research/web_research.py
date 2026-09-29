@@ -13,6 +13,7 @@ from typing import Callable, Optional
 from urllib.parse import urlparse
 
 from . import news_search
+from .multi_source import build_boolean_queries, fetch_and_persist
 
 EventFn = Callable[[str, dict], None]
 
@@ -380,6 +381,8 @@ class LiveWebResearchAdapter:
         self,
         spec: dict,
         *,
+        project_id: int,
+        research_id: int | None = None,
         emit: EventFn | None = None,
     ) -> dict:
         """Execute the complete brand research workflow.
@@ -391,13 +394,8 @@ class LiveWebResearchAdapter:
         start = time.time()
 
         brand_name = self._extract_brand_name(spec)
-        parent_company = self._extract_parent_company(spec)
         category = self._extract_category(spec)
-        products = self._extract_products(spec)
         geography = self._extract_geography(spec)
-        audience = self._extract_audience(spec)
-        research_questions = self._extract_rqs(spec)
-        competitors = self._extract_competitors(spec)
         date_range = self._extract_date_range(spec)
 
         if not brand_name:
@@ -407,72 +405,40 @@ class LiveWebResearchAdapter:
                 "web_search_executed": False,
             }
 
-        _emit("research_started", {"brand": brand_name, "category": category, "competitors": competitors})
-
-        # Build entity validator
+        # Build entity validator — still used below to score each retained item's relevance
         exclude_patterns = self._extract_exclusions(spec)
         validator = EntityValidator(brand_name, category, geography, exclude_patterns)
 
-        # Generate search queries
-        queries = build_search_queries(
-            brand_name, parent_company, category, products,
-            geography, audience, research_questions, competitors,
+        topics = build_boolean_queries(spec)
+        _emit("research_started", {"brand": brand_name, "topics": [t.topic for t in topics]})
+        _emit("research_queries_built", {"count": len(topics)})
+
+        fetch_result = fetch_and_persist(
+            project_id=project_id, topics=topics, date_range=date_range,
+            geography=geography, research_id=research_id, emit=_emit,
         )
-        _emit("research_queries_built", {"count": len(queries)})
 
-        # Execute searches
-        all_raw: list[dict] = []
-        search_log: list[dict] = []
-        # Tracks whether every single fetch this run saw both SerpAPI and Tavily fail (i.e. ran
-        # on Google News RSS alone) — used to surface a "degraded" notice via research_gaps
-        # below. Calling news_search.fetch_and_normalize() directly here (rather than through
-        # the _ddg_web_search/_ddg_news_search wrappers) is the one place that signal is needed;
-        # those wrappers' own signatures/behavior stay untouched for their other caller
-        # (LiveWebResearchAdapter.search()).
-        degraded_calls = 0
-        total_calls = 0
+        from . import repository as research_repository
+        persisted_items = research_repository.get_research_items(project_id)
 
-        for i, q in enumerate(queries):
-            _emit("research_searching", {
-                "query": q["query"],
-                "family": q["family"],
-                "index": i + 1,
-                "total": len(queries),
-            })
+        # Reshape persisted DB rows into the legacy {title, snippet, url, source, date, _family,
+        # _query} flat item shape the rest of this method (entity validation, dedup-adjacent
+        # filtering, date-status tagging) already expects, so everything below this line is
+        # unchanged.
+        all_raw = [{
+            "title": row["title"], "snippet": row["content"], "url": row["url"],
+            "source": row["publication"], "date": row["published_date"],
+            "_family": row["topic"], "_query": row["topic"],
+        } for row in persisted_items]
 
-            web_buckets = news_search.fetch_and_normalize(
-                q["query"], country=geography, date_range=date_range, max_results=8
-            )
-            web_results = _reshape_news_search_buckets(web_buckets, 8)
-            total_calls += 1
-            if web_buckets.get("degraded"):
-                degraded_calls += 1
-            time.sleep(_DDG_DELAY)
-
-            news_results = []
-            if q.get("use_news"):
-                news_buckets = news_search.fetch_and_normalize(
-                    q["query"], country=geography, date_range=date_range, max_results=6
-                )
-                news_results = _reshape_news_search_buckets(news_buckets, 6)
-                total_calls += 1
-                if news_buckets.get("degraded"):
-                    degraded_calls += 1
-                time.sleep(_DDG_DELAY)
-
-            for r in web_results + news_results:
-                r["_family"] = q["family"]
-                r["_query"] = q["query"]
-                r["_search_type"] = "news" if r in news_results else "web"
-
-            all_raw.extend(web_results)
-            all_raw.extend(news_results)
-            search_log.append({
-                "query": q["query"],
-                "family": q["family"],
-                "web_count": len(web_results),
-                "news_count": len(news_results),
-            })
+        search_log = [{"topic": t.topic, "query": t.boolean_query} for t in topics]
+        # source_status values are "ok" or "degraded" per source (Task 2's fetch_and_normalize
+        # concurrent fan-out); degraded on both primary APIs matches the old
+        # degraded_calls == total_calls semantics this replaces.
+        search_degraded = (
+            fetch_result["source_status"].get("tavily") == "degraded"
+            and fetch_result["source_status"].get("serpapi") == "degraded"
+        )
 
         _emit("research_filtering", {"total_raw": len(all_raw)})
 
@@ -606,11 +572,6 @@ class LiveWebResearchAdapter:
         if not news_items:
             gaps.append("No recent news items found within the approved date range")
 
-        # True only when every single search call this run had both SerpAPI and Tavily fail —
-        # matches news_search.fetch_and_normalize()'s per-call "degraded" semantics (AND, not
-        # OR). total_calls is always >= 1 by this point (queries is never empty when we reach
-        # here — an empty brand_name already returned early above).
-        search_degraded = total_calls > 0 and degraded_calls == total_calls
         if search_degraded:
             gaps.append(
                 "Primary search APIs (SerpAPI, Tavily) were unavailable — results are from "
@@ -639,7 +600,7 @@ class LiveWebResearchAdapter:
                 "tier_3_count": tier_3_count,
                 "date_range_start": range_start.isoformat(),
                 "date_range_end": range_end.isoformat(),
-                "search_queries_executed": len(queries),
+                "search_queries_executed": len(topics),
                 "elapsed_seconds": elapsed,
                 "execution_date": date.today().isoformat(),
             },

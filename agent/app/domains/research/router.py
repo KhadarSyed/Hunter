@@ -85,7 +85,7 @@ def start_background_research(req: StartResearchRequest):
 
             # ── Stage 1: Web research (single execution) ──
             logger.info("[research:%s] Stage 1 — executing web research", job_id)
-            web_result = adapter.run_full_research(spec, emit=on_event)
+            web_result = adapter.run_full_research(spec, project_id=project_id, emit=on_event)
 
             if web_result.get("status") != "completed" or not web_result.get("web_search_executed"):
                 logger.warning("[research:%s] Web search did not fully complete — continuing anyway", job_id)
