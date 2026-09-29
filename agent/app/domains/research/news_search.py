@@ -81,17 +81,21 @@ class NewsSearchError(RuntimeError):
 # SerpAPI
 # --------------------------------------------------------------------------
 
-def _search_serpapi(query: str, country: str, max_results: int) -> list[dict]:
+def _search_serpapi(query: str, country: str, max_results: int, recency_days: int | None = None) -> list[dict]:
     """Raw SerpAPI Google News engine results. Returns [] on any failure (missing key,
-    network error, rate limit, bad response) rather than raising."""
+    network error, rate limit, bad response) rather than raising. `recency_days`, when given,
+    is embedded as a `when:Nd` prefix — the same Google search operator Google News RSS already
+    uses (this module's own `_search_google_news_rss`), since SerpAPI's google_news engine is
+    the same underlying Google index and honors the same operator."""
     api_key = os.getenv("SERP_API_KEY", "")
     if not api_key:
         logger.debug("SERP_API_KEY not set — skipping SerpAPI search")
         return []
 
+    q = f"when:{recency_days}d {query}" if recency_days else query
     params = {
         "engine": "google_news",
-        "q": query,
+        "q": q,
         "gl": country.lower(),
         "hl": "en",
         "api_key": api_key,
@@ -143,12 +147,14 @@ def _normalize_serpapi_item(item: dict) -> dict:
 # Tavily
 # --------------------------------------------------------------------------
 
-def _search_tavily(query: str, country: str, max_results: int) -> list[dict]:
+def _search_tavily(query: str, country: str, max_results: int, date_range: tuple | None = None) -> list[dict]:
     """Raw Tavily Search API (topic=news) results. Returns [] on any failure (missing key,
     network error, rate limit, bad response) rather than raising. `country` is accepted for
     signature symmetry with `_search_serpapi` but not sent — Tavily's `country` parameter takes
     an enumerated full country name (not an ISO code), and this module deals exclusively in
-    ISO 3166-1 alpha-2 codes like the rest of the pipeline, so mapping it is out of scope here."""
+    ISO 3166-1 alpha-2 codes like the rest of the pipeline, so mapping it is out of scope here.
+    `date_range`, when given, is sent as Tavily's own `start_date`/`end_date` params (confirmed
+    supported for topic=news via Tavily's public API reference, 2026-09)."""
     api_key = os.getenv("TAVILY_API_KEY", "")
     if not api_key:
         logger.debug("TAVILY_API_KEY not set — skipping Tavily search")
@@ -163,6 +169,9 @@ def _search_tavily(query: str, country: str, max_results: int) -> list[dict]:
         "include_answer": False,
         "include_published_date": True,
     }
+    if date_range is not None:
+        payload["start_date"] = _coerce_datetime(date_range[0]).strftime("%Y-%m-%d")
+        payload["end_date"] = _coerce_datetime(date_range[1]).strftime("%Y-%m-%d")
     try:
         r = requests.post(TAVILY_API_URL, json=payload, timeout=DEFAULT_TIMEOUT)
         if r.status_code != 200:
@@ -349,10 +358,13 @@ def _coerce_datetime(value: date | datetime) -> datetime:
 
 
 def _within_range(date_str: str, date_range: tuple) -> bool:
+    """Stringent filter: an unparseable date, or one outside the window, fails the check
+    (dropped by the caller) — this is a deliberate reversal of the old soft/advisory
+    behavior, which kept items it couldn't verify."""
     parsed = _parse_date(date_str)
     if parsed is None:
-        logger.debug("Unparseable date %r — keeping item despite date_range filter", date_str)
-        return True
+        logger.debug("Unparseable date %r — dropping item under stringent date filter", date_str)
+        return False
     start = _coerce_datetime(date_range[0])
     end = _coerce_datetime(date_range[1])
     return start <= parsed <= end
@@ -375,9 +387,15 @@ def fetch_and_normalize(
     country: str = "US",
     date_range: tuple | None = None,
     max_results: int = 20,
+    tavily_query: str | None = None,
 ) -> dict:
-    """Search SerpAPI + Tavily + Google News RSS, normalize into social/traditional media
-    buckets, dedupe by URL. Never raises — a down source just contributes nothing.
+    """Search SerpAPI + Tavily + Google News RSS concurrently, normalize into social/traditional
+    media buckets, dedupe by URL. Never raises — a down source just contributes nothing.
+
+    `tavily_query`, when given, is sent to Tavily instead of `query` (Tavily favors natural
+    language over raw Boolean operators; `query` still goes to SerpAPI/RSS, which are both
+    Google-search-flavored and handle Boolean syntax the same way). Defaults to `query` so
+    existing single-query callers are unaffected.
 
     Returns {"social_media": [...], "traditional_media": [...], "degraded": bool,
     "failed_sources": [...]}. "degraded" is True only when BOTH SerpAPI and Tavily contributed
@@ -385,11 +403,31 @@ def fetch_and_normalize(
     avoid the flag, since it's the fallback the flag exists to announce. RSS itself failing too
     is also captured in "failed_sources" but doesn't change the AND condition driving "degraded".
     """
-    serpapi_raw = _search_serpapi(query, country, max_results)
-    tavily_raw = _search_tavily(query, country, max_results)
-    rss_raw = _search_google_news_rss(
-        query, recency_hours=_recency_hours_for_range(date_range), country=country
-    )[:max_results]
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    recency_days = None
+    if date_range is not None:
+        recency_days = max(1, (date.today() - _coerce_datetime(date_range[0]).date()).days)
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {
+            pool.submit(_search_serpapi, query, country, max_results, recency_days): "serpapi",
+            pool.submit(_search_tavily, tavily_query or query, country, max_results, date_range): "tavily",
+            pool.submit(_search_google_news_rss, query,
+                        recency_hours=_recency_hours_for_range(date_range), country=country): "google_news_rss",
+        }
+        results_by_source: dict[str, list[dict]] = {"serpapi": [], "tavily": [], "google_news_rss": []}
+        for future in as_completed(futures, timeout=DEFAULT_TIMEOUT + 5):
+            source = futures[future]
+            try:
+                results_by_source[source] = future.result()
+            except Exception:
+                logger.exception("%s fetch raised unexpectedly", source)
+                results_by_source[source] = []
+
+    serpapi_raw = results_by_source["serpapi"]
+    tavily_raw = results_by_source["tavily"]
+    rss_raw = results_by_source["google_news_rss"][:max_results]
 
     normalized = [_normalize_serpapi_item(i) for i in serpapi_raw]
     normalized += [_normalize_tavily_item(i) for i in tavily_raw]
