@@ -557,17 +557,15 @@ class LiveWebResearchAdapter:
                 "rejection_reason": r.get("_validation", {}).get("reason", ""),
             })
 
-        # Identify research gaps
+        # Identify research gaps: compare against the topics THIS run actually queried
+        # (build_boolean_queries' own output), not a fixed external taxonomy — a topic we
+        # never asked about isn't a gap, and a topic we asked about but found nothing for is.
         gaps = []
         families_covered = {r.get("_family") for r in all_retained}
-        expected_families = {
-            "brand_identity", "products", "positioning", "social_channels",
-            "announcements", "campaigns", "partnerships", "leadership",
-            "controversies", "category", "consumer_trends", "cultural",
-        }
+        expected_families = {t.topic for t in topics}
         missing_families = expected_families - families_covered
-        for fam in missing_families:
-            gaps.append(f"No results found for search family: {fam}")
+        for fam in sorted(missing_families):
+            gaps.append(f"No results found for search topic: {fam}")
 
         if tier_1_count == 0:
             gaps.append("No Tier 1 (authoritative) sources found")
