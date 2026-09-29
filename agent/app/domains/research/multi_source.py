@@ -102,7 +102,7 @@ def build_boolean_queries(spec: dict) -> list[TopicQuery]:
         ))
 
     research_questions = spec.get("research_questions", [])
-    for i, rq in enumerate(research_questions[:3]):
+    for i, rq in enumerate(research_questions):
         question = rq.get("question", "") if isinstance(rq, dict) else str(rq)
         if not question:
             continue

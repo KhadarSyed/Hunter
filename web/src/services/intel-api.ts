@@ -74,7 +74,7 @@ export interface ResearchResult {
     news_items: NewsItem[];
     background_context: NewsItem[];
     rejected_sources: { headline: string; url: string; rejection_reason: string }[];
-    search_log: { query: string; family: string; web_count: number; news_count: number }[];
+    search_log: { topic: string; query: string }[];
     research_gaps: string[];
     search_degraded?: boolean;
     confidence: Record<string, string>;
@@ -182,11 +182,15 @@ export interface BriefData {
   research_gaps: string[];
   source_count: number;
   enrichment_status: string;
+  search_log: { topic: string; query: string }[];
   metadata: {
     sources_reviewed: number;
     sources_retained: number;
+    sources_rejected: number;
     tier_1_count: number;
     tier_2_count: number;
+    tier_3_count: number;
+    search_queries_executed: number;
     date_range_start: string;
     date_range_end: string;
   };

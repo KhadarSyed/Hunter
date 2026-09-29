@@ -513,9 +513,15 @@ export function BackgroundResearch({ onNavigate }: Props) {
                   <div className="text-[9px] text-slate-400">Sources</div>
                 </div>
                 <div className="w-px h-6 bg-slate-200" />
-                <div className="text-center">
-                  <div className="text-sm font-bold text-emerald-600 tabular-nums">{brief.metadata.tier_1_count}</div>
-                  <div className="text-[9px] text-slate-400">Tier 1</div>
+                <div className="text-center" title={`Tier 1: ${brief.metadata.tier_1_count} · Tier 2: ${brief.metadata.tier_2_count} · Tier 3: ${brief.metadata.tier_3_count}`}>
+                  <div className="text-sm font-bold tabular-nums">
+                    <span className="text-emerald-600">{brief.metadata.tier_1_count}</span>
+                    <span className="text-slate-300 mx-px">/</span>
+                    <span className="text-sky-600">{brief.metadata.tier_2_count}</span>
+                    <span className="text-slate-300 mx-px">/</span>
+                    <span className="text-slate-500">{brief.metadata.tier_3_count}</span>
+                  </div>
+                  <div className="text-[9px] text-slate-400">T1 / T2 / T3</div>
                 </div>
                 <div className="w-px h-6 bg-slate-200" />
                 <div className="text-center">
@@ -773,10 +779,26 @@ export function BackgroundResearch({ onNavigate }: Props) {
                 <div className="px-4 pb-3 space-y-1 text-[10px]">
                   <div><span className="text-slate-400">Reviewed:</span> <span className="text-slate-600">{brief.metadata.sources_reviewed}</span></div>
                   <div><span className="text-slate-400">Retained:</span> <span className="text-slate-600">{brief.metadata.sources_retained}</span></div>
+                  <div><span className="text-slate-400">Rejected:</span> <span className="text-slate-600">{brief.metadata.sources_rejected}</span></div>
                   <div><span className="text-slate-400">Tier 1:</span> <span className="text-slate-600">{brief.metadata.tier_1_count}</span></div>
                   <div><span className="text-slate-400">Tier 2:</span> <span className="text-slate-600">{brief.metadata.tier_2_count}</span></div>
+                  <div><span className="text-slate-400">Tier 3:</span> <span className="text-slate-600">{brief.metadata.tier_3_count}</span></div>
                   <div><span className="text-slate-400">Range:</span> <span className="text-slate-600">{brief.metadata.date_range_start} to {brief.metadata.date_range_end}</span></div>
                   <div className="text-slate-400 pt-1">Generated: {brief.generated_at}</div>
+                  {brief.search_log.length > 0 && (
+                    <div className="pt-2 mt-1 border-t border-slate-100">
+                      <div className="text-slate-400 mb-1">
+                        Queries run ({brief.metadata.search_queries_executed || brief.search_log.length}):
+                      </div>
+                      <div className="space-y-1 max-h-40 overflow-y-auto">
+                        {brief.search_log.map((entry, i) => (
+                          <div key={i} title={entry.query} className="text-slate-500 truncate">
+                            <span className="text-slate-400">{entry.topic}:</span> {entry.query}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
