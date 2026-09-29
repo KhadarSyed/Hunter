@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Path
@@ -10,6 +11,8 @@ from starlette.responses import FileResponse
 
 from ...core import store
 from ...core.anthropic_client import get_llm_client
+from ...core.events import broadcast as _broadcast
+from ...core.jobs import submit
 from . import renderer as rsr
 from . import service as rss
 from .schemas import (
@@ -17,7 +20,6 @@ from .schemas import (
     ApproveSpecRequest,
     ApproveSpecSectionRequest,
     ClarificationStatusResponse,
-    GeneratedSpecResponse,
     GenerateSpecRequest,
     LockSpecSectionRequest,
     RegenerateSpecRequest,
@@ -25,12 +27,14 @@ from .schemas import (
     ResolveClarificationRequest,
     SpecAuditEntry,
     SpecClarification,
+    SpecGenerationStarted,
     SpecReadinessResponse,
     SpecRenderResponse,
     SpecResponse,
     SpecSectionStatusResponse,
     SpecStatusResponse,
     SpecVersionItem,
+    UpdateSpecIndustryRequest,
     UpdateSpecSectionRequest,
 )
 
@@ -38,28 +42,112 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+JOB_TYPE_SPEC_GENERATION = "spec_generation"
+_LLM_STAGE_END_PCT = 55  # progress reached once brief_scope's interpret/retry loop finishes
 
-@router.post("/spec/generate", response_model=GeneratedSpecResponse)
+
+def _spec_progress(step: str, payload: dict) -> tuple[int | None, str]:
+    """(progress_pct or None-to-keep-current, human message) for a generate_spec() emit step."""
+    if step == "brief_scope_started":
+        return 10, "Reading the brief"
+    if step == "brief_scope_reasoning":
+        return None, "Briefing under progress..."
+    if step == "brief_scope_attempt":
+        attempt = payload.get("attempt", 1)
+        return min(10 + attempt * 15, _LLM_STAGE_END_PCT - 5), f"Agent interpreting brief (attempt {attempt})"
+    if step == "brief_scope_validated":
+        attempt = payload.get("attempt", 1)
+        errors, warnings = payload.get("errors", 0), payload.get("warnings", 0)
+        pct = min(15 + attempt * 15, _LLM_STAGE_END_PCT)
+        if errors:
+            return pct, f"Attempt {attempt}: {errors} rule(s) not yet met — asking the agent to correct and retry"
+        return pct, f"Attempt {attempt}: all rules met" + (f" ({warnings} minor warning(s))" if warnings else "")
+    if step == "brief_scope_error":
+        return None, payload.get("error", "Agent call issue — retrying")
+    if step in ("brief_scope_failed", "brief_scope_incomplete"):
+        return _LLM_STAGE_END_PCT, "Agent interpretation incomplete after retries — using existing project details"
+    if step == "brief_scope_complete":
+        client = payload.get("client", "")
+        entities = payload.get("entity_count", 0)
+        return _LLM_STAGE_END_PCT, f"Identified {client or 'the brand'} and {entities} entit{'y' if entities == 1 else 'ies'}"
+    if step == "merging_form_context":
+        return 60, "Applying your project details (client, geography, time period, research type)"
+    if step == "building_sections":
+        return 70, "Building the 20-section specification"
+    if step == "identifying_clarifications":
+        return 80, "Identifying open questions"
+    if step == "saving":
+        return 90, "Saving specification"
+    if step == "done":
+        return 100, "Specification ready"
+    return None, step
+
+
+@router.post("/spec/generate", response_model=SpecGenerationStarted)
 def generate_research_spec(req: GenerateSpecRequest):
-    """Generate a Research Specification from the project's stored spec."""
-    try:
-        llm_client = None
-        if req.use_llm:
-            llm_client = get_llm_client()
-            if not llm_client or not llm_client.is_reachable():
-                raise HTTPException(503, "No LLM provider available — ensure Ollama is running or ANTHROPIC_API_KEY is set")
-        result = rss.generate_spec(
-            project_id=req.project_id,
-            raw_brief_text=req.raw_brief_text,
-            use_llm=req.use_llm,
-            llm_client=llm_client,
-        )
-        return result
-    except ValueError as e:
-        raise HTTPException(404, str(e))
-    except Exception as e:
-        logger.exception("Failed to generate research specification")
-        raise HTTPException(500, f"Specification generation failed: {e}")
+    """Start Research Specification generation as a background job.
+
+    Returns immediately with a job_id; progress and the final result stream over the
+    shared /ws socket as `intel_job_update` messages (see _spec_progress for the step ->
+    percent/message mapping) and are also readable via GET /job/{job_id}.
+    """
+    if not store.get_project(req.project_id):
+        raise HTTPException(404, f"Project {req.project_id} not found")
+
+    llm_client = None
+    if req.use_llm:
+        llm_client = get_llm_client()
+        if not llm_client or not llm_client.is_reachable():
+            raise HTTPException(503, "No LLM provider available — set AZURE_OPENAI_API_KEY, "
+                                     "AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_MODEL")
+
+    job_id = f"spec_{uuid.uuid4().hex[:12]}"
+    store.create_job(job_id, req.project_id, JOB_TYPE_SPEC_GENERATION)
+
+    def worker():
+        last_pct = 5
+        store.update_job(job_id, status="running", progress_pct=last_pct, progress_message="Starting")
+        _broadcast({"type": "intel_job_update", "job_id": job_id, "project_id": req.project_id,
+                     "job_type": JOB_TYPE_SPEC_GENERATION, "status": "running",
+                     "progress_pct": last_pct, "message": "Starting"})
+
+        def on_event(step: str, payload: dict) -> None:
+            nonlocal last_pct
+            pct, msg = _spec_progress(step, payload)
+            if pct is not None:
+                last_pct = pct
+            store.update_job(job_id, progress_pct=last_pct, progress_message=msg)
+            _broadcast({"type": "intel_job_update", "job_id": job_id, "project_id": req.project_id,
+                         "job_type": JOB_TYPE_SPEC_GENERATION, "status": "running",
+                         "progress_pct": last_pct, "message": msg, "step": step})
+
+        try:
+            result = rss.generate_spec(
+                project_id=req.project_id,
+                raw_brief_text=req.raw_brief_text,
+                use_llm=req.use_llm,
+                llm_client=llm_client,
+                emit=on_event,
+            )
+            store.update_job(job_id, status="completed", progress_pct=100, progress_message="Specification ready",
+                             result={"spec_id": result["spec_id"]})
+            _broadcast({"type": "intel_job_update", "job_id": job_id, "project_id": req.project_id,
+                         "job_type": JOB_TYPE_SPEC_GENERATION, "status": "completed",
+                         "progress_pct": 100, "message": "Specification ready", "spec_id": result["spec_id"]})
+        except ValueError as e:
+            logger.warning("Spec generation for project %s: %s", req.project_id, e)
+            store.update_job(job_id, status="failed", error=str(e))
+            _broadcast({"type": "intel_job_update", "job_id": job_id, "project_id": req.project_id,
+                         "job_type": JOB_TYPE_SPEC_GENERATION, "status": "failed", "message": str(e)})
+        except Exception as e:
+            logger.exception("Failed to generate research specification for project %s", req.project_id)
+            store.update_job(job_id, status="failed", error=str(e))
+            _broadcast({"type": "intel_job_update", "job_id": job_id, "project_id": req.project_id,
+                         "job_type": JOB_TYPE_SPEC_GENERATION, "status": "failed",
+                         "message": f"Specification generation failed: {e}"})
+
+    submit(worker, name=f"spec:generate:{req.project_id}")
+    return SpecGenerationStarted(job_id=job_id, project_id=req.project_id)
 
 
 @router.get("/spec/{project_id}", response_model=SpecResponse)
@@ -97,6 +185,15 @@ def update_spec_section(spec_id: Annotated[int, Path(ge=1)], req: UpdateSpecSect
     if not ok:
         raise HTTPException(404, "Specification not found")
     return {"status": "updated", "section_key": req.section_key}
+
+
+@router.post("/spec/{spec_id}/industry", response_model=SpecStatusResponse)
+def update_spec_industry_endpoint(spec_id: Annotated[int, Path(ge=1)], req: UpdateSpecIndustryRequest):
+    """Update the industry classification (a top-level field, not a section)."""
+    ok = store.update_spec_industry(spec_id, req.name.strip(), req.reasoning.strip())
+    if not ok:
+        raise HTTPException(404, "Specification not found")
+    return {"status": "updated", "spec_id": spec_id}
 
 
 @router.post("/spec/{spec_id}/section/approve", response_model=SpecSectionStatusResponse)
@@ -140,28 +237,71 @@ def reject_spec_endpoint(spec_id: Annotated[int, Path(ge=1)], req: RejectSpecReq
     return {"status": "revision_requested", "spec_id": spec_id}
 
 
-@router.post("/spec/{spec_id}/regenerate", response_model=GeneratedSpecResponse)
+@router.post("/spec/{spec_id}/regenerate", response_model=SpecGenerationStarted)
 def regenerate_spec_endpoint(spec_id: Annotated[int, Path(ge=1)], req: RegenerateSpecRequest):
-    """Regenerate a specification (preserves locked/approved sections by default)."""
-    try:
-        llm_client = None
-        if req.use_llm:
-            llm_client = get_llm_client()
-            if not llm_client or not llm_client.is_reachable():
-                raise HTTPException(503, "No LLM provider available — ensure Ollama is running or ANTHROPIC_API_KEY is set")
-        result = rss.regenerate_spec(
-            spec_id=spec_id,
-            raw_brief_text=req.raw_brief_text,
-            use_llm=req.use_llm,
-            llm_client=llm_client,
-            confirm_overwrite_locked=req.confirm_overwrite_locked,
-        )
-        return result
-    except ValueError as e:
-        raise HTTPException(404, str(e))
-    except Exception as e:
-        logger.exception("Failed to regenerate specification")
-        raise HTTPException(500, f"Regeneration failed: {e}")
+    """Start re-analysis ("Reanalyze") of an existing spec as a background job — same
+    async/streaming pattern as /spec/generate. Preserves locked/approved sections unless
+    ``confirm_overwrite_locked`` is set."""
+    existing = store.get_spec_by_id(spec_id)
+    if not existing:
+        raise HTTPException(404, f"Spec {spec_id} not found")
+    project_id = existing["project_id"]
+
+    llm_client = None
+    if req.use_llm:
+        llm_client = get_llm_client()
+        if not llm_client or not llm_client.is_reachable():
+            raise HTTPException(503, "No LLM provider available — set AZURE_OPENAI_API_KEY, "
+                                     "AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_MODEL")
+
+    job_id = f"spec_{uuid.uuid4().hex[:12]}"
+    store.create_job(job_id, project_id, JOB_TYPE_SPEC_GENERATION)
+
+    def worker():
+        last_pct = 5
+        store.update_job(job_id, status="running", progress_pct=last_pct, progress_message="Starting")
+        _broadcast({"type": "intel_job_update", "job_id": job_id, "project_id": project_id,
+                     "job_type": JOB_TYPE_SPEC_GENERATION, "status": "running",
+                     "progress_pct": last_pct, "message": "Starting"})
+
+        def on_event(step: str, payload: dict) -> None:
+            nonlocal last_pct
+            pct, msg = _spec_progress(step, payload)
+            if pct is not None:
+                last_pct = pct
+            store.update_job(job_id, progress_pct=last_pct, progress_message=msg)
+            _broadcast({"type": "intel_job_update", "job_id": job_id, "project_id": project_id,
+                         "job_type": JOB_TYPE_SPEC_GENERATION, "status": "running",
+                         "progress_pct": last_pct, "message": msg, "step": step})
+
+        try:
+            result = rss.regenerate_spec(
+                spec_id=spec_id,
+                raw_brief_text=req.raw_brief_text,
+                use_llm=req.use_llm,
+                llm_client=llm_client,
+                confirm_overwrite_locked=req.confirm_overwrite_locked,
+                emit=on_event,
+            )
+            store.update_job(job_id, status="completed", progress_pct=100, progress_message="Specification ready",
+                             result={"spec_id": result["spec_id"]})
+            _broadcast({"type": "intel_job_update", "job_id": job_id, "project_id": project_id,
+                         "job_type": JOB_TYPE_SPEC_GENERATION, "status": "completed",
+                         "progress_pct": 100, "message": "Specification ready", "spec_id": result["spec_id"]})
+        except ValueError as e:
+            logger.warning("Spec regeneration for spec %s: %s", spec_id, e)
+            store.update_job(job_id, status="failed", error=str(e))
+            _broadcast({"type": "intel_job_update", "job_id": job_id, "project_id": project_id,
+                         "job_type": JOB_TYPE_SPEC_GENERATION, "status": "failed", "message": str(e)})
+        except Exception as e:
+            logger.exception("Failed to regenerate research specification %s", spec_id)
+            store.update_job(job_id, status="failed", error=str(e))
+            _broadcast({"type": "intel_job_update", "job_id": job_id, "project_id": project_id,
+                         "job_type": JOB_TYPE_SPEC_GENERATION, "status": "failed",
+                         "message": f"Regeneration failed: {e}"})
+
+    submit(worker, name=f"spec:regenerate:{spec_id}")
+    return SpecGenerationStarted(job_id=job_id, project_id=project_id)
 
 
 @router.get("/spec/{spec_id}/readiness", response_model=SpecReadinessResponse)

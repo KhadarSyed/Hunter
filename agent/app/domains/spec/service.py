@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
+from typing import Any, Callable, Optional
 
 from ...core import store
 from .repository import FORM_FIELDS
@@ -42,34 +42,39 @@ SECTION_TITLES = {
 # The brief_scope LLM only sees the brief text, so it cannot know them.
 _FORM_FIELDS = FORM_FIELDS
 _SCOPE_FROM_FORM = {"geography": "geography", "time_period": "time_period"}  # included_scope key -> form key
-_UNSPECIFIED = ("", "not specified", "unspecified", "n/a", "none", "unknown", "tbd")
 # form key -> keywords identifying an LLM "missing information" item that the form answers
 _ANSWERED_BY_FORM = {
     "geography": ("geograph", "country", "countries", "region", "market"),
     "time_period": ("time period", "timeframe", "time frame", "date range", "period of analysis", "time range"),
+    "research_type": ("methodology", "research approach", "research method"),
 }
 
 
-def _is_unspecified(value) -> bool:
-    return not value or (isinstance(value, str) and value.strip().lower().rstrip(".") in _UNSPECIFIED)
-
-
 def _apply_form_context(llm_spec: dict, form_spec: dict) -> dict:
-    """Merge the analyst's form choices into an LLM-generated spec: form fields are kept,
-    and scope values the LLM left unspecified are filled from the form. Values the LLM
-    did extract from the brief win."""
+    """Merge the analyst's form choices into an LLM-generated spec.
+
+    Geography, Time Period and Research Type are dropdown selections the analyst made
+    *before* the brief was even analysed — they are not prose for the LLM to refine, so
+    the form's value always wins here (unlike free-text fields, where the LLM's reading
+    of the brief is authoritative). This also fixes the LLM hedging unspecified values
+    with reasoning text ("unspecified (assume most recent 12 months...)") that used to
+    slip past an exact-match check and silently override the analyst's real selection.
+    """
     merged = {**llm_spec, **{k: form_spec[k] for k in _FORM_FIELDS if form_spec.get(k)}}
     scope = dict(merged.get("included_scope") or {})
     for scope_key, form_key in _SCOPE_FROM_FORM.items():
-        if form_spec.get(form_key) and _is_unspecified(scope.get(scope_key)):
+        if form_spec.get(form_key):
             scope[scope_key] = form_spec[form_key]
     merged["included_scope"] = scope
-    methodology = merged.get("methodology")
-    if form_spec.get("research_type") and (not isinstance(methodology, dict) or _is_unspecified(methodology.get("primary"))):
-        merged["methodology"] = {**(methodology if isinstance(methodology, dict) else {}),
-                                 "primary": form_spec["research_type"]}
+    if form_spec.get("research_type"):
+        # _build_methodology()/_build_question_method_mapping() read "recommended_methodology"
+        # first (the LLM's actual output key) and only fall back to "methodology" if absent —
+        # so the override must land on "recommended_methodology" or it's silently ignored.
+        methodology = merged.get("recommended_methodology", merged.get("methodology"))
+        merged["recommended_methodology"] = {**(methodology if isinstance(methodology, dict) else {}),
+                                             "primary": form_spec["research_type"]}
     # The LLM lists what the brief text lacks; drop items the form already answered so the
-    # analyst is not asked for geography / time period they just selected.
+    # analyst is not asked for geography / time period / research type they just selected.
     answered = [kws for form_key, kws in _ANSWERED_BY_FORM.items() if form_spec.get(form_key)]
     missing = merged.get("missing_information")
     if answered and isinstance(missing, list):
@@ -85,6 +90,7 @@ def generate_spec(
     raw_brief_text: str = "",
     use_llm: bool = False,
     llm_client: Any = None,
+    emit: Optional[Callable[[str, dict], None]] = None,
 ) -> dict:
     """Generate a Research Specification from the project's stored spec.
 
@@ -95,8 +101,17 @@ def generate_spec(
     When ``use_llm`` is True and ``llm_client`` is provided, the brief_scope
     agent is invoked first to produce a rich spec from the raw brief text.
 
+    ``emit(step, payload)``, if given, is called at each stage (LLM interpretation
+    attempts/validation from brief_scope.py, then "merging_form_context",
+    "building_sections", "identifying_clarifications", "saving") — used by the
+    /spec/generate route to stream progress to the Brief & Scope page.
+
     Returns ``{"spec_id": int, "spec": dict, "readiness": dict}``.
     """
+    def _emit(step: str, payload: Optional[dict] = None) -> None:
+        if emit:
+            emit(step, payload or {})
+
     project = store.get_project(project_id)
     if not project:
         raise ValueError(f"Project {project_id} not found")
@@ -110,12 +125,18 @@ def generate_spec(
             llm_client,
             brief_filename=project.get("project_name", ""),
             max_retries=2,
+            emit=emit,
         )
         if result.get("spec"):
+            _emit("merging_form_context")
             project_spec = _apply_form_context(result["spec"], project_spec)
             store.update_project_spec(project_id, project_spec)
+        else:
+            _emit("brief_scope_incomplete", {"validation_errors": result.get("validation_errors", [])})
 
+    _emit("building_sections")
     sections = _build_sections(project_spec, raw_brief_text or project_spec.get("raw_brief", ""))
+    _emit("identifying_clarifications")
     clarifications = _identify_clarifications(project_spec, sections)
 
     spec_data = {
@@ -125,6 +146,7 @@ def generate_spec(
         "section_titles": SECTION_TITLES,
         "sections": sections,
         "source_spec": project_spec,
+        "industry": project_spec.get("industry") or {},
         "generated_at": time.time(),
     }
 
@@ -133,6 +155,7 @@ def generate_spec(
     if use_llm and llm_client:
         llm_model = getattr(llm_client, "model", "ollama")
 
+    _emit("saving")
     spec_id = store.save_research_spec(
         project_id=project_id,
         spec=spec_data,
@@ -150,6 +173,7 @@ def generate_spec(
         )
 
     readiness = store.get_spec_readiness(spec_id)
+    _emit("done", {"spec_id": spec_id, "completeness_pct": readiness.get("completeness_pct") if readiness else None})
 
     return {
         "spec_id": spec_id,
@@ -165,9 +189,17 @@ def regenerate_spec(
     use_llm: bool = False,
     llm_client: Any = None,
     confirm_overwrite_locked: bool = False,
+    emit: Optional[Callable[[str, dict], None]] = None,
 ) -> dict:
     """Regenerate a specification, preserving locked/edited sections unless
-    ``confirm_overwrite_locked`` is True."""
+    ``confirm_overwrite_locked`` is True.
+
+    ``emit`` follows the same contract as ``generate_spec`` — used by the
+    ``/spec/{spec_id}/regenerate`` ("Reanalyze") route to stream progress."""
+    def _emit(step: str, payload: Optional[dict] = None) -> None:
+        if emit:
+            emit(step, payload or {})
+
     existing = store.get_spec_by_id(spec_id)
     if not existing:
         raise ValueError(f"Spec {spec_id} not found")
@@ -192,15 +224,35 @@ def regenerate_spec(
         result = run_brief_scope(
             raw_brief_text, llm_client,
             brief_filename=project.get("project_name", ""),
+            max_retries=2,
+            emit=emit,
         )
         if result.get("spec"):
+            _emit("merging_form_context")
             project_spec = _apply_form_context(result["spec"], project_spec)
             store.update_project_spec(project_id, project_spec)
+        else:
+            _emit("brief_scope_incomplete", {"validation_errors": result.get("validation_errors", [])})
 
+    _emit("building_sections")
     sections = _build_sections(project_spec, raw_brief_text or project_spec.get("raw_brief", ""))
 
     for key, locked in locked_sections.items():
         sections[key] = locked
+
+    _emit("identifying_clarifications")
+    clarifications = _identify_clarifications(project_spec, sections)
+    # Dedupe against what's already on this spec (e.g. from the original generate, or a
+    # prior reanalyze) so re-running Reanalyze doesn't pile up repeat clarification rows.
+    existing_questions = {c.get("question") for c in existing.get("clarifications", [])}
+    for cq in clarifications:
+        if cq["question"] not in existing_questions:
+            store.add_clarification(
+                spec_id=spec_id,
+                question=cq["question"],
+                section_key=cq.get("section_key", ""),
+                is_blocking=cq.get("is_blocking", True),
+            )
 
     spec_data = {
         "project_id": project_id,
@@ -209,12 +261,15 @@ def regenerate_spec(
         "section_titles": SECTION_TITLES,
         "sections": sections,
         "source_spec": project_spec,
+        "industry": project_spec.get("industry") or {},
         "generated_at": time.time(),
         "regenerated_from": spec_id,
     }
 
+    _emit("saving")
     store.update_spec(spec_id, spec_data)
     readiness = store.get_spec_readiness(spec_id)
+    _emit("done", {"spec_id": spec_id, "completeness_pct": readiness.get("completeness_pct") if readiness else None})
 
     return {
         "spec_id": spec_id,
@@ -438,13 +493,20 @@ def _build_entities(spec: dict) -> list[dict]:
     result = []
     for ent in entities:
         if isinstance(ent, dict):
-            result.append({
+            built = {
                 "name": ent.get("name", ""),
                 "type": ent.get("type", "brand"),
                 "confidence": ent.get("confidence", "medium"),
                 "reasoning": ent.get("reasoning", ""),
                 "alternatives_considered": ent.get("alternatives_considered", []),
-            })
+            }
+            # Optional, type-specific fields (agents/brief_scope.py RULE #8/#9) — copied
+            # through only when present so most entities don't carry empty placeholders.
+            if ent.get("group"):
+                built["group"] = ent["group"]
+            if ent.get("keywords"):
+                built["keywords"] = ent["keywords"]
+            result.append(built)
     return result
 
 
@@ -726,6 +788,30 @@ def _identify_clarifications(spec: dict, sections: dict) -> list[dict]:
             "question": "Business objective is empty — what business problem is this research solving?",
             "section_key": "business_objective",
             "is_blocking": True,
+        })
+
+    # Non-blocking safety net: if the LLM (or the deterministic tier) came up empty on a
+    # data point the analyst may still have in mind, ask rather than silently leave it
+    # blank. Never blocking — the analyst can proceed and fill these in later if they apply.
+    entity_types_present = {
+        ent.get("type") for ent in entities_content if isinstance(ent, dict)
+    } if isinstance(entities_content, list) else set()
+    _ENTITY_GAP_PROMPTS = {
+        "company": "No company/organization entities were identified — are there any relevant companies to track?",
+        "product": "No specific products were identified — are there specific products this research should cover?",
+        "person": "No named people were identified — are there executives, spokespeople, or other named individuals relevant to this research?",
+        "product_group": "No product groups/lineups were identified — is there a specific product range or lineup in scope?",
+        "event": "No events were identified — are there any launches, campaigns, conferences, or other events relevant to this research?",
+    }
+    for entity_type, question in _ENTITY_GAP_PROMPTS.items():
+        if entity_type not in entity_types_present:
+            clarifications.append({"question": question, "section_key": "entities", "is_blocking": False})
+
+    if not (spec.get("industry") or {}).get("name"):
+        clarifications.append({
+            "question": "No industry/category classification was identified — what industry or category does this research subject operate in?",
+            "section_key": "entities",
+            "is_blocking": False,
         })
 
     return clarifications

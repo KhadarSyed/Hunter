@@ -65,17 +65,54 @@ You do NOT research. You only interpret what the client is asking.
 
 7. If the brief requests COMPARING audience sub-groups, list each as a separate segment.
 
+8. Identify EVERY named entity the brief mentions, not just the commissioning brand:
+   companies/organizations, individual products, named people (executives, spokespeople,
+   athletes, creators — anyone named), product groups/lineups/ranges, and specific events
+   (a launch, a campaign, a conference, a controversy, a sponsorship). Use the most specific
+   applicable type below rather than defaulting everything to "brand". Also classify the
+   overall industry/category the research subject operates in — every brief has one, even
+   if not stated explicitly (infer it from the brand/product/subject).
+
+   COMPETITORS specifically: when the brief names a competing product (e.g. "Adidas
+   Ultraboost"), extract BOTH the parent competitor brand ("Adidas", type "competitor")
+   AND the specific product ("Ultraboost", type "product") as separate entities — do not
+   collapse them into one. Then, beyond what the brief names explicitly, also add the
+   other major, widely recognized competitor brands in the same category (using your own
+   knowledge of the industry), so the competitor list has at least 4 entries whenever the
+   category is identifiable. Mark brief-named competitors "confidence": "high"; competitors
+   you added from general industry knowledge "confidence": "medium" and reasoning noting
+   they are a well-known market player in this category, not explicitly named in the brief.
+
+9. For EVERY entity you output with type "brand" or "competitor" (every one, with zero
+   exceptions — the commissioning brand included), you MUST add a "keywords" array field:
+   3-8 short terms for that brand's messaging/positioning (taglines, campaign names or
+   hashtags, signature claims, well-known descriptors — e.g. for a running shoe brand:
+   "responsive cushioning", "energy return", "#JustDoIt"). Use terms from the brief where
+   given; otherwise use that brand's well-known public messaging. This is a required field
+   on brand/competitor entities, not decoration — downstream message-congruence analysis
+   (comparing each brand's claims against what's actually said about it) depends on it, and
+   an entity of type brand/competitor with no "keywords" array is treated as incomplete.
+   Every other entity type must NOT have a "keywords" field at all.
+
 ━━━ ENTITY VALIDATION ━━━
 
 For every named entity, provide:
-- type: one of brand, competitor, audience, category, topic, campaign, product, executive, geography, event
+- type: one of brand, company, competitor, audience, category, topic, campaign, product,
+  product_group, person, executive, geography, event
+  ("company" = the organization/corporate entity, distinct from "brand" when they differ,
+  e.g. company "Heineken N.V." vs brand "Heineken 0.0". "product_group" = a named lineup,
+  range, or family of products, e.g. "the Heineken 0.0 range", "the iPhone lineup" — use
+  "product" for one specific product. "person" = any named individual who is not being
+  evaluated in an executive capacity; use "executive" specifically for company leadership.)
 - confidence: high / medium / low
 - alternatives_considered: other possible interpretations (REQUIRED)
 - reasoning: why your interpretation is correct and others are wrong
 
-For entities typed "product", you may optionally add a "group" field (e.g. "flagship",
-"new_launch", "discontinued") to indicate the product's role in the lineup. Omit it when the
-brief gives no basis for a product grouping — it is optional, not required.
+For entities typed "product" or "product_group", you may optionally add a "group" field
+(e.g. "flagship", "new_launch", "discontinued") to indicate the product's role in the lineup.
+Omit it when the brief gives no basis for a product grouping — it is optional, not required.
+
+Every "brand"/"competitor" entity also needs a "keywords" field — see RULE #9 above.
 
 Example:
 Brief says "Conduct analysis for Mrs. T's with focus on Mom's"
@@ -83,6 +120,7 @@ Entity "Mrs. T's":
   type: brand, confidence: high
   alternatives_considered: ["honorific Mrs.", "movie Mrs.", "grammar term"]
   reasoning: "Mrs. T's with possessive apostrophe is a frozen food brand, not the word Mrs"
+  keywords: ["homestyle", "pierogies", "frozen comfort food", "family recipe"]
 Entity "Moms":
   type: audience, confidence: high
   alternatives_considered: ["competitor brand", "product line"]
@@ -109,14 +147,19 @@ Return ONLY a JSON object with these exact keys:
   "business_objective": "the business problem being solved",
   "research_objective": "one-sentence summary of the research goal",
   "deliverable_objective": "what must be produced and in what format",
+  "industry": {
+    "name": "the industry/category the research subject operates in, e.g. 'Beverages / Alcohol'",
+    "reasoning": "why this classification, inferred from the brand/product/subject if not stated"
+  },
   "validated_entities": [
     {
       "name": "exact name from brief",
-      "type": "brand|competitor|audience|category|topic|campaign|product|executive|geography|event",
+      "type": "brand|company|competitor|audience|category|topic|campaign|product|product_group|person|executive|geography|event",
       "confidence": "high|medium|low",
       "alternatives_considered": ["other interpretations considered"],
       "reasoning": "why this interpretation is correct",
-      "group": "optional — product entities only: flagship|new_launch|discontinued, etc."
+      "group": "optional — product/product_group entities only: flagship|new_launch|discontinued, etc.",
+      "keywords": "REQUIRED when type is brand or competitor (omit for every other type) — array of 3-8 messaging/positioning terms, e.g. [\"responsive cushioning\", \"#JustDoIt\"]"
     }
   ],
   "research_questions": [
@@ -208,8 +251,8 @@ Return ONLY a JSON object with these exact keys:
 # ─── Schema definition (for programmatic validation) ────────────────────────
 
 ENTITY_TYPES = frozenset({
-    "brand", "competitor", "audience", "category", "topic",
-    "campaign", "product", "executive", "geography", "event",
+    "brand", "company", "competitor", "audience", "category", "topic",
+    "campaign", "product", "product_group", "person", "executive", "geography", "event",
 })
 
 CONFIDENCE_LEVELS = frozenset({"high", "medium", "low"})
@@ -333,6 +376,7 @@ def validate_spec(spec: dict, brief_text: str) -> list[ValidationError]:
             "business_objective", "Empty — must state the business problem"))
 
     _validate_brand_subject_audience(spec, errors)
+    _validate_industry(spec, errors)
     _validate_entities(spec, errors)
     _validate_research_questions(spec, brief_text, errors)
     _validate_audience_segments(spec, brief_text, errors)
@@ -369,6 +413,14 @@ def _validate_brand_subject_audience(
             "Missing research audience description"))
 
 
+def _validate_industry(spec: dict, errors: list[ValidationError]) -> None:
+    """Soft check — industry is supplementary context, never blocks approval."""
+    industry = spec.get("industry")
+    if not isinstance(industry, dict) or not industry.get("name"):
+        errors.append(ValidationError(
+            "industry", "No industry/category classification provided", severity="warning"))
+
+
 def _validate_entities(spec: dict, errors: list[ValidationError]) -> None:
     entities = spec.get("validated_entities", [])
     if not entities:
@@ -400,6 +452,11 @@ def _validate_entities(spec: dict, errors: list[ValidationError]) -> None:
                 f"validated_entities[{i}].alternatives_considered",
                 "Entity must list alternative interpretations considered",
                 severity="warning"))
+        if etype in ("brand", "competitor") and not ent.get("keywords"):
+            errors.append(ValidationError(
+                f"validated_entities[{i}].keywords",
+                f"Entity '{ent.get('name', '')}' (type {etype}) is missing the required "
+                "'keywords' array — 3-8 messaging/positioning terms for message-congruence tracking"))
     if not has_brand:
         errors.append(ValidationError(
             "validated_entities",
@@ -840,6 +897,8 @@ def _apply_defaults(spec: dict) -> None:
     """Fill in structural defaults the LLM may have omitted."""
     if "commissioning_brand" not in spec:
         spec["commissioning_brand"] = {"name": "", "role": ""}
+    if "industry" not in spec or not isinstance(spec.get("industry"), dict):
+        spec["industry"] = {"name": "", "reasoning": ""}
     if "research_subject" not in spec:
         spec["research_subject"] = {"description": "", "is_brand_study": False}
     if "research_audience" not in spec:

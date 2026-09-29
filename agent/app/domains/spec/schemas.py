@@ -18,6 +18,11 @@ class UpdateSpecSectionRequest(BaseModel):
     analyst_note: str = ""
 
 
+class UpdateSpecIndustryRequest(BaseModel):
+    name: str
+    reasoning: str = ""
+
+
 class ApproveSpecSectionRequest(BaseModel):
     section_key: str
     reviewer: str = "analyst"
@@ -108,6 +113,16 @@ class SpecResponse(ApiModel):
     readiness: dict | None = None
     section_approvals: dict[str, dict] = {}
     clarifications: list[dict] = []
+
+
+class SpecGenerationStarted(ApiModel):
+    """Ack for POST /spec/generate — the job runs in the background; progress and the
+    final result stream over /ws as `intel_job_update` messages (job_id below), and
+    the job row is also readable via GET /job/{job_id}."""
+
+    job_id: str
+    project_id: int
+    status: str = "started"
 
 
 class GeneratedSpecResponse(ApiModel):

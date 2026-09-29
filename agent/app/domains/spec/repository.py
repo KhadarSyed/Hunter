@@ -204,6 +204,34 @@ def update_spec_section(
     return True
 
 
+def update_spec_industry(spec_id: int, name: str, reasoning: str = "", actor: str = "analyst") -> bool:
+    """Update the top-level `industry` field (a sibling of `sections`, not a section
+    itself — see domains/spec/service.py's spec_data construction)."""
+    conn = _conn()
+    now = time.time()
+    row = conn.execute(
+        "SELECT spec_json FROM intel_research_specifications WHERE id = ?", (spec_id,)
+    ).fetchone()
+    if not row:
+        conn.close()
+        return False
+    spec = json.loads(row["spec_json"])
+    old_value = json.dumps(spec.get("industry") or {})
+    spec["industry"] = {"name": name, "reasoning": reasoning}
+    conn.execute(
+        "UPDATE intel_research_specifications SET spec_json = ?, updated_at = ? WHERE id = ?",
+        (json.dumps(spec), now, spec_id),
+    )
+    conn.execute(
+        "INSERT INTO intel_spec_audit (spec_id, action, section_key, old_value, new_value, actor, created_at) "
+        "VALUES (?, 'industry_edit', 'industry', ?, ?, ?, ?)",
+        (spec_id, old_value, json.dumps(spec["industry"]), actor, now),
+    )
+    conn.commit()
+    conn.close()
+    return True
+
+
 def approve_spec_section(
     spec_id: int, section_key: str, reviewer: str = "analyst"
 ) -> bool:
