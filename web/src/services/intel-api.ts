@@ -596,8 +596,8 @@ export const intelApi = {
   getPexelsImage: (query: string) =>
     get<PexelsImageResponse>(`/pexels/image?query=${encodeURIComponent(query)}`),
 
-  getSectionVideo: (query: string) =>
-    get<SectionVideoResponse>(`/video/section?query=${encodeURIComponent(query)}`),
+  getSectionVideo: (query: string, brandName: string) =>
+    get<SectionVideoResponse>(`/video/section?query=${encodeURIComponent(query)}&brand_name=${encodeURIComponent(brandName)}`),
 
   // Sample Evaluation
   uploadSample: async (projectId: number, strategyId: number, file: File) => {

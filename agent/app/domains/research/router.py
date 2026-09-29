@@ -292,12 +292,12 @@ def get_pexels_image_route(query: str):
 # ─── Section background video (YouTube via DuckDuckGo) ─────────────────────
 
 @router.get("/video/section", response_model=SectionVideoResponse)
-def get_section_video_route(query: str):
+def get_section_video_route(query: str, brand_name: str = ""):
     """Topically-matched YouTube video for a brief section (e.g. "Tesla Model 3 review"
     for Brand Developments): saved youtube_videos table first, then a DuckDuckGo video
-    search restricted to YouTube results."""
+    search restricted to `brand_name`'s own official channel."""
     try:
-        return video_search.resolve_section_video(query)
+        return video_search.resolve_section_video(query, brand_name)
     except video_search.LookupUnavailable:
         return {"query": query, "video_id": None, "embed_url": None, "title": None,
                 "thumbnail_url": None, "cached": False}

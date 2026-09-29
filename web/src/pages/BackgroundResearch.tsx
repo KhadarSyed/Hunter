@@ -363,7 +363,7 @@ function SectionVideoBanner({ activeTab, brandName, category }: { activeTab: str
     setEmbedUrl(null);
     if (!queryFn || !brandName.trim()) return;
     let cancelled = false;
-    intelApi.getSectionVideo(queryFn(brandName, category)).then((res) => {
+    intelApi.getSectionVideo(queryFn(brandName, category), brandName).then((res) => {
       if (!cancelled) setEmbedUrl(res.embed_url);
     }).catch(() => {});
     return () => { cancelled = true; };
