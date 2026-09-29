@@ -151,21 +151,14 @@ def compose_brief(project_id: int, research_id: int, spec: dict, research_data: 
 
 
 def _get_llm():
+    """Azure OpenAI, or None. No Anthropic/Ollama fallback — see core/llm_provider.py."""
     try:
         from ...core.anthropic_client import get_llm_client
         client = get_llm_client()
         if client and client.is_reachable():
             return client
     except Exception as e:
-        logger.warning("Could not initialize Anthropic client: %s", e)
-    try:
-        from ...core.ollama_client import OllamaClient
-        ollama = OllamaClient()
-        if ollama.is_reachable():
-            logger.info("Using Ollama as fallback LLM for brief synthesis")
-            return ollama
-    except Exception as e:
-        logger.warning("Could not initialize Ollama client: %s", e)
+        logger.warning("Could not initialize LLM client: %s", e)
     return None
 
 
