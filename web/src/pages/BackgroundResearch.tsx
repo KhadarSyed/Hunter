@@ -333,20 +333,29 @@ function CompetitorRow({
  * already has its own per-competitor Pexels imagery (see CompetitorRow) so it's excluded here
  * to avoid stacking two different video/image backgrounds; Methodology and Source Register
  * are administrative sections with no natural video angle. */
+/** Joins only the non-empty parts with single spaces — category is sometimes empty, and
+ * naively interpolating it into a template string left a literal double space in the query
+ * ("Tesla  industry overview"), which also read as a slightly worse search. */
+function buildVideoQuery(...parts: (string | undefined)[]): string {
+  return parts.filter((p) => p && p.trim()).join(" ");
+}
+
 const SECTION_VIDEO_QUERIES: Record<string, (brand: string, category: string) => string> = {
-  company_introduction: (brand) => `${brand} company overview`,
-  executive_summary: (brand, category) => `${brand} ${category} industry overview`.trim(),
-  brand_developments: (brand) => `${brand} latest news`,
-  brand_narrative: (brand) => `${brand} brand story`,
-  industry_context: (_brand, category) => `${category} industry trends`.trim(),
-  key_issues: (_brand, category) => `${category} industry challenges`.trim(),
+  company_introduction: (brand) => buildVideoQuery(brand, "company overview"),
+  executive_summary: (brand, category) => buildVideoQuery(brand, category, "industry overview"),
+  brand_developments: (brand) => buildVideoQuery(brand, "latest news"),
+  brand_narrative: (brand) => buildVideoQuery(brand, "brand story"),
+  industry_context: (_brand, category) => buildVideoQuery(category, "industry trends"),
+  key_issues: (_brand, category) => buildVideoQuery(category, "industry challenges"),
 };
 
-/** Muted, autoplay, looping YouTube video filling the content pane behind the section text,
- * with a white gradient overlay for readability — mirrors the Brief & Scope header's Pexels
- * video pattern but per-section and brand/topic-matched. Renders nothing (falls back to the
- * plain white background) when the section has no video query or none was found. */
-function SectionVideoBackground({ activeTab, brandName, category }: { activeTab: string; brandName: string; category: string }) {
+/** A bounded hero banner (not a full-page background) above the section header — the
+ * earlier full-pane video-behind-scrolling-text design made body text illegible regardless
+ * of overlay strength once a busy/bright video was behind it. Keeping the video confined to
+ * its own strip, with the brand logo overlaid on it, means the actual reading content below
+ * always sits on plain white — zero readability trade-off. Renders nothing (collapses to no
+ * banner at all) when the section has no video query or none was found. */
+function SectionVideoBanner({ activeTab, brandName, category }: { activeTab: string; brandName: string; category: string }) {
   const [embedUrl, setEmbedUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -363,14 +372,22 @@ function SectionVideoBackground({ activeTab, brandName, category }: { activeTab:
   if (!embedUrl) return null;
 
   return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
+    <div className="relative h-48 shrink-0 overflow-hidden bg-slate-900 border-b border-slate-200">
       <iframe
         src={embedUrl}
         className="absolute inset-0 w-full h-full pointer-events-none"
         allow="autoplay; encrypted-media"
         title="Section background video"
       />
-      <div className="absolute inset-0 bg-gradient-to-b from-white/90 via-white/88 to-white/95" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+      {brandName && (
+        <div className="absolute bottom-3 left-4 flex items-center gap-2">
+          <BrandLogo brandName={brandName} size={28} rounded="lg" className="shadow-lg" />
+          <span className="text-white text-xs font-semibold" style={{ textShadow: "0 1px 3px rgba(0,0,0,0.6)" }}>
+            {brandName}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -1089,21 +1106,16 @@ export function BackgroundResearch({ onNavigate }: Props) {
           </button>
 
           {/* Content Pane — Right */}
-          <div className="flex-1 flex flex-col min-w-0 relative overflow-hidden">
-            <SectionVideoBackground activeTab={activeTab} brandName={brief.brand_name} category={brief.category} />
+          <div className="flex-1 flex flex-col min-w-0">
+            <SectionVideoBanner activeTab={activeTab} brandName={brief.brand_name} category={brief.category} />
             {/* Section Header */}
             {activeTab === "all_articles" ? (
-              <div className="relative z-10 shrink-0 px-6 py-3 border-b border-slate-100 bg-white/80 backdrop-blur-sm flex items-center justify-between">
+              <div className="shrink-0 px-6 py-3 border-b border-slate-100 bg-white flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-[#5B2C9D] uppercase tracking-wide">All Articles</h2>
               </div>
             ) : currentSection && (
-              <div className="relative z-10 shrink-0 px-6 py-3 border-b border-slate-100 bg-white/80 backdrop-blur-sm flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  {SECTION_VIDEO_QUERIES[activeTab] && brief.brand_name && (
-                    <BrandLogo brandName={brief.brand_name} size={20} rounded="lg" />
-                  )}
-                  <h2 className="text-sm font-semibold text-[#5B2C9D] uppercase tracking-wide">{currentSection.title}</h2>
-                </div>
+              <div className="shrink-0 px-6 py-3 border-b border-slate-100 bg-white flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-[#5B2C9D] uppercase tracking-wide">{currentSection.title}</h2>
                 <div className="flex items-center gap-2">
                   {currentSection.edited && (
                     <span className="text-[10px] font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded">Edited</span>
@@ -1122,7 +1134,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
             )}
 
             {/* Scrollable Content */}
-            <div ref={contentRef} className="relative z-10 flex-1 overflow-y-auto px-8 py-6">
+            <div ref={contentRef} className="flex-1 overflow-y-auto px-8 py-6">
               {activeTab === "all_articles" ? (
                 projectId ? (
                   <ResearchItemsTable projectId={projectId} />
@@ -1149,7 +1161,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
             </div>
 
             {/* Bottom Bar: Approval + Navigation */}
-            <div className="relative z-10 shrink-0 px-6 py-3 border-t border-slate-200 bg-white flex items-center justify-between">
+            <div className="shrink-0 px-6 py-3 border-t border-slate-200 bg-white flex items-center justify-between">
               <button
                 onClick={() => onNavigate("brief-scope-review")}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
