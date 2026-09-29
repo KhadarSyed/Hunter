@@ -7,7 +7,15 @@ research/service.py's single fixed-truncation LLM call.
 """
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass
+from urllib.parse import urlparse
+
+from . import news_search
+from . import repository
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -104,3 +112,95 @@ def build_boolean_queries(spec: dict) -> list[TopicQuery]:
         ))
 
     return topics
+
+
+_SOCIAL_PLATFORM_DOMAINS = {
+    "twitter.com": "twitter", "x.com": "twitter", "instagram.com": "instagram",
+    "facebook.com": "facebook", "reddit.com": "reddit", "linkedin.com": "linkedin",
+}
+
+
+def _platform_for_url(url: str) -> str | None:
+    try:
+        host = urlparse(url).netloc.lower().removeprefix("www.")
+    except Exception:
+        return None
+    for domain, platform in _SOCIAL_PLATFORM_DOMAINS.items():
+        if host == domain or host.endswith("." + domain):
+            return platform
+    return None
+
+
+def _parse_to_timestamp(date_str: str) -> float:
+    from .news_search import _parse_date
+    parsed = _parse_date(date_str)
+    return parsed.timestamp() if parsed else time.time()
+
+
+def _to_normalized_items(bucket_result: dict, topic: str) -> list[dict]:
+    items = []
+    for bucket_name in ("social_media", "traditional_media"):
+        for raw in bucket_result.get(bucket_name, []):
+            url = raw.get("published_url", "")
+            if not url:
+                continue
+            title = raw.get("title") or raw.get("content", "")[:80]
+            date_str = raw.get("published_date") or raw.get("date_posted") or ""
+            published_ts = _parse_to_timestamp(date_str)
+            items.append({
+                "topic": topic,
+                "source_api": raw.get("_source", "unknown"),
+                "platform": _platform_for_url(url),
+                "publication": raw.get("publisher_name", ""),
+                "published_date": published_ts,
+                "title": title,
+                "content": raw.get("content", ""),
+                "url": url,
+            })
+    return items
+
+
+def fetch_and_persist(
+    project_id: int,
+    topics: list[TopicQuery],
+    date_range: tuple,
+    geography: str,
+    research_id: int | None = None,
+    emit=None,
+) -> dict:
+    """Fetch every topic query (each topic itself fans out to 3 sources concurrently inside
+    fetch_and_normalize), normalize, and upsert into intel_research_items as results arrive —
+    a worker crash mid-run still leaves partial results queryable."""
+    def _emit(step: str, payload: dict) -> None:
+        if emit:
+            emit(step, payload)
+
+    items_fetched = 0
+    items_persisted = 0
+    source_status: dict[str, str] = {"tavily": "ok", "serpapi": "ok", "google_rss": "ok"}
+
+    for i, topic in enumerate(topics):
+        _emit("fetching_topic", {"topic": topic.topic, "index": i + 1, "total": len(topics)})
+        bucket_result = news_search.fetch_and_normalize(
+            query=topic.boolean_query,
+            country=geography,
+            date_range=date_range,
+            max_results=15,
+            tavily_query=topic.natural_query,
+        )
+        for failed in bucket_result.get("failed_sources", []):
+            key = "google_rss" if failed == "google_news_rss" else failed
+            source_status[key] = "degraded"
+
+        normalized = _to_normalized_items(bucket_result, topic.topic)
+        items_fetched += len(normalized)
+        for item in normalized:
+            repository.upsert_research_item(project_id, research_id, item)
+            items_persisted += 1
+
+    _emit("fetch_complete", {"items_fetched": items_fetched, "items_persisted": items_persisted})
+    return {
+        "items_fetched": items_fetched,
+        "items_persisted": items_persisted,
+        "source_status": source_status,
+    }
