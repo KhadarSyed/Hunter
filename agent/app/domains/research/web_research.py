@@ -424,10 +424,12 @@ class LiveWebResearchAdapter:
         # Reshape persisted DB rows into the legacy {title, snippet, url, source, date, _family,
         # _query} flat item shape the rest of this method (entity validation, dedup-adjacent
         # filtering, date-status tagging) already expects, so everything below this line is
-        # unchanged.
+        # unchanged. published_date is stored as a Unix-timestamp float (Task 1's schema); the
+        # date-validation step below parses "date" as a string, so it's converted here.
         all_raw = [{
             "title": row["title"], "snippet": row["content"], "url": row["url"],
-            "source": row["publication"], "date": row["published_date"],
+            "source": row["publication"],
+            "date": date.fromtimestamp(row["published_date"]).isoformat() if row["published_date"] else "",
             "_family": row["topic"], "_query": row["topic"],
         } for row in persisted_items]
 
