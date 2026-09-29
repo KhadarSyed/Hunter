@@ -323,23 +323,37 @@ def _coerce_to_markdown(value) -> str:
     return "" if value is None else str(value)
 
 
-def _reduce_batches(llm_client, batch_summaries: list[dict], brand_name: str) -> dict:
+def _reduce_batches(llm_client, batch_summaries: list[dict], brand_name: str, competitors: list[str]) -> dict:
     summary_block = _json.dumps(batch_summaries, indent=2)
+    comp_list = ", ".join(competitors) if competitors else "no named competitors identified"
     prompt = (
         _current_date_prefix()
-        + f"You are a senior competitive intelligence analyst writing a brief for {brand_name}. "
+        + f"You are a senior competitive intelligence analyst writing a brief for {brand_name}, "
+        f"benchmarked against these competitors: {comp_list}. "
         "Below are topic-grouped summaries of research findings. Combine them into a full brief. "
-        "Return ONLY JSON with these exact keys:\n"
+        f"Every section must weigh {brand_name} against the named competitors, not describe "
+        f"{brand_name} in isolation. Return ONLY JSON with these exact keys:\n"
         + ", ".join(_REDUCE_KEYS) + "\n\n"
         + "SECTION GUIDANCE:\n"
-        "- company_introduction: 2-3 paragraph overview of the company.\n"
-        "- executive_summary: 3-5 analytical paragraphs, then a "
-        f'"## What this means for {brand_name}" sub-heading with 4-6 strategic bullets.\n'
-        "- brand_developments: the brand's own most significant developments, \"## Date | Headline\" "
-        "format, 2-4 sentences each.\n"
-        "- brand_narrative: 4-6 bullets on narrative positioning.\n"
-        "- competitor_developments: grouped by competitor, \"## CompetitorName\" then developments.\n"
-        "- industry_context: 3-6 industry themes, ending with "
+        f"- company_introduction: 2-3 paragraph overview of {brand_name}, ending with a sentence "
+        f"on how it is positioned relative to {comp_list}.\n"
+        "- executive_summary: 3-5 analytical paragraphs synthesizing the key themes across "
+        f"{brand_name}, {comp_list}, and the industry — explicitly compare, don't just recap "
+        f"{brand_name} alone. Then a \"## What this means for {brand_name}\" sub-heading with "
+        "4-6 strategic bullets that reference the competitive set.\n"
+        f"- brand_developments: {brand_name}'s own most significant developments, \"## Date | Headline\" "
+        "format, 2-4 sentences each — each description should note how the development compares to "
+        "or is likely to affect the competitive set when relevant.\n"
+        "- brand_narrative: 4-6 bullets on narrative positioning, each assessed relative to "
+        f"{comp_list}, not in a vacuum.\n"
+        "- competitor_developments: for EACH competitor in "
+        f"{comp_list}, write \"## CompetitorName\" then a 2-3 sentence company-introduction "
+        "paragraph (what it does, market position, scale — the same depth as company_introduction "
+        "but for that competitor), then its developments as \"### Date | Headline\" entries, "
+        "2-3 sentences each with [S#] citations. Every named competitor gets its own intro, "
+        "even if research volume for it is thin — write a shorter but still analytical version.\n"
+        "- industry_context: 3-6 industry themes covering the whole competitive set (not just "
+        f"{brand_name}), ending with "
         '"## Key issues to monitor over the next 6-12 months" and 5-8 bullets.\n'
         "- methodology: 5-7 bullets on scope, time window, competitor set, selection rule.\n\n"
         "BATCH SUMMARIES:\n" + summary_block
@@ -379,6 +393,7 @@ def summarize_map_reduce(project_id: int, spec: dict, llm_client, emit=None, dat
         return {}
 
     brand_name = (spec.get("commissioning_brand") or {}).get("name", "the brand")
+    competitors = _entities_by_type(spec, "competitor")
     batches = _batch_items(items, BATCH_SIZE)
     batch_summaries = []
     for i, batch in enumerate(batches):
@@ -391,4 +406,4 @@ def summarize_map_reduce(project_id: int, spec: dict, llm_client, emit=None, dat
         return {}
 
     _emit("combining_summaries", {"batch_count": len(batch_summaries)})
-    return _reduce_batches(llm_client, batch_summaries, brand_name)
+    return _reduce_batches(llm_client, batch_summaries, brand_name, competitors)

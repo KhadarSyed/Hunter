@@ -210,6 +210,48 @@ function renderContent(content: string, sources: SourceLookup = {}, sectionKey =
   return <>{elements}</>;
 }
 
+/** The Competitors tab gets a distinct layout: one row per competitor, a 30%-width logo
+ * column beside a 70%-width data column, instead of the generic markdown flow every other
+ * section uses. Splits on bare "## CompetitorName" headings (no "|", unlike dated headings
+ * used elsewhere) — the same convention renderContent's inline-logo special case already
+ * relied on — so each competitor's intro + developments render inside its own row. */
+function renderCompetitorSection(content: string, sources: SourceLookup): React.ReactNode {
+  if (!content) return null;
+  const lines = content.split("\n");
+  const blocks: { name: string; bodyLines: string[] }[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("## ") && !trimmed.slice(3).includes("|")) {
+      blocks.push({ name: trimmed.slice(3).trim(), bodyLines: [] });
+      continue;
+    }
+    if (blocks.length > 0) {
+      blocks[blocks.length - 1].bodyLines.push(line);
+    }
+  }
+
+  if (blocks.length === 0) {
+    return <div className="max-w-3xl">{renderContent(content, sources, "competitor_developments")}</div>;
+  }
+
+  return (
+    <div className="divide-y divide-slate-100">
+      {blocks.map((block, i) => (
+        <div key={i} className="flex gap-8 py-8 first:pt-0 animate-fade-in">
+          <div className="w-[30%] shrink-0 flex flex-col items-center justify-center gap-3 bg-slate-50 rounded-xl py-8 px-4 self-start">
+            <BrandLogo brandName={block.name} size={100} rounded="lg" />
+            <div className="font-bold text-sm text-slate-700 text-center">{block.name}</div>
+          </div>
+          <div className="w-[70%] min-w-0">
+            {renderContent(block.bodyLines.join("\n"), sources, "competitor_developments_body")}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function renderInlineBold(text: string, sources: SourceLookup = {}): React.ReactNode {
   const parts = text.split(/(\*\*[^*]+\*\*|\[S\d+\])/);
   return parts.map((part, i) => {
@@ -847,8 +889,10 @@ export function BackgroundResearch({ onNavigate }: Props) {
                     className="w-full h-full min-h-[400px] text-sm text-slate-700 leading-relaxed border border-slate-200 rounded-lg p-4 focus:outline-none focus:ring-2 focus:ring-[#5B2C9D]/20 focus:border-[#5B2C9D]/40 font-mono resize-y"
                   />
                 ) : (
-                  <div className="text-[13.5px] text-slate-700 leading-[1.85] max-w-3xl font-reading">
-                    {renderContent(currentSection.content, sourceLookup, activeTab)}
+                  <div className={`text-[13.5px] text-slate-700 leading-[1.85] font-reading ${activeTab === "competitor_developments" ? "" : "max-w-3xl"}`}>
+                    {activeTab === "competitor_developments"
+                      ? renderCompetitorSection(currentSection.content, sourceLookup)
+                      : renderContent(currentSection.content, sourceLookup, activeTab)}
                   </div>
                 )
               ) : (
