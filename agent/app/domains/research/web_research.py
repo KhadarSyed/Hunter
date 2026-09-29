@@ -734,16 +734,23 @@ class LiveWebResearchAdapter:
             time_period = scope.get("time_period", "")
 
         end = date.today()
+        tp = time_period.lower()
 
-        if "12 month" in time_period.lower() or "past year" in time_period.lower():
+        if "12 month" in tp or "past year" in tp:
             start = end - timedelta(days=365)
-        elif "6 month" in time_period.lower():
+        elif "6 month" in tp:
             start = end - timedelta(days=182)
-        elif "3 month" in time_period.lower():
+        elif "3 month" in tp:
             start = end - timedelta(days=91)
+        elif "30 day" in tp or "past month" in tp:
+            start = end - timedelta(days=30)
+        elif "7 day" in tp or "past week" in tp or "1 week" in tp:
+            start = end - timedelta(days=7)
         else:
-            start = end - timedelta(days=365)
-
+            # Unmatched time_period strings previously fell through to a silent 365-day
+            # default; 30 days is a safer, more representative default for an unrecognized
+            # string (most specs specify something in the 7-365 day range, not a full year).
+            start = end - timedelta(days=30)
         return start, end
 
     def _extract_competitors(self, spec: dict) -> list[str]:
