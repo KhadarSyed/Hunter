@@ -50,7 +50,7 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
   const [client, setClient] = useState(draft?.client ?? "");
   const [geography, setGeography] = useState(draft?.geography ?? "United States");
   const [researchType, setResearchType] = useState(draft?.researchType ?? "Social Listening");
-  const [timePeriod, setTimePeriod] = useState(draft?.timePeriod ?? "Past 30 days");
+  const [timePeriod, setTimePeriod] = useState(draft?.timePeriod ?? "Past 7 days");
   const [briefText, setBriefText] = useState(draft?.briefText ?? "");
   const [existingSpec, setExistingSpec] = useState<Record<string, unknown>>({});
   const [loadingProject, setLoadingProject] = useState(editingId !== null);
@@ -291,6 +291,7 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
               <label className="block">
                 <span className="block text-xs font-medium text-slate-500 mb-1.5">Time Period</span>
                 <select value={timePeriod} onChange={(e) => setTimePeriod(e.target.value)} className={INPUT}>
+                  <option>Past 7 days</option>
                   <option>Past 30 days</option>
                   <option>Past 3 months</option>
                   <option>Past 6 months</option>
