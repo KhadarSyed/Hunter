@@ -83,6 +83,15 @@ class PexelsImageResponse(ApiModel):
     cached: bool = False  # True = served from the pexels_images table
 
 
+class SectionVideoResponse(ApiModel):
+    query: str
+    video_id: str | None = None
+    embed_url: str | None = None
+    title: str | None = None
+    thumbnail_url: str | None = None
+    cached: bool = False  # True = served from the youtube_videos table
+
+
 class FetchPreviewRequest(BaseModel):
     project_id: int
 

@@ -333,11 +333,18 @@ def _coerce_to_markdown(value) -> str:
     return "" if value is None else str(value)
 
 
-def _reduce_batches(llm_client, batch_summaries: list[dict], brand_name: str, competitors: list[str]) -> dict:
+def _reduce_batches(llm_client, batch_summaries: list[dict], brand_name: str, competitors: list[str],
+                     revision_notes: str = "") -> dict:
     summary_block = _json.dumps(batch_summaries, indent=2)
     comp_list = ", ".join(competitors) if competitors else "no named competitors identified"
+    revision_block = (
+        f"ANALYST FEEDBACK ON THE PREVIOUS DRAFT — you MUST address every point below in this "
+        f"rewrite, not just repeat the same content against fresh data:\n{revision_notes.strip()}\n\n"
+        if revision_notes.strip() else ""
+    )
     prompt = (
         _current_date_prefix()
+        + revision_block
         + f"You are a senior competitive intelligence analyst writing a brief for {brand_name}, "
         f"benchmarked against these competitors: {comp_list}. "
         "Below are topic-grouped summaries of research findings. Combine them into a full brief. "
@@ -382,14 +389,19 @@ def _reduce_batches(llm_client, batch_summaries: list[dict], brand_name: str, co
     return {key: _coerce_to_markdown(parsed.get(key, "")) for key in _REDUCE_KEYS}
 
 
-def summarize_map_reduce(project_id: int, spec: dict, llm_client, emit=None, date_range: tuple | None = None) -> dict:
+def summarize_map_reduce(project_id: int, spec: dict, llm_client, emit=None, date_range: tuple | None = None,
+                          revision_notes: str = "") -> dict:
     """Batch-summarize persisted research items for this project (no truncation caps), then
     combine batch summaries into the 7-key Brief section shape. Failed batches are skipped,
     not fatal. Returns {} if there are zero items (caller falls back to _compose_rule_based,
     matching today's zero-results behavior).
 
     `date_range`, when given, scopes to that window (typically the current run's) so a
-    project's earlier runs or date windows don't silently bleed into this brief."""
+    project's earlier runs or date windows don't silently bleed into this brief.
+
+    `revision_notes`, when given (an analyst's feedback on a rejected prior draft), is passed
+    into the reduce-step prompt as must-address guidance — a Request Revision cycle needs to
+    actually change the output, not just re-run the same prompt against re-fetched data."""
     def _emit(step: str, payload: dict) -> None:
         if emit:
             emit(step, payload)
@@ -416,4 +428,4 @@ def summarize_map_reduce(project_id: int, spec: dict, llm_client, emit=None, dat
         return {}
 
     _emit("combining_summaries", {"batch_count": len(batch_summaries)})
-    return _reduce_batches(llm_client, batch_summaries, brand_name, competitors)
+    return _reduce_batches(llm_client, batch_summaries, brand_name, competitors, revision_notes)

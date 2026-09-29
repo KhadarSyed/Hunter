@@ -1219,6 +1219,16 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
     (11, "pexels video cache", [
         "ALTER TABLE pexels_images ADD COLUMN video_url TEXT",
     ]),
+    (12, "youtube section video cache", ["""
+        CREATE TABLE IF NOT EXISTS youtube_videos (
+            query_key    TEXT PRIMARY KEY,  -- normalised query (lower-case, single spaces)
+            query_text   TEXT NOT NULL,
+            video_id     TEXT,              -- NULL = nothing found (retried after a while)
+            embed_url    TEXT,
+            title        TEXT,
+            thumbnail_url TEXT,
+            fetched_at   REAL NOT NULL
+        )"""]),
 ]
 
 

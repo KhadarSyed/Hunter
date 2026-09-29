@@ -344,6 +344,15 @@ export interface PexelsImageResponse {
   cached: boolean;
 }
 
+export interface SectionVideoResponse {
+  query: string;
+  video_id: string | null;
+  embed_url: string | null;
+  title: string | null;
+  thumbnail_url: string | null;
+  cached: boolean;
+}
+
 // ─── API Functions ──────────────────────────────────────────────────────────
 
 export interface BriefSource {
@@ -586,6 +595,9 @@ export const intelApi = {
   // Pexels dynamic background image lookup
   getPexelsImage: (query: string) =>
     get<PexelsImageResponse>(`/pexels/image?query=${encodeURIComponent(query)}`),
+
+  getSectionVideo: (query: string) =>
+    get<SectionVideoResponse>(`/video/section?query=${encodeURIComponent(query)}`),
 
   // Sample Evaluation
   uploadSample: async (projectId: number, strategyId: number, file: File) => {

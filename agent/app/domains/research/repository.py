@@ -180,6 +180,29 @@ def save_pexels_image(query_key: str, query_text: str, image_url: str | None,
     conn.close()
 
 
+# ─── YouTube section-background videos ───────────────────────────────────────
+
+def get_youtube_video(query_key: str) -> Optional[dict]:
+    conn = _conn()
+    row = conn.execute("SELECT * FROM youtube_videos WHERE query_key = ?", (query_key,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def save_youtube_video(query_key: str, query_text: str, video_id: str | None, embed_url: str | None,
+                       title: str | None, thumbnail_url: str | None) -> None:
+    conn = _conn()
+    conn.execute(
+        "INSERT INTO youtube_videos (query_key, query_text, video_id, embed_url, title, thumbnail_url, fetched_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(query_key) DO UPDATE SET query_text = excluded.query_text, "
+        "video_id = excluded.video_id, embed_url = excluded.embed_url, title = excluded.title, "
+        "thumbnail_url = excluded.thumbnail_url, fetched_at = excluded.fetched_at",
+        (query_key, query_text, video_id, embed_url, title, thumbnail_url, time.time()),
+    )
+    conn.commit()
+    conn.close()
+
+
 # ─── Research Items (multi-source pipeline) ──────────────────────────────────
 
 def upsert_research_item(project_id: int, research_id: int | None, item: dict) -> int:

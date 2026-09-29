@@ -22,6 +22,7 @@ from ...core.jobs import submit
 from . import brandfetch as brandfetch_client
 from . import multi_source as multi_source_module
 from . import pexels as pexels_client
+from . import video_search
 from .schemas import (
     ApproveRequest,
     BrandLogoResponse,
@@ -36,6 +37,7 @@ from .schemas import (
     ResearchJobStatus,
     ResearchResults,
     RevisionRequest,
+    SectionVideoResponse,
     StartResearchRequest,
 )
 from .web_research import EntityValidator, LiveWebResearchAdapter
@@ -285,6 +287,20 @@ def get_pexels_image_route(query: str):
     saved pexels_images table first, then the Pexels Video Search API, falling
     back to the Photo Search API when no video result exists."""
     return pexels_client.resolve_background_video(query)
+
+
+# ─── Section background video (YouTube via DuckDuckGo) ─────────────────────
+
+@router.get("/video/section", response_model=SectionVideoResponse)
+def get_section_video_route(query: str):
+    """Topically-matched YouTube video for a brief section (e.g. "Tesla Model 3 review"
+    for Brand Developments): saved youtube_videos table first, then a DuckDuckGo video
+    search restricted to YouTube results."""
+    try:
+        return video_search.resolve_section_video(query)
+    except video_search.LookupUnavailable:
+        return {"query": query, "video_id": None, "embed_url": None, "title": None,
+                "thumbnail_url": None, "cached": False}
 
 
 # ─── Multi-source fetch preview ─────────────────────────────────────────────

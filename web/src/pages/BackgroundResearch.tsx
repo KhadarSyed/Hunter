@@ -262,12 +262,120 @@ function renderContent(content: string, sources: SourceLookup = {}, sectionKey =
   return <>{elements}</>;
 }
 
+/** One competitor's row: 30%-width logo column (with a product-matched Pexels background
+ * behind it, mirroring the docx export's treatment) beside a 70%-width column split into
+ * two clearly labeled blocks — Introduction (the intro paragraph before the first dated
+ * entry) and Development Summary (the "### Date | Headline" entries). Self-fetches its own
+ * background image since it needs a hook — renderCompetitorSection is a plain function and
+ * can't call useEffect itself. */
+function CompetitorRow({
+  name, introLines, devLines, sources, category,
+}: {
+  name: string;
+  introLines: string[];
+  devLines: string[];
+  sources: SourceLookup;
+  category: string;
+}) {
+  const [bgImage, setBgImage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const query = `${name} ${category}`.trim();
+    if (!query) return;
+    intelApi.getPexelsImage(query).then((res) => {
+      if (!cancelled) setBgImage(res.image_url);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [name, category]);
+
+  return (
+    <div className="flex gap-8 py-8 first:pt-0 animate-fade-in">
+      <div className="w-[30%] shrink-0 self-start rounded-xl overflow-hidden relative" style={{ minHeight: 220 }}>
+        {bgImage && (
+          <>
+            <img src={bgImage} alt="" className="absolute inset-0 w-full h-full object-cover" aria-hidden="true" />
+            <div className="absolute inset-0 bg-gradient-to-t from-white/95 via-white/75 to-white/40" />
+          </>
+        )}
+        {!bgImage && <div className="absolute inset-0 bg-slate-50" />}
+        <div className="relative flex flex-col items-center justify-center gap-3 py-8 px-4 h-full">
+          <BrandLogo brandName={name} size={100} rounded="lg" />
+          <div className="font-bold text-sm text-slate-700 text-center">{name}</div>
+        </div>
+      </div>
+      <div className="w-[70%] min-w-0 space-y-5">
+        {introLines.some((l) => l.trim()) && (
+          <div>
+            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Introduction</div>
+            {renderContent(introLines.join("\n"), sources, "competitor_developments_body")}
+          </div>
+        )}
+        {devLines.some((l) => l.trim()) && (
+          <div>
+            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Development Summary</div>
+            {renderContent(devLines.join("\n"), sources, "competitor_developments_body")}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** The Competitors tab gets a distinct layout: one row per competitor, a 30%-width logo
  * column beside a 70%-width data column, instead of the generic markdown flow every other
  * section uses. Splits on bare "## CompetitorName" headings (no "|", unlike dated headings
  * used elsewhere) — the same convention renderContent's inline-logo special case already
  * relied on — so each competitor's intro + developments render inside its own row. */
-function renderCompetitorSection(content: string, sources: SourceLookup): React.ReactNode {
+/** Per-section query used to find a topically-matched YouTube background video — deliberately
+ * distinct per section (not one video reused everywhere) so Introduction gets a company
+ * overview while Brand Developments gets something about recent news, etc. Competitors
+ * already has its own per-competitor Pexels imagery (see CompetitorRow) so it's excluded here
+ * to avoid stacking two different video/image backgrounds; Methodology and Source Register
+ * are administrative sections with no natural video angle. */
+const SECTION_VIDEO_QUERIES: Record<string, (brand: string, category: string) => string> = {
+  company_introduction: (brand) => `${brand} company overview`,
+  executive_summary: (brand, category) => `${brand} ${category} industry overview`.trim(),
+  brand_developments: (brand) => `${brand} latest news`,
+  brand_narrative: (brand) => `${brand} brand story`,
+  industry_context: (_brand, category) => `${category} industry trends`.trim(),
+  key_issues: (_brand, category) => `${category} industry challenges`.trim(),
+};
+
+/** Muted, autoplay, looping YouTube video filling the content pane behind the section text,
+ * with a white gradient overlay for readability — mirrors the Brief & Scope header's Pexels
+ * video pattern but per-section and brand/topic-matched. Renders nothing (falls back to the
+ * plain white background) when the section has no video query or none was found. */
+function SectionVideoBackground({ activeTab, brandName, category }: { activeTab: string; brandName: string; category: string }) {
+  const [embedUrl, setEmbedUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const queryFn = SECTION_VIDEO_QUERIES[activeTab];
+    setEmbedUrl(null);
+    if (!queryFn || !brandName.trim()) return;
+    let cancelled = false;
+    intelApi.getSectionVideo(queryFn(brandName, category)).then((res) => {
+      if (!cancelled) setEmbedUrl(res.embed_url);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [activeTab, brandName, category]);
+
+  if (!embedUrl) return null;
+
+  return (
+    <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
+      <iframe
+        src={embedUrl}
+        className="absolute inset-0 w-full h-full pointer-events-none"
+        allow="autoplay; encrypted-media"
+        title="Section background video"
+      />
+      <div className="absolute inset-0 bg-gradient-to-b from-white/90 via-white/88 to-white/95" />
+    </div>
+  );
+}
+
+function renderCompetitorSection(content: string, sources: SourceLookup, category: string): React.ReactNode {
   if (!content) return null;
   const lines = content.split("\n");
   const blocks: { name: string; bodyLines: string[] }[] = [];
@@ -289,17 +397,21 @@ function renderCompetitorSection(content: string, sources: SourceLookup): React.
 
   return (
     <div className="divide-y divide-slate-100">
-      {blocks.map((block, i) => (
-        <div key={i} className="flex gap-8 py-8 first:pt-0 animate-fade-in">
-          <div className="w-[30%] shrink-0 flex flex-col items-center justify-center gap-3 bg-slate-50 rounded-xl py-8 px-4 self-start">
-            <BrandLogo brandName={block.name} size={100} rounded="lg" />
-            <div className="font-bold text-sm text-slate-700 text-center">{block.name}</div>
-          </div>
-          <div className="w-[70%] min-w-0">
-            {renderContent(block.bodyLines.join("\n"), sources, "competitor_developments_body")}
-          </div>
-        </div>
-      ))}
+      {blocks.map((block, i) => {
+        const firstDevIdx = block.bodyLines.findIndex((l) => l.trim().startsWith("### "));
+        const introLines = firstDevIdx === -1 ? block.bodyLines : block.bodyLines.slice(0, firstDevIdx);
+        const devLines = firstDevIdx === -1 ? [] : block.bodyLines.slice(firstDevIdx);
+        return (
+          <CompetitorRow
+            key={i}
+            name={block.name}
+            introLines={introLines}
+            devLines={devLines}
+            sources={sources}
+            category={category}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -345,6 +457,10 @@ export function BackgroundResearch({ onNavigate }: Props) {
   const [showProgressLog, setShowProgressLog] = useState(false);
   const [scopeGeography, setScopeGeography] = useState("");
   const [scopeTimePeriod, setScopeTimePeriod] = useState("");
+  const [revisionPanelOpen, setRevisionPanelOpen] = useState(false);
+  const [leftPanelOpen, setLeftPanelOpen] = useState(true);
+  const [revisionNotes, setRevisionNotes] = useState("");
+  const [submittingRevision, setSubmittingRevision] = useState(false);
 
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -447,6 +563,36 @@ export function BackgroundResearch({ onNavigate }: Props) {
     }
   }, [projectId, pageState, briefResult]);
 
+  /** Fetches the project's spec and starts a brand-new web research job — always a fresh
+   * fetch, no hasResearch check. Shared by first-time generation and Request Revision,
+   * which must restart research, not just re-synthesize the same already-fetched items. */
+  const triggerFreshResearch = async (): Promise<boolean> => {
+    if (!projectId) {
+      setError("No active project. Please create a project first.");
+      return false;
+    }
+    let spec: Record<string, unknown> | null = null;
+    try {
+      const project = await intelApi.getProject(projectId);
+      if (project.spec) spec = project.spec;
+    } catch {}
+    if (!spec) {
+      setError("No project specification found. Complete Brief & Scope first.");
+      setPageState("failed");
+      return false;
+    }
+
+    const result = await intelApi.startResearch(spec, projectId);
+    setActiveProject({ id: result.project_id, name: activeProject?.name ?? "Research Project", project_type: activeProject?.project_type ?? "research", brand: activeProject?.brand });
+
+    // Hand off to useJobStatus: the effect watching `researchStatus` /
+    // `researchPollError` drives the rest of the flow (progress updates,
+    // then proceedToComposing()) once the research job reaches a
+    // terminal state.
+    setResearchJobId(result.job_id);
+    return true;
+  };
+
   const startGeneration = async () => {
     if (!projectId) {
       setError("No active project. Please create a project first.");
@@ -470,25 +616,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
       } catch {}
 
       if (!hasResearch) {
-        let spec: Record<string, unknown> | null = null;
-        try {
-          const project = await intelApi.getProject(projectId);
-          if (project.spec) spec = project.spec;
-        } catch {}
-        if (!spec) {
-          setError("No project specification found. Complete Brief & Scope first.");
-          setPageState("failed");
-          return;
-        }
-
-        const result = await intelApi.startResearch(spec, projectId);
-        setActiveProject({ id: result.project_id, name: activeProject?.name ?? "Research Project", project_type: activeProject?.project_type ?? "research", brand: activeProject?.brand });
-
-        // Hand off to useJobStatus: the effect watching `researchStatus` /
-        // `researchPollError` drives the rest of the flow (progress updates,
-        // then proceedToComposing()) once the research job reaches a
-        // terminal state.
-        setResearchJobId(result.job_id);
+        await triggerFreshResearch();
         return;
       }
 
@@ -512,15 +640,27 @@ export function BackgroundResearch({ onNavigate }: Props) {
     }
   };
 
-  const handleRevise = async () => {
-    if (!briefResult) return;
+  const handleSubmitRevision = async () => {
+    if (!briefResult || !revisionNotes.trim()) return;
+    setSubmittingRevision(true);
     try {
-      await intelApi.rejectBrief(briefResult.brief_id, "Revision requested by analyst");
-      setPageState("idle");
+      await intelApi.rejectBrief(briefResult.brief_id, revisionNotes.trim());
+      setRevisionPanelOpen(false);
+      setRevisionNotes("");
       setBriefResult(null);
       setApproved(false);
+      setError(null);
+      setPageState("researching");
+      setProgress({ pct: 0, message: "Restarting web research with your revision notes..." });
+      setStartedAt(Date.now());
+      setProgressLog([]);
+      setShowProgressLog(false);
+      await triggerFreshResearch();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Revision request failed");
+      setPageState("ready");
+    } finally {
+      setSubmittingRevision(false);
     }
   };
 
@@ -827,8 +967,9 @@ export function BackgroundResearch({ onNavigate }: Props) {
       {/* Tabbed Content Layout */}
       {pageState === "ready" && brief && (
         <div className="flex-1 flex min-h-0">
-          {/* Section Tabs — Left Rail */}
-          <div className="w-56 shrink-0 border-r border-slate-200 bg-white overflow-y-auto">
+          {/* Section Tabs — Left Rail (slide-out drawer) */}
+          <div className={`shrink-0 border-r border-slate-200 bg-white overflow-hidden transition-[width] duration-200 ${leftPanelOpen ? "w-56" : "w-0 border-r-0"}`}>
+            <div className="w-56 h-full overflow-y-auto">
             <div className="py-2">
               {sectionOrder.map((key) => {
                 const section = brief.sections[key];
@@ -934,18 +1075,35 @@ export function BackgroundResearch({ onNavigate }: Props) {
                 </div>
               )}
             </div>
+            </div>
           </div>
 
+          <button
+            onClick={() => setLeftPanelOpen((v) => !v)}
+            title={leftPanelOpen ? "Hide section list" : "Show section list"}
+            className="shrink-0 w-5 flex items-center justify-center border-r border-slate-200 bg-white hover:bg-slate-50 transition-colors"
+          >
+            <svg className={`w-3.5 h-3.5 text-slate-400 transition-transform ${leftPanelOpen ? "" : "rotate-180"}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+          </button>
+
           {/* Content Pane — Right */}
-          <div className="flex-1 flex flex-col min-w-0">
+          <div className="flex-1 flex flex-col min-w-0 relative overflow-hidden">
+            <SectionVideoBackground activeTab={activeTab} brandName={brief.brand_name} category={brief.category} />
             {/* Section Header */}
             {activeTab === "all_articles" ? (
-              <div className="shrink-0 px-6 py-3 border-b border-slate-100 bg-white flex items-center justify-between">
+              <div className="relative z-10 shrink-0 px-6 py-3 border-b border-slate-100 bg-white/80 backdrop-blur-sm flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-[#5B2C9D] uppercase tracking-wide">All Articles</h2>
               </div>
             ) : currentSection && (
-              <div className="shrink-0 px-6 py-3 border-b border-slate-100 bg-white flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-[#5B2C9D] uppercase tracking-wide">{currentSection.title}</h2>
+              <div className="relative z-10 shrink-0 px-6 py-3 border-b border-slate-100 bg-white/80 backdrop-blur-sm flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  {SECTION_VIDEO_QUERIES[activeTab] && brief.brand_name && (
+                    <BrandLogo brandName={brief.brand_name} size={20} rounded="lg" />
+                  )}
+                  <h2 className="text-sm font-semibold text-[#5B2C9D] uppercase tracking-wide">{currentSection.title}</h2>
+                </div>
                 <div className="flex items-center gap-2">
                   {currentSection.edited && (
                     <span className="text-[10px] font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded">Edited</span>
@@ -964,7 +1122,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
             )}
 
             {/* Scrollable Content */}
-            <div ref={contentRef} className="flex-1 overflow-y-auto px-8 py-6">
+            <div ref={contentRef} className="relative z-10 flex-1 overflow-y-auto px-8 py-6">
               {activeTab === "all_articles" ? (
                 projectId ? (
                   <ResearchItemsTable projectId={projectId} />
@@ -981,7 +1139,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
                 ) : (
                   <div className={`text-[13.5px] text-slate-700 leading-[1.85] font-reading ${activeTab === "competitor_developments" ? "" : "max-w-3xl"}`}>
                     {activeTab === "competitor_developments"
-                      ? renderCompetitorSection(currentSection.content, sourceLookup)
+                      ? renderCompetitorSection(currentSection.content, sourceLookup, brief?.category || "")
                       : renderContent(currentSection.content, sourceLookup, activeTab)}
                   </div>
                 )
@@ -991,7 +1149,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
             </div>
 
             {/* Bottom Bar: Approval + Navigation */}
-            <div className="shrink-0 px-6 py-3 border-t border-slate-200 bg-white flex items-center justify-between">
+            <div className="relative z-10 shrink-0 px-6 py-3 border-t border-slate-200 bg-white flex items-center justify-between">
               <button
                 onClick={() => onNavigate("brief-scope-review")}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
@@ -1001,7 +1159,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
               </button>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={handleRevise}
+                  onClick={() => setRevisionPanelOpen(true)}
                   className="px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
                 >
                   Request Revision
@@ -1049,6 +1207,48 @@ export function BackgroundResearch({ onNavigate }: Props) {
             Search Strategy
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
           </button>
+        </div>
+      )}
+
+      {/* Request Revision panel */}
+      {revisionPanelOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40" onClick={() => !submittingRevision && setRevisionPanelOpen(false)} />
+          <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200 animate-fade-in">
+            <div className="px-5 pt-5 pb-3 border-b border-slate-100">
+              <h2 className="text-sm font-semibold text-slate-900">Request a revision</h2>
+              <p className="text-xs text-slate-500 mt-1">
+                What should be improved? This restarts web research from scratch and regenerates
+                the brief with your feedback fed directly into the synthesis.
+              </p>
+            </div>
+            <div className="px-5 py-4">
+              <textarea
+                value={revisionNotes}
+                onChange={(e) => setRevisionNotes(e.target.value)}
+                rows={6}
+                placeholder="e.g. Add more detail on pricing strategy; the competitor section reads too generic; missing recent regulatory news..."
+                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-[#5B2C9D]/20 focus:border-[#5B2C9D]/40 resize-y"
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-slate-100">
+              <button
+                onClick={() => setRevisionPanelOpen(false)}
+                disabled={submittingRevision}
+                className="px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmitRevision}
+                disabled={submittingRevision || !revisionNotes.trim()}
+                className="px-4 py-2 text-sm font-medium text-white rounded-lg shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ backgroundColor: "#5B2C9D" }}
+              >
+                {submittingRevision ? "Restarting..." : "Restart with revisions"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

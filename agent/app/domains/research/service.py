@@ -105,9 +105,15 @@ def compose_brief(project_id: int, research_id: int, spec: dict, research_data: 
 
     if llm_client:
         from . import multi_source
-        logger.info("Using map-reduce LLM summarization to synthesize analytical brief content")
+        prior_brief = store.get_latest_brief(project_id)
+        revision_notes = ""
+        if prior_brief and prior_brief.get("approval_status") == "revision_requested":
+            revision_notes = prior_brief.get("notes") or ""
+        logger.info("Using map-reduce LLM summarization to synthesize analytical brief content%s",
+                    " (with analyst revision notes)" if revision_notes else "")
         try:
-            map_reduce_sections = multi_source.summarize_map_reduce(project_id, spec, llm_client, date_range=date_range)
+            map_reduce_sections = multi_source.summarize_map_reduce(
+                project_id, spec, llm_client, date_range=date_range, revision_notes=revision_notes)
         except Exception:
             logger.exception("Map-reduce summarization failed")
             map_reduce_sections = {}
