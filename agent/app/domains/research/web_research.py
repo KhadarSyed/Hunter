@@ -13,7 +13,7 @@ from typing import Callable, Optional
 from urllib.parse import urlparse
 
 from . import news_search
-from .multi_source import build_boolean_queries, fetch_and_persist
+from .multi_source import build_boolean_queries, date_range_to_timestamps, fetch_and_persist
 
 EventFn = Callable[[str, dict], None]
 
@@ -419,7 +419,8 @@ class LiveWebResearchAdapter:
         )
 
         from . import repository as research_repository
-        persisted_items = research_repository.get_research_items(project_id)
+        since, until = date_range_to_timestamps(date_range)
+        persisted_items = research_repository.get_research_items(project_id, since=since, until=until)
 
         # Reshape persisted DB rows into the legacy {title, snippet, url, source, date, _family,
         # _query} flat item shape the rest of this method (entity validation, dedup-adjacent

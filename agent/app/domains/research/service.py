@@ -91,11 +91,23 @@ def compose_brief(project_id: int, research_id: int, spec: dict, research_data: 
     sections = {}
     llm_succeeded = False
 
+    date_range_start_str = metadata.get("date_range_start", "")
+    date_range_end_str = metadata.get("date_range_end", "")
+    date_range = None
+    if date_range_start_str and date_range_end_str:
+        try:
+            date_range = (
+                datetime.fromisoformat(date_range_start_str).date(),
+                datetime.fromisoformat(date_range_end_str).date(),
+            )
+        except (ValueError, TypeError):
+            date_range = None
+
     if llm_client:
         from . import multi_source
         logger.info("Using map-reduce LLM summarization to synthesize analytical brief content")
         try:
-            map_reduce_sections = multi_source.summarize_map_reduce(project_id, spec, llm_client)
+            map_reduce_sections = multi_source.summarize_map_reduce(project_id, spec, llm_client, date_range=date_range)
         except Exception:
             logger.exception("Map-reduce summarization failed")
             map_reduce_sections = {}
@@ -132,16 +144,9 @@ def compose_brief(project_id: int, research_id: int, spec: dict, research_data: 
             metadata, source_register, source_lookup
         )
 
-    date_start = metadata.get("date_range_start", "")
-    date_end = metadata.get("date_range_end", "")
     title_period = ""
-    if date_start and date_end:
-        try:
-            ds = datetime.fromisoformat(date_start).strftime("%b %Y")
-            de = datetime.fromisoformat(date_end).strftime("%b %Y")
-            title_period = f" ({ds}–{de})"
-        except (ValueError, TypeError):
-            pass
+    if date_range:
+        title_period = f" ({date_range[0].strftime('%b %Y')}–{date_range[1].strftime('%b %Y')})"
 
     brief = {
         "title": f"{brand_name} U.S. Competitive News Brief{title_period}",
@@ -164,8 +169,8 @@ def compose_brief(project_id: int, research_id: int, spec: dict, research_data: 
             "sources_retained": metadata.get("sources_retained", 0),
             "tier_1_count": metadata.get("tier_1_count", 0),
             "tier_2_count": metadata.get("tier_2_count", 0),
-            "date_range_start": date_start,
-            "date_range_end": date_end,
+            "date_range_start": date_range_start_str,
+            "date_range_end": date_range_end_str,
         },
     }
 

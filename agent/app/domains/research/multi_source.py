@@ -11,7 +11,7 @@ import json as _json
 import logging
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from urllib.parse import urlparse
 
 from . import news_search
@@ -58,7 +58,7 @@ def build_boolean_queries(spec: dict) -> list[TopicQuery]:
 
     category = (spec.get("industry") or {}).get("name", "")
     if not category:
-        category = (spec.get("research_subject") or {}).get("description", "")[:60]
+        category = ((spec.get("research_subject") or {}).get("description") or "")[:60]
 
     brand_or_competitors_terms = ([brand_name] if brand_name else []) + competitors
     if not brand_or_competitors_terms:
@@ -217,6 +217,16 @@ _REDUCE_KEYS = [
 ]
 
 
+def date_range_to_timestamps(date_range: tuple) -> tuple[float, float]:
+    """(start, end) dates -> (since, until) Unix timestamps, inclusive of the whole end date —
+    matches news_search._within_range's date-boundary fix (an exclusive-next-midnight upper
+    bound), so a run's own fetch and this run's own brief agree on what's "in range"."""
+    start, end = date_range
+    start_dt = start if isinstance(start, datetime) else datetime.combine(start, datetime.min.time())
+    end_dt = end if isinstance(end, datetime) else datetime.combine(end, datetime.min.time())
+    return start_dt.timestamp(), (end_dt + timedelta(days=1)).timestamp()
+
+
 def _current_date_prefix() -> str:
     now = datetime.now()
     return (f"Today's date is {now.strftime('%Y-%m-%d')} ({now.strftime('%A')}). "
@@ -314,16 +324,23 @@ def _reduce_batches(llm_client, batch_summaries: list[dict], brand_name: str) ->
     return {key: _coerce_to_markdown(parsed.get(key, "")) for key in _REDUCE_KEYS}
 
 
-def summarize_map_reduce(project_id: int, spec: dict, llm_client, emit=None) -> dict:
-    """Batch-summarize every persisted research item for this project (no truncation caps),
-    then combine batch summaries into the 7-key Brief section shape. Failed batches are
-    skipped, not fatal. Returns {} if there are zero items (caller falls back to
-    _compose_rule_based, matching today's zero-results behavior)."""
+def summarize_map_reduce(project_id: int, spec: dict, llm_client, emit=None, date_range: tuple | None = None) -> dict:
+    """Batch-summarize persisted research items for this project (no truncation caps), then
+    combine batch summaries into the 7-key Brief section shape. Failed batches are skipped,
+    not fatal. Returns {} if there are zero items (caller falls back to _compose_rule_based,
+    matching today's zero-results behavior).
+
+    `date_range`, when given, scopes to that window (typically the current run's) so a
+    project's earlier runs or date windows don't silently bleed into this brief."""
     def _emit(step: str, payload: dict) -> None:
         if emit:
             emit(step, payload)
 
-    items = repository.get_research_items(project_id)
+    if date_range:
+        since, until = date_range_to_timestamps(date_range)
+        items = repository.get_research_items(project_id, since=since, until=until)
+    else:
+        items = repository.get_research_items(project_id)
     if not items:
         return {}
 

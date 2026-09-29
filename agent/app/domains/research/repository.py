@@ -209,18 +209,24 @@ def upsert_research_item(project_id: int, research_id: int | None, item: dict) -
     return row["id"]
 
 
-def get_research_items(project_id: int, topic: str | None = None) -> list[dict]:
+def get_research_items(project_id: int, topic: str | None = None,
+                        since: float | None = None, until: float | None = None) -> list[dict]:
+    """`since`/`until` (Unix timestamps, both inclusive) scope to a date_range — e.g. the
+    current run's window — using the (project_id, published_date) index, so a project's
+    earlier runs/date windows don't silently bleed into a scoped read."""
     conn = _conn()
+    query = "SELECT * FROM intel_research_items WHERE project_id = ?"
+    params: list = [project_id]
     if topic:
-        rows = conn.execute(
-            "SELECT * FROM intel_research_items WHERE project_id = ? AND topic = ? "
-            "ORDER BY published_date DESC",
-            (project_id, topic),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT * FROM intel_research_items WHERE project_id = ? ORDER BY published_date DESC",
-            (project_id,),
-        ).fetchall()
+        query += " AND topic = ?"
+        params.append(topic)
+    if since is not None:
+        query += " AND published_date >= ?"
+        params.append(since)
+    if until is not None:
+        query += " AND published_date <= ?"
+        params.append(until)
+    query += " ORDER BY published_date DESC"
+    rows = conn.execute(query, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]
