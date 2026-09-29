@@ -177,3 +177,50 @@ def save_pexels_image(query_key: str, query_text: str, image_url: str | None,
     )
     conn.commit()
     conn.close()
+
+
+# ─── Research Items (multi-source pipeline) ──────────────────────────────────
+
+def upsert_research_item(project_id: int, research_id: int | None, item: dict) -> int:
+    conn = _conn()
+    now = time.time()
+    conn.execute(
+        "INSERT INTO intel_research_items "
+        "(project_id, research_id, topic, source_api, platform, publication, "
+        "published_date, title, content, url, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(project_id, url) DO UPDATE SET "
+        "research_id = excluded.research_id, topic = excluded.topic, "
+        "source_api = excluded.source_api, platform = excluded.platform, "
+        "publication = excluded.publication, published_date = excluded.published_date, "
+        "title = excluded.title, content = excluded.content",
+        (
+            project_id, research_id, item["topic"], item["source_api"], item.get("platform"),
+            item.get("publication"), item["published_date"], item.get("title"),
+            item.get("content"), item["url"], now,
+        ),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT id FROM intel_research_items WHERE project_id = ? AND url = ?",
+        (project_id, item["url"]),
+    ).fetchone()
+    conn.close()
+    return row["id"]
+
+
+def get_research_items(project_id: int, topic: str | None = None) -> list[dict]:
+    conn = _conn()
+    if topic:
+        rows = conn.execute(
+            "SELECT * FROM intel_research_items WHERE project_id = ? AND topic = ? "
+            "ORDER BY published_date DESC",
+            (project_id, topic),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM intel_research_items WHERE project_id = ? ORDER BY published_date DESC",
+            (project_id,),
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]

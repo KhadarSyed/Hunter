@@ -1187,6 +1187,29 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             source_url   TEXT,
             fetched_at   REAL NOT NULL
         )"""]),
+    # Per-item normalized research results (news/social posts from the multi-source
+    # research pipeline), linked to project_id — see domains/research/multi_source.py.
+    (8, "research items", ["""
+        CREATE TABLE IF NOT EXISTS intel_research_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            research_id INTEGER,
+            topic TEXT NOT NULL,
+            source_api TEXT NOT NULL,
+            platform TEXT,
+            publication TEXT,
+            published_date REAL NOT NULL,
+            title TEXT,
+            content TEXT,
+            url TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            UNIQUE(project_id, url),
+            FOREIGN KEY (project_id) REFERENCES intel_projects(id),
+            FOREIGN KEY (research_id) REFERENCES intel_background_research(id)
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_research_items_project ON intel_research_items(project_id)",
+        "CREATE INDEX IF NOT EXISTS idx_research_items_project_date ON intel_research_items(project_id, published_date)",
+    ]),
 ]
 
 
