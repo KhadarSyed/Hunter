@@ -156,6 +156,7 @@ def compose_brief(project_id: int, research_id: int, spec: dict, research_data: 
         "brand_name": brand_name,
         "category": category,
         "competitors": competitors,
+        "geography": spec.get("geography", ""),
         "generated_at": datetime.now().strftime("%B %d, %Y"),
         "section_order": SECTION_ORDER,
         "section_titles": SECTION_TITLES,

@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 
 from docx import Document
@@ -24,8 +25,19 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
 from ...core import config, store
+from . import renderer_images
 
 logger = logging.getLogger(__name__)
+
+# Section keys that get a Pexels banner image matched to the brand's product/industry —
+# built as "{brand_name} {category}" (falls back to brand_name alone if category is
+# empty). Methodology and Source Register are administrative/reference sections with no
+# product to depict, so they're deliberately excluded — competitor_developments gets its
+# own per-competitor images instead of one shared banner (see _render_developments_section).
+BANNER_IMAGE_SECTIONS = {
+    "company_introduction", "executive_summary", "brand_developments",
+    "brand_narrative", "industry_context", "key_issues",
+}
 
 BRAND_VIOLET = RGBColor(0x5B, 0x2C, 0x9D)
 DARK_TEXT = RGBColor(0x1A, 0x1A, 0x2E)
@@ -60,10 +72,26 @@ def render_brief_docx(brief_id: int) -> str:
     subtitle = brief.get("subtitle", "ANALYST BRIEFING")
     subject = brief.get("research_subject", "")
     category = brief.get("category", "COMPETITIVE INTELLIGENCE")
+    brand_name = brief.get("brand_name", "")
+    competitors = brief.get("competitors", [])
+    geography = brief.get("geography", "")
+
+    # Prefetch every embeddable image once up front (each is cached server-side by its
+    # own module — brandfetch/pexels — so repeated renders of the same brief are cheap).
+    brand_product_query = f"{brand_name} {category}".strip() or brand_name
+    logo_bytes = renderer_images.get_brand_logo_bytes(brand_name)
+    flag_bytes = renderer_images.get_country_flag_bytes(geography)
+    cover_bg_bytes = renderer_images.get_background_image_bytes(brand_product_query)
+    competitor_logo_bytes = {c: renderer_images.get_brand_logo_bytes(c) for c in competitors}
+    competitor_bg_bytes = {
+        c: renderer_images.get_background_image_bytes(f"{c} {category}".strip() or c)
+        for c in competitors
+    }
 
     doc = Document()
     _setup_document(doc)
-    _add_cover_page(doc, title, subtitle, subject, brief, category)
+    _add_cover_page(doc, title, subtitle, subject, brief, category,
+                     logo_bytes=logo_bytes, flag_bytes=flag_bytes, bg_bytes=cover_bg_bytes)
 
     section_order = brief.get("section_order", [])
     sections = brief.get("sections", {})
@@ -82,7 +110,8 @@ def render_brief_docx(brief_id: int) -> str:
         sec_subtitle = SECTION_SUBTITLES.get(key, "")
 
         doc.add_page_break()
-        _add_section_header(doc, idx, sec_title, sec_subtitle)
+        banner_bytes = cover_bg_bytes if key in BANNER_IMAGE_SECTIONS else None
+        _add_section_header(doc, idx, sec_title, sec_subtitle, banner_bytes=banner_bytes)
 
         if key == "source_register":
             _render_source_register(doc, content)
@@ -90,7 +119,10 @@ def render_brief_docx(brief_id: int) -> str:
             _render_rich_content(doc, content)
         elif key == "executive_summary":
             _render_executive_summary(doc, content)
-        elif key in ("brand_developments", "competitor_developments"):
+        elif key == "competitor_developments":
+            _render_developments_section(doc, content, competitor_logos=competitor_logo_bytes,
+                                          competitor_backgrounds=competitor_bg_bytes)
+        elif key == "brand_developments":
             _render_developments_section(doc, content)
         elif key == "brand_narrative":
             _render_narrative_section(doc, content)
@@ -161,8 +193,22 @@ def _setup_document(doc: Document) -> None:
 # ── Cover page ──────────────────────────────────────────────────────────
 
 def _add_cover_page(doc: Document, title: str, subtitle: str,
-                    subject: str, brief: dict, category: str) -> None:
-    for _ in range(3):
+                    subject: str, brief: dict, category: str, *,
+                    logo_bytes: bytes | None = None, flag_bytes: bytes | None = None,
+                    bg_bytes: bytes | None = None) -> None:
+    if bg_bytes:
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(10)
+        run = p.add_run()
+        run.add_picture(BytesIO(bg_bytes), width=Cm(16.5))
+
+    if logo_bytes:
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(4)
+        run = p.add_run()
+        run.add_picture(BytesIO(logo_bytes), height=Cm(1.6))
+
+    for _ in range(3 if not (bg_bytes or logo_bytes) else 1):
         doc.add_paragraph()
 
     p = doc.add_paragraph()
@@ -218,6 +264,22 @@ def _add_cover_page(doc: Document, title: str, subtitle: str,
 
     doc.add_paragraph()
     doc.add_paragraph()
+
+    geography = brief.get("geography", "")
+    if geography:
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        p.paragraph_format.space_after = Pt(10)
+        if flag_bytes:
+            run = p.add_run()
+            run.add_picture(BytesIO(flag_bytes), height=Cm(0.45))
+            p.add_run("  ")
+        run = p.add_run(f"GEOGRAPHY: {geography.upper()}")
+        run.font.size = Pt(8)
+        run.font.color.rgb = MUTED_TEXT
+        run.font.bold = True
+        run.font.name = "Calibri"
+        _add_letter_spacing(run, 60)
 
     competitors = brief.get("competitors", [])
     if competitors:
@@ -324,7 +386,13 @@ def _add_table_of_contents(doc: Document, content_sections: list) -> None:
 # ── Section header (SECTION · XX) ──────────────────────────────────────
 
 def _add_section_header(doc: Document, index: int, title: str,
-                        subtitle: str = "") -> None:
+                        subtitle: str = "", *, banner_bytes: bytes | None = None) -> None:
+    if banner_bytes:
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(10)
+        run = p.add_run()
+        run.add_picture(BytesIO(banner_bytes), width=Cm(16.5))
+
     p = doc.add_paragraph()
     p.paragraph_format.space_after = Pt(6)
     run = p.add_run(f"S E C T I O N  ·  {index:02d}")
@@ -527,10 +595,14 @@ def _render_executive_summary(doc: Document, content: str) -> None:
         _add_rich_text(p, stripped, size=Pt(10.5))
 
 
-def _render_developments_section(doc: Document, content: str) -> None:
+def _render_developments_section(doc: Document, content: str, *,
+                                  competitor_logos: dict[str, bytes | None] | None = None,
+                                  competitor_backgrounds: dict[str, bytes | None] | None = None) -> None:
     if not content:
         return
 
+    competitor_logos = competitor_logos or {}
+    competitor_backgrounds = competitor_backgrounds or {}
     lines = content.split("\n")
     for line in lines:
         stripped = line.strip()
@@ -538,7 +610,26 @@ def _render_developments_section(doc: Document, content: str) -> None:
             continue
 
         if stripped.startswith("## "):
-            doc.add_heading(stripped[3:], level=2)
+            heading_text = stripped[3:]
+            # Bare competitor-name headings (no "|", unlike dated "## Date | Title"
+            # headings elsewhere) get that competitor's own logo + product-matched
+            # banner — mirrors the web UI's per-competitor row treatment.
+            if "|" not in heading_text and heading_text in competitor_logos:
+                bg = competitor_backgrounds.get(heading_text)
+                if bg:
+                    p = doc.add_paragraph()
+                    p.paragraph_format.space_after = Pt(8)
+                    run = p.add_run()
+                    run.add_picture(BytesIO(bg), width=Cm(16.5))
+                p = doc.add_paragraph(style="Heading 2")
+                logo = competitor_logos.get(heading_text)
+                if logo:
+                    run = p.add_run()
+                    run.add_picture(BytesIO(logo), height=Cm(0.55))
+                    p.add_run("  ")
+                p.add_run(heading_text)
+                continue
+            doc.add_heading(heading_text, level=2)
             continue
 
         if stripped.startswith("### "):
