@@ -69,6 +69,7 @@ class SocialMediaItem(TypedDict):
     content: str
     author: str
     date_posted: str
+    thumbnail: str
     _source: str
 
 
@@ -79,11 +80,58 @@ class TraditionalMediaItem(TypedDict):
     content: str
     author: str
     published_date: str
+    thumbnail: str
     _source: str
 
 
 class NewsSearchError(RuntimeError):
     pass
+
+
+# Ordered by specificity — a personal byline (author/journalist/...) should win over a generic
+# organizational field (source/brand/company/...) when both are present on the same raw item.
+_IDENTITY_KEYWORDS = [
+    # Traditional media
+    "author", "journalist", "reporter", "writer", "editor", "columnist", "contributor",
+    "correspondent", "publisher", "publication", "newsroom", "news desk",
+    # Social media
+    "account", "accountname", "username", "handle", "screen_name", "profile", "creator",
+    "channel", "channelname", "owner", "page", "influencer",
+    # Generic
+    "source", "organization", "brand", "company",
+]
+
+
+def _find_identity_value(raw: object) -> str:
+    """Best-effort: scan a raw source item's keys for anything matching a known identity/
+    authorship keyword (see _IDENTITY_KEYWORDS), returning the first match's string value in
+    keyword-priority order. Different sources use wildly different field names for "who
+    wrote/posted this" (author, journalist, handle, channel, ...) — this generic scan covers
+    variants not manually mapped per source. Recurses one level into nested dicts (e.g.
+    SerpAPI's `source: {...}`)."""
+    if not isinstance(raw, dict):
+        return ""
+
+    def _normalize_key(key: str) -> str:
+        return key.lower().replace("_", "").replace(" ", "")
+
+    flat: dict[str, str] = {}
+    for key, value in raw.items():
+        if isinstance(value, str) and value.strip():
+            flat[_normalize_key(key)] = value.strip()
+        elif isinstance(value, list) and value and isinstance(value[0], str) and value[0].strip():
+            flat[_normalize_key(key)] = value[0].strip()
+        elif isinstance(value, dict):
+            nested = _find_identity_value(value)
+            if nested:
+                flat[_normalize_key(key)] = nested
+
+    for keyword in _IDENTITY_KEYWORDS:
+        keyword_normalized = keyword.replace(" ", "")
+        for key, value in flat.items():
+            if keyword_normalized in key:
+                return value
+    return ""
 
 
 # --------------------------------------------------------------------------
@@ -134,6 +182,8 @@ def _normalize_serpapi_item(item: dict) -> dict:
             author = authors[0]
     elif isinstance(source, str):
         publisher = source
+    if not author:
+        author = _find_identity_value(item)
 
     return {
         "publisher_name": publisher,
@@ -148,6 +198,7 @@ def _normalize_serpapi_item(item: dict) -> dict:
         # "date" (e.g. "09/22/2026, 11:00 AM, +0000 UTC") — both parse, but iso_date is
         # unambiguous and is what SerpAPI actually provides for this purpose.
         "date": item.get("iso_date") or item.get("date") or "",
+        "thumbnail": item.get("thumbnail") or "",
         "_source": "serpapi",
     }
 
@@ -205,8 +256,10 @@ def _normalize_tavily_item(item: dict) -> dict:
         "published_url": item.get("url") or "",
         "title": item.get("title") or "",
         "content": item.get("content") or "",
-        "author": "",
+        "author": _find_identity_value(item),
         "date": item.get("published_date") or "",
+        "thumbnail": "",  # Tavily returns images only as a separate top-level array (needs
+                          # include_images=True), not tied to a specific result — out of scope
         "_source": "tavily",
     }
 
@@ -259,12 +312,14 @@ def _search_google_news_rss(query: str, recency_hours: int, country: str) -> lis
         if not publisher and " - " in title_raw:
             headline, _, publisher = title_raw.rpartition(" - ")
 
+        description_raw = _xml_text(item.find("description"))
         parsed.append({
             "title": headline.strip(),
             "link": _xml_text(item.find("link")).strip(),
             "publisher": publisher.strip(),
             "date": _xml_text(item.find("pubDate")).strip(),
-            "snippet": _strip_html(_xml_text(item.find("description"))),
+            "snippet": _strip_html(description_raw),
+            "thumbnail": _extract_first_img_src(description_raw),
             "author": "",
         })
 
@@ -297,6 +352,15 @@ def _strip_html(raw: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _extract_first_img_src(raw_html: str) -> str:
+    """Best-effort: Google News RSS's <description> sometimes embeds a thumbnail as an <img>
+    tag before it's stripped down to the display snippet."""
+    if not raw_html:
+        return ""
+    match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', raw_html)
+    return match.group(1) if match else ""
+
+
 def _normalize_rss_item(item: dict) -> dict:
     return {
         "publisher_name": item.get("publisher") or "",
@@ -305,6 +369,7 @@ def _normalize_rss_item(item: dict) -> dict:
         "content": item.get("snippet") or "",
         "author": item.get("author") or "",
         "date": item.get("date") or "",
+        "thumbnail": item.get("thumbnail") or "",
         "_source": "google_news_rss",
     }
 
@@ -338,6 +403,7 @@ def _bucket_item(norm: dict) -> tuple[str, dict]:
             "content": norm["content"] or norm["title"],
             "author": norm["author"],
             "date_posted": norm["date"],
+            "thumbnail": norm.get("thumbnail", ""),
             "_source": norm["_source"],
         }
         return "social_media", item
@@ -349,6 +415,7 @@ def _bucket_item(norm: dict) -> tuple[str, dict]:
         "content": norm["content"],
         "author": norm["author"],
         "published_date": norm["date"],
+        "thumbnail": norm.get("thumbnail", ""),
         "_source": norm["_source"],
     }
     return "traditional_media", item

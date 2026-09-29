@@ -1213,6 +1213,9 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
     (9, "research item author", [
         "ALTER TABLE intel_research_items ADD COLUMN author TEXT",
     ]),
+    (10, "research item thumbnail", [
+        "ALTER TABLE intel_research_items ADD COLUMN thumbnail_url TEXT",
+    ]),
 ]
 
 

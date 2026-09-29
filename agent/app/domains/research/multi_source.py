@@ -153,6 +153,7 @@ def _to_normalized_items(bucket_result: dict, topic: str) -> list[dict]:
                 "content": raw.get("content", ""),
                 "url": url,
                 "author": raw.get("author") or None,
+                "thumbnail_url": raw.get("thumbnail") or None,
             })
     return items
 

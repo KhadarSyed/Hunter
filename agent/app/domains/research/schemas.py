@@ -101,6 +101,7 @@ class ResearchItemView(ApiModel):
     content: str | None = None
     url: str
     author: str | None = None
+    thumbnail_url: str | None = None
     published_date: float
     keywords_matched: list[str] = []
     relevant: bool = True

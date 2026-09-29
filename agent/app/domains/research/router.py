@@ -398,7 +398,8 @@ def get_research_items_route(project_id: Annotated[int, Path(ge=1)]):
             id=item["id"], topic=item["topic"], source_api=item["source_api"],
             publication=item.get("publication"), domain=domain or None,
             title=title or None, content=content or None, url=url,
-            author=item.get("author"), published_date=item["published_date"],
+            author=item.get("author"), thumbnail_url=item.get("thumbnail_url"),
+            published_date=item["published_date"],
             keywords_matched=matched, relevant=validation["relevant"],
         ))
 

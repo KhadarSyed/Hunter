@@ -113,6 +113,7 @@ export interface ResearchItem {
   content: string | null;
   url: string;
   author: string | null;
+  thumbnail_url: string | null;
   published_date: number;
   keywords_matched: string[];
   relevant: boolean;
