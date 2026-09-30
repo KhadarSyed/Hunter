@@ -26,6 +26,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 from .core import events, jobs, store  # noqa: E402
 from .core.api import install_http_layer, require_api_key  # noqa: E402
+from .core.auth import seed_super_admin_if_missing  # noqa: E402
 from .core.config import (  # noqa: E402
     AGENT_DIR,
     ensure_dirs,
@@ -35,6 +36,7 @@ from .core.config import (  # noqa: E402
 from .deck import memory  # noqa: E402
 from .deck import router as deck  # noqa: E402
 from .domains import router as intel_router  # noqa: E402
+from .domains.auth.router import router as auth_router  # noqa: E402
 
 logger = logging.getLogger("hunter")
 
@@ -46,6 +48,7 @@ GZIP_MIN_BYTES = 1024
 async def lifespan(app: FastAPI):
     memory.init_db()
     store.init_intelligence_db()
+    seed_super_admin_if_missing()
     store.cancel_stale_running_jobs()
     memory.mark_interrupted_runs()
     ensure_dirs(load_settings())
@@ -96,6 +99,7 @@ def create_app() -> FastAPI:
     auth = [Depends(require_api_key)]
     app.include_router(intel_router, dependencies=auth)
     app.include_router(deck.router, dependencies=auth)
+    app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
     app.include_router(events.router)
     _mount_spa(app)
     return app

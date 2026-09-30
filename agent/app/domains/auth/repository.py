@@ -92,3 +92,12 @@ def clear_failed_logins(email: str) -> None:
 def is_locked_out(email: str) -> bool:
     user = get_user_by_email(email)
     return bool(user and user["locked_until"] and user["locked_until"] > time.time())
+
+
+def update_user_password(user_id: int, password_hash: str) -> None:
+    conn = _conn()
+    conn.execute(
+        "UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?",
+        (password_hash, user_id))
+    conn.commit()
+    conn.close()
