@@ -1229,6 +1229,45 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             thumbnail_url TEXT,
             fetched_at   REAL NOT NULL
         )"""]),
+    (13, "organizations, users, sessions, project scoping", ["""
+        CREATE TABLE IF NOT EXISTS organizations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            background_image_url TEXT,
+            created_at REAL NOT NULL,
+            archived_at REAL
+        )""", """
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            org_id INTEGER REFERENCES organizations(id),
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            avatar_url TEXT,
+            role TEXT NOT NULL CHECK (role IN ('super_admin', 'admin', 'analyser')),
+            must_change_password INTEGER NOT NULL DEFAULT 1,
+            failed_login_count INTEGER NOT NULL DEFAULT 0,
+            locked_until REAL,
+            created_at REAL NOT NULL,
+            archived_at REAL
+        )""", """
+        CREATE TABLE IF NOT EXISTS sessions (
+            token TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            created_at REAL NOT NULL,
+            expires_at REAL NOT NULL
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)",
+        "ALTER TABLE intel_projects ADD COLUMN org_id INTEGER REFERENCES organizations(id)",
+        "ALTER TABLE intel_projects ADD COLUMN owner_user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE intel_projects ADD COLUMN archived_at REAL",
+        "INSERT INTO organizations (name, created_at, archived_at) "
+        "SELECT 'Default Organization', 0, NULL WHERE NOT EXISTS "
+        "(SELECT 1 FROM organizations WHERE name = 'Default Organization')",
+        "UPDATE intel_projects SET org_id = "
+        "(SELECT id FROM organizations WHERE name = 'Default Organization') "
+        "WHERE org_id IS NULL",
+    ]),
 ]
 
 
