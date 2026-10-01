@@ -61,16 +61,31 @@ def get_project(project_id: int) -> Optional[dict]:
     return {**dict(row), "spec": json.loads(row["spec_json"])}
 
 
-def list_projects(project_type: str | None = None) -> list[dict]:
+def list_projects(project_type: str | None = None, org_id: int | None = None,
+                   owner_user_id: int | None = None, include_archived: bool = False) -> list[dict]:
     """Projects for the list page, newest first, with card fields (brand, description,
-    geography, client) resolved server-side so the page needs a single request."""
-    sql = "SELECT id, project_name, project_type, brand, spec_json, created_at, updated_at FROM intel_projects"
-    params: tuple = ()
+    geography, client) resolved server-side so the page needs a single request.
+    org_id/owner_user_id scope the list to the caller's role (see projects/router.py);
+    archived projects are excluded unless include_archived is True."""
+    sql = ("SELECT id, project_name, project_type, brand, spec_json, created_at, updated_at, "
+           "org_id, owner_user_id, archived_at FROM intel_projects")
+    clauses: list[str] = []
+    params: list = []
     if project_type:
-        sql += " WHERE project_type = ?"
-        params = (project_type,)
+        clauses.append("project_type = ?")
+        params.append(project_type)
+    if org_id is not None:
+        clauses.append("org_id = ?")
+        params.append(org_id)
+    if owner_user_id is not None:
+        clauses.append("owner_user_id = ?")
+        params.append(owner_user_id)
+    if not include_archived:
+        clauses.append("archived_at IS NULL")
+    if clauses:
+        sql += " WHERE " + " AND ".join(clauses)
     conn = _conn()
-    rows = conn.execute(sql + " ORDER BY updated_at DESC", params).fetchall()
+    rows = conn.execute(sql + " ORDER BY updated_at DESC", tuple(params)).fetchall()
     conn.close()
     out = []
     for r in rows:
@@ -78,6 +93,25 @@ def list_projects(project_type: str | None = None) -> list[dict]:
         spec = json.loads(d.pop("spec_json") or "{}")
         out.append({**d, **_card_fields(spec)})
     return out
+
+
+def set_project_owner(project_id: int, org_id: int | None, owner_user_id: int) -> None:
+    conn = _conn()
+    conn.execute("UPDATE intel_projects SET org_id = ?, owner_user_id = ? WHERE id = ?",
+                 (org_id, owner_user_id, project_id))
+    conn.commit()
+    conn.close()
+
+
+def archive_project(project_id: int) -> dict | None:
+    conn = _conn()
+    if not conn.execute("SELECT 1 FROM intel_projects WHERE id = ?", (project_id,)).fetchone():
+        conn.close()
+        return None
+    conn.execute("UPDATE intel_projects SET archived_at = ? WHERE id = ?", (time.time(), project_id))
+    conn.commit()
+    conn.close()
+    return {"id": project_id}
 
 
 def update_project(

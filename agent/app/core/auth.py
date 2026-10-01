@@ -51,3 +51,19 @@ def get_current_user(session_token: str | None = Cookie(default=None, alias=SESS
     if not user:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Session expired or invalid")
     return user
+
+
+def require_project_access(
+    project_id: Annotated[int, Path(ge=1)],
+    user: Annotated[dict, Depends(get_current_user)],
+) -> dict:
+    project = store.get_project(project_id)
+    if not project:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    if user["role"] == "super_admin":
+        return user
+    if project.get("org_id") != user["org_id"]:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this project")
+    if user["role"] == "analyser" and project.get("owner_user_id") != user["id"]:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this project")
+    return user
