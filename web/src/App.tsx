@@ -1,9 +1,12 @@
 import { useState, useEffect, useRef, useCallback, type ComponentType } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { FloatingProgressPanel } from "./components/FloatingProgressPanel";
+import { AuthProvider, useAuth } from "./context/auth-context";
 import { DemoStateProvider, useDemoState } from "./context/demo-state";
 import { ProjectProvider, useProject, type ProjectType } from "./context/project-context";
 import { intelApi } from "./services/intel-api";
+import { LoginPage } from "./pages/LoginPage";
+import { ChangePasswordPage } from "./pages/ChangePasswordPage";
 import { LandingPage } from "./pages/LandingPage";
 import { Dashboard } from "./pages/Dashboard";
 import { NewProject } from "./pages/NewProject";
@@ -178,12 +181,24 @@ function AppShell() {
   );
 }
 
-export default function App() {
+function AuthGate() {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="flex items-center justify-center min-h-screen text-slate-400">Loading…</div>;
+  if (!user) return <LoginPage />;
+  if (user.must_change_password) return <ChangePasswordPage />;
   return (
     <ProjectProvider>
       <DemoStateProvider>
         <AppShell />
       </DemoStateProvider>
     </ProjectProvider>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AuthGate />
+    </AuthProvider>
   );
 }

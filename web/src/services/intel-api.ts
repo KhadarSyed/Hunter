@@ -38,6 +38,38 @@ function del<T>(path: string): Promise<T> {
   return fetch(`${API_BASE}${path}`, { method: "DELETE" }).then((r) => json<T>(r));
 }
 
+const AUTH_BASE = "/api/auth";
+
+async function authJson<T>(res: Response): Promise<T> {
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail || res.statusText || "Request failed");
+  }
+  return res.json();
+}
+
+function authPost<T>(path: string, body?: unknown): Promise<T> {
+  return fetch(`${AUTH_BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  }).then((r) => authJson<T>(r));
+}
+
+function authGet<T>(path: string): Promise<T> {
+  return fetch(`${AUTH_BASE}${path}`).then((r) => authJson<T>(r));
+}
+
+export interface AuthUser {
+  id: number;
+  email: string;
+  display_name: string;
+  role: "super_admin" | "admin" | "analyser";
+  org_id: number | null;
+  avatar_url: string | null;
+  must_change_password: boolean;
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface JobStatus {
@@ -377,6 +409,13 @@ export interface ProjectSummary {
 }
 
 export const intelApi = {
+  // Auth
+  login: (email: string, password: string) => authPost<AuthUser>("/login", { email, password }),
+  me: () => authGet<AuthUser>("/me"),
+  logout: () => authPost<{ ok: boolean }>("/logout"),
+  changePassword: (current_password: string, new_password: string) =>
+    authPost<{ ok: boolean }>("/change-password", { current_password, new_password }),
+
   // Projects
   listProjects: (type?: string) => get<ProjectSummary[]>(type ? `/projects?type=${type}` : "/projects"),
 
