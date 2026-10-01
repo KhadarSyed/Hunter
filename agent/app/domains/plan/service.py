@@ -142,7 +142,8 @@ def validate_prerequisites(project_id: int) -> dict:
         else:
             prereqs["dataset"] = {"status": "missing", "message": "No dataset uploaded — upload a Meltwater export first"}
 
-    return {"ready": True, "prerequisites": prereqs}
+    ready = all(v["status"] == "approved" for v in prereqs.values())
+    return {"ready": ready, "prerequisites": prereqs}
 
 
 # ─── Dataset metadata extraction ──────────────────────────────────────────

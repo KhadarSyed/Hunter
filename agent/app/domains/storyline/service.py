@@ -262,7 +262,7 @@ def validate_prerequisites(project_id: int) -> dict:
 
     if blockers:
         logger.info("[storyline] Prerequisites info: %s", blockers)
-    return {"valid": True}
+    return {"valid": not blockers, "blockers": blockers}
 
 
 # ─── Pattern Selection ─────────────────────────────────────────────────────
