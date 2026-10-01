@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -65,6 +66,14 @@ async def lifespan(app: FastAPI):
         logger.info("Hunter stopped")
 
 
+def mount_uploads(app: FastAPI, upload_dir: Path) -> None:
+    """Publicly serve only the avatars subdirectory — briefs, QC exports, and
+    other upload types under UPLOAD_DIR must never be web-accessible."""
+    avatars_dir = upload_dir / "avatars"
+    avatars_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/uploads/avatars", StaticFiles(directory=str(avatars_dir)), name="uploads-avatars")
+
+
 def _mount_spa(app: FastAPI) -> None:
     if not STATIC_DIR.is_dir():
         return
@@ -102,8 +111,7 @@ def create_app() -> FastAPI:
     app.include_router(deck.router, dependencies=auth)
     app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
     app.include_router(events.router)
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
+    mount_uploads(app, UPLOAD_DIR)
     _mount_spa(app)
     return app
 

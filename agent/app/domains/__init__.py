@@ -14,8 +14,9 @@ here, on the aggregate `router` that main.py mounts. Shared infrastructure
 """
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from ..core.auth import get_current_user
 from .brief.router import router as brief
 from .composer.router import router as composer
 from .execution.router import router as execution
@@ -33,7 +34,10 @@ from .spec.router import router as spec
 from .storyline.router import router as storyline
 from .strategy.router import router as strategy
 
-router = APIRouter(prefix="/api/intel", tags=["intelligence"])
+router = APIRouter(
+    prefix="/api/intel", tags=["intelligence"],
+    dependencies=[Depends(get_current_user)],
+)
 
 # Pipeline order. Domains own disjoint path prefixes, so include order only
 # matters within a domain router (literal paths before parameterised ones).

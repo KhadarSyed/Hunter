@@ -48,6 +48,7 @@ class CreateUserRequest(ApiModel):
     display_name: str
     role: str  # 'admin' | 'analyser' | 'super_admin' — router enforces who may pick which
     temp_password: str
+    org_id: int | None = None  # Super Admin only: which org a new admin/analyser joins
 
 
 class UserResponse(ApiModel):

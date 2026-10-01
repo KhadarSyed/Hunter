@@ -26,6 +26,8 @@ from .schemas import (
 router = APIRouter()
 
 GENERIC_LOGIN_ERROR = "Invalid email or password"
+ALLOWED_AVATAR_CONTENT_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+MAX_AVATAR_BYTES = 5 * 1024 * 1024
 
 
 def _to_response(user: dict) -> dict:
@@ -38,12 +40,13 @@ def _to_response(user: dict) -> dict:
 
 @router.post("/login", response_model=LoginResponse)
 def login_route(req: LoginRequest, response: Response):
-    if store.is_locked_out(req.email):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, GENERIC_LOGIN_ERROR)
+    locked = store.is_locked_out(req.email)
     user = store.get_user_by_email(req.email)
-    if not user or user["archived_at"] is not None or not service.verify_password(
-        req.password, user["password_hash"]
-    ):
+    # Always run a bcrypt check, win or lose, so response time doesn't reveal
+    # whether the email is registered (see service.DUMMY_PASSWORD_HASH).
+    password_hash = user["password_hash"] if user else service.DUMMY_PASSWORD_HASH
+    valid = service.verify_password(req.password, password_hash)
+    if locked or not user or user["archived_at"] is not None or not valid:
         if user:
             store.record_failed_login(req.email)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, GENERIC_LOGIN_ERROR)
@@ -91,6 +94,9 @@ def create_organization_route(
     req: CreateOrganizationRequest, user: Annotated[dict, Depends(get_current_user)],
 ):
     _require_role(user, "super_admin")
+    if len(req.admin_temp_password) < service.MIN_PASSWORD_LENGTH:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                             f"Password must be at least {service.MIN_PASSWORD_LENGTH} characters")
     if store.get_user_by_email(req.admin_email):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Email already in use")
     org = store.create_organization(
@@ -136,9 +142,20 @@ def create_user_route(req: CreateUserRequest, user: Annotated[dict, Depends(get_
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Admins can only create Analysers")
     if req.role == "super_admin" and user["role"] != "super_admin":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a Super Admin can create another Super Admin")
+    if len(req.temp_password) < service.MIN_PASSWORD_LENGTH:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                             f"Password must be at least {service.MIN_PASSWORD_LENGTH} characters")
     if store.get_user_by_email(req.email):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Email already in use")
-    target_org_id = user["org_id"] if user["role"] == "admin" else None
+    if user["role"] == "admin":
+        target_org_id = user["org_id"]
+    elif req.role == "super_admin":
+        target_org_id = None  # Super Admins are org-less by design
+    else:
+        if req.org_id is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                 "org_id is required when creating an admin or analyser")
+        target_org_id = req.org_id
     new_id = store.create_user(target_org_id, req.email, service.hash_password(req.temp_password),
                                 req.display_name, req.role)
     return store.get_user_by_id(new_id)
@@ -152,9 +169,20 @@ def list_users_route(user: Annotated[dict, Depends(get_current_user)], org_id: i
     return store.list_users(org_id=org_id)
 
 
+def _require_same_org_analyser(user: dict, target_user_id: int) -> None:
+    """An Admin may only act on Analysers within their own org — never another
+    org's users, and never a Super Admin or another org's Admin."""
+    if user["role"] == "super_admin":
+        return
+    target = store.get_user_by_id(target_user_id)
+    if not target or target["org_id"] != user["org_id"] or target["role"] != "analyser":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this user")
+
+
 @router.post("/users/{user_id}/archive")
 def archive_user_route(user_id: int, user: Annotated[dict, Depends(get_current_user)]):
     _require_role(user, "admin", "super_admin")
+    _require_same_org_analyser(user, user_id)
     result = store.archive_user(user_id)
     if result is None:
         raise HTTPException(404, "User not found")
@@ -174,6 +202,8 @@ def reactivate_user_route(user_id: int, user: Annotated[dict, Depends(get_curren
 def reassign_projects_route(user_id: int, req: ReassignProjectsRequest,
                               user: Annotated[dict, Depends(get_current_user)]):
     _require_role(user, "admin", "super_admin")
+    _require_same_org_analyser(user, user_id)
+    _require_same_org_analyser(user, req.to_user_id)
     count = store.reassign_projects(user_id, req.to_user_id)
     return {"ok": True, "reassigned": count}
 
@@ -184,16 +214,30 @@ def update_profile_route(req: UpdateProfileRequest, user: Annotated[dict, Depend
     return {"ok": True}
 
 
+_AVATAR_EXT_BY_CONTENT_TYPE = {
+    "image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp",
+}
+
+
 @router.post("/profile/avatar")
 async def upload_avatar_route(
     user: Annotated[dict, Depends(get_current_user)], file: UploadFile = File(...),
 ):
+    if file.content_type not in ALLOWED_AVATAR_CONTENT_TYPES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                             "Avatar must be a PNG, JPEG, GIF, or WebP image")
+    data = await file.read()
+    if len(data) > MAX_AVATAR_BYTES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                             f"Avatar must be {MAX_AVATAR_BYTES // (1024 * 1024)}MB or smaller")
     avatars_dir = UPLOAD_DIR / "avatars"
     avatars_dir.mkdir(parents=True, exist_ok=True)
-    ext = ("." + file.filename.rsplit(".", 1)[-1]) if file.filename and "." in file.filename else ""
+    # Extension is derived from the validated content-type, never the client-supplied
+    # filename — an uploaded "evil.html" with an image content-type is still saved as .png/etc.
+    ext = _AVATAR_EXT_BY_CONTENT_TYPE[file.content_type]
     filename = f"avatar_{user['id']}_{uuid.uuid4().hex[:8]}{ext}"
     dest = avatars_dir / filename
-    dest.write_bytes(await file.read())
+    dest.write_bytes(data)
     avatar_url = f"/uploads/avatars/{filename}"
     store.update_profile(user["id"], user["display_name"], avatar_url)
     return {"avatar_url": avatar_url}

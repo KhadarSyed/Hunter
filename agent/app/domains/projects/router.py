@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, status
 
 from ...core import store
 from ...core.auth import get_current_user, require_project_access
@@ -30,6 +30,8 @@ def list_projects_route(
 ):
     if user["role"] == "super_admin":
         return store.list_projects(project_type=type)
+    if user["org_id"] is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "No organization assigned")
     if user["role"] == "admin":
         return store.list_projects(project_type=type, org_id=user["org_id"])
     return store.list_projects(project_type=type, org_id=user["org_id"], owner_user_id=user["id"])
