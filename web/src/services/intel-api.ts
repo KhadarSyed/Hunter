@@ -70,6 +70,42 @@ export interface AuthUser {
   must_change_password: boolean;
 }
 
+export interface AuthUserRow {
+  id: number;
+  org_id: number | null;
+  email: string;
+  display_name: string;
+  role: string;
+  avatar_url: string | null;
+  archived_at: number | null;
+}
+
+export interface AuthOrganizationRow {
+  id: number;
+  name: string;
+  admin_name: string | null;
+  admin_email: string | null;
+  archived_at: number | null;
+}
+
+export interface AuthArchivedSummary {
+  organizations: { id: number; name: string }[];
+  users: { id: number; email: string; display_name: string; org_id: number | null }[];
+  projects: { id: number; project_name: string; org_id: number | null }[];
+}
+
+async function authUpload<T>(path: string, form: FormData): Promise<T> {
+  return fetch(`${AUTH_BASE}${path}`, { method: "POST", body: form }).then((r) => authJson<T>(r));
+}
+
+function authPatch<T>(path: string, body?: unknown): Promise<T> {
+  return fetch(`${AUTH_BASE}${path}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  }).then((r) => authJson<T>(r));
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface JobStatus {
@@ -406,6 +442,9 @@ export interface ProjectSummary {
   brief_source: BriefSource | null;
   created_at: number;
   updated_at: number;
+  org_id?: number | null;
+  owner_user_id?: number | null;
+  archived_at?: number | null;
 }
 
 export const intelApi = {
@@ -415,6 +454,30 @@ export const intelApi = {
   logout: () => authPost<{ ok: boolean }>("/logout"),
   changePassword: (current_password: string, new_password: string) =>
     authPost<{ ok: boolean }>("/change-password", { current_password, new_password }),
+  updateProfile: (display_name: string) =>
+    authPatch<{ ok: boolean }>("/profile", { display_name }),
+  uploadAvatar: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return authUpload<{ avatar_url: string }>("/profile/avatar", form);
+  },
+  createUser: (email: string, display_name: string, role: string, temp_password: string) =>
+    authPost<AuthUserRow>("/users", { email, display_name, role, temp_password }),
+  listUsers: (orgId?: number) =>
+    authGet<AuthUserRow[]>(orgId ? `/users?org_id=${orgId}` : "/users"),
+  archiveUser: (userId: number) => authPost<{ ok: boolean }>(`/users/${userId}/archive`),
+  reactivateUser: (userId: number) => authPost<{ ok: boolean }>(`/users/${userId}/reactivate`),
+  reassignProjects: (userId: number, toUserId: number) =>
+    authPost<{ ok: boolean; reassigned: number }>(`/users/${userId}/reassign-projects`, { to_user_id: toUserId }),
+  createOrganization: (name: string, adminEmail: string, adminDisplayName: string, adminTempPassword: string) =>
+    authPost<AuthOrganizationRow>("/organizations", {
+      name, admin_email: adminEmail, admin_display_name: adminDisplayName,
+      admin_temp_password: adminTempPassword,
+    }),
+  listOrganizations: () => authGet<AuthOrganizationRow[]>("/organizations"),
+  archiveOrganization: (orgId: number) => authPost<{ ok: boolean }>(`/organizations/${orgId}/archive`),
+  reactivateOrganization: (orgId: number) => authPost<{ ok: boolean }>(`/organizations/${orgId}/reactivate`),
+  listArchived: () => authGet<AuthArchivedSummary>("/archived"),
 
   // Projects
   listProjects: (type?: string) => get<ProjectSummary[]>(type ? `/projects?type=${type}` : "/projects"),

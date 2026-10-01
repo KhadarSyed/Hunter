@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@iconify/react";
 import { BrandLogo } from "../components/BrandLogo";
 import { CountryFlag } from "../components/CountryFlag";
+import { useAuth } from "../context/auth-context";
 import { useProject, type ProjectType } from "../context/project-context";
 import { intelApi, type BriefSource, type ProjectSummary } from "../services/intel-api";
 
@@ -153,8 +154,10 @@ function ProjectCard({ project, onOpen, onEdit, onDelete }: ProjectCardProps) {
 /** Project list ("All Projects") — entry point after the landing page. */
 export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
   const isQC = projectType === "monitoring_qc";
+  const { user } = useAuth();
   const { activeProject, setActiveProject, clearProject } = useProject();
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
+  const [ownerNames, setOwnerNames] = useState<Record<number, string>>({});
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [pendingDelete, setPendingDelete] = useState<ProjectSummary | null>(null);
@@ -171,6 +174,16 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load projects"));
   };
   useEffect(load, [projectType]);
+
+  // Admins see every project in their org grouped by owning Analyser — resolve
+  // owner ids to display names once (the project list itself is already scoped
+  // server-side by role/org, see intelApi.listProjects's backend).
+  useEffect(() => {
+    if (user?.role !== "admin") return;
+    intelApi.listUsers().then((users) => {
+      setOwnerNames(Object.fromEntries(users.map((u) => [u.id, u.display_name])));
+    }).catch(() => {});
+  }, [user?.role]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -190,6 +203,20 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
       [p.project_name, p.description, p.brand ?? "", p.client].some((f) => f.toLowerCase().includes(q))
     );
   }, [projects, query]);
+
+  // Grouped by owning Analyser, Admin-only (Super Admin and Analyser keep the flat grid —
+  // an Analyser only ever sees their own projects anyway, so grouping adds nothing there).
+  const ownerGroups = useMemo(() => {
+    if (user?.role !== "admin") return null;
+    const groups = new Map<number, ProjectSummary[]>();
+    for (const p of filtered) {
+      const ownerId = p.owner_user_id ?? 0;
+      const bucket = groups.get(ownerId);
+      if (bucket) bucket.push(p);
+      else groups.set(ownerId, [p]);
+    }
+    return groups;
+  }, [filtered, user?.role]);
 
   const select = (p: ProjectSummary, page: string) => {
     setActiveProject({ id: p.id, name: p.project_name, project_type: (p.project_type as ProjectType) || projectType, brand: p.brand });
@@ -283,6 +310,27 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
         </div>
       ) : filtered.length === 0 ? (
         <p className="mt-10 text-sm text-slate-500">No projects match “{query}”.</p>
+      ) : ownerGroups ? (
+        <div className="mt-8 space-y-10">
+          {Array.from(ownerGroups.entries()).map(([ownerId, group]) => (
+            <div key={ownerId}>
+              <h2 className="mb-3 text-sm font-semibold text-slate-700">
+                {ownerNames[ownerId] ?? "Unassigned"}
+              </h2>
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-6">
+                {group.map((p) => (
+                  <ProjectCard
+                    key={p.id}
+                    project={p}
+                    onOpen={() => select(p, openPage)}
+                    onEdit={() => select(p, editPage)}
+                    onDelete={() => setPendingDelete(p)}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       ) : (
         <div className="mt-8 grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-6">
           {filtered.map((p) => (

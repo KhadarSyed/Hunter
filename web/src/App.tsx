@@ -7,6 +7,7 @@ import { ProjectProvider, useProject, type ProjectType } from "./context/project
 import { intelApi } from "./services/intel-api";
 import { LoginPage } from "./pages/LoginPage";
 import { ChangePasswordPage } from "./pages/ChangePasswordPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { LandingPage } from "./pages/LandingPage";
 import { Dashboard } from "./pages/Dashboard";
 import { NewProject } from "./pages/NewProject";
@@ -72,6 +73,7 @@ const PAGES = {
   "qc-field-mapping": QCFieldMapping,
   "qc-results": QCResults,
   "qc-export": QCExport,
+  settings: SettingsPage,
 } satisfies Record<string, ComponentType<PageProps>>;
 
 export type Page = keyof typeof PAGES;
