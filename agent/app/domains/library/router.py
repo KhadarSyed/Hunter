@@ -3,10 +3,11 @@ from __future__ import annotations
 
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from ...core import store
 from ...core.api import OkResponse
+from ...core.auth import require_project_access
 from . import service as elib
 from .schemas import (
     AnnotateRequest,
@@ -60,6 +61,7 @@ def get_library_audit(item_id: Annotated[int, Path(ge=1)]):
 @router.get("/library/{project_id}", response_model=list[LibraryItem])
 def list_library(
     project_id: Annotated[int, Path(ge=1)],
+    _access: Annotated[dict, Depends(require_project_access)],
     review_status: Optional[str] = None,
     objective_id: Optional[str] = None,
     unit_id: Optional[str] = None,
@@ -93,17 +95,20 @@ def list_library(
 
 
 @router.get("/library/{project_id}/summary", response_model=LibrarySummaryMetrics)
-def get_library_summary(project_id: Annotated[int, Path(ge=1)]):
+def get_library_summary(project_id: Annotated[int, Path(ge=1)],
+                         _access: Annotated[dict, Depends(require_project_access)]):
     return elib.get_summary_metrics(project_id)
 
 
 @router.get("/library/{project_id}/coverage", response_model=CoverageReport | CoverageError)
-def get_library_coverage(project_id: Annotated[int, Path(ge=1)]):
+def get_library_coverage(project_id: Annotated[int, Path(ge=1)],
+                          _access: Annotated[dict, Depends(require_project_access)]):
     return elib.get_coverage_report(project_id)
 
 
 @router.get("/library/{project_id}/duplicates", response_model=list[DuplicateGroup])
-def get_library_duplicates(project_id: Annotated[int, Path(ge=1)]):
+def get_library_duplicates(project_id: Annotated[int, Path(ge=1)],
+                            _access: Annotated[dict, Depends(require_project_access)]):
     return store.get_duplicate_groups(project_id)
 
 

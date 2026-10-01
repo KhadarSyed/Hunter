@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path
 
 from ...core import store
+from ...core.auth import require_project_access
 from . import service as sbuilder
 from .schemas import (
     GenerateStorylineRequest,
@@ -64,7 +65,7 @@ def list_storyline_nodes(storyline_id: IdPath):
 
 
 @router.get("/storyline/{project_id}", response_model=list[StorylineRecord])
-def get_storyline(project_id: IdPath):
+def get_storyline(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)]):
     result = store.get_latest_storyline(project_id)
     if not result:
         return []
@@ -72,7 +73,7 @@ def get_storyline(project_id: IdPath):
 
 
 @router.get("/storyline/{project_id}/summary", response_model=StorylineSummaryResponse)
-def get_storyline_summary(project_id: IdPath):
+def get_storyline_summary(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)]):
     return sbuilder.get_storyline_summary(project_id)
 
 

@@ -4,11 +4,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import Path as PathParam
 from fastapi.responses import FileResponse
 
 from ...core import store
+from ...core.auth import require_project_access
 from . import service as pub
 from .schemas import (
     ApprovalActionResponse,
@@ -119,7 +120,8 @@ def pub_archive_route(req: PubApprovalRequest):
 
 
 @router.get("/publishing/readiness/{project_id}/{pres_id}", response_model=ReadinessSummaryResponse)
-def pub_readiness_route(project_id: IdPath, pres_id: IdPath):
+def pub_readiness_route(project_id: IdPath, pres_id: IdPath,
+                         _access: Annotated[dict, Depends(require_project_access)]):
     return pub.get_readiness_summary(project_id, pres_id)
 
 
@@ -129,7 +131,8 @@ def pub_versions_route(pres_id: IdPath):
 
 
 @router.get("/publishing/audit/{project_id}", response_model=list[PubAuditEntry])
-def pub_audit_route(project_id: IdPath, limit: LimitQuery = 100):
+def pub_audit_route(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)],
+                     limit: LimitQuery = 100):
     return pub.get_audit_trail(project_id, limit)
 
 
@@ -197,7 +200,8 @@ def pub_download_word_route(pres_id: IdPath):
 
 
 @router.get("/publishing/downloads/{project_id}", response_model=list[PubDownload])
-def pub_downloads_list_route(project_id: IdPath, limit: LimitQuery = 50):
+def pub_downloads_list_route(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)],
+                              limit: LimitQuery = 50):
     return store.list_pub_downloads(project_id, limit)
 
 
@@ -207,5 +211,5 @@ def pub_approvals_route(pres_id: IdPath, limit: LimitQuery = 50):
 
 
 @router.get("/publishing/stats/{project_id}", response_model=PubStats)
-def pub_stats_route(project_id: IdPath):
+def pub_stats_route(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)]):
     return store.get_pub_stats(project_id)

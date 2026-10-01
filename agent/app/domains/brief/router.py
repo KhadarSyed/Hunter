@@ -7,13 +7,14 @@ import uuid
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi import Path as PathParam
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 
 from ...core import store
 from ...core.api import OkResponse
+from ...core.auth import require_project_access
 from ...core.config import UPLOAD_DIR
 from ...core.events import broadcast as _broadcast
 from ..research.renderer import render_brief_docx as do_render
@@ -106,7 +107,8 @@ def generate_analyst_brief(req: GenerateBriefRequest):
 
 
 @router.get("/brief/{project_id}", response_model=AnalystBriefResponse)
-def get_analyst_brief(project_id: BriefIdParam):
+def get_analyst_brief(project_id: BriefIdParam,
+                       _access: Annotated[dict, Depends(require_project_access)]):
     """Get the latest analyst orientation brief for a project."""
     brief = store.get_latest_brief(project_id)
     if not brief:
@@ -193,6 +195,7 @@ def download_brief_docx(brief_id: BriefIdParam):
 
 
 @router.get("/brief/versions/{project_id}", response_model=list[BriefVersionItem])
-def list_brief_versions(project_id: BriefIdParam):
+def list_brief_versions(project_id: BriefIdParam,
+                         _access: Annotated[dict, Depends(require_project_access)]):
     """List all brief versions for a project."""
     return store.list_brief_versions(project_id)

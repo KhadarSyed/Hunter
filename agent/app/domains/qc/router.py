@@ -6,12 +6,13 @@ import uuid
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi import Path as PathParam
 from fastapi.responses import FileResponse
 
 from ...core import store
 from ...core.api import OkResponse
+from ...core.auth import require_project_access
 from ...core.config import UPLOAD_DIR
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
@@ -90,7 +91,7 @@ async def qc_upload_route(project_id: int = Form(0), file: UploadFile = File(...
 
 
 @router.get("/qc/report/{project_id}", response_model=QCReport)
-def qc_report_route(project_id: IdPath):
+def qc_report_route(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)]):
     report = store.get_qc_report_for_project(project_id)
     if not report:
         raise HTTPException(404, "No QC report found for this project")

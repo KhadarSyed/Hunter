@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Annotated
 
 import openpyxl
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi import Path as PathParam
 
 from ...agents.meltwater_query_builder import run as run_mqb
@@ -25,6 +25,7 @@ from ...agents.query_evaluator import evaluate_sample
 from ...core import store
 from ...core.anthropic_client import get_llm_client
 from ...core.api import OkResponse
+from ...core.auth import require_project_access
 from ...core.config import UPLOAD_DIR
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
@@ -469,7 +470,7 @@ def generate_search_strategy(req: GenerateStrategyRequest):
 
 
 @router.get("/strategy/{project_id}", response_model=SearchStrategyResponse)
-def get_search_strategy(project_id: IdPath):
+def get_search_strategy(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)]):
     strategy = store.get_latest_strategy(project_id)
     if not strategy:
         raise HTTPException(404, "No strategy found for this project")
@@ -526,7 +527,8 @@ def delete_research_question(strategy_id: IdPath, question_id: str):
 
 
 @router.post("/strategy/{project_id}/final-approve", response_model=FinalApprovalResult)
-def final_query_approval(project_id: IdPath, req: FinalApprovalRequest):
+def final_query_approval(project_id: IdPath, req: FinalApprovalRequest,
+                          _access: Annotated[dict, Depends(require_project_access)]):
     strategy = store.get_latest_strategy(project_id)
     if not strategy:
         raise HTTPException(404, "No strategy found")
@@ -821,7 +823,8 @@ async def upload_dataset(
 
 
 @router.get("/dataset/{project_id}", response_model=DatasetRecord | list[DatasetRecord])
-def get_dataset(project_id: IdPath, scope: str = "latest"):
+def get_dataset(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)],
+                 scope: str = "latest"):
     if scope == "all":
         return store.get_datasets_by_project(project_id)
     dataset = store.get_latest_dataset(project_id)
@@ -900,7 +903,7 @@ async def upload_sample_dataset(
 
 
 @router.get("/evaluation/{project_id}", response_model=SampleEvaluationRecord)
-def get_evaluation(project_id: IdPath):
+def get_evaluation(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)]):
     evaluation = store.get_latest_evaluation(project_id)
     if not evaluation:
         raise HTTPException(404, "No evaluation found")

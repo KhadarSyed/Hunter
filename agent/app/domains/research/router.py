@@ -11,12 +11,13 @@ import logging
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path
 
 from ...agents.brand_intelligence import run as run_bi
 from ...core import store
 from ...core.anthropic_client import get_llm_client
 from ...core.api import OkResponse
+from ...core.auth import require_project_access
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from . import brandfetch as brandfetch_client
@@ -212,7 +213,8 @@ def _research_blocking_reasons(web_data: dict) -> list[str]:
 
 
 @router.get("/research/{project_id}", response_model=ResearchResults)
-def get_research_results(project_id: Annotated[int, Path(ge=1)]):
+def get_research_results(project_id: Annotated[int, Path(ge=1)],
+                          _access: Annotated[dict, Depends(require_project_access)]):
     research = store.get_latest_research(project_id)
     if not research:
         raise HTTPException(404, "No research found for this project")
@@ -355,7 +357,8 @@ def fetch_preview(req: FetchPreviewRequest):
 
 
 @router.get("/research/{project_id}/items", response_model=ResearchItemsListResponse)
-def get_research_items_route(project_id: Annotated[int, Path(ge=1)]):
+def get_research_items_route(project_id: Annotated[int, Path(ge=1)],
+                              _access: Annotated[dict, Depends(require_project_access)]):
     """Every persisted research item for a project's latest run (scoped to that run's date
     range), enriched with which brand/competitor/product keywords each item matched and
     whether it passed entity-relevance validation — for the analyst-facing sources table.

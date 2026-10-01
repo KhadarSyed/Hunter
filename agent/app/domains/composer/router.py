@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from ...core import store
+from ...core.auth import require_project_access
 from ..insights import sov_analyzer, theme_classifier
 from . import service as pc
 from .schemas import (
@@ -58,7 +59,7 @@ def generate_sov_presentation_route(req: GeneratePresentationRequest):
 
 
 @router.get("/sov/analyze/{project_id}", response_model=SOVAnalysisResponse)
-def analyze_sov_route(project_id: IdPath):
+def analyze_sov_route(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)]):
     result = sov_analyzer.analyze_sov(project_id)
     if isinstance(result, dict) and "error" in result:
         raise HTTPException(400, result)
@@ -66,7 +67,8 @@ def analyze_sov_route(project_id: IdPath):
 
 
 @router.get("/sov/themes/{project_id}/{entity_name}", response_model=ThemeClassificationResponse)
-def classify_themes_route(project_id: IdPath, entity_name: str):
+def classify_themes_route(project_id: IdPath, entity_name: str,
+                           _access: Annotated[dict, Depends(require_project_access)]):
     result = theme_classifier.classify_themes(project_id, entity_name)
     if isinstance(result, dict) and "error" in result:
         raise HTTPException(400, result)
@@ -74,12 +76,12 @@ def classify_themes_route(project_id: IdPath, entity_name: str):
 
 
 @router.get("/composer/{project_id}", response_model=list[PCPresentation])
-def list_presentations(project_id: IdPath):
+def list_presentations(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)]):
     return store.list_pc_presentations(project_id)
 
 
 @router.get("/composer/{project_id}/summary", response_model=PresentationSummaryResponse)
-def get_presentation_summary(project_id: IdPath):
+def get_presentation_summary(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)]):
     return pc.get_presentation_summary(project_id)
 
 

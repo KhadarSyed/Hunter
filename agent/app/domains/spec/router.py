@@ -6,11 +6,12 @@ import os
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path
 from starlette.responses import FileResponse
 
 from ...core import store
 from ...core.anthropic_client import get_llm_client
+from ...core.auth import require_project_access
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from . import renderer as rsr
@@ -151,7 +152,8 @@ def generate_research_spec(req: GenerateSpecRequest):
 
 
 @router.get("/spec/{project_id}", response_model=SpecResponse)
-def get_research_spec(project_id: Annotated[int, Path(ge=1)]):
+def get_research_spec(project_id: Annotated[int, Path(ge=1)],
+                       _access: Annotated[dict, Depends(require_project_access)]):
     """Get the latest Research Specification for a project."""
     spec = store.get_latest_spec(project_id)
     if not spec:
@@ -344,7 +346,8 @@ def download_spec_docx(spec_id: Annotated[int, Path(ge=1)]):
 
 
 @router.get("/spec/versions/{project_id}", response_model=list[SpecVersionItem])
-def list_spec_versions_endpoint(project_id: Annotated[int, Path(ge=1)]):
+def list_spec_versions_endpoint(project_id: Annotated[int, Path(ge=1)],
+                                 _access: Annotated[dict, Depends(require_project_access)]):
     """List all specification versions for a project."""
     return store.list_spec_versions(project_id)
 

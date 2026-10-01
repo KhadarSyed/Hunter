@@ -5,10 +5,11 @@ import logging
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path
 
 from ...core import store
 from ...core.api import OkResponse
+from ...core.auth import require_project_access
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from ..strategy.schemas import GenerateStrategyRequest
@@ -83,7 +84,8 @@ def generate_research_plan(req: GenerateStrategyRequest):
 
 
 @router.get("/plan/{project_id}", response_model=ResearchPlanRecord)
-def get_research_plan(project_id: Annotated[int, Path(ge=1)]):
+def get_research_plan(project_id: Annotated[int, Path(ge=1)],
+                       _access: Annotated[dict, Depends(require_project_access)]):
     """Get the latest Research Plan for a project."""
     plan = store.get_latest_plan(project_id)
     if not plan:

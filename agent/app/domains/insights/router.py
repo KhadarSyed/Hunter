@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from ...core import store
+from ...core.auth import require_project_access
 from . import service as igen
 from .schemas import (
     GenerateInsightsRequest,
@@ -63,6 +64,7 @@ def get_insight_evidence(insight_id: IdPath):
 @router.get("/insights/{project_id}", response_model=list[InsightRecord])
 def list_insights(
     project_id: IdPath,
+    _access: Annotated[dict, Depends(require_project_access)],
     objective_id: str | None = None,
     insight_type: str | None = None,
     status: str | None = None,
@@ -84,7 +86,7 @@ def list_insights(
 
 
 @router.get("/insights/{project_id}/summary", response_model=InsightsSummaryResponse)
-def get_insights_summary(project_id: IdPath):
+def get_insights_summary(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)]):
     return igen.get_insights_summary(project_id)
 
 

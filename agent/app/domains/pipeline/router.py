@@ -3,8 +3,9 @@ from __future__ import annotations
 
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path
 
+from ...core.auth import require_project_access
 from . import service as orchestrator
 from .schemas import (
     CacheClearResponse,
@@ -83,7 +84,7 @@ def pipeline_status_route(run_id: str):
 
 
 @router.get("/pipeline/project/{project_id}", response_model=ProjectPipelineStatusResponse)
-def project_pipeline_status_route(project_id: IdPath):
+def project_pipeline_status_route(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)]):
     return orchestrator.get_project_status(project_id)
 
 
@@ -98,17 +99,18 @@ def pipeline_logs_route(run_id: str, stage_id: Optional[str] = None):
 
 
 @router.get("/pipeline/metrics/{project_id}", response_model=PipelinePerformance)
-def pipeline_metrics_route(project_id: IdPath):
+def pipeline_metrics_route(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)]):
     return orchestrator.get_performance_metrics(project_id)
 
 
 @router.get("/pipeline/cache/{project_id}", response_model=CacheMetricsResponse)
-def pipeline_cache_route(project_id: IdPath):
+def pipeline_cache_route(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)]):
     return orchestrator.get_cache_metrics(project_id)
 
 
 @router.post("/pipeline/cache/{project_id}/clear", response_model=CacheClearResponse)
-def clear_pipeline_cache_route(project_id: IdPath, req: ClearCacheRequest):
+def clear_pipeline_cache_route(project_id: IdPath, req: ClearCacheRequest,
+                                _access: Annotated[dict, Depends(require_project_access)]):
     if req.stage_id:
         count = orchestrator.clear_stage_cache(project_id, req.stage_id)
     else:
@@ -122,5 +124,5 @@ def dependency_graph_route():
 
 
 @router.get("/pipeline/stages/{project_id}", response_model=dict[str, StageStatus])
-def project_stages_route(project_id: IdPath):
+def project_stages_route(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)]):
     return orchestrator.get_project_stage_statuses(project_id)

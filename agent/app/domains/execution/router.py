@@ -5,10 +5,11 @@ import logging
 import uuid
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from ...core import store
 from ...core.api import OkResponse
+from ...core.auth import require_project_access
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from . import service as executor_service
@@ -90,7 +91,8 @@ def start_execution(req: ExecutionStartRequest):
 
 
 @router.get("/execution/{project_id}", response_model=ExecutionStatusResponse)
-def get_execution_status(project_id: Annotated[int, Path(ge=1)]):
+def get_execution_status(project_id: Annotated[int, Path(ge=1)],
+                          _access: Annotated[dict, Depends(require_project_access)]):
     """Get the current execution status for a project."""
     status = executor_service.get_execution_status(project_id)
     if not status:
