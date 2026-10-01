@@ -1,6 +1,16 @@
 """Session-cookie authentication: the get_current_user dependency every
 authenticated endpoint depends on, plus the one-time Super Admin bootstrap
-seed. require_project_access (Task 4) is appended to this same module."""
+seed. require_project_access (Task 4) is appended to this same module.
+
+Note: both `core.store` and `domains.auth.service` are imported locally inside
+each function that needs them, not at module level. Every domain router
+imports require_project_access from this module; core.store's own wildcard
+imports (from ..domains.<x>.repository import *) always run
+agent/app/domains/__init__.py first, which imports every router — so a
+module-level import of either `store` or `domains.auth.service` here would
+create a circular import whenever this module is imported before
+agent.app.domains has already been fully initialized (e.g. main.py imports
+this module before importing the domains package)."""
 from __future__ import annotations
 
 import logging
@@ -8,9 +18,6 @@ import time
 from typing import Annotated
 
 from fastapi import Cookie, Depends, HTTPException, Path, Response, status
-
-from ..domains.auth import service
-from . import store
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +30,10 @@ def seed_super_admin_if_missing() -> None:
     """Idempotent: inserts the first Super Admin only if no user with that
     email exists yet. Called once from main.py's lifespan, right after
     store.init_intelligence_db()."""
+    from . import store  # local: avoids a circular import — see module docstring
     if store.get_user_by_email(SEED_SUPER_ADMIN_EMAIL):
         return
+    from ..domains.auth import service  # local: avoids a circular import — see module docstring
     store.create_user(
         org_id=None,
         email=SEED_SUPER_ADMIN_EMAIL,
@@ -45,6 +54,7 @@ def set_session_cookie(response: Response, token: str, expires_at: float) -> Non
 
 
 def get_current_user(session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME)) -> dict:
+    from . import store  # local: avoids a circular import — see module docstring
     if not session_token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
     user = store.get_session_user(session_token)
@@ -57,6 +67,7 @@ def require_project_access(
     project_id: Annotated[int, Path(ge=1)],
     user: Annotated[dict, Depends(get_current_user)],
 ) -> dict:
+    from . import store  # local: avoids a circular import — see module docstring
     project = store.get_project(project_id)
     if not project:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")

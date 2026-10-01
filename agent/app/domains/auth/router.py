@@ -1,12 +1,14 @@
 """Login/session/profile routes for the auth domain."""
 from __future__ import annotations
 
+import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Cookie, Depends, File, HTTPException, Response, UploadFile, status
 
 from ...core import store
 from ...core.auth import SESSION_COOKIE_NAME, get_current_user, set_session_cookie
+from ...core.config import UPLOAD_DIR
 from . import service
 from .schemas import (
     ChangePasswordRequest,
@@ -180,3 +182,18 @@ def reassign_projects_route(user_id: int, req: ReassignProjectsRequest,
 def update_profile_route(req: UpdateProfileRequest, user: Annotated[dict, Depends(get_current_user)]):
     store.update_profile(user["id"], req.display_name)
     return {"ok": True}
+
+
+@router.post("/profile/avatar")
+async def upload_avatar_route(
+    user: Annotated[dict, Depends(get_current_user)], file: UploadFile = File(...),
+):
+    avatars_dir = UPLOAD_DIR / "avatars"
+    avatars_dir.mkdir(parents=True, exist_ok=True)
+    ext = ("." + file.filename.rsplit(".", 1)[-1]) if file.filename and "." in file.filename else ""
+    filename = f"avatar_{user['id']}_{uuid.uuid4().hex[:8]}{ext}"
+    dest = avatars_dir / filename
+    dest.write_bytes(await file.read())
+    avatar_url = f"/uploads/avatars/{filename}"
+    store.update_profile(user["id"], user["display_name"], avatar_url)
+    return {"avatar_url": avatar_url}

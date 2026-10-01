@@ -29,6 +29,7 @@ from .core.api import install_http_layer, require_api_key  # noqa: E402
 from .core.auth import seed_super_admin_if_missing  # noqa: E402
 from .core.config import (  # noqa: E402
     AGENT_DIR,
+    UPLOAD_DIR,
     ensure_dirs,
     get_app_settings,
     load_settings,
@@ -101,6 +102,8 @@ def create_app() -> FastAPI:
     app.include_router(deck.router, dependencies=auth)
     app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
     app.include_router(events.router)
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
     _mount_spa(app)
     return app
 
