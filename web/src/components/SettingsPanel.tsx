@@ -1,15 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Settings, api } from "../services/api";
 
-type TextKey = "repo_dir" | "briefs_dir" | "output_dir" | "ollama_host" | "embed_model" | "chat_model";
+type TextKey = "repo_dir" | "briefs_dir" | "output_dir";
 
 const TEXT_FIELDS: { key: TextKey; label: string }[] = [
   { key: "repo_dir", label: "Repository folder (past project decks)" },
   { key: "briefs_dir", label: "Briefs inbox (watched folder)" },
   { key: "output_dir", label: "Output folder" },
-  { key: "ollama_host", label: "Ollama host" },
-  { key: "embed_model", label: "Embedding model" },
-  { key: "chat_model", label: "Chat / reasoning model" },
 ];
 
 const INPUT = "w-full text-sm px-2.5 py-1.5 border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-[#5B2C9D]";

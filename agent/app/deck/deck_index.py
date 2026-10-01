@@ -13,7 +13,7 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 from ..core.config import Settings
-from ..core.ollama_client import OllamaClient
+from ..core.llm_provider import HybridLLMClient
 from . import memory
 
 EventFn = Optional[Callable[[str, dict], None]]
@@ -77,7 +77,7 @@ def _slide_text(slide) -> tuple[str, str, bool, bool]:
     return title, "\n".join(body_lines), has_chart, has_picture
 
 
-def index_deck(deck_path: Path, ollama: OllamaClient) -> int:
+def index_deck(deck_path: Path, llm_client: HybridLLMClient) -> int:
     """(Re)index a single deck file. Returns number of slides indexed."""
     memory.delete_slides_for_deck(str(deck_path))
     mtime, fingerprint = file_fingerprint(deck_path)
@@ -90,7 +90,7 @@ def index_deck(deck_path: Path, ollama: OllamaClient) -> int:
         combined = f"{title}\n{body}".strip()
         if not combined:
             continue
-        vec = ollama.embed(combined)
+        vec = llm_client.embed(combined)
         memory.upsert_slide(
             deck_path=str(deck_path),
             slide_no=i,
@@ -107,7 +107,7 @@ def index_deck(deck_path: Path, ollama: OllamaClient) -> int:
     return count
 
 
-def index_repository(settings: Settings, ollama: OllamaClient, on_event: EventFn = None) -> dict:
+def index_repository(settings: Settings, llm_client: HybridLLMClient, on_event: EventFn = None) -> dict:
     repo = Path(settings.repo_dir)
     if not repo.exists():
         raise FileNotFoundError(f"Repository folder not found: {repo}")
@@ -133,7 +133,7 @@ def index_repository(settings: Settings, ollama: OllamaClient, on_event: EventFn
         if on_event:
             on_event("indexing_deck", {"deck": deck_path.name})
         try:
-            n = index_deck(deck_path, ollama)
+            n = index_deck(deck_path, llm_client)
             stats["reindexed"] += 1
             stats["slides"] += n
             if on_event:
@@ -156,16 +156,17 @@ if __name__ == "__main__":
     import sys
 
     from ..core.config import load_settings
+    from ..core.llm_provider import build_llm_client
 
     settings = load_settings()
-    ollama = OllamaClient(settings.ollama_host, settings.embed_model, settings.chat_model)
-    if not ollama.is_reachable():
-        print("Ollama is not reachable at", settings.ollama_host)
+    llm_client = build_llm_client(settings)
+    if not llm_client.is_embed_reachable():
+        print("No embedding provider reachable — set NVIDIA_EMBED_API_KEY and NVIDIA_EMBED_MODEL")
         sys.exit(1)
     memory.init_db()
 
     def log(event, payload):
         print(f"[{event}] {payload}")
 
-    result = index_repository(settings, ollama, on_event=log)
+    result = index_repository(settings, llm_client, on_event=log)
     print("Done:", result)

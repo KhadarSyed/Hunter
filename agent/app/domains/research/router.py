@@ -112,17 +112,17 @@ def start_background_research(req: StartResearchRequest):
             _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
                          "progress_pct": 90, "message": "LLM enrichment (optional)"})
 
-            ollama = get_llm_client()
+            llm_client = get_llm_client()
             llm_output = None
             enrichment_status = "web_only"
 
-            if ollama and ollama.is_reachable():
+            if llm_client and llm_client.is_reachable():
                 logger.info("[research:%s] LLM reachable — attempting enrichment (timeout=%ss)", job_id, LLM_ENRICHMENT_TIMEOUT)
 
                 def _run_llm():
                     loop = asyncio.new_event_loop()
                     bi_result = loop.run_until_complete(
-                        run_bi(spec, emit=on_event, ollama=ollama, web_adapter=None)
+                        run_bi(spec, emit=on_event, llm_client=llm_client, web_adapter=None)
                     )
                     loop.close()
                     return bi_result.get("brand_intelligence")
@@ -150,7 +150,7 @@ def start_background_research(req: StartResearchRequest):
                     logger.error("[research:%s] LLM enrichment failed: %s", job_id, e)
                 pool.shutdown(wait=False)
             else:
-                logger.warning("[research:%s] Ollama not reachable — completing with web_only", job_id)
+                logger.warning("[research:%s] LLM not reachable — completing with web_only", job_id)
 
             # ── Stage 4: Update persisted research with LLM output + enrichment status ──
             web_result["_enrichment_status"] = enrichment_status

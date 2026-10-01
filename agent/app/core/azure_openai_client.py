@@ -1,4 +1,4 @@
-"""Azure OpenAI chat client - drop-in replacement for AnthropicClient/OllamaClient.chat().
+"""Azure OpenAI chat client.
 
 Talks to an Azure OpenAI deployment's Chat Completions REST API directly via
 `requests` (no `openai` SDK dependency needed), configured from:

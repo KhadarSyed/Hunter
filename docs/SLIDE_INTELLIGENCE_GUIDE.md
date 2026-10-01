@@ -229,7 +229,7 @@ Elements that must NOT be reused:
 
 1. **No image-based thumbnails.** Slide previews are text-based metadata only. Full thumbnail generation via PowerPoint COM is supported but not yet wired into the pipeline.
 
-2. **No embedding-based retrieval.** Text embeddings via Ollama `nomic-embed-text` are supported in the schema but the pipeline currently uses keyword-overlap similarity. Embedding generation for 1000+ slides would take significant time on CPU.
+2. **No embedding-based retrieval.** Text embeddings via NVIDIA NIM are supported in the schema but the pipeline currently uses keyword-overlap similarity. Embedding generation for 1000+ slides would take significant API time.
 
 3. **Classification is keyword-based.** No LLM is used for classification, which means nuanced slide purposes may be misclassified. Manual corrections are supported.
 

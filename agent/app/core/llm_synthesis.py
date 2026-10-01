@@ -1,7 +1,7 @@
 """LLM-powered synthesis for the Hunter Intelligence pipeline.
 
-Provides high-quality analytical text generation using the configured Ollama
-model. Falls back to template-based output when the LLM is unavailable.
+Provides high-quality analytical text generation using the configured LLM.
+Falls back to template-based output when the LLM is unavailable.
 """
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ import logging
 
 from .config import load_settings
 from .llm_provider import HybridLLMClient, build_llm_client
-from .ollama_client import OllamaError
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +87,7 @@ def _llm_call(system: str, user: str, format_json: bool = False) -> str | None:
         if not format_json:
             cleaned = _strip_preamble(cleaned)
         return cleaned if cleaned else None
-    except (OllamaError, Exception) as e:
+    except Exception as e:
         logger.warning("[llm_synthesis] LLM call failed: %s", e)
         return None
 

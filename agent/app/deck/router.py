@@ -20,7 +20,6 @@ from ..core.config import Settings, ensure_dirs, load_settings, save_settings
 from ..core.events import broadcast
 from ..core.jobs import submit
 from ..core.llm_provider import build_llm_client
-from ..core.ollama_client import OllamaClient
 from . import memory
 from .pipeline import run_pipeline, run_template_pipeline
 from .watcher import BriefWatcher
@@ -43,15 +42,11 @@ class SettingsPayload(BaseModel):
     briefs_dir: str
     output_dir: str
     ignore_patterns: list[str]
-    ollama_host: str
-    embed_model: str
-    chat_model: str
     top_k_candidates: int
     relevance_threshold: float
 
 
 class StatusResponse(ApiModel):
-    ollama_reachable: bool
     slide_count: int
     deck_count: int
     run_busy: bool
@@ -164,9 +159,7 @@ def update_settings(payload: SettingsPayload):
 
 @router.get("/status", response_model=StatusResponse)
 def status():
-    s = load_settings()
     return StatusResponse(
-        ollama_reachable=OllamaClient(s.ollama_host, s.embed_model, s.chat_model).is_reachable(),
         slide_count=memory.slide_count(),
         deck_count=memory.deck_count(),
         run_busy=_run_busy,

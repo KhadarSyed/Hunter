@@ -10,23 +10,11 @@ echo  ========================================
 echo.
 
 set "PYTHON=C:\Users\sweta.shah\AppData\Local\Python\bin\python3.exe"
-set "OLLAMA=C:\Users\sweta.shah\AppData\Local\Programs\Ollama\ollama.exe"
 set "NODE=C:\Program Files\nodejs\node.exe"
 
-:: ------- 1. Ollama -------
-echo  [1/3] Checking Ollama...
-powershell -NoProfile -Command "try{(New-Object System.Net.Sockets.TcpClient).Connect('127.0.0.1',11434);exit 0}catch{exit 1}" >nul 2>&1
-if errorlevel 1 (
-    echo        Starting Ollama server...
-    start "" /min "%OLLAMA%" serve
-    ping -n 4 127.0.0.1 >nul
-) else (
-    echo        Ollama already running.
-)
-
-:: ------- 2. Build frontend (first time only) -------
+:: ------- 1. Build frontend (first time only) -------
 if not exist "%~dp0agent\static\index.html" (
-    echo  [2/3] Building frontend...
+    echo  [1/2] Building frontend...
     pushd "%~dp0web"
     "%NODE%" node_modules\vite\bin\vite.js build --config vite.config.ts
     if errorlevel 1 (
@@ -36,11 +24,11 @@ if not exist "%~dp0agent\static\index.html" (
     )
     popd
 ) else (
-    echo  [2/3] Frontend already built.
+    echo  [1/2] Frontend already built.
 )
 
-:: ------- 3. Start backend -------
-echo  [3/3] Starting backend...
+:: ------- 2. Start backend -------
+echo  [2/2] Starting backend...
 
 :: Check if port 8000 is already in use
 powershell -NoProfile -Command "try{(New-Object System.Net.Sockets.TcpClient).Connect('127.0.0.1',8000);exit 0}catch{exit 1}" >nul 2>&1

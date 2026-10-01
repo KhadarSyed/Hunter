@@ -1,4 +1,4 @@
-"""NVIDIA NIM embeddings client - drop-in replacement for OllamaClient.embed().
+"""NVIDIA NIM embeddings client.
 
 Talks to NVIDIA's OpenAI-compatible embeddings endpoint directly via `requests`,
 configured from: NVIDIA_EMBED_API_KEY, NVIDIA_EMBED_API_URL, NVIDIA_EMBED_MODEL.

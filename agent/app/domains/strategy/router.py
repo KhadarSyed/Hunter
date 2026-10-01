@@ -364,7 +364,7 @@ def generate_search_strategy(req: GenerateStrategyRequest):
                 brand_context = web_research
                 logger.info("[strategy:%s] Using web-only brand context (llm_output unavailable or errored)", job_id)
 
-            ollama = get_llm_client()
+            llm_client = get_llm_client()
 
             def on_event(event_type: str, payload: dict):
                 _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
@@ -373,7 +373,7 @@ def generate_search_strategy(req: GenerateStrategyRequest):
 
             strategy_result = None
 
-            if not ollama or not ollama.is_reachable():
+            if not llm_client or not llm_client.is_reachable():
                 logger.warning("[strategy:%s] No LLM reachable — falling back to deterministic strategy", job_id)
                 store.update_job(job_id, progress_pct=70,
                                  progress_message="No LLM available — building deterministic strategy")
@@ -391,7 +391,7 @@ def generate_search_strategy(req: GenerateStrategyRequest):
                 def _run_strategy_llm():
                     loop = asyncio.new_event_loop()
                     mqb_result = loop.run_until_complete(
-                        run_mqb(spec, brand_context, emit=on_event, ollama=ollama)
+                        run_mqb(spec, brand_context, emit=on_event, llm_client=llm_client)
                     )
                     loop.close()
                     return mqb_result.get("queries")

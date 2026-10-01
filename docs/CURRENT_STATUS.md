@@ -70,7 +70,7 @@
 | `methods/` — Pluggable method executors | Complete | 12 deterministic analytical methods with decorator-based registration, case-insensitive lookup, structured evidence output |
 | `memory.py` — Core DB | Complete | 4 tables (runs, events, slide_index, chat) |
 | `config.py` — Settings | Complete | Dataclass + JSON persistence |
-| `ollama_client.py` — LLM client | Complete | Embed + chat with streaming |
+| `llm_provider.py` — LLM client | Complete | Azure OpenAI chat, NVIDIA NIM embeddings, no cross-provider fallback |
 | `web_research_adapter.py` — DuckDuckGo | Complete | `ddgs` package, entity validation, Unicode normalization, tier classification, 14+ query families, retry with backoff |
 | `brief_parser.py` — Brief ingestion | Complete | .txt, .docx, .pptx |
 | `retrieval.py` — Slide search | Complete | Brute-force cosine similarity |
@@ -143,7 +143,7 @@ Run E2E test: `python3 -u agent/tests/test_e2e_live_workflow.py` (requires runni
 |-------------|--------|-------|
 | DuckDuckGo web search | Working | `ddgs` package, 14+ query families, entity validation, tier classification |
 | DuckDuckGo news search | Working | Date-filtered, credibility-scored |
-| Ollama (local LLM) | Working | `qwen2.5:3b` for chat, `nomic-embed-text` for embeddings. CPU-only: enrichment/strategy may timeout → graceful fallback |
+| Azure OpenAI (chat) / NVIDIA NIM (embeddings) | Working | No cross-provider fallback: enrichment/strategy may timeout → graceful deterministic fallback |
 | PowerPoint COM | Working | High-fidelity slide copying (requires desktop PowerPoint) |
 | Filesystem watcher | Working | Watchdog on briefs inbox folder |
 

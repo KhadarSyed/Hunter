@@ -23,8 +23,8 @@ Hunter is a locally-hosted intelligence platform that takes a client brief (e.g.
 | **Frontend** | React 18 + TypeScript + Vite 5 + Tailwind CSS 4 | SPA with state-based routing (no React Router) |
 | **Backend** | Python FastAPI + uvicorn | REST API + WebSocket for real-time events |
 | **Database** | SQLite (two files) | `agent/data/memory.db` (runs/chat), `agent/data/intelligence.db` (projects/specs/strategies) |
-| **LLM — Primary** | Anthropic Claude API | Via `agent/app/anthropic_client.py`. **Credits are currently exhausted.** |
-| **LLM — Fallback** | Ollama (local) | `qwen2.5:3b` for chat, `nomic-embed-text` for embeddings. CPU-only (i7-10510U), very slow. |
+| **LLM — Chat** | Azure OpenAI | Via `agent/app/core/azure_openai_client.py`. `AZURE_OPENAI_*` env vars. No fallback provider — raises a clear error if unconfigured/unreachable. |
+| **Embeddings** | NVIDIA NIM | Via `agent/app/core/nvidia_embed_client.py`. `NVIDIA_EMBED_*` env vars. No fallback provider — raises a clear error if unconfigured/unreachable. |
 | **LLM — Last resort** | Deterministic/rule-based | Every LLM-dependent feature has a rule-based fallback that works without any LLM. |
 
 **Brand colors:** Primary violet `#5B2C9D`, QC accent teal `#0F7B6C`
@@ -36,7 +36,6 @@ Hunter is a locally-hosted intelligence platform that takes a client brief (e.g.
 ### Prerequisites
 - Python 3.11+ (currently at `C:\Users\sweta.shah\AppData\Local\Python\bin\python3.exe`)
 - Node.js 18+ with npm
-- Ollama installed locally (optional — for local LLM, runs on port 11434)
 
 ### Start Backend (port 8002)
 ```powershell
@@ -66,7 +65,7 @@ npm run dev
 ### Common Issues
 - **Port 8002 occupied:** Kill stale `python3` processes with `Get-Process -Name python,python3 | Stop-Process -Force`
 - **Code changes not taking effect:** uvicorn's `--reload` flag sometimes misses changes. Kill all Python, clear `__pycache__`, restart without `--reload`.
-- **"Failed to fetch" on Brief & Scope page:** Usually Ollama/Anthropic timeout, not a network issue. The Analyze Brief button calls LLM with a long timeout.
+- **"Failed to fetch" on Brief & Scope page:** Usually an Azure OpenAI timeout, not a network issue. The Analyze Brief button calls LLM with a long timeout.
 
 ---
 
@@ -108,8 +107,8 @@ Each stage is a backend module + a frontend page. Stages run sequentially per pr
 | `agent/app/intelligence_store.py` | SQLite database layer for intelligence projects, specs, strategies, jobs |
 | `agent/app/background_brief_service.py` | Brief composition engine — `compose_brief()`, rule-based builders, LLM synthesis |
 | `agent/app/web_research_adapter.py` | Web research via DuckDuckGo — competitor extraction, entity search |
-| `agent/app/ollama_client.py` | Ollama HTTP client (chat, embeddings, health check) |
-| `agent/app/anthropic_client.py` | Anthropic Claude API client |
+| `agent/app/core/azure_openai_client.py` | Azure OpenAI chat client |
+| `agent/app/core/anthropic_client.py` | Unused — kept only so the client class still imports cleanly |
 | `agent/app/config.py` | Settings dataclass, paths, load/save from `data/settings.json` |
 
 ### Frontend Core
@@ -138,11 +137,11 @@ Each stage is a backend module + a frontend page. Stages run sequentially per pr
 ### LLM Fallback Chain
 Every LLM-dependent feature follows this pattern:
 ```
-Anthropic API → Ollama (local) → Deterministic/rule-based
+Azure OpenAI (chat) / NVIDIA NIM (embeddings) → Deterministic/rule-based
 ```
 This is implemented via `_get_llm()` in `background_brief_service.py` and `get_llm_client()` in `intelligence_api.py`.
 
-**Important:** Anthropic credits are exhausted. All features currently run on Ollama (slow, CPU-only) or fall through to deterministic. The deterministic fallbacks are NOT stubs — they produce real analytical content.
+**Important:** Anthropic is unused — the chat chain is Azure OpenAI only. Features fall through to deterministic when Azure OpenAI/NVIDIA NIM aren't configured or reachable. The deterministic fallbacks are NOT stubs — they produce real analytical content.
 
 ### `_compose_with_llm()` returns a tuple
 ```python
@@ -241,7 +240,7 @@ Both databases are SQLite. Schema is defined inline in `intelligence_store.py`.
 ### Must Fix
 1. **JBL vs Jabil entity confusion** — Some research items are about Jabil Inc (stock ticker "JBL") and WWE commentator "JBL", not the speaker brand. Entity validation in `web_research_adapter.py` needs disambiguation logic.
 
-2. **Anthropic API credits exhausted** — All LLM features fall back to Ollama (very slow, CPU-only) or deterministic. Either refill credits or add a new LLM provider.
+2. **Anthropic is unused** — the chat chain is Azure OpenAI only. If Azure OpenAI is unconfigured/unreachable, every LLM-dependent feature falls straight to its deterministic/rule-based tier.
 
 ### Should Verify
 3. **Strategy generation on fresh projects** — The deterministic strategy fallback was tested on project 494 (JBL). Verify it works for new projects where the spec structure might differ.
@@ -251,9 +250,7 @@ Both databases are SQLite. Schema is defined inline in `intelligence_store.py`.
 ### Nice To Have
 5. **Pipeline stages 5-13** — Pages exist in the frontend but the full end-to-end flow (Data Sources → ... → Publishing) hasn't been tested as a complete pipeline run.
 
-6. **Ollama model upgrade** — `qwen2.5:3b` is tiny and slow. If GPU becomes available, upgrade to a larger model.
-
-7. **Search/routing** — Frontend uses state-based page switching (`useState<Page>`), not URL routing. Deep linking and browser back/forward don't work.
+6. **Search/routing** — Frontend uses state-based page switching (`useState<Page>`), not URL routing. Deep linking and browser back/forward don't work.
 
 ---
 
@@ -263,8 +260,9 @@ Both databases are SQLite. Schema is defined inline in `intelligence_store.py`.
 
 | Variable | Purpose | Current State |
 |----------|---------|--------------|
-| `ANTHROPIC_API_KEY` | Anthropic Claude API | Set but **credits exhausted** |
-| `OLLAMA_HOST` | Ollama server URL | `http://localhost:11434` |
+| `ANTHROPIC_API_KEY` | Anthropic Claude API | Unused — chat chain is Azure OpenAI only |
+| `AZURE_OPENAI_MODEL`/`AZURE_OPENAI_ENDPOINT`/`AZURE_OPENAI_API_KEY`/`AZURE_OPENAI_API_VERSION` | Azure OpenAI chat | Configured, primary chat provider |
+| `NVIDIA_EMBED_MODEL`/`NVIDIA_EMBED_API_KEY`/`NVIDIA_EMBED_API_URL` | NVIDIA NIM embeddings | Configured, primary embedding provider |
 
 ---
 
@@ -287,8 +285,8 @@ Sweta Claude Code/
 │   │   ├── intelligence_store.py # SQLite database layer
 │   │   ├── background_brief_service.py  # Brief composition engine
 │   │   ├── web_research_adapter.py      # Web research + competitor extraction
-│   │   ├── ollama_client.py      # Ollama LLM client
-│   │   ├── anthropic_client.py   # Anthropic Claude client
+│   │   ├── azure_openai_client.py # Azure OpenAI chat client
+│   │   ├── anthropic_client.py   # Unused — kept only so the class still imports cleanly
 │   │   ├── config.py             # Settings, paths
 │   │   ├── brief_parser.py       # Parse uploaded brief files
 │   │   ├── research.py           # Research execution

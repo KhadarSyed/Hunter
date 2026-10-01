@@ -15,7 +15,7 @@ import re
 import time
 from typing import Callable, Optional
 
-from ..core.ollama_client import OllamaClient
+from ..core.llm_provider import HybridLLMClient
 
 EventFn = Callable[[str, dict], None]
 
@@ -625,7 +625,7 @@ def _remove_excluded_from_plan(plan: dict, spec: dict) -> None:
 
 def run(
     spec: dict,
-    client: OllamaClient,
+    client: HybridLLMClient,
     emit: Optional[EventFn] = None,
     max_retries: int = 2,
 ) -> dict:

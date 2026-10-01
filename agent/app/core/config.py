@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import dataclasses
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -34,9 +35,6 @@ DEFAULT_SETTINGS = {
     "briefs_dir": r"C:\Users\sweta.shah\OneDrive - InfoVision, Inc\Hunter PR\2026\New Client Brief Feeder Agent",
     "output_dir": r"C:\Users\sweta.shah\OneDrive - InfoVision, Inc\Hunter PR\2026\Agent Output",
     "ignore_patterns": ["Combined_*"],
-    "ollama_host": "http://localhost:11434",
-    "embed_model": "nomic-embed-text",
-    "chat_model": "qwen2.5:3b",
     "top_k_candidates": 8,
     "relevance_threshold": 0.42,
 }
@@ -48,9 +46,6 @@ class Settings:
     briefs_dir: str
     output_dir: str
     ignore_patterns: list
-    ollama_host: str
-    embed_model: str
-    chat_model: str
     top_k_candidates: int
     relevance_threshold: float
 
@@ -67,7 +62,8 @@ def load_settings() -> Settings:
     else:
         data = {}
     merged = {**DEFAULT_SETTINGS, **data}
-    return Settings(**merged)
+    known_fields = {f.name for f in dataclasses.fields(Settings)}
+    return Settings(**{k: v for k, v in merged.items() if k in known_fields})
 
 
 def save_settings(settings: Settings) -> None:

@@ -19,7 +19,7 @@ import re
 import time
 from typing import Callable, Optional
 
-from ..core.ollama_client import OllamaClient
+from ..core.llm_provider import HybridLLMClient
 
 EventFn = Callable[[str, dict], None]
 
@@ -755,7 +755,7 @@ def _validate_exclusion_conflicts(
 
 def run(
     brief_text: str,
-    client: OllamaClient,
+    client: HybridLLMClient,
     emit: Optional[EventFn] = None,
     brief_filename: str = "",
     max_retries: int = 2,

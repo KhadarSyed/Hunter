@@ -1,4 +1,4 @@
-"""Anthropic Claude API client — drop-in replacement for OllamaClient.chat()."""
+"""Anthropic Claude API client."""
 from __future__ import annotations
 
 import logging
@@ -69,7 +69,7 @@ class AnthropicClient:
 
 
 def get_llm_client():
-    """Return the best available LLM client: Azure OpenAI -> Anthropic -> Ollama."""
+    """Return the HybridLLMClient (Azure OpenAI for chat, NVIDIA NIM for embeddings)."""
     from dotenv import load_dotenv
     load_dotenv()
 

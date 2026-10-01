@@ -8,13 +8,10 @@ import json
 import re
 from datetime import date
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import Callable, Optional
 
 from ..core.config import Settings, load_settings
-from ..core.llm_provider import build_llm_client
-
-if TYPE_CHECKING:  # annotation only; runtime client comes from build_llm_client()
-    from ..core.ollama_client import OllamaClient
+from ..core.llm_provider import HybridLLMClient, build_llm_client
 from ..domains.brief.parser import guess_client_name, parse_brief
 from . import deck_builder, deck_index, memory, retrieval
 
@@ -69,7 +66,7 @@ def _extract_json(text: str) -> dict:
     raise ValueError("Model did not return parseable JSON")
 
 
-def _llm_json(ollama: OllamaClient, system: str, user: str, retries: int = 2) -> dict:
+def _llm_json(llm_client: HybridLLMClient, system: str, user: str, retries: int = 2) -> dict:
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
@@ -77,7 +74,7 @@ def _llm_json(ollama: OllamaClient, system: str, user: str, retries: int = 2) ->
     last_error = None
     for attempt in range(retries + 1):
         try:
-            raw = ollama.chat(messages, format_json=True)
+            raw = llm_client.chat(messages, format_json=True)
             return _extract_json(raw)
         except Exception as e:  # noqa: BLE001 - want to retry on any parse/model failure
             last_error = e
@@ -236,9 +233,16 @@ def run_pipeline(
     memory.add_event(run_id, "run_started", {"brief_filename": brief_path.name})
 
     try:
-        ollama = build_llm_client(settings)
-        if not ollama.is_reachable():
-            raise RuntimeError(f"No LLM provider reachable (checked Azure OpenAI, Anthropic, Ollama at {settings.ollama_host}).")
+        llm_client = build_llm_client(settings)
+        if not llm_client.is_reachable():
+            raise RuntimeError(
+                "No chat LLM provider reachable — set AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT "
+                "and AZURE_OPENAI_MODEL."
+            )
+        if not llm_client.is_embed_reachable():
+            raise RuntimeError(
+                "No embedding provider reachable — set NVIDIA_EMBED_API_KEY and NVIDIA_EMBED_MODEL."
+            )
 
         def step(event_type: str, payload: dict) -> None:
             record = memory.add_event(run_id, event_type, payload)
@@ -252,14 +256,14 @@ def run_pipeline(
 
         step("indexing_check", {})
         index_stats = deck_index.index_repository(
-            settings, ollama, on_event=lambda et, p: step(f"index_{et}", p)
+            settings, llm_client, on_event=lambda et, p: step(f"index_{et}", p)
         )
         step("indexing_done", index_stats)
 
         step("embedding_brief", {})
         step("retrieving_slides", {})
         candidates = retrieval.search(
-            brief_text[:MAX_BRIEF_CHARS], ollama, top_k=max(settings.top_k_candidates * 3, 20)
+            brief_text[:MAX_BRIEF_CHARS], llm_client, top_k=max(settings.top_k_candidates * 3, 20)
         )
         candidates = [c for c in candidates if c["score"] >= settings.relevance_threshold] or candidates[:settings.top_k_candidates]
         step("slides_retrieved", {
@@ -269,7 +273,7 @@ def run_pipeline(
 
         step("reasoning_start", {"candidate_count": len(candidates)})
         analysis = _llm_json(
-            ollama,
+            llm_client,
             ANALYSIS_SYSTEM_PROMPT,
             f"CLIENT BRIEF:\n{brief_text[:MAX_BRIEF_CHARS]}\n\nCANDIDATE SLIDES:\n{_candidates_block(candidates)}",
         )
@@ -935,8 +939,8 @@ def run_template_pipeline(
 
 
 def _build_deck_plan(analysis: dict, candidates: list[dict], brief_text: str, step: EventFn) -> dict:
-    ollama_settings = load_settings()
-    ollama = build_llm_client(ollama_settings)
+    llm_settings = load_settings()
+    llm_client = build_llm_client(llm_settings)
 
     sections_out = []
     used_indices: set[int] = set()
@@ -966,7 +970,7 @@ def _build_deck_plan(analysis: dict, candidates: list[dict], brief_text: str, st
             step("drafting_slide", {"section": section.get("title"), "gap": gap})
             try:
                 draft = _llm_json(
-                    ollama,
+                    llm_client,
                     DRAFT_SYSTEM_PROMPT,
                     f"BRIEF EXCERPT:\n{brief_text[:2000]}\n\nSECTION: {section.get('title')}\nCONTENT GAP TO ADDRESS: {gap}",
                 )

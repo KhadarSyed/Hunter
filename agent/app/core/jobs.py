@@ -14,7 +14,7 @@ from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
-MAX_WORKERS = 8  # LLM calls are I/O-bound on cloud providers; CPU-bound Ollama is single-consumer anyway
+MAX_WORKERS = 8  # LLM calls are I/O-bound on cloud providers
 
 
 class JobRunner:

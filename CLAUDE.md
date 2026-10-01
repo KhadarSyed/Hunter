@@ -27,7 +27,7 @@ mostly disjoint code paths.
 ## Quick Start
 
 - **Backend:** `python -m uvicorn agent.app.main:app --host 0.0.0.0 --port 8002` from the project root
-  (or `.\start.ps1` to launch backend + frontend + Ollama together).
+  (or `.\start.ps1` to launch backend + frontend together).
 - **Frontend (dev):** `npm run dev` from `web/` — Vite on port 5173, proxies `/api` and `/ws` to
   `http://127.0.0.1:8002` (see `web/vite.config.ts`).
 - **Frontend (build):** `npm run build` from `web/` — runs `tsc -b && vite build`, outputs straight
@@ -93,19 +93,16 @@ Frontend (`web/src/`): `pages/` · `components/` · `context/` (React providers)
   insights/storylines/renders/QC, 58+ tables) live in this one file.
 - **LLM chain:** `agent/app/core/llm_provider.py::build_llm_client(settings)` is the single factory
   used everywhere a chat/embedding client is needed (`get_llm_client()` in `core/anthropic_client.py`,
-  and the former direct `OllamaClient(...)` construction sites in `deck/pipeline.py`, `main.py`,
-  `domains/plan/service.py`, `core/llm_synthesis.py`). All clients live in `core/`. It returns a
-  `HybridLLMClient` that routes:
-  - **Chat:** Azure OpenAI (`azure_openai_client.py`, `AZURE_OPENAI_*` env vars) → Anthropic
-    (`anthropic_client.py`, `ANTHROPIC_API_KEY`) → local Ollama (`ollama_client.py`, `qwen2.5:3b`).
-  - **Embeddings:** NVIDIA NIM (`nvidia_embed_client.py`, `NVIDIA_EMBED_*` env vars) → local
-    Ollama (`nomic-embed-text`).
-  - A cloud provider that raises at call time falls back to Ollama automatically (see
-    `HybridLLMClient.chat`/`.embed` try/except). Below that, every LLM-dependent feature in the
-    Intelligence Platform still has its own deterministic/rule-based tier — the deterministic
-    tier is not a stub, it produces real content. `/api/status`'s `ollama_reachable` field is the
-    one intentional exception left on raw `OllamaClient` — it reports real local-Ollama health,
-    not overall LLM availability.
+  and every other call site — `deck/pipeline.py`, `domains/plan/service.py`,
+  `core/llm_synthesis.py`, the `agents/*.py` modules). All clients live in `core/`. It returns a
+  `HybridLLMClient` with no cross-provider fallback on either side:
+  - **Chat:** Azure OpenAI only (`azure_openai_client.py`, `AZURE_OPENAI_*` env vars). `chat()`
+    raises `NoChatProviderError` if unconfigured or unreachable.
+  - **Embeddings:** NVIDIA NIM only (`nvidia_embed_client.py`, `NVIDIA_EMBED_*` env vars).
+    `embed()`/`embed_batch()` raise `NoEmbedProviderError` if unconfigured or unreachable.
+  - Every LLM-dependent feature in the Intelligence Platform still has its own
+    deterministic/rule-based tier beneath this — the deterministic tier is not a stub, it
+    produces real content.
 - **Communication:** REST (`/api/*` for Brief-to-Deck, `/api/intel/*` for the Intelligence
   Platform) + a single shared WebSocket (`/ws`) broadcasting job/run progress to all clients.
 - **Brand colors:** Violet `#5B2C9D` (primary), QC teal `#0F7B6C`.
@@ -157,10 +154,10 @@ Note: 11 pages (`ResearchPlan`, `EvidenceLibrary`, `InsightsPage`, `StorylinePag
   failure paths (no LLM reachable, LLM timeout, LLM exception, empty LLM result) all funnel into
   `_build_deterministic_strategy(spec, raw_brief_text)` rather than returning an error — a failed
   LLM call must never surface as "generation failed" in the UI.
-- **CPU-only LLM inference means timeouts are expected, not exceptional.** Background research and
-  strategy generation use `concurrent.futures` with timeouts and `pool.shutdown(wait=False)` to
-  abandon blocking Ollama calls; results are persisted *before* the LLM enrichment step so a
-  timeout doesn't lose already-fetched web research.
+- **LLM call timeouts are expected, not exceptional.** Background research and strategy generation
+  use `concurrent.futures` with timeouts and `pool.shutdown(wait=False)` to abandon a slow/stuck
+  Azure OpenAI call; results are persisted *before* the LLM enrichment step so a timeout doesn't
+  lose already-fetched web research.
 - **`__pycache__` can mask code changes**, especially with uvicorn `--reload`. If an edit doesn't
   seem to take effect, clear it and restart without `--reload` (see Quick Start).
 - **Only one Brief-to-Deck run executes at a time** (`_run_lock` / `_run_busy` in `main.py`) — a
@@ -168,8 +165,10 @@ Note: 11 pages (`ResearchPlan`, `EvidenceLibrary`, `InsightsPage`, `StorylinePag
 
 ## Known Issues
 
-- **Anthropic API credits exhausted** — all LLM features currently fall through to Ollama (slow)
-  or deterministic. Check `.env`'s `ANTHROPIC_API_KEY` before assuming Claude synthesis is live.
+- **Anthropic is unused** — the chat chain is Azure OpenAI only (see LLM chain above);
+  `ANTHROPIC_API_KEY` has no effect. Check `.env`'s `AZURE_OPENAI_*` keys before assuming LLM
+  synthesis is live; if Azure is unconfigured/unreachable, every LLM-dependent feature falls
+  straight to its deterministic/rule-based tier.
 - **JBL vs Jabil entity confusion** — research results can include Jabil Inc. (ticker "JBL") or the
   WWE commentator "JBL" instead of the intended speaker/brand; entity disambiguation in
   `domains/research/web_research.py` is incomplete.

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..core.ollama_client import OllamaClient
+from ..core.llm_provider import HybridLLMClient
 from . import memory
 
 
@@ -15,13 +15,13 @@ def _to_vec(blob: bytes) -> np.ndarray:
     return np.frombuffer(blob, dtype=np.float32)
 
 
-def search(query_text: str, ollama: OllamaClient, top_k: int = 8, exclude_deck: str | None = None) -> list[dict]:
+def search(query_text: str, llm_client: HybridLLMClient, top_k: int = 8, exclude_deck: str | None = None) -> list[dict]:
     """Return up to top_k slides most similar to query_text, best first.
 
     Each result: {deck_path, slide_no, title, body_text, has_chart, has_picture,
     client_guess, score}
     """
-    query_vec = ollama.embed(query_text)
+    query_vec = llm_client.embed(query_text)
     q_norm = np.linalg.norm(query_vec)
     if q_norm == 0:
         return []
@@ -54,12 +54,12 @@ def search(query_text: str, ollama: OllamaClient, top_k: int = 8, exclude_deck: 
     return results
 
 
-def search_multi(query_texts: list[str], ollama: OllamaClient, top_k_each: int = 8) -> list[dict]:
+def search_multi(query_texts: list[str], llm_client: HybridLLMClient, top_k_each: int = 8) -> list[dict]:
     """Search with several query strings (e.g. one per brief section) and merge,
     keeping the best score per unique (deck_path, slide_no)."""
     best: dict[tuple[str, int], dict] = {}
     for q in query_texts:
-        for r in search(q, ollama, top_k=top_k_each):
+        for r in search(q, llm_client, top_k=top_k_each):
             key = (r["deck_path"], r["slide_no"])
             if key not in best or r["score"] > best[key]["score"]:
                 best[key] = r

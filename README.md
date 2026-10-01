@@ -6,8 +6,9 @@ whatever content is missing, and assembles a fresh branded deck - with a chat UI
 that shows a live, step-by-step feed of what it's doing, and a memory of every
 past run.
 
-Everything runs on this machine: the language model (via [Ollama](https://ollama.com)),
-the backend (Python/FastAPI), and the UI (React). No client data leaves the machine.
+The backend (Python/FastAPI) and the UI (React) run on this machine; the language
+model calls go to Azure OpenAI (chat) and NVIDIA NIM (embeddings), configured via
+`.env`.
 
 ## How it works
 
@@ -15,7 +16,7 @@ the backend (Python/FastAPI), and the UI (React). No client data leaves the mach
    or paste one directly into the chat.
 2. The agent parses it, embeds it, and searches the slide index built from every
    deck in your **repository** folder.
-3. A local LLM decides which slides are genuinely relevant, groups them into
+3. The LLM decides which slides are genuinely relevant, groups them into
    sections, and drafts new slides (qualitative framing only - it never invents
    statistics) for anything the brief asks for that no past slide covers.
 4. Relevant historical slides are copied into the new deck exactly as they were
@@ -28,9 +29,8 @@ the backend (Python/FastAPI), and the UI (React). No client data leaves the mach
 ## One-time setup
 
 Already done for you in this environment:
-- Node.js and Ollama installed (via winget)
-- Ollama models pulled: `nomic-embed-text` (embeddings) and
-  `llama3.1:8b-instruct-q4_K_M` (reasoning/drafting)
+- Node.js installed (via winget)
+- Azure OpenAI and NVIDIA NIM API keys configured in `.env` (see `.env.example`)
 - Python dependencies installed
 - Branding template copied to `agent/data/hunter_template.pptx`
 - Folders configured (see `agent/data/settings.json`, editable from the UI too):
@@ -42,9 +42,8 @@ If you ever need to redo this on another machine:
 
 ```powershell
 winget install -e --id OpenJS.NodeJS.LTS
-winget install -e --id Ollama.Ollama
-ollama pull nomic-embed-text
-ollama pull llama3.1:8b-instruct-q4_K_M
+
+# Copy .env.example to .env and fill in AZURE_OPENAI_* / NVIDIA_EMBED_* keys
 
 # Backend deps (use your real python.exe - see "Known quirk" below)
 <python.exe> -m pip install -r agent/requirements.txt
@@ -60,8 +59,8 @@ npm install
 .\start.ps1
 ```
 
-This starts Ollama (if not already running), the backend on `http://127.0.0.1:8000`,
-the frontend on `http://127.0.0.1:5173`, and opens your browser.
+This starts the backend on `http://127.0.0.1:8000`, the frontend on
+`http://127.0.0.1:5173`, and opens your browser.
 
 To stop, close the two windows it opens (backend + frontend).
 
@@ -90,21 +89,20 @@ C:\Users\sweta.shah\AppData\Local\Python\bin\python3.exe
 
 ## Performance expectations
 
-This machine has no discrete GPU, so the local model runs on CPU. Expect:
+Expect:
 - First-time repository indexing: a few minutes per ~10 decks (one-time; only
   changed/new decks get re-indexed after that).
 - A full run (brief → finished deck): roughly 3-10 minutes depending on how many
   new slides need drafting, since each is a separate reasoning step.
 
 The live feed in the chat UI shows exactly what step it's on so it never looks
-stuck - but it is genuinely slower than a cloud-hosted model would be.
+stuck.
 
 ## Settings
 
 Click **Settings** in the sidebar to change the repository/briefs/output folders,
-ignore patterns (a `Combined_*` pattern is excluded by default - those are large
-concatenated decks in the repository, not real per-client projects), the Ollama
-host, or which models to use.
+or ignore patterns (a `Combined_*` pattern is excluded by default - those are
+large concatenated decks in the repository, not real per-client projects).
 
 ## Current limitations
 

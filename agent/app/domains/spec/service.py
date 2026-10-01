@@ -153,7 +153,7 @@ def generate_spec(
     generation_source = "llm" if (use_llm and llm_client) else "deterministic"
     llm_model = ""
     if use_llm and llm_client:
-        llm_model = getattr(llm_client, "model", "ollama")
+        llm_model = getattr(llm_client, "model", "unknown")
 
     _emit("saving")
     spec_id = store.save_research_spec(

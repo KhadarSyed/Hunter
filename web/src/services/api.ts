@@ -25,15 +25,11 @@ export interface Settings {
   briefs_dir: string;
   output_dir: string;
   ignore_patterns: string[];
-  ollama_host: string;
-  embed_model: string;
-  chat_model: string;
   top_k_candidates: number;
   relevance_threshold: number;
 }
 
 export interface StatusInfo {
-  ollama_reachable: boolean;
   slide_count: number;
   deck_count: number;
   run_busy: boolean;

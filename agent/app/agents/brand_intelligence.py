@@ -16,7 +16,7 @@ import re
 import time
 from typing import Any, Callable, Protocol, runtime_checkable
 
-from ..core.ollama_client import OllamaClient
+from ..core.llm_provider import HybridLLMClient
 
 EventFn = Callable[[str, dict], None]
 
@@ -578,7 +578,7 @@ async def run(
     spec: dict,
     *,
     emit: EventFn | None = None,
-    ollama: OllamaClient | None = None,
+    llm_client: HybridLLMClient | None = None,
     web_adapter: WebResearchAdapter | None = None,
 ) -> dict:
     """Execute the Brand Intelligence Agent.
@@ -586,7 +586,7 @@ async def run(
     Parameters:
         spec: A validated project specification dict (output of Brief & Scope).
         emit: Optional event callback for progress tracking.
-        ollama: OllamaClient instance for LLM calls.
+        llm_client: HybridLLMClient instance for LLM calls.
         web_adapter: Optional web research adapter for live search augmentation.
 
     Returns a dict with keys:
@@ -645,15 +645,15 @@ async def run(
             })
 
     # Call the LLM.
-    if ollama is None:
+    if llm_client is None:
         elapsed = round(time.time() - start, 1)
         emit("brand_intelligence_failed", {
-            "error": "No OllamaClient provided",
+            "error": "No LLM client provided",
             "elapsed": elapsed,
         })
         return {
             "brand_intelligence": None,
-            "validation_errors": ["No OllamaClient provided"],
+            "validation_errors": ["No LLM client provided"],
             "validation_warnings": [],
             "web_augmented": False,
             "elapsed_seconds": elapsed,
@@ -669,7 +669,7 @@ async def run(
     })
 
     try:
-        raw_response = ollama.chat(
+        raw_response = llm_client.chat(
             messages,
             on_token=lambda t: None,
             format_json=True,

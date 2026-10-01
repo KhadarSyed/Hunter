@@ -20,7 +20,7 @@ from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
-from ..core.ollama_client import OllamaClient
+from ..core.llm_provider import HybridLLMClient
 
 EventFn = Callable[[str, dict], None]
 
@@ -450,7 +450,7 @@ async def run(
     brand_intelligence: dict,
     *,
     emit: EventFn | None = None,
-    ollama: OllamaClient | None = None,
+    llm_client: HybridLLMClient | None = None,
 ) -> dict:
     """Execute the Meltwater Query Builder Agent.
 
@@ -464,7 +464,7 @@ async def run(
         query construction.
     emit : EventFn, optional
         Callback for progress events.
-    ollama : OllamaClient, optional
+    llm_client : HybridLLMClient, optional
         LLM client for query generation.
 
     Returns
@@ -480,8 +480,8 @@ async def run(
     if emit is None:
         emit = lambda event_type, payload: None
 
-    if ollama is None:
-        raise ValueError("OllamaClient is required for query generation")
+    if llm_client is None:
+        raise ValueError("An LLM client is required for query generation")
 
     start = time.time()
     brand_name = _extract_brand_name(spec)
@@ -518,7 +518,7 @@ async def run(
         })
 
         try:
-            raw_response = ollama.chat(
+            raw_response = llm_client.chat(
                 messages,
                 format_json=True,
             )

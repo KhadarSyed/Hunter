@@ -267,16 +267,16 @@ def _run_planner_with_timeout(
 ) -> dict:
     """Run the LLM planner with a timeout, falling back to deterministic."""
     settings = load_settings()
-    ollama = build_llm_client(settings)
+    llm_client = build_llm_client(settings)
 
-    if not ollama.is_reachable():
+    if not llm_client.is_reachable():
         logger.warning("[planner] No LLM provider reachable — using deterministic fallback")
         plan = _build_deterministic_plan(spec, research, strategy, dataset_meta)
         return {"plan": plan, "validation_errors": []}
 
     def _run_llm():
         from ...agents.research_planner import run as run_planner
-        return run_planner(spec, ollama, emit=emit)
+        return run_planner(spec, llm_client, emit=emit)
 
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     future = pool.submit(_run_llm)
