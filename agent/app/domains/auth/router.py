@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Cookie, Depends, File, HTTPException, Response, UploadFile, status
 
 from ...core import store
-from ...core.auth import SESSION_COOKIE_NAME, get_current_user, set_session_cookie
+from ...core.auth import SESSION_COOKIE_NAME, clear_session_cookie, get_current_user, set_session_cookie
 from ...core.config import UPLOAD_DIR
 from . import service
 from .schemas import (
@@ -19,7 +19,9 @@ from .schemas import (
     MeResponse,
     OrganizationResponse,
     ReassignProjectsRequest,
+    ResetPasswordResponse,
     UpdateProfileRequest,
+    UserOrganizationRow,
     UserResponse,
 )
 
@@ -31,10 +33,11 @@ MAX_AVATAR_BYTES = 5 * 1024 * 1024
 
 
 def _to_response(user: dict) -> dict:
+    org = store.get_organization_by_id(user["org_id"]) if user["org_id"] else None
     return {
         "id": user["id"], "email": user["email"], "display_name": user["display_name"],
-        "role": user["role"], "org_id": user["org_id"], "avatar_url": user["avatar_url"],
-        "must_change_password": bool(user["must_change_password"]),
+        "role": user["role"], "org_id": user["org_id"], "org_name": org["name"] if org else None,
+        "avatar_url": user["avatar_url"], "must_change_password": bool(user["must_change_password"]),
     }
 
 
@@ -66,7 +69,7 @@ def logout_route(response: Response,
                   session_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE_NAME)] = None):
     if session_token:
         store.delete_session(session_token)
-    response.delete_cookie(SESSION_COOKIE_NAME)
+    clear_session_cookie(response)
     return {"ok": True}
 
 
@@ -142,11 +145,6 @@ def create_user_route(req: CreateUserRequest, user: Annotated[dict, Depends(get_
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Admins can only create Analysers")
     if req.role == "super_admin" and user["role"] != "super_admin":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a Super Admin can create another Super Admin")
-    if len(req.temp_password) < service.MIN_PASSWORD_LENGTH:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST,
-                             f"Password must be at least {service.MIN_PASSWORD_LENGTH} characters")
-    if store.get_user_by_email(req.email):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Email already in use")
     if user["role"] == "admin":
         target_org_id = user["org_id"]
     elif req.role == "super_admin":
@@ -156,9 +154,70 @@ def create_user_route(req: CreateUserRequest, user: Annotated[dict, Depends(get_
             raise HTTPException(status.HTTP_400_BAD_REQUEST,
                                  "org_id is required when creating an admin or analyser")
         target_org_id = req.org_id
-    new_id = store.create_user(target_org_id, req.email, service.hash_password(req.temp_password),
+
+    existing = store.get_user_by_email(req.email)
+    if existing:
+        # A user can belong to multiple orgs — adding an existing email to a *different*
+        # org links them to it instead of rejecting; the same org is still a duplicate.
+        if target_org_id is None or store.is_member_of_org(existing["id"], target_org_id):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                 "This user is already a member of this organization")
+        store.add_user_to_org(existing["id"], target_org_id)
+        return {**existing, "temp_password": None}
+
+    temp_password = req.temp_password or service.generate_temp_password()
+    if len(temp_password) < service.MIN_PASSWORD_LENGTH:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                             f"Password must be at least {service.MIN_PASSWORD_LENGTH} characters")
+    new_id = store.create_user(target_org_id, req.email, service.hash_password(temp_password),
                                 req.display_name, req.role)
-    return store.get_user_by_id(new_id)
+    created = store.get_user_by_id(new_id)
+    return {**created, "temp_password": temp_password}
+
+
+@router.get("/me/organizations", response_model=list[UserOrganizationRow])
+def list_my_organizations_route(user: Annotated[dict, Depends(get_current_user)]):
+    """Every org the current user belongs to (primary + additional memberships) —
+    ProfileMenu's "organizations you're mapped to" list."""
+    return store.list_user_organizations(user["id"])
+
+
+@router.delete("/users/{user_id}")
+def delete_user_route(user_id: int, user: Annotated[dict, Depends(get_current_user)]):
+    """Permanent delete (distinct from archive) — Super Admin only, since this removes the
+    row outright rather than hiding it, and an Admin's own-org scoping isn't a substitute
+    for that judgment call."""
+    _require_role(user, "super_admin")
+    if not store.get_user_by_id(user_id):
+        raise HTTPException(404, "User not found")
+    if user_id == user["id"]:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot delete your own account")
+    store.delete_user(user_id)
+    return {"ok": True}
+
+
+@router.delete("/organizations/{org_id}")
+def delete_organization_route(org_id: int, user: Annotated[dict, Depends(get_current_user)]):
+    """Permanent delete (distinct from archive) — Super Admin only."""
+    _require_role(user, "super_admin")
+    if not store.get_organization(org_id):
+        raise HTTPException(404, "Organization not found")
+    store.delete_organization(org_id)
+    return {"ok": True}
+
+
+@router.post("/users/{user_id}/reset-password", response_model=ResetPasswordResponse)
+def reset_user_password_route(user_id: int, user: Annotated[dict, Depends(get_current_user)]):
+    """Admin/Super Admin sets a fresh auto-generated temp password for any user they manage
+    (Admins: their own org's Analysers only, via _require_same_org_analyser; Super Admin: anyone)
+    — shown once in the response so it can be handed to the user."""
+    _require_role(user, "admin", "super_admin")
+    _require_same_org_analyser(user, user_id)
+    if not store.get_user_by_id(user_id):
+        raise HTTPException(404, "User not found")
+    temp_password = service.generate_temp_password()
+    store.reset_user_password(user_id, service.hash_password(temp_password))
+    return ResetPasswordResponse(temp_password=temp_password)
 
 
 @router.get("/users", response_model=list[UserResponse])

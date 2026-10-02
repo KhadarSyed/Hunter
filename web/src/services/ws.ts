@@ -9,8 +9,17 @@ class AgentSocket {
 
   connect() {
     if (this.ws) return;
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    this.ws = new WebSocket(`${proto}://${location.host}/ws`);
+    // Same VITE_API_BASE_URL used by intel-api.ts for REST calls — when unset (same-origin
+    // deploy), falls back to the page's own host, matching prior behavior.
+    const apiOrigin = import.meta.env.VITE_API_BASE_URL as string | undefined;
+    let wsUrl: string;
+    if (apiOrigin) {
+      wsUrl = apiOrigin.replace(/^http/, "ws") + "/ws";
+    } else {
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      wsUrl = `${proto}://${location.host}/ws`;
+    }
+    this.ws = new WebSocket(wsUrl);
     this.ws.onopen = () => this.statusListeners.forEach((fn) => fn(true));
     this.ws.onclose = () => {
       this.ws = null;

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useActiveProjectId } from "../context/project-context";
-import { intelApi } from "../services/intel-api";
+import { intelApi, API_BASE, CREDENTIALS } from "../services/intel-api";
 
 interface QCReport {
   id: number;
@@ -62,8 +62,9 @@ export function QCUpload({ onNavigate }: { onNavigate: (page: string) => void })
         formData.append("project_id", String(projectId));
         formData.append("file", file);
 
-        const res = await fetch("/api/intel/qc/upload", {
+        const res = await fetch(`${API_BASE}/qc/upload`, {
           method: "POST",
+          credentials: CREDENTIALS,
           body: formData,
         });
 

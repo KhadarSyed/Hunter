@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useActiveProjectId } from "../context/project-context";
-import { intelApi } from "../services/intel-api";
+import { intelApi, API_BASE, CREDENTIALS } from "../services/intel-api";
 
 const SEV = {
   critical: { bg: "#FEF2F2", border: "#FECACA", text: "#991B1B", dot: "#DC2626", label: "Critical" },
@@ -99,7 +99,7 @@ export function QCResults({ onNavigate }: { onNavigate: (page: string) => void }
         const report = await intelApi.qcGetReport(projectId) as { id: number; parse_status: string };
         setReportId(report.id);
 
-        const previewRes = await fetch(`/api/intel/qc/all-rows/${report.id}`);
+        const previewRes = await fetch(`${API_BASE}/qc/all-rows/${report.id}`, { credentials: CREDENTIALS });
         if (previewRes.ok) {
           const allRows = await previewRes.json();
           setArticles(allRows.rows || []);

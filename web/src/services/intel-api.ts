@@ -1,6 +1,16 @@
 import type { Insight, InsightDetail, InsightsSummary, InsightValidation, InsightEvidence, Storyline, StorylineDetail, StorylineSummary, StorylineValidation, StoryNodeEnriched, StoryNode, SIDashboard, SIPresentation, SISlide, SITemplateFamily, SIDetectedProject, SIRecommendation, PCPresentation, PCSlide, PCPresentationDetail, PCPresentationSummary, PCValidation, RenderJob, RenderResult, RenderSummary, RenderTheme, RenderValidation, RenderMetric, RenderHistory, PipelineRunDetail, PipelineProjectStatus, PipelineTimelineEntry, PipelineLog, PipelinePerformance, PipelineCacheMetrics, PipelineDependencyNode, PipelineStageStatus, WordRenderResult, WordRenderJob, WordDocument, WordRenderMetric, WordRenderHistory, WordRenderSummary, WordValidation, PubValidationResult, PubValidation, PubDiffReport, PubVersion, PubPackage, PubPackageResult, PubApproval, PubApprovalResult, PubReadinessSummary, PubAuditEntry, PubDownload, PubVersionResult } from "../types/contracts";
 
-const API_BASE = "/api/intel";
+// Empty by default (relative paths), matching same-origin deploys where the backend
+// serves the built SPA directly. Set VITE_API_BASE_URL (e.g. "https://api.example.com")
+// when the frontend and backend are deployed on separate origins (FE on Vercel, BE on
+// Render) — see also ws.ts, which derives the WebSocket origin from the same variable.
+const API_ORIGIN = import.meta.env.VITE_API_BASE_URL ?? "";
+export const API_BASE = `${API_ORIGIN}/api/intel`;
+
+// "include" is required (not just "same-origin", the fetch default) once API_ORIGIN
+// points at a different origin than the page — otherwise the browser never attaches
+// the session cookie to the request. Harmless same-origin too, so always set it.
+export const CREDENTIALS: RequestCredentials = "include";
 
 async function json<T>(res: Response): Promise<T> {
   const ct = res.headers.get("content-type") || "";
@@ -17,28 +27,39 @@ async function json<T>(res: Response): Promise<T> {
 function post<T>(path: string, body?: unknown): Promise<T> {
   return fetch(`${API_BASE}${path}`, {
     method: "POST",
+    credentials: CREDENTIALS,
     headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   }).then((r) => json<T>(r));
 }
 
 function get<T>(path: string): Promise<T> {
-  return fetch(`${API_BASE}${path}`).then((r) => json<T>(r));
+  return fetch(`${API_BASE}${path}`, { credentials: CREDENTIALS }).then((r) => json<T>(r));
 }
 
 function put<T>(path: string, body?: unknown): Promise<T> {
   return fetch(`${API_BASE}${path}`, {
     method: "PUT",
+    credentials: CREDENTIALS,
     headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   }).then((r) => json<T>(r));
 }
 
 function del<T>(path: string): Promise<T> {
-  return fetch(`${API_BASE}${path}`, { method: "DELETE" }).then((r) => json<T>(r));
+  return fetch(`${API_BASE}${path}`, { method: "DELETE", credentials: CREDENTIALS }).then((r) => json<T>(r));
 }
 
-const AUTH_BASE = "/api/auth";
+function patch<T>(path: string, body?: unknown): Promise<T> {
+  return fetch(`${API_BASE}${path}`, {
+    method: "PATCH",
+    credentials: CREDENTIALS,
+    headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  }).then((r) => json<T>(r));
+}
+
+const AUTH_BASE = `${API_ORIGIN}/api/auth`;
 
 async function authJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -51,13 +72,18 @@ async function authJson<T>(res: Response): Promise<T> {
 function authPost<T>(path: string, body?: unknown): Promise<T> {
   return fetch(`${AUTH_BASE}${path}`, {
     method: "POST",
+    credentials: CREDENTIALS,
     headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   }).then((r) => authJson<T>(r));
 }
 
 function authGet<T>(path: string): Promise<T> {
-  return fetch(`${AUTH_BASE}${path}`).then((r) => authJson<T>(r));
+  return fetch(`${AUTH_BASE}${path}`, { credentials: CREDENTIALS }).then((r) => authJson<T>(r));
+}
+
+function authDelete<T>(path: string): Promise<T> {
+  return fetch(`${AUTH_BASE}${path}`, { method: "DELETE", credentials: CREDENTIALS }).then((r) => authJson<T>(r));
 }
 
 export interface AuthUser {
@@ -66,6 +92,7 @@ export interface AuthUser {
   display_name: string;
   role: "super_admin" | "admin" | "analyser";
   org_id: number | null;
+  org_name: string | null;
   avatar_url: string | null;
   must_change_password: boolean;
 }
@@ -78,6 +105,13 @@ export interface AuthUserRow {
   role: string;
   avatar_url: string | null;
   archived_at: number | null;
+  created_at: number | null;
+}
+
+export interface UserOrganizationRow {
+  id: number;
+  name: string;
+  is_primary: boolean;
 }
 
 export interface AuthOrganizationRow {
@@ -95,18 +129,31 @@ export interface AuthArchivedSummary {
 }
 
 async function authUpload<T>(path: string, form: FormData): Promise<T> {
-  return fetch(`${AUTH_BASE}${path}`, { method: "POST", body: form }).then((r) => authJson<T>(r));
+  return fetch(`${AUTH_BASE}${path}`, { method: "POST", credentials: CREDENTIALS, body: form }).then((r) => authJson<T>(r));
 }
 
 function authPatch<T>(path: string, body?: unknown): Promise<T> {
   return fetch(`${AUTH_BASE}${path}`, {
     method: "PATCH",
+    credentials: CREDENTIALS,
     headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   }).then((r) => authJson<T>(r));
 }
 
 // ─── Types ──────────────────────────────────────────────────────────────────
+
+export interface DataSourceRecord {
+  source: string;
+  display_name: string;
+  renew_url: string;
+  configured: boolean;
+  masked_key: string | null;
+  status: "not_configured" | "ok" | "expired";
+  expired_at: number | null;
+  last_error: string | null;
+  updated_at: number | null;
+}
 
 export interface JobStatus {
   job_id: string;
@@ -171,6 +218,23 @@ export interface NewsItem {
   approval_notes?: string;
 }
 
+export interface ArticleBlock {
+  type: "heading" | "paragraph" | "image";
+  text?: string | null;
+  src?: string | null;
+  alt?: string | null;
+}
+
+export interface ArticleFullTextResponse {
+  status: "ok" | "failed" | "paywalled" | "social_media" | "video";
+  title: string | null;
+  blocks: ArticleBlock[];
+  error: string | null;
+  platform: string | null;
+  embed_url: string | null;
+  cached: boolean;
+}
+
 export interface ResearchItem {
   id: number;
   topic: string;
@@ -206,6 +270,46 @@ export interface EvaluationResult {
   file_name: string;
   status: string;
   evaluation: Record<string, unknown> | null;
+}
+
+export interface BrandSentiment {
+  brand: string;
+  is_primary: boolean;
+  sentiment: "Positive" | "Neutral" | "Negative" | null;
+  confidence: number | null;
+}
+
+export interface EnrichedRecord {
+  id: string;
+  title: string;
+  content: string;
+  url: string;
+  date: string;
+  source_name: string;
+  author: string;
+  country: string;
+  media_type: string;
+  reach: string;
+  overall_sentiment: "Positive" | "Neutral" | "Negative" | null;
+  overall_sentiment_confidence: number | null;
+  themes: { primary: string | null; secondary: string | null; tertiary: string | null };
+  signals: string[];
+  entities: {
+    brands: string[]; companies: string[]; organizations: string[];
+    people: string[]; products: string[]; events: string[];
+  };
+  brand_sentiments: BrandSentiment[];
+  reason: string | null;
+  enrichment_error?: string | null;
+  dataset_id?: number;
+  dataset_file_name?: string;
+  research_question_id?: string | null;
+  review_status?: "relevant" | "irrelevant";
+  approval_status?: "pending" | "approved" | "disapproved";
+  disapproval_reason?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  manually_edited?: boolean;
 }
 
 export interface PlanResult {
@@ -461,8 +565,10 @@ export const intelApi = {
     form.append("file", file);
     return authUpload<{ avatar_url: string }>("/profile/avatar", form);
   },
-  createUser: (email: string, display_name: string, role: string, temp_password: string) =>
-    authPost<AuthUserRow>("/users", { email, display_name, role, temp_password }),
+  createUser: (email: string, display_name: string, role: string, org_id?: number) =>
+    authPost<AuthUserRow & { temp_password: string }>("/users", { email, display_name, role, org_id }),
+  resetUserPassword: (userId: number) =>
+    authPost<{ ok: boolean; temp_password: string }>(`/users/${userId}/reset-password`),
   listUsers: (orgId?: number) =>
     authGet<AuthUserRow[]>(orgId ? `/users?org_id=${orgId}` : "/users"),
   archiveUser: (userId: number) => authPost<{ ok: boolean }>(`/users/${userId}/archive`),
@@ -477,6 +583,9 @@ export const intelApi = {
   listOrganizations: () => authGet<AuthOrganizationRow[]>("/organizations"),
   archiveOrganization: (orgId: number) => authPost<{ ok: boolean }>(`/organizations/${orgId}/archive`),
   reactivateOrganization: (orgId: number) => authPost<{ ok: boolean }>(`/organizations/${orgId}/reactivate`),
+  deleteOrganization: (orgId: number) => authDelete<{ ok: boolean }>(`/organizations/${orgId}`),
+  deleteUser: (userId: number) => authDelete<{ ok: boolean }>(`/users/${userId}`),
+  listMyOrganizations: () => authGet<UserOrganizationRow[]>("/me/organizations"),
   listArchived: () => authGet<AuthArchivedSummary>("/archived"),
 
   // Projects
@@ -516,6 +625,8 @@ export const intelApi = {
 
   getResearchItems: (projectId: number) =>
     get<ResearchItemsResult>(`/research/${projectId}/items`),
+  getArticleFullText: (itemId: number, force = false) =>
+    get<ArticleFullTextResponse>(`/research/items/${itemId}/full-text${force ? "?force=true" : ""}`),
 
   approveResearch: (researchId: number, reviewer = "analyst") =>
     post<{ ok: boolean }>(`/research/${researchId}/approve`, { reviewer }),
@@ -554,7 +665,7 @@ export const intelApi = {
     post<{ ok: boolean; docx_path: string }>(`/brief/${briefId}/render`),
 
   downloadBriefDocx: (briefId: number) =>
-    fetch(`${API_BASE}/brief/${briefId}/download`).then((r) => {
+    fetch(`${API_BASE}/brief/${briefId}/download`, { credentials: CREDENTIALS }).then((r) => {
       if (!r.ok) throw new Error("Download failed");
       return r.blob();
     }),
@@ -628,7 +739,7 @@ export const intelApi = {
     post<{ status: string; docx_path: string }>(`/spec/${specId}/render`),
 
   downloadSpecDocx: (specId: number) =>
-    fetch(`${API_BASE}/spec/${specId}/download`).then((r) => {
+    fetch(`${API_BASE}/spec/${specId}/download`, { credentials: CREDENTIALS }).then((r) => {
       if (!r.ok) throw new Error("Download failed");
       return r.blob();
     }),
@@ -686,7 +797,7 @@ export const intelApi = {
   parseBriefFile: async (file: File): Promise<{ text: string; file_name: string; ocr_used?: boolean; extraction_method?: "nvidia" | "native"; model?: string | null; pages?: number | null }> => {
     const form = new FormData();
     form.append("file", file);
-    const res = await fetch(`${API_BASE}/brief/parse-file`, { method: "POST", body: form });
+    const res = await fetch(`${API_BASE}/brief/parse-file`, { method: "POST", credentials: CREDENTIALS, body: form });
     return json<{ text: string; file_name: string }>(res);
   },
 
@@ -707,7 +818,7 @@ export const intelApi = {
     formData.append("file", file);
     const res = await fetch(
       `${API_BASE}/evaluation/upload?project_id=${projectId}&strategy_id=${strategyId}`,
-      { method: "POST", body: formData },
+      { method: "POST", credentials: CREDENTIALS, body: formData },
     );
     return json<{ job_id: string; eval_id: number }>(res);
   },
@@ -719,10 +830,11 @@ export const intelApi = {
   uploadDataset: async (projectId: number, file: File, researchQuestionId?: string) => {
     const form = new FormData();
     form.append("file", file);
-    let url = `/api/intel/dataset/upload?project_id=${projectId}`;
+    let url = `${API_BASE}/dataset/upload?project_id=${projectId}`;
     if (researchQuestionId) url += `&research_question_id=${encodeURIComponent(researchQuestionId)}`;
     const res = await fetch(url, {
       method: "POST",
+      credentials: CREDENTIALS,
       body: form,
     });
     const ct = res.headers.get("content-type") || "";
@@ -746,7 +858,19 @@ export const intelApi = {
     post<{ ok: boolean }>(`/dataset/${datasetId}/approve`, {}),
 
   deleteDataset: (datasetId: number) =>
-    fetch(`${API_BASE}/dataset/${datasetId}`, { method: "DELETE" }).then((r) => json<{ ok: boolean }>(r)),
+    fetch(`${API_BASE}/dataset/${datasetId}`, { method: "DELETE", credentials: CREDENTIALS }).then((r) => json<{ ok: boolean }>(r)),
+
+  enrichDataset: (datasetId: number) =>
+    post<{ job_id: string; dataset_id: number }>(`/dataset/${datasetId}/enrich`, {}),
+
+  getDatasetEnriched: (datasetId: number) =>
+    get<{ dataset_id: number; status: string | null; error: string | null; records: EnrichedRecord[] }>(`/dataset/${datasetId}/enriched`),
+
+  getProjectEnriched: (projectId: number) =>
+    get<{ records: EnrichedRecord[] }>(`/dataset/enriched/${projectId}`),
+
+  updateEnrichedRecord: (datasetId: number, recordId: string, updates: Partial<EnrichedRecord>) =>
+    patch<EnrichedRecord>(`/dataset/${datasetId}/enriched/${recordId}`, updates),
 
   // Final Approval
   finalApproval: (projectId: number, opts: {
@@ -1047,6 +1171,7 @@ export const intelApi = {
   updateNode: (nodeId: number, updates: Partial<{ title: string; narrative_summary: string; purpose: string; suggested_visual: string; priority: string; is_key_message: boolean; is_locked: boolean }>) =>
     fetch(`${API_BASE}/storyline/node/${nodeId}`, {
       method: "PUT",
+      credentials: CREDENTIALS,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updates),
     }).then((r) => json<StoryNode>(r)),
@@ -1066,6 +1191,7 @@ export const intelApi = {
   siUpdateMetadata: (id: number, updates: Record<string, string>) =>
     fetch(`${API_BASE}/slide-intel/slides/${id}/metadata`, {
       method: 'PUT',
+      credentials: CREDENTIALS,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
     }).then((r) => json<any>(r)),
@@ -1110,6 +1236,7 @@ export const intelApi = {
   composerUpdateSlide: (slideId: number, updates: Partial<{ title: string; subtitle: string; narrative: string; key_message: string; recommended_visual: string; recommended_chart: string; layout_recommendation: string; speaker_notes: string; slide_purpose: string }>) =>
     fetch(`${API_BASE}/composer/slide/${slideId}`, {
       method: "PUT",
+      credentials: CREDENTIALS,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updates),
     }).then((r) => json<PCSlide>(r)),
@@ -1376,4 +1503,12 @@ export const intelApi = {
 
   qcExportDownloadUrl: (exportId: number) =>
     `${API_BASE}/qc/export/download/${exportId}`,
+
+  listDataSources: () => get<DataSourceRecord[]>("/datasources"),
+
+  setDataSourceKey: (source: string, apiKey: string) =>
+    put<DataSourceRecord>(`/datasources/${source}`, { api_key: apiKey }),
+
+  validateDataSource: (source: string) =>
+    post<{ source: string; status: string; error: string | null }>(`/datasources/${source}/validate`),
 };

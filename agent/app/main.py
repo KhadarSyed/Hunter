@@ -100,6 +100,11 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
+        # Required for the session cookie to cross origins (FE on Vercel, BE on Render) —
+        # the browser only sends/accepts cookies on a cross-site fetch when both this is
+        # true AND allow_origins is an explicit list (never "*", which settings.cors_origins
+        # already satisfies).
+        allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "X-API-Key", "X-Request-ID"],
         expose_headers=["X-Request-ID", "X-Response-Time"],

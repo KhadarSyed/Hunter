@@ -1,0 +1,45 @@
+services:
+  - type: web
+    name: hunter-agent-backend
+    runtime: python
+    plan: starter
+    region: oregon
+    buildCommand: pip install -r agent/requirements.txt
+    # $PORT is injected by Render; the app's own default port (8002, see README) is for
+    # local dev only — binding to $PORT is required for Render's routing to reach it.
+    startCommand: python -m uvicorn agent.app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/auth/me
+    disk:
+      # Required: agent/data/memory.db (SQLite — the single source of truth for every
+      # table in the app, see CLAUDE.md) and every uploaded/rendered file live under
+      # agent/data/. Without a persistent disk, Render's ephemeral filesystem wipes all
+      # of it on every deploy or restart.
+      name: hunter-agent-data
+      mountPath: /opt/render/project/src/agent/data
+      sizeGB: 5
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: CORS_ORIGINS
+        # JSON array string, e.g. ["https://your-app.vercel.app"] — set to the real
+        # Vercel frontend URL(s) once known; must NOT be "*" (allow_credentials requires
+        # an explicit origin list, see core/auth.py's cross-origin session cookie).
+        sync: false
+      - key: AZURE_OPENAI_API_KEY
+        sync: false
+      - key: AZURE_OPENAI_ENDPOINT
+        sync: false
+      - key: AZURE_OPENAI_API_VERSION
+        sync: false
+      - key: AZURE_OPENAI_MODEL
+        sync: false
+      - key: NVIDIA_EMBED_API_KEY
+        sync: false
+      - key: NVIDIA_EMBED_API_URL
+        sync: false
+      - key: NVIDIA_EMBED_MODEL
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: SERPAPI_API_KEY
+        sync: false
