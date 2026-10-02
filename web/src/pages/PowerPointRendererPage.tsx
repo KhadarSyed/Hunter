@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { intelApi } from "../services/intel-api";
-import { useActiveProjectId } from "../context/project-context";
+import { useActiveProjectId, useProject } from "../context/project-context";
+import { PexelsHeaderBanner } from "../components/PexelsHeaderBanner";
 import type {
   PCPresentation,
   PCSlide,
@@ -20,6 +21,7 @@ interface Props {
 
 export function PowerPointRendererPage({ onNavigate }: Props) {
   const projectId = useActiveProjectId() ?? 1;
+  const { activeProject } = useProject();
   const [presentations, setPresentations] = useState<PCPresentation[]>([]);
   const [selectedPresId, setSelectedPresId] = useState<number | null>(null);
   const [detail, setDetail] = useState<PCPresentationDetail | null>(null);
@@ -219,6 +221,7 @@ export function PowerPointRendererPage({ onNavigate }: Props) {
 
   return (
     <div className="p-8 space-y-6">
+      <PexelsHeaderBanner brandName={activeProject?.brand || activeProject?.name} />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">

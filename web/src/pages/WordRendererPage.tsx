@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { intelApi } from "../services/intel-api";
-import { useActiveProjectId } from "../context/project-context";
+import { useActiveProjectId, useProject } from "../context/project-context";
+import { PexelsHeaderBanner } from "../components/PexelsHeaderBanner";
 import type {
   PCPresentation,
   WordRenderResult,
@@ -37,6 +38,7 @@ const SECTION_LABELS: Record<string, string> = {
 
 export function WordRendererPage({ onNavigate }: Props) {
   const projectId = useActiveProjectId() ?? 1;
+  const { activeProject } = useProject();
   const [presentations, setPresentations] = useState<PCPresentation[]>([]);
   const [selectedPresId, setSelectedPresId] = useState<number | null>(null);
   const [summary, setSummary] = useState<WordRenderSummary | null>(null);
@@ -192,6 +194,7 @@ export function WordRendererPage({ onNavigate }: Props) {
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
+      <PexelsHeaderBanner brandName={activeProject?.brand || activeProject?.name} />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

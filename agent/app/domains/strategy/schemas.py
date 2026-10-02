@@ -25,6 +25,11 @@ class FinalApprovalRequest(BaseModel):
     acknowledge_meltwater_validation: bool = False
 
 
+class EnrichmentStartResponse(ApiModel):
+    job_id: str
+    dataset_id: int
+
+
 class EditRQRequest(BaseModel):
     question_id: str
     question: str

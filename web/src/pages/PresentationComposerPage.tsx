@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { intelApi } from "../services/intel-api";
 import type { PCPresentation, PCSlide, PCPresentationDetail, PCPresentationSummary, PCValidation } from "../types/contracts";
-import { useActiveProjectId } from "../context/project-context";
+import { useActiveProjectId, useProject } from "../context/project-context";
+import { PexelsHeaderBanner } from "../components/PexelsHeaderBanner";
 
 const PURPOSE_COLORS: Record<string, string> = {
   cover: "bg-purple-100 text-purple-700",
@@ -46,6 +47,7 @@ function ConfidenceBar({ value, size = "sm" }: { value: number; size?: "sm" | "l
 
 export function PresentationComposerPage({ onNavigate }: { onNavigate: (p: string) => void }) {
   const PROJECT_ID = useActiveProjectId() ?? 1;
+  const { activeProject } = useProject();
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -240,6 +242,7 @@ export function PresentationComposerPage({ onNavigate }: { onNavigate: (p: strin
 
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
+      <PexelsHeaderBanner brandName={activeProject?.brand || activeProject?.name} />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

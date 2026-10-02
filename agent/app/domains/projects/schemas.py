@@ -1,9 +1,31 @@
 """Request/response models for the Projects route group."""
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from ...core.api import ApiModel
+
+# Fields the New Project form requires for every project, keyed by the name they're
+# stored under in `spec` — mirrors the frontend's `qcFieldsValid`/`researchFieldsValid`
+# checks in web/src/pages/NewProject.tsx so client and server reject the same inputs.
+# File upload is intentionally excluded — it's one of two ways to fill in the brief
+# text (the other being paste/type), never required on its own.
+_QC_REQUIRED_SPEC_FIELDS = ("geography",)
+_RESEARCH_REQUIRED_SPEC_FIELDS = ("geography", "research_type", "time_period", "raw_brief")
+
+
+def _require_project_fields(project_name: str, brand: str | None, project_type: str, spec: dict) -> None:
+    missing = []
+    if not project_name.strip():
+        missing.append("project_name")
+    if not (brand or "").strip():
+        missing.append("brand (Client)")
+    required_spec_fields = _QC_REQUIRED_SPEC_FIELDS if project_type == "monitoring_qc" else _RESEARCH_REQUIRED_SPEC_FIELDS
+    for field in required_spec_fields:
+        if not str(spec.get(field) or "").strip():
+            missing.append(f"spec.{field}")
+    if missing:
+        raise ValueError(f"Missing required field(s): {', '.join(missing)}")
 
 
 class CreateProjectRequest(BaseModel):
@@ -11,6 +33,11 @@ class CreateProjectRequest(BaseModel):
     spec: dict = {}
     project_type: str = "research"
     brand: str | None = None  # Client name from the New Project form
+
+    @model_validator(mode="after")
+    def _check_required_fields(self) -> "CreateProjectRequest":
+        _require_project_fields(self.project_name, self.brand, self.project_type, self.spec)
+        return self
 
 
 class UpdateProjectRequest(BaseModel):

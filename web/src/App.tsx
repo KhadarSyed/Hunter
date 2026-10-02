@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, type ComponentType } from "react";
 import { Sidebar } from "./components/Sidebar";
-import { FloatingProgressPanel } from "./components/FloatingProgressPanel";
+import { IconRailSidebar } from "./components/IconRailSidebar";
 import { AuthProvider, useAuth } from "./context/auth-context";
 import { DemoStateProvider, useDemoState } from "./context/demo-state";
 import { ProjectProvider, useProject, type ProjectType } from "./context/project-context";
@@ -79,6 +79,15 @@ const PAGES = {
 export type Page = keyof typeof PAGES;
 
 const isPage = (p: string): p is Page => p in PAGES;
+
+/** Pages where no specific project is "open" yet — these get the minimal
+ * icon-rail sidebar. Every other page is a pipeline stage inside an opened
+ * project and keeps the full stage-by-stage Sidebar. */
+const BROWSING_PAGES = new Set<Page>([
+  "landing", "projects", "qc-projects",
+  "new-project", "new-qc-project", "edit-project", "edit-qc-project",
+  "settings",
+]);
 
 /** URL shape: `/{projectId}/{pageSlug}` once a project is active, else `/{pageSlug}` —
  * the page slug is the same id used internally (PAGES keys / onNavigate strings), so
@@ -168,17 +177,17 @@ function AppShell() {
   return (
     <>
       <div className="flex h-screen bg-white font-sans text-slate-900">
-        {page !== "landing" && <Sidebar currentPage={page} onNavigate={navigate} />}
+        {BROWSING_PAGES.has(page) ? (
+          <IconRailSidebar currentPage={page} onNavigate={navigate} />
+        ) : (
+          <Sidebar currentPage={page} onNavigate={navigate} />
+        )}
         <div className="flex-1 flex flex-col min-w-0">
           <main className="flex-1 overflow-auto bg-slate-50/50">
             <CurrentPage onNavigate={navigate} />
           </main>
         </div>
       </div>
-      {/* Sibling to the page outlet above, not nested inside it — this is what
-          lets it persist across `page` navigation while a stage keeps running
-          in the background. */}
-      <FloatingProgressPanel />
     </>
   );
 }

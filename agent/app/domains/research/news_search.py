@@ -19,13 +19,14 @@ Wired into `domains/research/web_research.py`'s `_ddg_web_search`/`_ddg_news_sea
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
 import xml.etree.ElementTree as ET
 from datetime import date, datetime, timedelta
 from email.utils import parsedate_to_datetime
-from typing import TypedDict
+from typing import Callable, TypedDict
 from urllib.parse import quote, urlparse
 
 import requests
@@ -138,13 +139,20 @@ def _find_identity_value(raw: object) -> str:
 # SerpAPI
 # --------------------------------------------------------------------------
 
-def _search_serpapi(query: str, country: str, max_results: int, recency_days: int | None = None) -> list[dict]:
+def _search_serpapi(query: str, country: str, max_results: int, recency_days: int | None = None,
+                     api_key_override: str | None = None,
+                     on_result: Callable[[bool, str | None], None] | None = None) -> list[dict]:
     """Raw SerpAPI Google News engine results. Returns [] on any failure (missing key,
     network error, rate limit, bad response) rather than raising. `recency_days`, when given,
     is embedded as a `when:Nd` prefix — the same Google search operator Google News RSS already
     uses (this module's own `_search_google_news_rss`), since SerpAPI's google_news engine is
-    the same underlying Google index and honors the same operator."""
-    api_key = os.getenv("SERP_API_KEY", "")
+    the same underlying Google index and honors the same operator. `api_key_override`, when
+    given (an org's own configured key — see domains/datasources/), is used instead of the
+    global SERP_API_KEY env var. `on_result(ok, error)`, when given, is called once with
+    whether THIS call indicates the key itself is valid — only a 401/403 or a vendor
+    "invalid api key" error counts as ok=False; network/rate-limit issues are inconclusive
+    and don't call it at all, so they never flip a key's status."""
+    api_key = api_key_override or os.getenv("SERP_API_KEY", "")
     if not api_key:
         logger.debug("SERP_API_KEY not set — skipping SerpAPI search")
         return []
@@ -159,11 +167,22 @@ def _search_serpapi(query: str, country: str, max_results: int, recency_days: in
     }
     try:
         r = requests.get(SERPAPI_URL, params=params, timeout=DEFAULT_TIMEOUT)
+        if r.status_code in (401, 403):
+            if on_result:
+                on_result(False, f"SerpAPI rejected this key ({r.status_code})")
+            return []
         if r.status_code != 200:
             raise NewsSearchError(f"SerpAPI request failed: {r.status_code} {r.text[:300]}")
         data = r.json()
         if data.get("error"):
-            raise NewsSearchError(f"SerpAPI returned an error: {data['error']}")
+            error = str(data["error"])
+            if "api key" in error.lower() and "invalid" in error.lower():
+                if on_result:
+                    on_result(False, error)
+                return []
+            raise NewsSearchError(f"SerpAPI returned an error: {error}")
+        if on_result:
+            on_result(True, None)
     except Exception:
         logger.exception("SerpAPI search failed for query=%r", query)
         return []
@@ -208,15 +227,17 @@ def _normalize_serpapi_item(item: dict) -> dict:
 # --------------------------------------------------------------------------
 
 def _search_tavily(query: str, country: str, max_results: int, date_range: tuple | None = None,
-                    include_domains: list[str] | None = None) -> list[dict]:
+                    include_domains: list[str] | None = None, api_key_override: str | None = None,
+                    on_result: Callable[[bool, str | None], None] | None = None) -> list[dict]:
     """Raw Tavily Search API (topic=news) results. Returns [] on any failure (missing key,
     network error, rate limit, bad response) rather than raising. `country` is accepted for
     signature symmetry with `_search_serpapi` but not sent — Tavily's `country` parameter takes
     an enumerated full country name (not an ISO code), and this module deals exclusively in
     ISO 3166-1 alpha-2 codes like the rest of the pipeline, so mapping it is out of scope here.
     `date_range`, when given, is sent as Tavily's own `start_date`/`end_date` params (confirmed
-    supported for topic=news via Tavily's public API reference, 2026-09)."""
-    api_key = os.getenv("TAVILY_API_KEY", "")
+    supported for topic=news via Tavily's public API reference, 2026-09). `api_key_override`
+    and `on_result` mirror `_search_serpapi` — see its docstring."""
+    api_key = api_key_override or os.getenv("TAVILY_API_KEY", "")
     if not api_key:
         logger.debug("TAVILY_API_KEY not set — skipping Tavily search")
         return []
@@ -238,11 +259,17 @@ def _search_tavily(query: str, country: str, max_results: int, date_range: tuple
         payload["include_domains_mode"] = "filter"
     try:
         r = requests.post(TAVILY_API_URL, json=payload, timeout=DEFAULT_TIMEOUT)
+        if r.status_code in (401, 403):
+            if on_result:
+                on_result(False, f"Tavily rejected this key ({r.status_code})")
+            return []
         if r.status_code != 200:
             # Never log payload/response text here — it echoes the api_key back on some error
             # paths (e.g. auth failures), and TAVILY_API_KEY must never be logged.
             raise NewsSearchError(f"Tavily request failed: {r.status_code}")
         data = r.json()
+        if on_result:
+            on_result(True, None)
     except Exception:
         logger.exception("Tavily search failed for query=%r", query)
         return []
@@ -268,17 +295,60 @@ def _normalize_tavily_item(item: dict) -> dict:
 # Google News RSS
 # --------------------------------------------------------------------------
 
-def _resolve_redirect_url(url: str) -> str:
-    """Google News RSS's <link> is always a news.google.com redirect wrapper, never the real
-    article URL — Google doesn't expose the target in the feed by design. Follow the HTTP
-    redirect chain to the real destination. Best-effort: returns the original url unchanged
-    on any failure (timeout, network error, blocked, etc.), never raises."""
+_GOOGLE_BATCHEXECUTE_URL = "https://news.google.com/_/DotsSplashUi/data/batchexecute"
+# Fixed non-identifying params Google's own front-end sends on every garturlreq call —
+# confirmed stable (2026-10) by inspecting a live decode response; not a credential or
+# anything caller-specific, just the request shape its batchexecute endpoint expects.
+_GARTURLREQ_PREFIX = ["en-IN", "IN", ["FINANCE_TOP_INDICES", "GENESIS_PUBLISHER_SECTION", "WEB_TEST_1_0_0"],
+                      None, None, 1, 1, "IN:en", None, None, None, None, None, None, None, False, 5]
+
+
+def _decode_google_news_url(url: str) -> str:
+    """Google News RSS's <link> is a news.google.com/rss/articles/<id> wrapper — Google
+    stopped exposing the real target via a plain HTTP redirect some time ago (the wrapper page
+    returns 200 with an interstitial, never a 3xx), so a redirect-follow silently returns the
+    wrapper URL unchanged. The wrapper page instead embeds a `data-n-a-id`/`data-n-a-sg`/
+    `data-n-a-ts` triplet that Google's own front-end posts to its internal batchexecute RPC
+    (`Fbv4je` / "garturlreq") to resolve the real article URL — reverse-engineered and verified
+    live against a real article link (2026-10). Best-effort at every step: returns the original
+    url unchanged on any failure (missing attributes, network error, unexpected response shape),
+    never raises — a failed decode must never block the rest of the search results."""
+    if "news.google.com" not in url:
+        return url
     try:
-        resp = requests.get(url, timeout=DEFAULT_TIMEOUT, allow_redirects=True, stream=True,
-                             headers={"User-Agent": "Mozilla/5.0"})
-        resp.close()
-        return resp.url
+        page = requests.get(url, timeout=DEFAULT_TIMEOUT, headers={"User-Agent": "Mozilla/5.0"})
+        page.raise_for_status()
+        html = page.text
+        id_match = re.search(r'data-n-a-id="([^"]+)"', html)
+        sig_match = re.search(r'data-n-a-sg="([^"]+)"', html)
+        ts_match = re.search(r'data-n-a-ts="([^"]+)"', html)
+        if not (id_match and sig_match and ts_match):
+            return url
+
+        article_id, signature, timestamp = id_match.group(1), sig_match.group(1), ts_match.group(1)
+        inner = json.dumps([
+            "garturlreq",
+            [_GARTURLREQ_PREFIX, "en-IN", "IN", True, [3, 5, 9, 19], 1, True, "990638521", 0, 0, None, 0],
+            article_id, int(timestamp), signature,
+        ])
+        f_req = json.dumps([[["Fbv4je", inner, None, "generic"]]])
+
+        resp = requests.post(
+            _GOOGLE_BATCHEXECUTE_URL,
+            headers={"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                     "User-Agent": "Mozilla/5.0"},
+            data={"f.req": f_req}, timeout=DEFAULT_TIMEOUT,
+        )
+        resp.raise_for_status()
+        # Response is ")]}'\n\n" followed by a JSON array; the decoded URL is nested two levels
+        # deep as a JSON-encoded string inside the first row's 3rd element.
+        body = resp.text.split("\n", 2)[-1]
+        outer = json.loads(body)
+        garturlres = json.loads(outer[0][2])
+        decoded_url = garturlres[1]
+        return decoded_url if isinstance(decoded_url, str) and decoded_url.startswith("http") else url
     except Exception:
+        logger.debug("Google News URL decode failed for %r; using wrapper link as-is", url, exc_info=True)
         return url
 
 
@@ -330,7 +400,7 @@ def _search_google_news_rss(query: str, recency_hours: int, country: str) -> lis
     links = [p["link"] for p in parsed if p["link"]]
     if links:
         with ThreadPoolExecutor(max_workers=10) as pool:
-            resolved = dict(zip(links, pool.map(_resolve_redirect_url, links)))
+            resolved = dict(zip(links, pool.map(_decode_google_news_url, links)))
         for p in parsed:
             if p["link"] in resolved:
                 p["link"] = resolved[p["link"]]
@@ -499,6 +569,8 @@ def fetch_and_normalize(
     max_results: int = 20,
     tavily_query: str | None = None,
     include_domains: list[str] | None = None,
+    api_keys: dict[str, str] | None = None,
+    on_source_result: Callable[[str, bool, str | None], None] | None = None,
 ) -> dict:
     """Search SerpAPI + Tavily + Google News RSS concurrently, normalize into social/traditional
     media buckets, dedupe by URL. Never raises — a down source just contributes nothing.
@@ -507,6 +579,12 @@ def fetch_and_normalize(
     language over raw Boolean operators; `query` still goes to SerpAPI/RSS, which are both
     Google-search-flavored and handle Boolean syntax the same way). Defaults to `query` so
     existing single-query callers are unaffected.
+
+    `api_keys` (optional {"tavily": ..., "serpapi": ...}) overrides the global env-var keys
+    with an org's own configured keys (see domains/datasources/). `on_source_result(source,
+    ok, error)`, when given, is called for each of tavily/serpapi once per call with whether
+    that specific call indicates the key is valid — wired by research/router.py into
+    domains/datasources/service.record_result() so a key's status reflects real usage.
 
     Returns {"social_media": [...], "traditional_media": [...], "degraded": bool,
     "failed_sources": [...]}. "degraded" is True only when BOTH SerpAPI and Tavily contributed
@@ -523,9 +601,14 @@ def fetch_and_normalize(
     pool = ThreadPoolExecutor(max_workers=3)
     results_by_source: dict[str, list[dict]] = {"serpapi": [], "tavily": [], "google_news_rss": []}
     try:
+        api_keys = api_keys or {}
+        on_serpapi_result = (lambda ok, error: on_source_result("serpapi", ok, error)) if on_source_result else None
+        on_tavily_result = (lambda ok, error: on_source_result("tavily", ok, error)) if on_source_result else None
         futures = {
-            pool.submit(_search_serpapi, query, country, max_results, recency_days): "serpapi",
-            pool.submit(_search_tavily, tavily_query or query, country, max_results, date_range, include_domains): "tavily",
+            pool.submit(_search_serpapi, query, country, max_results, recency_days,
+                        api_keys.get("serpapi"), on_serpapi_result): "serpapi",
+            pool.submit(_search_tavily, tavily_query or query, country, max_results, date_range,
+                        include_domains, api_keys.get("tavily"), on_tavily_result): "tavily",
             pool.submit(_search_google_news_rss, query,
                         recency_hours=_recency_hours_for_range(date_range), country=country): "google_news_rss",
         }

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { intelApi, type BriefResult, type BriefData, type BriefSection, type JobStatus, type SourceRef } from "../services/intel-api";
 import { useDemoState } from "../context/demo-state";
 import { useProject, useActiveProjectId } from "../context/project-context";
@@ -33,6 +34,15 @@ const SECTION_SHORT_LABELS: Record<string, string> = {
   key_issues: "Key Issues",
   source_register: "Sources",
   methodology: "Methodology",
+};
+
+/** What "Tier 1/2/3" actually means — mirrors web_research.py's TIER_1_DOMAINS /
+ * TIER_2_DOMAINS / TIER_3_DOMAINS classification (source credibility, not article
+ * importance), so a reader isn't left guessing what the T1/T2/T3 counts stand for. */
+const SOURCE_TIER_LABELS = {
+  tier_1: "Top-tier wire services, financial press & government sources (Reuters, AP, Bloomberg, WSJ, FT, NYT, BBC, .gov/.edu)",
+  tier_2: "Reputable business, trade & industry press (Forbes, CNBC, TechCrunch, Ad Age, McKinsey, Gartner, trade publications)",
+  tier_3: "General web, lifestyle & blog sources (Medium, Substack, consumer/lifestyle sites) — lower source credibility, used for color/context",
 };
 
 interface ProgressLogEntry {
@@ -121,20 +131,40 @@ function ProgressBar({
 
 type SourceLookup = Record<string, SourceRef>;
 
+/** Publisher favicon as a circular badge, falling back to the bracketed ref ([S9])
+ * if the URL can't be parsed or the favicon fails to load. */
 function CitationLink({ refId, sources }: { refId: string; sources: SourceLookup }) {
   const src = sources[refId];
+  const [faviconFailed, setFaviconFailed] = useState(false);
   if (!src || !src.url) {
     return <span className="font-bold text-[#5B2C9D] text-[10px]">[{refId}]</span>;
   }
+  const title = `${src.headline} — ${src.publisher}${src.date ? ` (${src.date})` : ""}`;
+  let domain = "";
+  try {
+    domain = new URL(src.url).hostname;
+  } catch {
+    // leave domain empty — falls back to the text badge below
+  }
+
   return (
     <a
       href={src.url}
       target="_blank"
       rel="noopener noreferrer"
-      title={`${src.headline} — ${src.publisher}${src.date ? ` (${src.date})` : ""}`}
-      className="inline-flex items-center font-bold text-[#5B2C9D] text-[10px] px-0.5 rounded hover:bg-[#5B2C9D]/10 hover:underline transition-colors cursor-pointer"
+      title={title}
+      className="inline-flex items-center justify-center align-middle mx-0.5 hover:scale-110 transition-transform cursor-pointer"
     >
-      [{refId}]
+      {domain && !faviconFailed ? (
+        <img
+          src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`}
+          alt={src.publisher}
+          onError={() => setFaviconFailed(true)}
+          className="w-3.5 h-3.5 rounded-full ring-1 ring-slate-200 bg-white"
+        />
+      ) : (
+        <span className="font-bold text-[#5B2C9D] text-[10px]">[{refId}]</span>
+      )}
     </a>
   );
 }
@@ -238,17 +268,9 @@ function renderContent(content: string, sources: SourceLookup = {}, sectionKey =
     if (trimmed.match(/^\[S\d+\]/)) {
       const match = trimmed.match(/^\[(S\d+)\]\s*\|?\s*(.*)/);
       if (match) {
-        const src = sources[match[1]];
         elements.push(
           <div key={i} className="text-xs text-slate-600 my-0.5 flex items-start gap-1.5">
-            {src?.url ? (
-              <a href={src.url} target="_blank" rel="noopener noreferrer"
-                className="font-bold text-[#5B2C9D] shrink-0 hover:underline">
-                [{match[1]}]
-              </a>
-            ) : (
-              <span className="font-bold text-[#5B2C9D] shrink-0">[{match[1]}]</span>
-            )}
+            <CitationLink refId={match[1]} sources={sources} />
             <span>{match[2]}</span>
           </div>
         );
@@ -262,57 +284,127 @@ function renderContent(content: string, sources: SourceLookup = {}, sectionKey =
   return <>{elements}</>;
 }
 
-/** One competitor's row: 30%-width logo column (with a product-matched Pexels background
- * behind it, mirroring the docx export's treatment) beside a 70%-width column split into
- * two clearly labeled blocks — Introduction (the intro paragraph before the first dated
- * entry) and Development Summary (the "### Date | Headline" entries). Self-fetches its own
- * background image since it needs a hook — renderCompetitorSection is a plain function and
- * can't call useEffect itself. */
+/** One competitor's row: a 30%-width logo column (brand mark only — no stock background,
+ * which previously buried the logo under irrelevant Pexels imagery) beside a 70%-width
+ * column split into two clearly bordered sub-rows — Introduction (the intro paragraph
+ * before the first dated entry) and Development Summary (the "### Date | Headline"
+ * entries). */
+/** True once a rendered YouTube embed reports a playback error (video removed/privated/
+ * region-locked after being cached, embedding disabled, etc.) — distinct from "no video
+ * found at lookup time", which the Pexels-fallback effects above already handle. YouTube's
+ * embedded player posts these as window `message` events once the embed URL carries
+ * `enablejsapi=1`; no need to load the full iframe_api script just to observe them. Callers
+ * treat a failure exactly like "no video", falling through to their Pexels tier. */
+function useYouTubeEmbedFailure(embedUrl: string | null): boolean {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+    if (!embedUrl) return;
+    const handler = (event: MessageEvent) => {
+      if (typeof event.data !== "string") return;
+      let data: unknown;
+      try { data = JSON.parse(event.data); } catch { return; }
+      if (data && typeof data === "object" && (data as Record<string, unknown>).event === "onError") {
+        setFailed(true);
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [embedUrl]);
+  return failed;
+}
+
+function withJsApi(embedUrl: string): string {
+  return embedUrl.includes("enablejsapi=1") ? embedUrl : `${embedUrl}&enablejsapi=1`;
+}
+
 function CompetitorRow({
-  name, introLines, devLines, sources, category,
+  name, introLines, devLines, sources,
 }: {
   name: string;
   introLines: string[];
   devLines: string[];
   sources: SourceLookup;
-  category: string;
 }) {
-  const [bgImage, setBgImage] = useState<string | null>(null);
+  const hasIntro = introLines.some((l) => l.trim());
+  const hasDev = devLines.some((l) => l.trim());
 
+  // Same official-channel-verified lookup as the section header banners (video_search.py) —
+  // "<name> official" ranked against YouTube oEmbed's author_name, so this never shows an
+  // unaffiliated fan/reaction channel's video, only the competitor's own channel. When no
+  // verified channel video exists (common — not every competitor ranks well there), falls
+  // back to a generic Pexels brand video/image instead of leaving the card empty.
+  const [videoEmbedUrl, setVideoEmbedUrl] = useState<string | null>(null);
+  const [pexelsImage, setPexelsImage] = useState<string | null>(null);
+  const [pexelsVideo, setPexelsVideo] = useState<string | null>(null);
   useEffect(() => {
+    setVideoEmbedUrl(null);
+    setPexelsImage(null);
+    setPexelsVideo(null);
+    if (!name.trim()) return;
     let cancelled = false;
-    const query = `${name} ${category}`.trim();
-    if (!query) return;
-    intelApi.getPexelsImage(query).then((res) => {
-      if (!cancelled) setBgImage(res.image_url);
+    intelApi.getSectionVideo(name, name).then((res) => {
+      if (cancelled) return;
+      if (res.embed_url) {
+        setVideoEmbedUrl(res.embed_url);
+        return;
+      }
+      // "company" disambiguates a competitor name that's also a common word (e.g. "Apple",
+      // "Target", "Dove") away from Pexels' literal stock photos for that word — see
+      // BriefScopeReview.tsx's identical fix for the project-level banner.
+      intelApi.getPexelsImage(`${name} company`).then((pres) => {
+        if (!cancelled) { setPexelsImage(pres.image_url); setPexelsVideo(pres.video_url); }
+      }).catch(() => {});
     }).catch(() => {});
     return () => { cancelled = true; };
-  }, [name, category]);
+  }, [name]);
+
+  const videoFailed = useYouTubeEmbedFailure(videoEmbedUrl);
+  useEffect(() => {
+    if (!videoFailed || pexelsImage || pexelsVideo) return;
+    let cancelled = false;
+    intelApi.getPexelsImage(`${name} company`).then((pres) => {
+      if (!cancelled) { setPexelsImage(pres.image_url); setPexelsVideo(pres.video_url); }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [videoFailed, name, pexelsImage, pexelsVideo]);
 
   return (
     <div className="flex gap-8 py-8 first:pt-0 animate-fade-in">
-      <div className="w-[30%] shrink-0 self-start rounded-xl overflow-hidden relative" style={{ minHeight: 220 }}>
-        {bgImage && (
-          <>
-            <img src={bgImage} alt="" className="absolute inset-0 w-full h-full object-cover" aria-hidden="true" />
-            <div className="absolute inset-0 bg-gradient-to-t from-white/95 via-white/75 to-white/40" />
-          </>
-        )}
-        {!bgImage && <div className="absolute inset-0 bg-slate-50" />}
-        <div className="relative flex flex-col items-center justify-center gap-3 py-8 px-4 h-full">
+      <div className="w-[30%] shrink-0 self-start flex flex-col gap-3">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-3 py-8 px-4" style={{ minHeight: 220 }}>
           <BrandLogo brandName={name} size={100} rounded="lg" />
           <div className="font-bold text-sm text-slate-700 text-center">{name}</div>
         </div>
+        {videoEmbedUrl && !videoFailed ? (
+          <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-900 aspect-video">
+            <iframe
+              src={withJsApi(videoEmbedUrl)}
+              className="w-full h-full pointer-events-none"
+              allow="autoplay; encrypted-media"
+              title={`${name} video`}
+            />
+          </div>
+        ) : pexelsVideo ? (
+          <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-900 aspect-video">
+            <video src={pexelsVideo} poster={pexelsImage || undefined} autoPlay muted loop playsInline
+                   className="w-full h-full object-cover" aria-hidden="true" />
+          </div>
+        ) : pexelsImage ? (
+          <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-900 aspect-video">
+            <img src={pexelsImage} alt="" className="w-full h-full object-cover" />
+          </div>
+        ) : null}
       </div>
-      <div className="w-[70%] min-w-0 space-y-5">
-        {introLines.some((l) => l.trim()) && (
-          <div>
+      <div className="w-[70%] min-w-0 flex flex-col gap-4">
+        {hasIntro && (
+          <div className="rounded-lg border border-slate-200 p-4">
             <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Introduction</div>
             {renderContent(introLines.join("\n"), sources, "competitor_developments_body")}
           </div>
         )}
-        {devLines.some((l) => l.trim()) && (
-          <div>
+        {hasDev && (
+          <div className="rounded-lg border border-slate-200 p-4">
             <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Development Summary</div>
             {renderContent(devLines.join("\n"), sources, "competitor_developments_body")}
           </div>
@@ -349,38 +441,106 @@ const SECTION_VIDEO_QUERIES: Record<string, (brand: string, category: string) =>
   key_issues: (_brand, category) => buildVideoQuery(category, "industry challenges"),
 };
 
+/** Sections whose video should prefer a specific product over the generic per-section topic
+ * when one is actually named in that section's own text — "company overview" is a fine
+ * search for Introduction in general, but if the brief's Introduction or Brand Developments
+ * copy calls out "$5 Meal Deal" by name, that's a much more specific, relevant video to show
+ * than a generic corporate-overview search would surface. */
+const PRODUCT_AWARE_SECTIONS = new Set(["company_introduction", "brand_developments"]);
+
+/** First known product/product_group entity name (from the project spec's validated_entities)
+ * that actually appears in `sectionContent` — case-insensitive substring match, longest name
+ * first so e.g. "MyMcDonald's Rewards" wins over a shorter name it happens to contain. Null
+ * when no product is mentioned in this section's own text, or none were extracted at all. */
+function findMentionedProduct(sectionContent: string, productNames: string[]): string | null {
+  if (!sectionContent || productNames.length === 0) return null;
+  const haystack = sectionContent.toLowerCase();
+  const sorted = [...productNames].sort((a, b) => b.length - a.length);
+  for (const name of sorted) {
+    if (name.trim() && haystack.includes(name.toLowerCase())) return name;
+  }
+  return null;
+}
+
 /** A bounded hero banner (not a full-page background) above the section header — the
  * earlier full-pane video-behind-scrolling-text design made body text illegible regardless
  * of overlay strength once a busy/bright video was behind it. Keeping the video confined to
  * its own strip, with the brand logo overlaid on it, means the actual reading content below
- * always sits on plain white — zero readability trade-off. Renders nothing (collapses to no
- * banner at all) when the section has no video query or none was found. */
-function SectionVideoBanner({ activeTab, brandName, category }: { activeTab: string; brandName: string; category: string }) {
+ * always sits on plain white — zero readability trade-off. Three-tier fallback so the
+ * section never collapses to an empty gap: official-channel video, then Pexels stock
+ * video/image for the same query, then the brand's own logo on a plain banner — and a
+ * playback-time failure (video removed/privated after being cached) degrades the same way
+ * via `useYouTubeEmbedFailure`, not just a lookup-time miss. */
+function SectionVideoBanner({ activeTab, brandName, category, sectionContent, productNames }: {
+  activeTab: string; brandName: string; category: string; sectionContent: string; productNames: string[];
+}) {
   const [embedUrl, setEmbedUrl] = useState<string | null>(null);
+  const [pexelsImage, setPexelsImage] = useState<string | null>(null);
+  const [pexelsVideo, setPexelsVideo] = useState<string | null>(null);
+  const lastQueryRef = useRef<string>("");
 
   useEffect(() => {
     const queryFn = SECTION_VIDEO_QUERIES[activeTab];
     setEmbedUrl(null);
+    setPexelsImage(null);
+    setPexelsVideo(null);
     if (!queryFn || !brandName.trim()) return;
     let cancelled = false;
-    intelApi.getSectionVideo(queryFn(brandName, category), brandName).then((res) => {
-      if (!cancelled) setEmbedUrl(res.embed_url);
+
+    // Prefer a specific product named in this section's own text (e.g. "$5 Meal Deal")
+    // over the generic per-section topic — see findMentionedProduct's doc comment.
+    const product = PRODUCT_AWARE_SECTIONS.has(activeTab) ? findMentionedProduct(sectionContent, productNames) : null;
+    const query = product ? buildVideoQuery(brandName, product) : queryFn(brandName, category);
+    lastQueryRef.current = query;
+
+    intelApi.getSectionVideo(query, brandName).then((res) => {
+      if (cancelled) return;
+      if (res.embed_url) { setEmbedUrl(res.embed_url); return; }
+      // No official-channel video for this query at all (including its own fallbacks) —
+      // degrade to generic Pexels stock footage/imagery rather than showing nothing, same
+      // three-tier pattern CompetitorRow already uses below.
+      intelApi.getPexelsImage(query).then((pres) => {
+        if (!cancelled) { setPexelsImage(pres.image_url); setPexelsVideo(pres.video_url); }
+      }).catch(() => {});
     }).catch(() => {});
     return () => { cancelled = true; };
-  }, [activeTab, brandName, category]);
+  }, [activeTab, brandName, category, sectionContent, productNames]);
 
-  if (!embedUrl) return null;
+  const videoFailed = useYouTubeEmbedFailure(embedUrl);
+  useEffect(() => {
+    if (!videoFailed || pexelsImage || pexelsVideo || !lastQueryRef.current) return;
+    let cancelled = false;
+    intelApi.getPexelsImage(lastQueryRef.current).then((pres) => {
+      if (!cancelled) { setPexelsImage(pres.image_url); setPexelsVideo(pres.video_url); }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [videoFailed, pexelsImage, pexelsVideo]);
+
+  const hasMedia = (embedUrl && !videoFailed) || pexelsVideo || pexelsImage;
 
   return (
     <div className="relative h-48 shrink-0 overflow-hidden bg-slate-900 border-b border-slate-200">
-      <iframe
-        src={embedUrl}
-        className="absolute inset-0 w-full h-full pointer-events-none"
-        allow="autoplay; encrypted-media"
-        title="Section background video"
-      />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
-      {brandName && (
+      {embedUrl && !videoFailed ? (
+        <iframe
+          src={withJsApi(embedUrl)}
+          className="absolute inset-0 w-full h-full pointer-events-none"
+          allow="autoplay; encrypted-media"
+          title="Section background video"
+        />
+      ) : pexelsVideo ? (
+        <video src={pexelsVideo} poster={pexelsImage || undefined} autoPlay muted loop playsInline
+          className="absolute inset-0 w-full h-full object-cover" />
+      ) : pexelsImage ? (
+        <img src={pexelsImage} alt="" className="absolute inset-0 w-full h-full object-cover" />
+      ) : (
+        // Final tier — no official video and no Pexels result either: the brand's own
+        // logo on a plain dark banner, so a section never collapses to an empty gap.
+        <div className="absolute inset-0 flex items-center justify-center">
+          <BrandLogo brandName={brandName} size={56} rounded="lg" className="opacity-90" />
+        </div>
+      )}
+      {hasMedia && <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />}
+      {brandName && hasMedia && (
         <div className="absolute bottom-3 left-4 flex items-center gap-2">
           <BrandLogo brandName={brandName} size={28} rounded="lg" className="shadow-lg" />
           <span className="text-white text-xs font-semibold" style={{ textShadow: "0 1px 3px rgba(0,0,0,0.6)" }}>
@@ -392,7 +552,7 @@ function SectionVideoBanner({ activeTab, brandName, category }: { activeTab: str
   );
 }
 
-function renderCompetitorSection(content: string, sources: SourceLookup, category: string): React.ReactNode {
+function renderCompetitorSection(content: string, sources: SourceLookup): React.ReactNode {
   if (!content) return null;
   const lines = content.split("\n");
   const blocks: { name: string; bodyLines: string[] }[] = [];
@@ -425,7 +585,6 @@ function renderCompetitorSection(content: string, sources: SourceLookup, categor
             introLines={introLines}
             devLines={devLines}
             sources={sources}
-            category={category}
           />
         );
       })}
@@ -467,6 +626,8 @@ export function BackgroundResearch({ onNavigate }: Props) {
   const [downloading, setDownloading] = useState(false);
   const [rendering, setRendering] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [diagnosticsPos, setDiagnosticsPos] = useState({ bottom: 0, left: 0, maxHeight: 400 });
+  const diagnosticsButtonRef = useRef<HTMLButtonElement>(null);
   const [activeTab, setActiveTab] = useState<string>("");
   const [researchJobId, setResearchJobId] = useState<string | null>(null);
   const [searchDegraded, setSearchDegraded] = useState(false);
@@ -474,6 +635,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
   const [showProgressLog, setShowProgressLog] = useState(false);
   const [scopeGeography, setScopeGeography] = useState("");
   const [scopeTimePeriod, setScopeTimePeriod] = useState("");
+  const [productNames, setProductNames] = useState<string[]>([]);
   const [revisionPanelOpen, setRevisionPanelOpen] = useState(false);
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [revisionNotes, setRevisionNotes] = useState("");
@@ -495,6 +657,13 @@ export function BackgroundResearch({ onNavigate }: Props) {
       const spec = project.spec as Record<string, unknown> | undefined;
       if (spec && typeof spec.geography === "string") setScopeGeography(spec.geography);
       if (spec && typeof spec.time_period === "string") setScopeTimePeriod(spec.time_period);
+      const entities = spec && Array.isArray(spec.validated_entities) ? spec.validated_entities as Array<Record<string, unknown>> : [];
+      setProductNames(
+        entities
+          .filter((e) => e.type === "product" || e.type === "product_group")
+          .map((e) => (typeof e.name === "string" ? e.name : ""))
+          .filter(Boolean)
+      );
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [projectId]);
@@ -793,7 +962,11 @@ export function BackgroundResearch({ onNavigate }: Props) {
                   <div className="text-[9px] text-slate-400">Sources</div>
                 </div>
                 <div className="w-px h-6 bg-slate-200" />
-                <div className="text-center" title={`Tier 1: ${brief.metadata.tier_1_count} · Tier 2: ${brief.metadata.tier_2_count} · Tier 3: ${brief.metadata.tier_3_count}`}>
+                <div className="text-center" title={
+                  `Tier 1 (${brief.metadata.tier_1_count}) — ${SOURCE_TIER_LABELS.tier_1}\n` +
+                  `Tier 2 (${brief.metadata.tier_2_count}) — ${SOURCE_TIER_LABELS.tier_2}\n` +
+                  `Tier 3 (${brief.metadata.tier_3_count}) — ${SOURCE_TIER_LABELS.tier_3}`
+                }>
                   <div className="text-sm font-bold tabular-nums">
                     <span className="text-emerald-600">{brief.metadata.tier_1_count}</span>
                     <span className="text-slate-300 mx-px">/</span>
@@ -1054,46 +1227,95 @@ export function BackgroundResearch({ onNavigate }: Props) {
               </div>
             )}
 
-            {/* Diagnostics */}
+            {/* Diagnostics — icon trigger opens a floating popup (matches ProjectCard's
+                kebab-menu pattern: createPortal to document.body, positioned from the
+                trigger's rect) instead of expanding inline, since this left panel scrolls
+                and a tall inline expansion used to get clipped/push other content around. */}
             <div className="border-t border-slate-200">
               <button
-                onClick={() => setShowDiagnostics(!showDiagnostics)}
+                ref={diagnosticsButtonRef}
+                onClick={() => {
+                  const rect = diagnosticsButtonRef.current?.getBoundingClientRect();
+                  if (rect) {
+                    // Anchor to the bottom of the trigger (grows upward) so the popup
+                    // never runs off the bottom edge regardless of where in the scrollable
+                    // left panel the button sits; max-height leaves a margin top and bottom.
+                    const bottom = Math.max(16, window.innerHeight - rect.bottom);
+                    setDiagnosticsPos({ bottom, left: rect.right + 8, maxHeight: window.innerHeight - bottom - 16 });
+                  }
+                  setShowDiagnostics((v) => !v);
+                }}
+                title="Diagnostics"
                 className="w-full px-4 py-2.5 flex items-center justify-between text-[10px] font-semibold text-slate-400 uppercase tracking-wide hover:bg-slate-50 transition-colors"
               >
-                <span>Diagnostics</span>
-                <svg className={`w-3 h-3 transition-transform ${showDiagnostics ? "rotate-180" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
+                <span className="flex items-center gap-1.5">
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
+                  </svg>
+                  Diagnostics
+                </span>
               </button>
-              {showDiagnostics && (
-                <div className="px-4 pb-3 space-y-1 text-[10px]">
+            </div>
+            </div>
+          </div>
+
+          {showDiagnostics && createPortal(
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowDiagnostics(false)} />
+              <div
+                style={{
+                  position: "fixed", bottom: diagnosticsPos.bottom, left: diagnosticsPos.left,
+                  maxHeight: diagnosticsPos.maxHeight,
+                }}
+                className="z-50 w-80 rounded-xl border border-slate-200 bg-white shadow-xl p-3 text-[10px] overflow-y-auto"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Diagnostics</span>
+                  <button onClick={() => setShowDiagnostics(false)} className="text-slate-400 hover:text-slate-600">✕</button>
+                </div>
+                <div className="space-y-1">
                   <div><span className="text-slate-400">Reviewed:</span> <span className="text-slate-600">{brief.metadata.sources_reviewed}</span></div>
                   <div><span className="text-slate-400">Retained:</span> <span className="text-slate-600">{brief.metadata.sources_retained}</span></div>
                   <div><span className="text-slate-400">Rejected:</span> <span className="text-slate-600">{brief.metadata.sources_rejected}</span></div>
-                  <div><span className="text-slate-400">Tier 1:</span> <span className="text-slate-600">{brief.metadata.tier_1_count}</span></div>
-                  <div><span className="text-slate-400">Tier 2:</span> <span className="text-slate-600">{brief.metadata.tier_2_count}</span></div>
-                  <div><span className="text-slate-400">Tier 3:</span> <span className="text-slate-600">{brief.metadata.tier_3_count}</span></div>
-                  <div><span className="text-slate-400">Range:</span> <span className="text-slate-600">{brief.metadata.date_range_start} to {brief.metadata.date_range_end}</span></div>
+                  <div className="pt-1.5 mt-1 border-t border-slate-100">
+                    <div className="text-slate-400 mb-1">Source credibility tiers:</div>
+                    <div className="space-y-1.5">
+                      <div>
+                        <span className="text-emerald-600 font-semibold">Tier 1 ({brief.metadata.tier_1_count})</span>
+                        <div className="text-slate-500">{SOURCE_TIER_LABELS.tier_1}</div>
+                      </div>
+                      <div>
+                        <span className="text-sky-600 font-semibold">Tier 2 ({brief.metadata.tier_2_count})</span>
+                        <div className="text-slate-500">{SOURCE_TIER_LABELS.tier_2}</div>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 font-semibold">Tier 3 ({brief.metadata.tier_3_count})</span>
+                        <div className="text-slate-500">{SOURCE_TIER_LABELS.tier_3}</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="pt-1.5 mt-1 border-t border-slate-100"><span className="text-slate-400">Range:</span> <span className="text-slate-600">{brief.metadata.date_range_start} to {brief.metadata.date_range_end}</span></div>
                   <div className="text-slate-400 pt-1">Generated: {brief.generated_at}</div>
                   {brief.search_log.length > 0 && (
                     <div className="pt-2 mt-1 border-t border-slate-100">
                       <div className="text-slate-400 mb-1">
                         Queries run ({brief.metadata.search_queries_executed || brief.search_log.length}):
                       </div>
-                      <div className="space-y-1 max-h-40 overflow-y-auto">
+                      <div className="space-y-2">
                         {brief.search_log.map((entry, i) => (
-                          <div key={i} title={entry.query} className="text-slate-500 truncate">
-                            <span className="text-slate-400">{entry.topic}:</span> {entry.query}
+                          <div key={i} className="text-slate-700">
+                            <div className="text-slate-400">{entry.topic}:</div>
+                            <div className="font-bold break-words">{entry.query}</div>
                           </div>
                         ))}
                       </div>
                     </div>
                   )}
                 </div>
-              )}
-            </div>
-            </div>
-          </div>
+              </div>
+            </>,
+            document.body
+          )}
 
           <button
             onClick={() => setLeftPanelOpen((v) => !v)}
@@ -1107,7 +1329,13 @@ export function BackgroundResearch({ onNavigate }: Props) {
 
           {/* Content Pane — Right */}
           <div className="flex-1 flex flex-col min-w-0">
-            <SectionVideoBanner activeTab={activeTab} brandName={brief.brand_name} category={brief.category} />
+            <SectionVideoBanner
+              activeTab={activeTab}
+              brandName={brief.brand_name}
+              category={brief.category}
+              sectionContent={currentSection?.content ?? ""}
+              productNames={productNames}
+            />
             {/* Section Header */}
             {activeTab === "all_articles" ? (
               <div className="shrink-0 px-6 py-3 border-b border-slate-100 bg-white flex items-center justify-between">
@@ -1151,7 +1379,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
                 ) : (
                   <div className={`text-[13.5px] text-slate-700 leading-[1.85] font-reading ${activeTab === "competitor_developments" ? "" : "max-w-3xl"}`}>
                     {activeTab === "competitor_developments"
-                      ? renderCompetitorSection(currentSection.content, sourceLookup, brief?.category || "")
+                      ? renderCompetitorSection(currentSection.content, sourceLookup)
                       : renderContent(currentSection.content, sourceLookup, activeTab)}
                   </div>
                 )

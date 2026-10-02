@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { intelApi } from "../services/intel-api";
 import type { Insight, InsightDetail, InsightsSummary } from "../types/contracts";
-import { useActiveProjectId } from "../context/project-context";
+import { useActiveProjectId, useProject } from "../context/project-context";
+import { PexelsHeaderBanner } from "../components/PexelsHeaderBanner";
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -326,6 +327,7 @@ interface Props {
 
 export function InsightsPage({ onNavigate }: Props) {
   const projectId = useActiveProjectId() ?? 1;
+  const { activeProject } = useProject();
 
   const [locked, setLocked] = useState<boolean | null>(null);
   const [prereqBlockers, setPrereqBlockers] = useState<string[]>([]);
@@ -555,6 +557,7 @@ export function InsightsPage({ onNavigate }: Props) {
 
   return (
     <div className="max-w-6xl mx-auto px-8 py-10">
+      <PexelsHeaderBanner brandName={activeProject?.brand || activeProject?.name} className="mb-6" />
       <div className="flex items-start justify-between mb-6">
         <div>
           <div className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1">Stage 8</div>

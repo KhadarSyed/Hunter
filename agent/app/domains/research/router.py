@@ -15,17 +15,21 @@ from fastapi import APIRouter, Depends, HTTPException, Path
 
 from ...agents.brand_intelligence import run as run_bi
 from ...core import store
+from ..datasources import repository as ds_repo
+from ..datasources import service as ds_service
 from ...core.anthropic_client import get_llm_client
 from ...core.api import OkResponse
 from ...core.auth import require_project_access
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
+from . import article_extractor
 from . import brandfetch as brandfetch_client
 from . import multi_source as multi_source_module
 from . import pexels as pexels_client
 from . import video_search
 from .schemas import (
     ApproveRequest,
+    ArticleFullTextResponse,
     BrandLogoResponse,
     FetchPreviewRequest,
     FetchPreviewStarted,
@@ -67,8 +71,10 @@ def start_background_research(req: StartResearchRequest):
 
         try:
             adapter = LiveWebResearchAdapter()
+            last_pct = 5
 
             def on_event(event_type: str, payload: dict):
+                nonlocal last_pct
                 msg_map = {
                     "research_started": ("Searching official sources", 10),
                     "research_queries_built": ("Search queries prepared", 15),
@@ -83,20 +89,56 @@ def start_background_research(req: StartResearchRequest):
                     "research_validating_dates": ("Validating publication dates", 80),
                     "research_classifying_sources": ("Classifying source quality", 85),
                     "research_complete": ("Research complete", 95),
+                    # Brand/competitive intelligence — the LLM step that runs after web
+                    # research (see "Stage 3: LLM enrichment" below). Streamed like
+                    # brief_scope.py's agent so the UI shows real progress instead of
+                    # sitting frozen on a single static message during the LLM call.
+                    "brand_intelligence_started": ("Starting competitive/brand intelligence analysis", 90),
+                    "brand_intelligence_web_search": (
+                        f"Searching for {payload.get('brand', 'brand')} context", 90),
+                    "brand_intelligence_reasoning": ("LLM producing competitive intelligence briefing...", None),
+                    "brand_intelligence_validated": ("Competitive intelligence briefing validated", 97),
+                    "brand_intelligence_complete": ("Competitive intelligence briefing complete", 98),
+                    "brand_intelligence_error": (
+                        f"Competitive intelligence issue — retrying ({payload.get('error', '')})", None),
+                    "brand_intelligence_failed": (
+                        "Competitive intelligence briefing unavailable — web research data preserved", 98),
                 }
-                if event_type in msg_map:
+                if event_type == "brand_intelligence_streaming":
+                    chars = payload.get("chars", 0)
+                    msg = f"Writing competitive intelligence briefing... ({chars:,} characters generated so far)"
+                    store.update_job(job_id, progress_pct=last_pct, progress_message=msg)
+                    _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
+                                "progress_pct": last_pct, "message": msg})
+                elif event_type in msg_map:
                     msg, pct = msg_map[event_type]
                     if event_type == "fetching_topic":
                         idx = payload.get("index", 0)
                         total = payload.get("total", 1)
                         pct = 15 + int(45 * idx / max(total, 1))
-                    store.update_job(job_id, progress_pct=pct, progress_message=msg)
+                    if pct is not None:
+                        last_pct = pct
+                    store.update_job(job_id, progress_pct=last_pct, progress_message=msg)
                     _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
-                                "progress_pct": pct, "message": msg})
+                                "progress_pct": last_pct, "message": msg})
 
             # ── Stage 1: Web research (single execution) ──
+            # Use the org's own configured Tavily/SerpAPI keys when set (domains/datasources/),
+            # falling back to the global env var keys otherwise; either way, each real call's
+            # result reactively updates that key's status — "validate it every stage" it's used.
+            project_for_org = store.get_project(project_id)
+            org_id = project_for_org.get("org_id") if project_for_org else None
+            api_keys = {"tavily": ds_repo.get_key(org_id, "tavily") if org_id else None,
+                        "serpapi": ds_repo.get_key(org_id, "serpapi") if org_id else None}
+
+            def on_source_result(source: str, ok: bool, error: str | None) -> None:
+                ds_service.record_result(org_id, source, ok, error)
+
             logger.info("[research:%s] Stage 1 — executing web research", job_id)
-            web_result = adapter.run_full_research(spec, project_id=project_id, emit=on_event)
+            web_result = adapter.run_full_research(
+                spec, project_id=project_id, emit=on_event,
+                api_keys=api_keys, on_source_result=on_source_result,
+            )
 
             if web_result.get("status") != "completed" or not web_result.get("web_search_executed"):
                 logger.warning("[research:%s] Web search did not fully complete — continuing anyway", job_id)
@@ -354,6 +396,18 @@ def fetch_preview(req: FetchPreviewRequest):
 
     submit(worker, name=f"research:fetch-preview:{req.project_id}")
     return FetchPreviewStarted(job_id=job_id, project_id=req.project_id)
+
+
+@router.get("/research/items/{item_id}/full-text", response_model=ArticleFullTextResponse)
+def get_article_full_text_route(item_id: Annotated[int, Path(ge=1)], force: bool = False):
+    """Full-text extraction for one research item's source URL, for the "All Articles"
+    reader popup — see domains/research/article_extractor.py. `force=true` bypasses the
+    cache (re-scrapes), used by the frontend's "Retry" action on a failed/paywalled result."""
+    item = store.get_research_item(item_id)
+    if not item:
+        raise HTTPException(404, f"Research item {item_id} not found")
+    result = article_extractor.get_full_text(item["url"], force=force)
+    return result
 
 
 @router.get("/research/{project_id}/items", response_model=ResearchItemsListResponse)

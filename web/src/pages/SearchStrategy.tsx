@@ -3,6 +3,9 @@ import * as XLSX from "xlsx";
 import { intelApi, type StrategyResult, type JobStatus, type EvaluationResult } from "../services/intel-api";
 import { useActiveProjectId, useProject } from "../context/project-context";
 import { useDemoState } from "../context/demo-state";
+import { PexelsHeaderBanner } from "../components/PexelsHeaderBanner";
+import { BrandLogo } from "../components/BrandLogo";
+import { CountryFlag } from "../components/CountryFlag";
 
 type Tab = "overview" | "modules" | "queries" | "exclusions" | "filters" | "score" | "evaluation";
 type LiveState = "idle" | "generating" | "completed" | "failed";
@@ -38,7 +41,7 @@ function BooleanDisplay({ query, label, description, onCopy, editable, onEdit }:
   const tokens = tokenizeBooleanQuery(query);
 
   return (
-    <div className="border border-slate-200 rounded-xl overflow-hidden">
+    <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
       <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-200">
         <div className="flex items-center gap-3">
           <span className="text-xs font-semibold text-slate-700">{label}</span>
@@ -88,6 +91,54 @@ function BooleanDisplay({ query, label, description, onCopy, editable, onEdit }:
   );
 }
 
+/** Common platform/vendor name → domain, so Meltwater's recommended platforms (social
+ * networks plus category-specific sites like Edmunds/CarGurus/KBB) get a real favicon
+ * badge instead of plain text — same favicon-service technique as BackgroundResearch's
+ * CitationLink, generalized with a lowercase-slug ".com" guess for any name not listed
+ * here so platforms the LLM names for other brands/industries still get a real icon. */
+const PLATFORM_DOMAINS: Record<string, string> = {
+  twitter: "x.com", x: "x.com",
+  facebook: "facebook.com",
+  instagram: "instagram.com",
+  reddit: "reddit.com",
+  youtube: "youtube.com",
+  tiktok: "tiktok.com",
+  linkedin: "linkedin.com",
+  pinterest: "pinterest.com",
+  snapchat: "snapchat.com",
+  edmunds: "edmunds.com",
+  cargurus: "cargurus.com",
+  kbb: "kbb.com",
+  autotrader: "autotrader.com",
+};
+
+function platformDomain(name: string): string {
+  const key = name.trim().toLowerCase();
+  if (PLATFORM_DOMAINS[key]) return PLATFORM_DOMAINS[key];
+  const slug = key.replace(/[^a-z0-9]/g, "");
+  return slug ? `${slug}.com` : "";
+}
+
+function PlatformBadge({ name }: { name: string }) {
+  const [failed, setFailed] = useState(false);
+  const domain = platformDomain(name);
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 bg-slate-50 px-2 py-0.5 rounded border border-slate-100">
+      {domain && !failed ? (
+        <img
+          src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`}
+          alt=""
+          onError={() => setFailed(true)}
+          className="w-3.5 h-3.5 rounded-sm"
+        />
+      ) : (
+        <svg className="w-3.5 h-3.5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><line x1="2" y1="12" x2="22" y2="12" /><path d="M12 2a15.3 15.3 0 0 1 0 20 15.3 15.3 0 0 1 0-20z" /></svg>
+      )}
+      {name}
+    </span>
+  );
+}
+
 function ScoreGauge({ score, max = 10, label }: { score: number; max?: number; label: string }) {
   const pct = Math.round((score / max) * 100);
   const color = pct >= 80 ? "#059669" : pct >= 60 ? "#d97706" : "#dc2626";
@@ -102,17 +153,44 @@ function ScoreGauge({ score, max = 10, label }: { score: number; max?: number; l
   );
 }
 
-function ProgressBar({ pct, message }: { pct: number; message: string }) {
+interface ProgressLogEntry {
+  message: string;
+  pct: number;
+  at: number;
+}
+
+/** Live progress card matching Brief & Scope / Background Research's streaming pattern:
+ * spinner + progress bar for the current step, plus a scrolling log of every step seen so
+ * far (most recent highlighted) instead of just overwriting one line — so a long-running
+ * generation (LLM attempt, timeout/fallback, deterministic build, etc.) reads as a visible
+ * sequence of real progress instead of sitting on a single static message. */
+function ProgressBar({ pct, message, log }: { pct: number; message: string; log: ProgressLogEntry[] }) {
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-3">
-      <div className="flex items-center justify-between text-sm">
-        <span className="text-slate-700 font-medium">Generating search strategy...</span>
-        <span className="text-slate-400 tabular-nums">{pct}%</span>
+      <div className="flex items-center gap-3">
+        <svg className="animate-spin h-5 w-5 shrink-0" style={{ color: V }} viewBox="0 0 24 24" fill="none">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold text-slate-900 truncate">{message || "Generating search strategy..."}</div>
+          <div className="text-xs text-slate-400 mt-0.5">{pct}% complete</div>
+        </div>
       </div>
-      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
         <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: V }} />
       </div>
-      <p className="text-xs text-slate-500">{message}</p>
+      {log.length > 0 && (
+        <div className="border-t border-slate-100 pt-3 space-y-2 max-h-56 overflow-y-auto">
+          {log.slice().reverse().map((entry, i) => (
+            <div key={entry.at} className={`flex items-start gap-2 text-xs ${i === 0 ? "text-slate-700" : "text-slate-400"}`}>
+              <span className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${i === 0 ? "animate-pulse-dot" : "bg-slate-300"}`}
+                    style={i === 0 ? { background: V } : undefined} />
+              <span>{entry.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -132,6 +210,7 @@ export function SearchStrategy({ onNavigate }: Props) {
 
   const [liveState, setLiveState] = useState<LiveState>("idle");
   const [jobProgress, setJobProgress] = useState({ pct: 0, message: "" });
+  const [jobLog, setJobLog] = useState<ProgressLogEntry[]>([]);
   const [strategy, setStrategy] = useState<StrategyResult | null>(null);
   const [evaluation, setEvaluation] = useState<EvaluationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -183,17 +262,31 @@ export function SearchStrategy({ onNavigate }: Props) {
     setError(null);
     setLiveState("generating");
     setJobProgress({ pct: 0, message: "Starting..." });
+    setJobLog([{ message: "Starting...", pct: 0, at: Date.now() }]);
     try {
       const result = await intelApi.generateStrategy(projectId);
       pollRef.current = setInterval(async () => {
         try {
           const status: JobStatus = await intelApi.getJob(result.job_id);
           setJobProgress({ pct: status.progress_pct, message: status.progress_message });
+          if (status.progress_message) {
+            setJobLog((prev) => (
+              prev[prev.length - 1]?.message === status.progress_message
+                ? prev
+                : [...prev, { message: status.progress_message, pct: status.progress_pct, at: Date.now() }].slice(-30)
+            ));
+          }
           if (status.status === "completed") {
             stopPolling();
             const s = await intelApi.getStrategy(projectId);
             setStrategy(s);
             setLiveState("completed");
+            // Every regenerate produces a brand-new, unapproved version — never carry
+            // forward the previous version's approval state (it would otherwise show
+            // the fresh draft as already "Approved" with the button disabled).
+            const isApproved = s.approval_status === "approved";
+            setApproved(isApproved);
+            demo.setStrategyApproved(isApproved);
             const strat = s.strategy as Record<string, unknown>;
             setValidationIssues((strat?._validation_issues as string[]) || []);
           } else if (status.status === "failed") {
@@ -218,6 +311,20 @@ export function SearchStrategy({ onNavigate }: Props) {
     try {
       const result = await intelApi.editQuery(strategy.strategy_id, queryType, queryText);
       setValidationIssues(result.validation_issues);
+      const refreshed = await intelApi.getStrategy(projectId!);
+      setStrategy(refreshed);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save query edit");
+    }
+  };
+
+  // RQ Queries live under strategy.research_question_queries, keyed by question_id —
+  // a separate structure from the broad/balanced/precise core_queries that
+  // handleQueryEdit/editQuery targets, so they need their own endpoint.
+  const handleRQEdit = async (questionId: string, question: string, queryText: string) => {
+    if (!strategy) return;
+    try {
+      await intelApi.editResearchQuestion(strategy.strategy_id, questionId, question, queryText);
       const refreshed = await intelApi.getStrategy(projectId!);
       setStrategy(refreshed);
     } catch (e) {
@@ -442,22 +549,32 @@ export function SearchStrategy({ onNavigate }: Props) {
   };
 
   return (
-    <div className="h-full flex flex-col animate-fade-in">
+    <div className="relative h-full flex flex-col animate-fade-in overflow-hidden">
+      {/* Pexels video covers the entire page as a persistent background in every state —
+       * header, tabs, and content all float above it in the z-10 layer below, rather than
+       * the video being confined to a small top strip or just the empty idle state. */}
+      <PexelsHeaderBanner brandName={activeProject?.brand || activeProject?.name} variant="fullscreen" />
+      <div className="relative z-10 h-full flex flex-col min-h-0">
       {/* ── Header ── */}
-      <div className="shrink-0 px-8 pt-6 pb-4 border-b border-slate-100">
+      <div className="shrink-0 px-8 pt-6 pb-4 border-b border-white/15">
         <div className="flex items-center justify-between mb-1">
-          <div>
-            <h1 className="text-xl font-semibold text-slate-900">Search Strategy</h1>
-            <p className="text-sm text-slate-500 mt-0.5">
-              Meltwater Boolean queries for <span className="font-medium text-slate-700">{activeProject?.name ?? "Research Project"}</span>
-            </p>
+          <div className="flex items-center gap-3">
+            {(activeProject?.brand || activeProject?.name) && (
+              <BrandLogo brandName={activeProject?.brand || activeProject?.name || ""} size={36} rounded="lg" className="shadow-lg shrink-0" />
+            )}
+            <div>
+              <h1 className="text-xl font-semibold text-white" style={{ textShadow: "0 1px 4px rgba(0,0,0,0.6)" }}>Search Strategy</h1>
+              <p className="text-sm text-white/80 mt-0.5" style={{ textShadow: "0 1px 3px rgba(0,0,0,0.6)" }}>
+                Meltwater Boolean queries for <span className="font-medium text-white">{activeProject?.name ?? "Research Project"}</span>
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
-            {copied && <span className="text-xs text-emerald-600 font-medium animate-fade-in">Copied!</span>}
+            {copied && <span className="text-xs text-emerald-300 font-medium animate-fade-in">Copied!</span>}
             {hasData && (
               <button
                 onClick={exportToExcel}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border rounded-lg transition-colors hover:bg-slate-50"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border rounded-lg transition-colors bg-white/90 hover:bg-white backdrop-blur-sm"
                 style={{ color: V, borderColor: "#ddd6fe" }}
               >
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
@@ -474,38 +591,40 @@ export function SearchStrategy({ onNavigate }: Props) {
               </span>
             )}
             {hasData && meta.elapsed_seconds && (
-              <span className="text-[11px] text-slate-400">Generated in {meta.elapsed_seconds}s</span>
+              <span className="text-[11px] text-white/70" style={{ textShadow: "0 1px 2px rgba(0,0,0,0.6)" }}>Generated in {meta.elapsed_seconds}s</span>
             )}
           </div>
         </div>
       </div>
 
-      {/* ── Idle: generate prompt ── */}
+      {/* ── Idle: generate prompt — full-bleed Pexels video background, content card on top ── */}
       {liveState === "idle" && !strategy && (
-        <div className="flex-1 flex items-center justify-center p-8">
-          <div className="text-center max-w-md space-y-5">
-            <div className="w-16 h-16 rounded-2xl mx-auto flex items-center justify-center" style={{ background: "#f5f3ff" }}>
-              <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke={V} strokeWidth="1.5">
-                <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
-              </svg>
+        <div className="flex-1 overflow-hidden">
+          <div className="h-full flex items-center justify-center p-8">
+            <div className="text-center max-w-md space-y-5 bg-white rounded-2xl shadow-2xl p-8">
+              <div className="w-16 h-16 rounded-2xl mx-auto flex items-center justify-center" style={{ background: "#f5f3ff" }}>
+                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke={V} strokeWidth="1.5">
+                  <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-slate-800 mb-1">Generate Search Strategy</h3>
+                <p className="text-sm text-slate-500 leading-relaxed">
+                  {projectId
+                    ? "Build Meltwater Boolean queries from your approved background research. The AI will create query modules, three precision levels, and per-question queries."
+                    : "Approve Background Research first, then return here to generate."
+                  }
+                </p>
+              </div>
+              <button
+                onClick={generateStrategy}
+                disabled={!projectId}
+                className="px-6 py-2.5 text-sm font-medium text-white rounded-lg transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ background: projectId ? V : "#94a3b8" }}
+              >
+                Generate Strategy
+              </button>
             </div>
-            <div>
-              <h3 className="text-base font-semibold text-slate-800 mb-1">Generate Search Strategy</h3>
-              <p className="text-sm text-slate-500 leading-relaxed">
-                {projectId
-                  ? "Build Meltwater Boolean queries from your approved background research. The AI will create query modules, three precision levels, and per-question queries."
-                  : "Approve Background Research first, then return here to generate."
-                }
-              </p>
-            </div>
-            <button
-              onClick={generateStrategy}
-              disabled={!projectId}
-              className="px-6 py-2.5 text-sm font-medium text-white rounded-lg transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{ background: projectId ? V : "#94a3b8" }}
-            >
-              Generate Strategy
-            </button>
           </div>
         </div>
       )}
@@ -514,7 +633,7 @@ export function SearchStrategy({ onNavigate }: Props) {
       {liveState === "generating" && (
         <div className="flex-1 flex items-center justify-center p-8">
           <div className="w-full max-w-lg">
-            <ProgressBar pct={jobProgress.pct} message={jobProgress.message} />
+            <ProgressBar pct={jobProgress.pct} message={jobProgress.message} log={jobLog} />
           </div>
         </div>
       )}
@@ -551,23 +670,24 @@ export function SearchStrategy({ onNavigate }: Props) {
             </div>
           )}
 
-          {/* Tab bar */}
+          {/* Tab bar — text/underline tuned for legibility directly over the video background */}
           <div className="shrink-0 px-8 pt-4 pb-0">
-            <div className="flex items-center gap-1 border-b border-slate-200">
+            <div className="flex items-center gap-1 border-b border-white/25">
               {tabs.map((t) => (
                 <button
                   key={t.id}
                   onClick={() => setTab(t.id)}
-                  className={`px-4 py-2.5 text-xs font-medium border-b-2 transition-all -mb-px ${
+                  className={`px-4 py-2.5 text-xs font-medium border-b-2 transition-all -mb-px rounded-t-lg ${
                     tab === t.id
-                      ? "border-current text-[#5B2C9D]"
-                      : "border-transparent text-slate-400 hover:text-slate-600"
+                      ? "border-current text-[#5B2C9D] bg-white/90 backdrop-blur-sm"
+                      : "border-transparent text-white/80 hover:text-white"
                   }`}
+                  style={tab !== t.id ? { textShadow: "0 1px 2px rgba(0,0,0,0.6)" } : undefined}
                 >
                   {t.label}
                   {t.count !== undefined && (
                     <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full ${
-                      tab === t.id ? "bg-violet-100 text-violet-700" : "bg-slate-100 text-slate-500"
+                      tab === t.id ? "bg-violet-100 text-violet-700" : "bg-white/20 text-white"
                     }`}>{t.count}</span>
                   )}
                 </button>
@@ -580,7 +700,7 @@ export function SearchStrategy({ onNavigate }: Props) {
 
             {/* ── Overview ── */}
             {tab === "overview" && (
-              <div className="space-y-6 max-w-4xl animate-fade-in">
+              <div className="space-y-6 max-w-4xl mx-auto animate-fade-in">
                 {/* Summary */}
                 <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
                   <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Strategy Summary</h3>
@@ -676,7 +796,7 @@ export function SearchStrategy({ onNavigate }: Props) {
 
             {/* ── Modules ── */}
             {tab === "modules" && (
-              <div className="space-y-4 max-w-4xl animate-fade-in">
+              <div className="space-y-4 max-w-4xl mx-auto animate-fade-in">
                 {queryModules.map((m: any, i: number) => (
                   <div key={i} className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
                     <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-50">
@@ -729,7 +849,7 @@ export function SearchStrategy({ onNavigate }: Props) {
 
             {/* ── RQ Queries ── */}
             {tab === "queries" && (
-              <div className="space-y-4 max-w-4xl animate-fade-in">
+              <div className="space-y-4 max-w-4xl mx-auto animate-fade-in">
                 {rqQueries.map((q: any, i: number) => (
                   <div key={i} className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
                     <div className="flex items-center gap-3 px-5 py-3.5 border-b border-slate-50">
@@ -742,7 +862,7 @@ export function SearchStrategy({ onNavigate }: Props) {
                         label={`${q.question_id} Query`}
                         onCopy={() => handleCopy(q.query || "")}
                         editable
-                        onEdit={(text) => handleQueryEdit(q.question_id, text)}
+                        onEdit={(text) => handleRQEdit(q.question_id, q.question, text)}
                       />
                       {q.rationale && (
                         <p className="text-xs text-slate-500 mt-3 px-1 leading-relaxed">{q.rationale}</p>
@@ -755,7 +875,7 @@ export function SearchStrategy({ onNavigate }: Props) {
 
             {/* ── Exclusions ── */}
             {tab === "exclusions" && (
-              <div className="space-y-4 max-w-4xl animate-fade-in">
+              <div className="space-y-4 max-w-4xl mx-auto animate-fade-in">
                 {globalExclusions && (
                   <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
                     <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Global NOT String</h3>
@@ -782,7 +902,7 @@ export function SearchStrategy({ onNavigate }: Props) {
 
             {/* ── Filters ── */}
             {tab === "filters" && (
-              <div className="space-y-4 max-w-4xl animate-fade-in">
+              <div className="space-y-4 max-w-4xl mx-auto animate-fade-in">
                 <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
                   <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-4">Meltwater Filter Configuration</h3>
                   <div className="space-y-4">
@@ -792,7 +912,13 @@ export function SearchStrategy({ onNavigate }: Props) {
                     </div>
                     <div className="flex justify-between items-start border-b border-slate-50 pb-3">
                       <span className="text-xs text-slate-500 w-32 shrink-0">Geography</span>
-                      <span className="text-sm text-slate-700">{(filterRecs.geography || []).join(", ") || "—"}</span>
+                      <div className="flex flex-wrap gap-2 justify-end">
+                        {(filterRecs.geography || []).length > 0
+                          ? (filterRecs.geography as string[]).map((g, i) => (
+                              <CountryFlag key={i} country={g} size={16} showLabel className="text-sm text-slate-700" />
+                            ))
+                          : <span className="text-sm text-slate-700">—</span>}
+                      </div>
                     </div>
                     <div className="flex justify-between items-start border-b border-slate-50 pb-3">
                       <span className="text-xs text-slate-500 w-32 shrink-0">Language</span>
@@ -810,7 +936,7 @@ export function SearchStrategy({ onNavigate }: Props) {
                       <span className="text-xs text-slate-500 w-32 shrink-0">Platforms</span>
                       <div className="flex flex-wrap gap-1.5 justify-end">
                         {platforms.map((p, i) => (
-                          <span key={i} className="text-xs text-slate-600 bg-slate-50 px-2 py-0.5 rounded border border-slate-100">{p}</span>
+                          <PlatformBadge key={i} name={p} />
                         ))}
                       </div>
                     </div>
@@ -821,15 +947,20 @@ export function SearchStrategy({ onNavigate }: Props) {
                   <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5">
                     <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-4">Additional Filter Recommendations</h3>
                     <div className="space-y-4">
-                      {additionalFilters.map((f: any, i: number) => (
-                        <div key={i} className={`${i < additionalFilters.length - 1 ? "border-b border-slate-50 pb-4" : ""}`}>
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-sm font-medium text-slate-800">{f.filter}</span>
+                      {additionalFilters.map((f: any, i: number) => {
+                        const isCountryFilter = /country|geograph/i.test(f.filter || "");
+                        return (
+                          <div key={i} className={`${i < additionalFilters.length - 1 ? "border-b border-slate-50 pb-4" : ""}`}>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-sm font-medium text-slate-800">{f.filter}</span>
+                            </div>
+                            {isCountryFilter && f.value
+                              ? <CountryFlag country={f.value} size={14} showLabel className="text-xs text-slate-600 mb-1" />
+                              : <div className="text-xs text-slate-600 mb-1">{f.value}</div>}
+                            <div className="text-[11px] text-slate-400">{f.reason}</div>
                           </div>
-                          <div className="text-xs text-slate-600 mb-1">{f.value}</div>
-                          <div className="text-[11px] text-slate-400">{f.reason}</div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -838,7 +969,7 @@ export function SearchStrategy({ onNavigate }: Props) {
 
             {/* ── Quality Score ── */}
             {tab === "score" && (
-              <div className="space-y-4 max-w-4xl animate-fade-in">
+              <div className="space-y-4 max-w-4xl mx-auto animate-fade-in">
                 <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
                   <div className="flex items-center gap-6 mb-6">
                     <div className="w-20 h-20 rounded-2xl flex items-center justify-center" style={{
@@ -891,7 +1022,7 @@ export function SearchStrategy({ onNavigate }: Props) {
 
             {/* ── Sample Evaluation ── */}
             {tab === "evaluation" && (
-              <div className="space-y-4 max-w-4xl animate-fade-in">
+              <div className="space-y-4 max-w-4xl mx-auto animate-fade-in">
                 {!evaluation ? (
                   <div className="bg-white border-2 border-dashed border-slate-200 rounded-xl p-8 text-center space-y-4">
                     <div className="w-14 h-14 rounded-2xl mx-auto flex items-center justify-center" style={{ background: "#f5f3ff" }}>
@@ -937,6 +1068,72 @@ export function SearchStrategy({ onNavigate }: Props) {
                         <div className="space-y-2">
                           <ScoreGauge score={Math.round(((evaluation.evaluation as any).precision_estimate || 0) * 10)} label="Precision" />
                         </div>
+
+                        {/* Coverage by Research Question — computed from how many uploaded
+                            sample records actually matched each RQ's query terms. This is the
+                            real, measured counterpart to the Quality tab's coverage_score,
+                            which is just the LLM's own self-rated guess made before any real
+                            data existed. */}
+                        {Object.keys((evaluation.evaluation as any).coverage_by_research_question || {}).length > 0 && (
+                          <div className="pt-2 border-t border-slate-100">
+                            <h4 className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Coverage by Research Question</h4>
+                            <div className="space-y-2">
+                              {Object.entries((evaluation.evaluation as any).coverage_by_research_question as Record<string, any>).map(([qid, info]) => {
+                                const statusStyle: Record<string, { color: string; label: string }> = {
+                                  no_coverage: { color: "#dc2626", label: "No matches" },
+                                  low_coverage: { color: "#d97706", label: "Low" },
+                                  moderate_coverage: { color: "#2563eb", label: "Moderate" },
+                                  good_coverage: { color: "#059669", label: "Good" },
+                                };
+                                const s = statusStyle[info.status] || { color: "#64748b", label: info.status };
+                                return (
+                                  <div key={qid} className="flex items-center justify-between gap-3 text-xs border-b border-slate-50 pb-2">
+                                    <div className="min-w-0 truncate">
+                                      <span className="font-semibold text-slate-700 mr-1.5">{qid}</span>
+                                      <span className="text-slate-500">{info.question}</span>
+                                    </div>
+                                    <span className="shrink-0 font-medium px-2 py-0.5 rounded-full" style={{ color: s.color, background: `${s.color}18` }}>
+                                      {s.label} ({info.record_count})
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Suggested additions/exclusions, derived from the same sample */}
+                        {(((evaluation.evaluation as any).recommended_additions?.length > 0) ||
+                          ((evaluation.evaluation as any).recommended_exclusions?.length > 0)) && (
+                          <div className="pt-2 border-t border-slate-100 grid grid-cols-2 gap-4">
+                            {(evaluation.evaluation as any).recommended_additions?.length > 0 && (
+                              <div>
+                                <h4 className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wider mb-2">Suggested Additions</h4>
+                                <div className="space-y-1.5">
+                                  {(evaluation.evaluation as any).recommended_additions.map((a: any, i: number) => (
+                                    <div key={i} className="text-xs text-slate-600">
+                                      <span className="font-mono font-semibold text-emerald-700">{a.term || a.question || a.research_question_id}</span>
+                                      {" — "}{a.reason}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {(evaluation.evaluation as any).recommended_exclusions?.length > 0 && (
+                              <div>
+                                <h4 className="text-[10px] font-semibold text-red-600 uppercase tracking-wider mb-2">Suggested Exclusions</h4>
+                                <div className="space-y-1.5">
+                                  {(evaluation.evaluation as any).recommended_exclusions.map((a: any, i: number) => (
+                                    <div key={i} className="text-xs text-slate-600">
+                                      <span className="font-mono font-semibold text-red-700">{a.term || a.domain}</span>
+                                      {" — "}{a.reason}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <p className="text-sm text-slate-500">Evaluation in progress...</p>
@@ -949,7 +1146,7 @@ export function SearchStrategy({ onNavigate }: Props) {
 
           {/* ── Bottom bar ── */}
           <div className="shrink-0 px-8 py-4 border-t border-slate-200 bg-white">
-            <div className="flex items-center justify-between max-w-4xl">
+            <div className="flex items-center justify-between max-w-4xl mx-auto">
               <button onClick={() => onNavigate("background-research")}
                 className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-700 transition-colors">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
@@ -988,6 +1185,7 @@ export function SearchStrategy({ onNavigate }: Props) {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

@@ -1268,6 +1268,62 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
         "(SELECT id FROM organizations WHERE name = 'Default Organization') "
         "WHERE org_id IS NULL",
     ]),
+    # Org-managed Tavily/SerpAPI keys (see domains/datasources/) — Admin enters the key,
+    # status flips to 'expired' reactively the first time a real search call using it gets
+    # an auth error (401/403), and back to 'ok' on the next successful call.
+    (14, "org data source credentials", ["""
+        CREATE TABLE IF NOT EXISTS org_data_sources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            org_id INTEGER NOT NULL REFERENCES organizations(id),
+            source TEXT NOT NULL CHECK (source IN ('tavily', 'serpapi')),
+            api_key TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'ok' CHECK (status IN ('ok', 'expired')),
+            expired_at REAL,
+            last_error TEXT,
+            updated_at REAL NOT NULL,
+            updated_by_user_id INTEGER REFERENCES users(id),
+            UNIQUE(org_id, source)
+        )"""]),
+    # Full-article extraction cache for the "All Articles" reader popup (see
+    # domains/research/article_extractor.py) — keyed by URL (not research-item id) since the
+    # same article URL can appear across multiple items/projects and should only be scraped
+    # once. blocks_json is an ordered list of {"type": "paragraph"|"heading"|"image", ...}
+    # preserving the original page's interleaving of text and images.
+    (15, "article full-text cache", ["""
+        CREATE TABLE IF NOT EXISTS research_article_fulltext (
+            url TEXT PRIMARY KEY,
+            status TEXT NOT NULL CHECK (status IN ('ok', 'failed', 'paywalled')),
+            title TEXT,
+            blocks_json TEXT,
+            error TEXT,
+            fetched_at REAL NOT NULL
+        )"""]),
+    # A user's primary org stays `users.org_id` (unchanged — still what every existing
+    # permission check and org-scoped query keys off). This table adds *additional*
+    # organization memberships on top — e.g. an Analyser who also helps out another org —
+    # surfaced read-only in ProfileMenu ("orgs you're mapped to"). UNIQUE(user_id, org_id)
+    # is the "no duplicate membership in the same org" guarantee.
+    (16, "additional user-organization memberships", ["""
+        CREATE TABLE IF NOT EXISTS user_organizations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            org_id INTEGER NOT NULL REFERENCES organizations(id),
+            added_at REAL NOT NULL,
+            UNIQUE(user_id, org_id)
+        )"""]),
+    # Social-media posts (Facebook/Instagram/Twitter/TikTok) aren't articles — no paragraph
+    # content, and most of these sites actively block scrapers — so article_extractor.py
+    # skips extraction for them entirely and just records which platform + (for YouTube)
+    # an embeddable video, rather than a failed/paywalled scrape attempt.
+    (17, "article cache platform/embed columns", [
+        "ALTER TABLE research_article_fulltext ADD COLUMN platform TEXT",
+        "ALTER TABLE research_article_fulltext ADD COLUMN embed_url TEXT",
+    ]),
+    (18, "dataset enrichment", [
+        "ALTER TABLE intel_datasets ADD COLUMN enrichment_status TEXT",
+        "ALTER TABLE intel_datasets ADD COLUMN enrichment_json TEXT",
+        "ALTER TABLE intel_datasets ADD COLUMN enrichment_error TEXT",
+    ]),
 ]
 
 

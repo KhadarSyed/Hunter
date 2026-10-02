@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { intelApi, type ResearchItem } from "../services/intel-api";
+import { ArticleReaderModal } from "./ArticleReaderModal";
 
 function faviconUrl(domain: string | null): string | null {
   if (!domain) return null;
   return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`;
 }
 
-function sourceLabel(sourceApi: string): string {
+function singleSourceLabel(sourceApi: string): string {
   switch (sourceApi) {
     case "google_news_rss":
       return "Google RSS";
@@ -17,6 +18,13 @@ function sourceLabel(sourceApi: string): string {
     default:
       return sourceApi;
   }
+}
+
+/** source_api accumulates every source that reported this same article's URL as a
+ * comma-joined string (see repository.py's upsert_research_item) — e.g. a row found by
+ * both SerpAPI and Google News RSS shows "SerpAPI + Google RSS" instead of just one. */
+function sourceLabel(sourceApi: string): string {
+  return sourceApi.split(",").filter(Boolean).map(singleSourceLabel).join(" + ");
 }
 
 function formatDate(ts: number): string {
@@ -41,6 +49,7 @@ interface ResearchItemsTableProps {
 export function ResearchItemsTable({ projectId }: ResearchItemsTableProps) {
   const [items, setItems] = useState<ResearchItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [readingItem, setReadingItem] = useState<ResearchItem | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -142,6 +151,12 @@ export function ResearchItemsTable({ projectId }: ResearchItemsTableProps) {
                       >
                         {item.title || "(untitled)"}
                       </a>
+                      <button
+                        onClick={() => setReadingItem(item)}
+                        className="block mt-1 text-[10px] font-medium text-slate-400 hover:text-[#5B2C9D] hover:underline"
+                      >
+                        Read full article
+                      </button>
                     </td>
                     <td className="px-3 py-2.5 max-w-sm">
                       <span className="text-slate-600 line-clamp-2">{item.content || "—"}</span>
@@ -184,6 +199,13 @@ export function ResearchItemsTable({ projectId }: ResearchItemsTableProps) {
           </table>
         </div>
       </div>
+      {readingItem && (
+        <ArticleReaderModal
+          itemId={readingItem.id}
+          sourceUrl={readingItem.url}
+          onClose={() => setReadingItem(null)}
+        />
+      )}
     </div>
   );
 }

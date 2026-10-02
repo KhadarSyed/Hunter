@@ -73,10 +73,10 @@ def update_strategy_query(strategy_id: int, query_type: str, query_text: str) ->
     row = conn.execute("SELECT strategy_json FROM intel_search_strategies WHERE id = ?", (strategy_id,)).fetchone()
     if row:
         strategy = json.loads(row["strategy_json"])
-        if "core_queries" in strategy:
-            for q in strategy["core_queries"]:
-                if q.get("type") == query_type:
-                    q["query"] = query_text
+        query_versions = strategy.get("query_versions", {})
+        if query_type in query_versions:
+            query_versions[query_type]["query"] = query_text
+            strategy["query_versions"] = query_versions
             conn.execute(
                 "UPDATE intel_search_strategies SET strategy_json = ? WHERE id = ?",
                 (json.dumps(strategy), strategy_id),
@@ -261,6 +261,76 @@ def delete_dataset(dataset_id: int) -> bool:
     conn.commit()
     conn.close()
     return True
+
+
+def get_dataset_by_id(dataset_id: int) -> dict | None:
+    conn = _conn()
+    row = conn.execute("SELECT * FROM intel_datasets WHERE id = ?", (dataset_id,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    d = dict(row)
+    d["column_mapping"] = json.loads(d["column_mapping_json"]) if d.get("column_mapping_json") else {}
+    d["stats"] = json.loads(d["stats_json"]) if d.get("stats_json") else {}
+    return d
+
+
+def update_enriched_record(dataset_id: int, record_id: str, updates: dict) -> dict | None:
+    """Merge analyst edits (review_status, or any corrected tag field) into one
+    record within a dataset's enrichment_json array. Returns the updated record,
+    or None if the dataset has no enrichment yet or the record id isn't in it."""
+    conn = _conn()
+    row = conn.execute("SELECT enrichment_json FROM intel_datasets WHERE id = ?", (dataset_id,)).fetchone()
+    if not row or not row["enrichment_json"]:
+        conn.close()
+        return None
+    records = json.loads(row["enrichment_json"])
+    updated = None
+    for rec in records:
+        if str(rec.get("id")) == str(record_id):
+            rec.update(updates)
+            updated = rec
+            break
+    if updated is not None:
+        conn.execute("UPDATE intel_datasets SET enrichment_json = ? WHERE id = ?", (json.dumps(records), dataset_id))
+        conn.commit()
+    conn.close()
+    return updated
+
+
+def update_dataset_enrichment(dataset_id: int, status: str, enrichment: list | None = None, error: str | None = None):
+    conn = _conn()
+    conn.execute(
+        "UPDATE intel_datasets SET enrichment_status = ?, enrichment_json = ?, enrichment_error = ? WHERE id = ?",
+        (status, json.dumps(enrichment) if enrichment is not None else None, error, dataset_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_enriched_records_by_project(project_id: int) -> list[dict]:
+    """Every enriched record across every dataset for this project, each tagged
+    with its source dataset_id/file_name/research_question_id — the Data Sources
+    Review tab's feed, aggregated across however many files were enriched."""
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT id, file_name, research_question_id, enrichment_json FROM intel_datasets "
+        "WHERE project_id = ? AND enrichment_status = 'done' AND enrichment_json IS NOT NULL "
+        "ORDER BY created_at ASC",
+        (project_id,),
+    ).fetchall()
+    conn.close()
+    out: list[dict] = []
+    for row in rows:
+        records = json.loads(row["enrichment_json"]) or []
+        for rec in records:
+            out.append({
+                **rec,
+                "dataset_id": row["id"],
+                "dataset_file_name": row["file_name"],
+                "research_question_id": row["research_question_id"],
+            })
+    return out
 
 
 # ─── Evaluation ────────────────────────────────────────────────────────

@@ -120,6 +120,7 @@ def generate_spec(
 
     if use_llm and llm_client and raw_brief_text:
         from ...agents.brief_scope import run as run_brief_scope
+        from ...agents.entity_grounding import ground_missing_entities
         result = run_brief_scope(
             raw_brief_text,
             llm_client,
@@ -128,8 +129,12 @@ def generate_spec(
             emit=emit,
         )
         if result.get("spec"):
+            _emit("grounding_entities")
+            brand_name = ((result["spec"].get("commissioning_brand") or {}).get("name")
+                          or project.get("brand") or "")
+            grounded_spec = ground_missing_entities(result["spec"], brand_name, llm_client)
             _emit("merging_form_context")
-            project_spec = _apply_form_context(result["spec"], project_spec)
+            project_spec = _apply_form_context(grounded_spec, project_spec)
             store.update_project_spec(project_id, project_spec)
         else:
             _emit("brief_scope_incomplete", {"validation_errors": result.get("validation_errors", [])})
@@ -221,6 +226,7 @@ def regenerate_spec(
     project_spec = project.get("spec", {})
     if use_llm and llm_client and raw_brief_text:
         from ...agents.brief_scope import run as run_brief_scope
+        from ...agents.entity_grounding import ground_missing_entities
         result = run_brief_scope(
             raw_brief_text, llm_client,
             brief_filename=project.get("project_name", ""),
@@ -228,8 +234,12 @@ def regenerate_spec(
             emit=emit,
         )
         if result.get("spec"):
+            _emit("grounding_entities")
+            brand_name = ((result["spec"].get("commissioning_brand") or {}).get("name")
+                          or project.get("brand") or "")
+            grounded_spec = ground_missing_entities(result["spec"], brand_name, llm_client)
             _emit("merging_form_context")
-            project_spec = _apply_form_context(result["spec"], project_spec)
+            project_spec = _apply_form_context(grounded_spec, project_spec)
             store.update_project_spec(project_id, project_spec)
         else:
             _emit("brief_scope_incomplete", {"validation_errors": result.get("validation_errors", [])})
@@ -507,6 +517,36 @@ def _build_entities(spec: dict) -> list[dict]:
             if ent.get("keywords"):
                 built["keywords"] = ent["keywords"]
             result.append(built)
+
+    # brief_scope.py's own schema makes `industry` and `research_audience` mandatory
+    # top-level fields (every brief has one, even if not stated explicitly — see its
+    # system prompt), but whether the LLM *also* duplicates that same information into
+    # validated_entities as a "category"/"audience"-typed entity varies run to run. The
+    # Brief & Scope review page's Categories/Audiences cards only read from this entities
+    # list, so without this fallback they silently disappear whenever the LLM happened not
+    # to duplicate them — even though the underlying industry/audience data is right there.
+    if not any(e["type"] == "category" for e in result):
+        industry = spec.get("industry", {})
+        name = industry.get("name") if isinstance(industry, dict) else None
+        if name:
+            result.append({
+                "name": name,
+                "type": "category",
+                "confidence": "high",
+                "reasoning": industry.get("reasoning", "") if isinstance(industry, dict) else "",
+                "alternatives_considered": [],
+            })
+    if not any(e["type"] == "audience" for e in result):
+        research_audience = spec.get("research_audience", {})
+        description = research_audience.get("description") if isinstance(research_audience, dict) else None
+        if description:
+            result.append({
+                "name": description,
+                "type": "audience",
+                "confidence": "high",
+                "reasoning": "The research audience named in the project specification.",
+                "alternatives_considered": [],
+            })
     return result
 
 

@@ -404,6 +404,8 @@ class LiveWebResearchAdapter:
         project_id: int,
         research_id: int | None = None,
         emit: EventFn | None = None,
+        api_keys: dict[str, str] | None = None,
+        on_source_result=None,
     ) -> dict:
         """Execute the complete brand research workflow.
 
@@ -436,6 +438,7 @@ class LiveWebResearchAdapter:
         fetch_result = fetch_and_persist(
             project_id=project_id, topics=topics, date_range=date_range,
             geography=geography, research_id=research_id, emit=_emit,
+            api_keys=api_keys, on_source_result=on_source_result,
         )
 
         from . import repository as research_repository

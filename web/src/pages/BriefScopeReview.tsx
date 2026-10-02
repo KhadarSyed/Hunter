@@ -270,19 +270,24 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
   useAgentSocket(handleJobMessage);
 
   // Dynamic, brand-related header background photo (Pexels) — keyed on the brand/client
-  // name once known, falling back to the project name.
+  // name once known, falling back to the project name. A bare brand name that's also a
+  // common dictionary word (Apple, Dove, Target, Shell...) returns Pexels' literal stock
+  // photos for that word instead of corporate/brand imagery — confirmed live ("Apple"
+  // alone surfaced fruit photography) — so "company" is always appended to steer the
+  // search toward business/brand stock imagery rather than the word's literal meaning.
   const bgQuery = activeProject?.brand || activeProject?.name || "";
+  const pexelsQuery = bgQuery ? `${bgQuery} company` : "";
   useEffect(() => {
-    if (!bgQuery.trim()) return;
+    if (!pexelsQuery.trim()) return;
     let cancelled = false;
-    intelApi.getPexelsImage(bgQuery).then((res) => {
+    intelApi.getPexelsImage(pexelsQuery).then((res) => {
       if (cancelled) return;
       setBgImage(res.image_url);
       setBgVideo(res.video_url);
       setPexelsSourceUrl(res.source_url);
     }).catch(() => {});
     return () => { cancelled = true; };
-  }, [bgQuery]);
+  }, [pexelsQuery]);
 
   const handleGenerate = async () => {
     if (!activeProjectId) return;
@@ -723,13 +728,13 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
               <button
                 onClick={openReanalyze}
                 disabled={!!activeJob}
-                title="Not happy with this briefing? Edit the brief and reanalyze."
+                title="Not happy with this briefing? Edit the brief and request a revision."
                 className="flex items-center gap-1 text-xs font-medium text-slate-500 border border-slate-200 bg-white/80 px-2.5 py-1.5 rounded-lg hover:bg-slate-50 hover:text-slate-700 transition-colors disabled:opacity-40"
               >
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M20 20v-5h-5M4.6 15a8 8 0 0014.7 2.3M19.4 9A8 8 0 004.7 6.7" />
                 </svg>
-                Reanalyze
+                Request Revision
               </button>
               <button
                 onClick={handleDownloadDocx}

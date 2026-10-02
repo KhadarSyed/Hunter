@@ -206,8 +206,25 @@ def save_youtube_video(query_key: str, query_text: str, video_id: str | None, em
 # ─── Research Items (multi-source pipeline) ──────────────────────────────────
 
 def upsert_research_item(project_id: int, research_id: int | None, item: dict) -> int:
+    """Same (project_id, url) across two sources (e.g. SerpAPI finds it, then Google News
+    RSS finds the same real article once its wrapper link is decoded) is a natural
+    cross-source duplicate, not a second article — ON CONFLICT merges it into the one row.
+    source_api accumulates every distinct source that reported this URL (comma-joined, e.g.
+    "serpapi,google_news_rss") instead of the later source silently overwriting the earlier
+    one's attribution, so the "All Articles" table can show all of them for that row."""
     conn = _conn()
     now = time.time()
+    existing = conn.execute(
+        "SELECT source_api FROM intel_research_items WHERE project_id = ? AND url = ?",
+        (project_id, item["url"]),
+    ).fetchone()
+    source_api = item["source_api"]
+    if existing and existing["source_api"]:
+        existing_sources = [s for s in existing["source_api"].split(",") if s]
+        if source_api not in existing_sources:
+            source_api = ",".join(existing_sources + [source_api])
+        else:
+            source_api = existing["source_api"]
     conn.execute(
         "INSERT INTO intel_research_items "
         "(project_id, research_id, topic, source_api, platform, publication, "
@@ -220,7 +237,7 @@ def upsert_research_item(project_id: int, research_id: int | None, item: dict) -
         "title = excluded.title, content = excluded.content, author = excluded.author, "
         "thumbnail_url = excluded.thumbnail_url",
         (
-            project_id, research_id, item["topic"], item["source_api"], item.get("platform"),
+            project_id, research_id, item["topic"], source_api, item.get("platform"),
             item.get("publication"), item["published_date"], item.get("title"),
             item.get("content"), item["url"], item.get("author"), item.get("thumbnail_url"), now,
         ),
@@ -232,6 +249,13 @@ def upsert_research_item(project_id: int, research_id: int | None, item: dict) -
     ).fetchone()
     conn.close()
     return row["id"]
+
+
+def get_research_item(item_id: int) -> dict | None:
+    conn = _conn()
+    row = conn.execute("SELECT * FROM intel_research_items WHERE id = ?", (item_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
 
 
 def get_research_items(project_id: int, topic: str | None = None,

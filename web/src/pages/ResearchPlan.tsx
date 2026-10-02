@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useDemoState } from "../context/demo-state";
 import { intelApi, type PlanResult, type JobStatus } from "../services/intel-api";
-import { useActiveProjectId } from "../context/project-context";
+import { useActiveProjectId, useProject } from "../context/project-context";
+import { PexelsHeaderBanner } from "../components/PexelsHeaderBanner";
 import type {
   ResearchPlanData,
   PlanObjective,
@@ -252,6 +253,7 @@ export function ResearchPlan({ onNavigate }: { onNavigate: (page: string) => voi
   const [approving, setApproving] = useState(false);
 
   const projectId = useActiveProjectId() ?? 1;
+  const { activeProject } = useProject();
 
   const loadPlan = useCallback(async () => {
     try {
@@ -470,6 +472,7 @@ export function ResearchPlan({ onNavigate }: { onNavigate: (page: string) => voi
 
   return (
     <div className="p-8 max-w-5xl mx-auto space-y-6 animate-fade-in">
+      <PexelsHeaderBanner brandName={activeProject?.brand || activeProject?.name} />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

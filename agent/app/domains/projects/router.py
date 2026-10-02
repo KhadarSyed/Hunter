@@ -19,6 +19,7 @@ from .schemas import (
     ProjectListItem,
     ProjectResponse,
     UpdateProjectRequest,
+    _require_project_fields,
 )
 
 router = APIRouter()
@@ -59,8 +60,18 @@ def get_project_route(project_id: Annotated[int, Path(ge=1)],
 @router.put("/projects/{project_id}", response_model=ProjectResponse)
 def update_project_route(project_id: Annotated[int, Path(ge=1)], req: UpdateProjectRequest,
                           _access: Annotated[dict, Depends(require_project_access)]):
-    if not store.get_project(project_id):
+    existing = store.get_project(project_id)
+    if not existing:
         raise HTTPException(404, "Project not found")
+    try:
+        _require_project_fields(
+            req.project_name if req.project_name is not None else existing["project_name"],
+            req.brand if req.brand is not None else existing.get("brand"),
+            existing.get("project_type") or "research",
+            {**(existing.get("spec") or {}), **(req.spec or {})},
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
     store.update_project(project_id, req.project_name, req.spec, req.brand)
     return store.get_project(project_id)
 

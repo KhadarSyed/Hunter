@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type { ReactNode, RefObject } from "react";
 import { intelApi } from "../services/intel-api";
 import type { LibraryItem, EvidenceDetail } from "../types/contracts";
-import { useActiveProjectId } from "../context/project-context";
+import { useActiveProjectId, useProject } from "../context/project-context";
+import { PexelsHeaderBanner } from "../components/PexelsHeaderBanner";
 
 const REVIEW_STATUSES = ["unreviewed", "accepted", "rejected", "needs_review", "superseded"];
 const CONFIDENCES = ["high", "medium", "low"];
@@ -383,6 +384,7 @@ interface LibrarySummaryMetricsLite {
 
 export function EvidenceLibrary({ onNavigate }: { onNavigate: (page: string) => void }) {
   const projectId = useActiveProjectId() ?? 1;
+  const { activeProject } = useProject();
 
   const [locked, setLocked] = useState<boolean | null>(null);
   const [summary, setSummary] = useState<LibrarySummaryMetricsLite | null>(null);
@@ -588,6 +590,7 @@ export function EvidenceLibrary({ onNavigate }: { onNavigate: (page: string) => 
 
   return (
     <div className="max-w-6xl mx-auto px-8 py-10">
+      <PexelsHeaderBanner brandName={activeProject?.brand || activeProject?.name} className="mb-6" />
       <div className="flex items-start justify-between mb-6">
         <div>
           <div className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1">Stage 7</div>

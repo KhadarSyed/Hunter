@@ -668,10 +668,22 @@ async def run(
         "status": "LLM producing brand intelligence...",
     })
 
+    # Same blocking-call gap as brief_scope.py: forward a throttled (max ~1/sec)
+    # character count from the streamed response so the UI shows real, elapsed-time
+    # progress instead of sitting frozen on "LLM producing brand intelligence...".
+    stream_state = {"chars": 0, "last_emit": time.time()}
+
+    def _on_token(delta: str) -> None:
+        stream_state["chars"] += len(delta)
+        now = time.time()
+        if now - stream_state["last_emit"] >= 1.0:
+            stream_state["last_emit"] = now
+            emit("brand_intelligence_streaming", {"chars": stream_state["chars"]})
+
     try:
         raw_response = llm_client.chat(
             messages,
-            on_token=lambda t: None,
+            on_token=_on_token,
             format_json=True,
         )
     except Exception as e:

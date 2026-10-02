@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { intelApi } from "../services/intel-api";
-import { useActiveProjectId } from "../context/project-context";
+import { useActiveProjectId, useProject } from "../context/project-context";
+import { PexelsHeaderBanner } from "../components/PexelsHeaderBanner";
 import type {
   PipelineProjectStatus,
   PipelineStageStatus,
@@ -48,6 +49,7 @@ function StatusBadge({ status }: { status: string }) {
 
 export function PipelineOrchestratorPage({ onNavigate }: { onNavigate: (p: string) => void }) {
   const activeProjectId = useActiveProjectId();
+  const { activeProject } = useProject();
   const [projectId, setProjectId] = useState<number | null>(activeProjectId);
   const [projectIdInput, setProjectIdInput] = useState(String(activeProjectId ?? 1));
   const [status, setStatus] = useState<PipelineProjectStatus | null>(null);
@@ -109,6 +111,7 @@ export function PipelineOrchestratorPage({ onNavigate }: { onNavigate: (p: strin
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
+      <PexelsHeaderBanner brandName={activeProject?.brand || activeProject?.name} className="mb-6" />
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>

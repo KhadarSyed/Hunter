@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useDemoState } from "../context/demo-state";
 import { useProject } from "../context/project-context";
+import { PexelsHeaderBanner } from "../components/PexelsHeaderBanner";
 
 function Card({ title, children, className = "" }: { title: string; children: React.ReactNode; className?: string }) {
   return (
@@ -104,6 +105,7 @@ export function QueryEvaluation({ onNavigate }: Props) {
 
   return (
     <div className="p-8 max-w-5xl mx-auto space-y-6 animate-fade-in">
+      <PexelsHeaderBanner brandName={activeProject?.brand || activeProject?.name} />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-slate-900">Query Evaluation Preview</h1>

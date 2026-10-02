@@ -798,10 +798,25 @@ def run(
 
         emit("brief_scope_reasoning", {"status": "LLM analyzing brief..."})
 
+        # The LLM call below is a single blocking request; without this, the UI would
+        # sit on "LLM analyzing brief..." with no further signal until it returns —
+        # which can be 30s+ for a large brief. client.chat()'s on_token callback fires
+        # per streamed token when passed one (see azure_openai_client.py), so forward a
+        # throttled (max ~1/sec) character count to emit() as real, elapsed-time-based
+        # evidence the call is progressing, not canned text.
+        stream_state = {"chars": 0, "last_emit": time.time()}
+
+        def _on_token(delta: str, _attempt=attempt) -> None:
+            stream_state["chars"] += len(delta)
+            now = time.time()
+            if now - stream_state["last_emit"] >= 1.0:
+                stream_state["last_emit"] = now
+                emit("brief_scope_streaming", {"attempt": _attempt, "chars": stream_state["chars"]})
+
         try:
             raw_response = client.chat(
                 messages,
-                on_token=lambda t: None,
+                on_token=_on_token,
                 format_json=True,
             )
         except Exception as e:

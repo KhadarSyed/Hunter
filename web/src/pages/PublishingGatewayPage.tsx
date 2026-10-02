@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { intelApi as api } from "../services/intel-api";
-import { useActiveProjectId } from "../context/project-context";
+import { useActiveProjectId, useProject } from "../context/project-context";
+import { PexelsHeaderBanner } from "../components/PexelsHeaderBanner";
 import type {
   PubValidationResult, PubDiffReport, PubReadinessSummary,
   PubVersion, PubApproval, PubAuditEntry, PubPackage, PubIssue,
@@ -60,6 +61,7 @@ function scorePct(n: number) {
 
 export function PublishingGatewayPage({ onNavigate }: Props) {
   const activeProjectId = useActiveProjectId();
+  const { activeProject } = useProject();
   const [projects, setProjects] = useState<any[]>([]);
   const [presentations, setPresentations] = useState<any[]>([]);
   const [projectId, setProjectId] = useState<number | null>(activeProjectId);
@@ -131,6 +133,7 @@ export function PublishingGatewayPage({ onNavigate }: Props) {
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
+      <PexelsHeaderBanner brandName={activeProject?.brand || activeProject?.name} />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { intelApi } from "../services/intel-api";
+import { intelApi, type JobStatus } from "../services/intel-api";
 import { useActiveProjectId, useProject } from "../context/project-context";
 import { useDemoState } from "../context/demo-state";
+import { EnrichedArticlesTable } from "../components/EnrichedArticlesTable";
 
 const V = "#5B2C9D";
 
@@ -21,9 +22,16 @@ interface DatasetRecord {
   processing_status: string;
   processing_error: string | null;
   approval_status: string;
+  enrichment_status: string | null;
+  enrichment_error: string | null;
   stats: Record<string, any>;
   column_mapping: Record<string, any>;
   preview: Record<string, string>[];
+}
+
+interface EnrichLogEntry {
+  message: string;
+  pct: number | null;
 }
 
 interface Props {
@@ -32,36 +40,44 @@ interface Props {
 
 function RQCard({
   rq,
-  dataset,
+  datasets,
   uploading,
   onUpload,
   onApprove,
   onDelete,
-  onExpand,
-  expanded,
+  expandedId,
+  onToggleExpand,
   onEditRQ,
   onDeleteRQ,
+  onEnrich,
+  enrichingIds,
+  enrichLogs,
 }: {
   rq: RQ;
-  dataset: DatasetRecord | null;
+  /** Every file uploaded for this RQ, not just the latest — a research question can
+   * now hold multiple datasets (e.g. one export per media type) instead of one. */
+  datasets: DatasetRecord[];
   uploading: boolean;
   onUpload: (file: File) => void;
-  onApprove: () => void;
-  onDelete: () => void;
-  onExpand: () => void;
-  expanded: boolean;
+  onApprove: (datasetId: number) => void;
+  onDelete: (datasetId: number) => void;
+  expandedId: number | null;
+  onToggleExpand: (datasetId: number) => void;
   onEditRQ: (question: string, query: string) => void;
   onDeleteRQ: () => void;
+  onEnrich: (datasetId: number) => void;
+  enrichingIds: Set<number>;
+  enrichLogs: Record<number, EnrichLogEntry[]>;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState(false);
   const [editQuestion, setEditQuestion] = useState(rq.question);
   const [editQuery, setEditQuery] = useState(rq.query);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const isApproved = dataset?.approval_status === "approved";
-  const isProcessing = uploading || dataset?.processing_status === "processing";
-  const hasData = dataset && dataset.processing_status === "done";
-  const stats = dataset?.stats || {};
+  const doneDatasets = datasets.filter((d) => d.processing_status === "done");
+  const isApproved = doneDatasets.some((d) => d.approval_status === "approved");
+  const isProcessing = uploading || datasets.some((d) => d.processing_status === "processing");
+  const hasData = doneDatasets.length > 0;
 
   const handleSaveEdit = () => {
     if (!editQuestion.trim()) return;
@@ -206,9 +222,10 @@ function RQCard({
           </div>
         )}
 
-        {/* Upload zone — no data yet */}
-        {!hasData && !isProcessing && (
-          <label className="block mt-4 cursor-pointer rounded-lg border-2 border-dashed p-6 transition-colors hover:border-[#5B2C9D] hover:bg-[#f5f3ff]"
+        {/* Upload zone — stays visible even once files exist, so a research question
+            can hold more than one dataset (e.g. one export per media type). */}
+        {!isProcessing && (
+          <label className={`block cursor-pointer rounded-lg border-2 border-dashed transition-colors hover:border-[#5B2C9D] hover:bg-[#f5f3ff] ${hasData ? "mt-3 p-3" : "mt-4 p-6"}`}
             style={{ borderColor: "#c4b5fd" }}
             onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.style.borderColor = V; e.currentTarget.style.background = "#f5f3ff"; }}
             onDragLeave={(e) => { e.preventDefault(); e.currentTarget.style.borderColor = "#c4b5fd"; e.currentTarget.style.background = ""; }}
@@ -225,18 +242,24 @@ function RQCard({
               onChange={(e) => { const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value = ""; }}
             />
             <div className="flex flex-col items-center gap-1.5">
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke={V} strokeWidth="1.5">
+              <svg className={hasData ? "w-4 h-4" : "w-5 h-5"} viewBox="0 0 24 24" fill="none" stroke={V} strokeWidth="1.5">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
               </svg>
-              <span className="text-xs font-medium" style={{ color: V }}>Drop Meltwater export or click to browse</span>
-              <span className="text-[10px] text-slate-400">CSV, XLSX</span>
+              <span className="text-xs font-medium" style={{ color: V }}>
+                {hasData ? "Add another file" : "Drop Meltwater export or click to browse"}
+              </span>
+              {!hasData && <span className="text-[10px] text-slate-400">CSV, XLSX</span>}
             </div>
           </label>
         )}
 
-        {/* Dataset summary — has data */}
-        {hasData && (
-          <div className="mt-4 space-y-3">
+        {/* Dataset summaries — one per uploaded file */}
+        {doneDatasets.map((dataset) => {
+          const expanded = expandedId === dataset.id;
+          const dsApproved = dataset.approval_status === "approved";
+          const stats = dataset.stats || {};
+          return (
+        <div key={dataset.id} className="mt-3 space-y-3">
             {/* File info row */}
             <div className="flex items-center gap-3 px-4 py-3 bg-slate-50 rounded-lg">
               <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke={V} strokeWidth="1.5">
@@ -260,6 +283,16 @@ function RQCard({
                 <div className="bg-slate-50 rounded-lg px-3 py-2">
                   <div className="text-[10px] text-slate-400 uppercase tracking-wide">Date Range</div>
                   <div className="text-[10px] font-medium text-slate-600 mt-0.5">{stats.date_range.earliest?.slice(0, 10)} — {stats.date_range.latest?.slice(0, 10)}</div>
+                </div>
+              )}
+              {stats.media_types && (
+                <div className="bg-slate-50 rounded-lg px-3 py-2">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">Media Types</div>
+                  <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5">
+                    {Object.entries(stats.media_types as Record<string, number>).slice(0, 3).map(([type, count]) => (
+                      <span key={type} className="text-[10px] font-semibold text-slate-700 tabular-nums">{type} {count}</span>
+                    ))}
+                  </div>
                 </div>
               )}
               {stats.sentiment && (
@@ -306,6 +339,23 @@ function RQCard({
                   </div>
                 )}
 
+                {/* Media type breakdown — confirms article/post segregation to the user,
+                    including when it came from the LLM's domain-based inference rather
+                    than an explicit column in the uploaded file. */}
+                {stats.media_types && Object.keys(stats.media_types).length > 1 && (
+                  <div>
+                    <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Media Type Breakdown</div>
+                    <div className="space-y-1">
+                      {Object.entries(stats.media_types as Record<string, number>).map(([type, count]) => (
+                        <div key={type} className="flex items-center justify-between text-xs">
+                          <span className="text-slate-600">{type}</span>
+                          <span className="font-semibold text-slate-700 tabular-nums">{count.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Top sources */}
                 {stats.top_sources && (
                   <div>
@@ -325,40 +375,69 @@ function RQCard({
 
             {/* Action buttons */}
             <div className="flex items-center gap-2 pt-1">
-              {hasData && (
-                <button onClick={onExpand}
-                  className="text-[11px] font-medium px-3 py-1.5 rounded-lg transition-colors hover:bg-slate-100 text-slate-500">
-                  {expanded ? "Show less" : "Show details"}
-                </button>
-              )}
+              <button onClick={() => onToggleExpand(dataset.id)}
+                className="text-[11px] font-medium px-3 py-1.5 rounded-lg transition-colors hover:bg-slate-100 text-slate-500">
+                {expanded ? "Show less" : "Show details"}
+              </button>
               <div className="flex-1" />
-              {hasData && !isApproved && (
+              {!dsApproved && (
                 <>
-                  <button onClick={onDelete}
+                  <button onClick={() => onDelete(dataset.id)}
                     className="text-[11px] font-medium px-3 py-1.5 rounded-lg transition-colors hover:bg-red-50 text-red-500">
                     Remove
                   </button>
-                  <button onClick={() => inputRef.current?.click()}
-                    className="text-[11px] font-medium px-3 py-1.5 rounded-lg border transition-colors hover:bg-slate-50"
-                    style={{ color: V, borderColor: "#ddd6fe" }}>
-                    Replace
-                  </button>
-                  <button onClick={onApprove}
+                  <button onClick={() => onApprove(dataset.id)}
                     className="text-[11px] font-medium px-3 py-1.5 rounded-lg text-white transition-all hover:shadow-md"
                     style={{ background: V }}>
                     Approve
                   </button>
                 </>
               )}
-              {isApproved && (
+              {dsApproved && (
                 <span className="text-[11px] font-medium text-emerald-600 flex items-center gap-1">
                   <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 6L9 17l-5-5" /></svg>
                   Dataset approved
                 </span>
               )}
             </div>
-          </div>
-        )}
+
+            {/* Enrichment — tags every record with sentiment/themes/entities/brand
+                scores via batched LLM calls; results surface in the Review tab. */}
+            <div className="pt-1">
+              {enrichingIds.has(dataset.id) ? (
+                <div className="bg-violet-50 border border-violet-100 rounded-lg px-4 py-3 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3.5 h-3.5 rounded-full border-2 border-violet-200 border-t-violet-600 animate-spin shrink-0" />
+                    <span className="text-xs font-medium text-violet-700">
+                      {(enrichLogs[dataset.id] || []).slice(-1)[0]?.message || "Starting enrichment..."}
+                    </span>
+                  </div>
+                  <div className="max-h-28 overflow-y-auto space-y-0.5 pl-5">
+                    {(enrichLogs[dataset.id] || []).slice(0, -1).reverse().map((e, i) => (
+                      <div key={i} className="text-[10px] text-violet-400">{e.message}</div>
+                    ))}
+                  </div>
+                </div>
+              ) : dataset.enrichment_status === "done" ? (
+                <span className="text-[11px] font-medium text-violet-600 flex items-center gap-1">
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3l1.9 4.5L18 9l-4.1 1.5L12 15l-1.9-4.5L6 9l4.1-1.5z" /></svg>
+                  Enriched — see the Review tab
+                </span>
+              ) : (
+                <button onClick={() => onEnrich(dataset.id)}
+                  className="flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-lg border transition-colors hover:bg-violet-50"
+                  style={{ color: V, borderColor: "#ddd6fe" }}>
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3l1.9 4.5L18 9l-4.1 1.5L12 15l-1.9-4.5L6 9l4.1-1.5z" /></svg>
+                  {dataset.enrichment_status === "error" ? "Retry Enrich" : "Enrich"}
+                </button>
+              )}
+              {dataset.enrichment_status === "error" && !enrichingIds.has(dataset.id) && (
+                <div className="text-[10px] text-red-500 mt-1">{dataset.enrichment_error}</div>
+              )}
+            </div>
+        </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -370,12 +449,65 @@ export function DataSources({ onNavigate }: Props) {
   const demo = useDemoState();
 
   const [researchQuestions, setResearchQuestions] = useState<RQ[]>([]);
-  const [datasets, setDatasets] = useState<Record<string, DatasetRecord>>({});
+  // Every file uploaded for a research question, not just the latest.
+  const [datasets, setDatasets] = useState<Record<string, DatasetRecord[]>>({});
   const [uploadingRQs, setUploadingRQs] = useState<Set<string>>(new Set());
-  const [expandedRQ, setExpandedRQ] = useState<string | null>(null);
+  const [expandedDatasetId, setExpandedDatasetId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [strategyId, setStrategyId] = useState<number | null>(null);
+
+  // Enrichment — datasets currently running, per-dataset streaming log, and
+  // the aggregated Review tab (every enriched record across every dataset).
+  const [mainTab, setMainTab] = useState<"sources" | "review">("sources");
+  const [enrichingIds, setEnrichingIds] = useState<Set<number>>(new Set());
+  const [enrichLogs, setEnrichLogs] = useState<Record<number, EnrichLogEntry[]>>({});
+  const [reviewRecords, setReviewRecords] = useState<import("../services/intel-api").EnrichedRecord[]>([]);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [showProceedConfirm, setShowProceedConfirm] = useState(false);
+  const [proceedBlockedMsg, setProceedBlockedMsg] = useState<string | null>(null);
+
+  const hasAnyEnriched = Object.values(datasets).some((list) => list.some((d) => d.enrichment_status === "done"));
+
+  // Article-level review gate — separate from (and in addition to) the dataset-level
+  // approval gate above. An analyst can approve every uploaded dataset without ever having
+  // reviewed/approved a single tagged article, so this checks the Review tab's own
+  // approval_status independently: only enforced when there IS enriched data to review at
+  // all (hasAnyEnriched) — a project that hasn't enriched anything yet isn't blocked by a
+  // gate about a review step it has no way to have done.
+  const articleApprovedCount = reviewRecords.filter((r) => r.approval_status === "approved").length;
+  const articleDisapprovedCount = reviewRecords.filter((r) => r.approval_status === "disapproved").length;
+  const articlePendingCount = reviewRecords.length - articleApprovedCount - articleDisapprovedCount;
+
+  const handleRequestProceed = async () => {
+    // Re-fetch and use the returned records directly, rather than the articleApprovedCount
+    // closed over at render time — setReviewRecords's update wouldn't be visible to this
+    // function invocation until the next render, so reading the outer const straight after
+    // awaiting loadReview() would still see its pre-fetch (possibly stale) value.
+    const fresh = await loadReview();
+    const records = fresh ?? reviewRecords;
+    const freshApproved = records.filter((r) => r.approval_status === "approved").length;
+    if (hasAnyEnriched && freshApproved === 0) {
+      setProceedBlockedMsg(
+        "At least 1 article must be approved in the Review tab before you can proceed to Research Execution."
+      );
+      return;
+    }
+    setShowProceedConfirm(true);
+  };
+
+  const groupByRQ = (allDatasets: DatasetRecord[]): Record<string, DatasetRecord[]> => {
+    const grouped: Record<string, DatasetRecord[]> = {};
+    for (const ds of allDatasets) {
+      const rqId = ds.research_question_id;
+      if (!rqId) continue;
+      (grouped[rqId] ??= []).push(ds);
+    }
+    for (const rqId of Object.keys(grouped)) {
+      grouped[rqId].sort((a, b) => a.id - b.id);
+    }
+    return grouped;
+  };
 
   const loadData = async () => {
     if (!projectId) return;
@@ -393,16 +525,10 @@ export function DataSources({ onNavigate }: Props) {
       setResearchQuestions(rqs);
 
       const allDatasets: DatasetRecord[] = await intelApi.getAllDatasets(projectId);
-      const dsMap: Record<string, DatasetRecord> = {};
-      for (const ds of allDatasets) {
-        const rqId = ds.research_question_id;
-        if (rqId && (!dsMap[rqId] || ds.id > dsMap[rqId].id)) {
-          dsMap[rqId] = ds;
-        }
-      }
-      setDatasets(dsMap);
+      const grouped = groupByRQ(allDatasets);
+      setDatasets(grouped);
 
-      const anyApproved = rqs.some((rq) => dsMap[rq.id]?.approval_status === "approved");
+      const anyApproved = rqs.some((rq) => grouped[rq.id]?.some((d) => d.approval_status === "approved"));
       if (anyApproved) demo.setDatasetApproved(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load data sources");
@@ -412,16 +538,22 @@ export function DataSources({ onNavigate }: Props) {
   };
 
   useEffect(() => { loadData(); }, [projectId]);
+  // Loaded eagerly (not only on first Review-tab visit) so the proceed-to-Research-Execution
+  // gate below has real approved/disapproved counts even if the analyst never opened Review.
+  useEffect(() => { loadReview(); }, [projectId]);
 
-  const pollUntilDone = async (rqId: string) => {
+  const pollUntilDone = async (rqId: string, datasetId: number) => {
     if (!projectId) return;
     for (let i = 0; i < 120; i++) {
       await new Promise((r) => setTimeout(r, 3000));
       try {
         const allDs: DatasetRecord[] = await intelApi.getAllDatasets(projectId);
-        const ds = allDs.find((d) => d.research_question_id === rqId);
+        const ds = allDs.find((d) => d.id === datasetId);
         if (ds?.processing_status === "done") {
-          setDatasets((prev) => ({ ...prev, [rqId]: ds }));
+          setDatasets((prev) => ({
+            ...prev,
+            [rqId]: [...(prev[rqId] || []).filter((d) => d.id !== datasetId), ds],
+          }));
           setUploadingRQs((prev) => { const n = new Set(prev); n.delete(rqId); return n; });
           return;
         }
@@ -444,22 +576,78 @@ export function DataSources({ onNavigate }: Props) {
     setUploadingRQs((prev) => new Set(prev).add(rqId));
     setError(null);
     try {
-      await intelApi.uploadDataset(projectId, file, rqId);
-      pollUntilDone(rqId);
+      const result = await intelApi.uploadDataset(projectId, file, rqId);
+      pollUntilDone(rqId, result.dataset_id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
       setUploadingRQs((prev) => { const n = new Set(prev); n.delete(rqId); return n; });
     }
   };
 
-  const handleApprove = async (rqId: string) => {
-    const ds = datasets[rqId];
-    if (!ds) return;
+  const loadReview = async (): Promise<import("../services/intel-api").EnrichedRecord[] | null> => {
+    if (!projectId) return null;
+    setReviewLoading(true);
     try {
-      await intelApi.approveDataset(ds.id);
+      const res = await intelApi.getProjectEnriched(projectId);
+      setReviewRecords(res.records);
+      return res.records;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load enriched articles");
+      return null;
+    } finally {
+      setReviewLoading(false);
+    }
+  };
+
+  const handleEnrich = async (rqId: string, datasetId: number) => {
+    setEnrichingIds((prev) => new Set(prev).add(datasetId));
+    setEnrichLogs((prev) => ({ ...prev, [datasetId]: [{ message: "Starting enrichment...", pct: 0 }] }));
+    setError(null);
+    try {
+      const { job_id } = await intelApi.enrichDataset(datasetId);
+      for (let i = 0; i < 300; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const status: JobStatus = await intelApi.getJob(job_id);
+        if (status.progress_message) {
+          setEnrichLogs((prev) => {
+            const log = prev[datasetId] || [];
+            if (log[log.length - 1]?.message === status.progress_message) return prev;
+            return { ...prev, [datasetId]: [...log, { message: status.progress_message!, pct: status.progress_pct }].slice(-30) };
+          });
+        }
+        if (status.status === "completed") {
+          setDatasets((prev) => ({
+            ...prev,
+            [rqId]: (prev[rqId] || []).map((d) => d.id === datasetId ? { ...d, enrichment_status: "done" } : d),
+          }));
+          // Refreshes reviewRecords immediately — without this, the proceed-gate's
+          // approved/disapproved counts stay at whatever they were when the page
+          // mounted (likely all-zero, before this dataset was even enriched) until the
+          // analyst happens to click the Review tab themselves.
+          loadReview();
+          break;
+        }
+        if (status.status === "failed") {
+          setDatasets((prev) => ({
+            ...prev,
+            [rqId]: (prev[rqId] || []).map((d) => d.id === datasetId ? { ...d, enrichment_status: "error", enrichment_error: status.error || "Enrichment failed" } : d),
+          }));
+          break;
+        }
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to start enrichment");
+    } finally {
+      setEnrichingIds((prev) => { const n = new Set(prev); n.delete(datasetId); return n; });
+    }
+  };
+
+  const handleApprove = async (rqId: string, datasetId: number) => {
+    try {
+      await intelApi.approveDataset(datasetId);
       setDatasets((prev) => ({
         ...prev,
-        [rqId]: { ...prev[rqId], approval_status: "approved" },
+        [rqId]: (prev[rqId] || []).map((d) => d.id === datasetId ? { ...d, approval_status: "approved" } : d),
       }));
       demo.setDatasetApproved(true);
     } catch (e) {
@@ -467,27 +655,26 @@ export function DataSources({ onNavigate }: Props) {
     }
   };
 
-  const handleDelete = async (rqId: string) => {
-    const ds = datasets[rqId];
-    if (!ds) return;
+  const handleDelete = async (rqId: string, datasetId: number) => {
     try {
-      await intelApi.deleteDataset(ds.id);
-      setDatasets((prev) => {
-        const n = { ...prev };
-        delete n[rqId];
-        return n;
-      });
+      await intelApi.deleteDataset(datasetId);
+      setDatasets((prev) => ({
+        ...prev,
+        [rqId]: (prev[rqId] || []).filter((d) => d.id !== datasetId),
+      }));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Delete failed");
     }
   };
 
   const handleApproveAll = async () => {
-    const pending = researchQuestions.filter(
-      (rq) => datasets[rq.id]?.processing_status === "done" && datasets[rq.id]?.approval_status !== "approved"
-    );
-    for (const rq of pending) {
-      await handleApprove(rq.id);
+    for (const rq of researchQuestions) {
+      const pending = (datasets[rq.id] || []).filter(
+        (d) => d.processing_status === "done" && d.approval_status !== "approved"
+      );
+      for (const ds of pending) {
+        await handleApprove(rq.id, ds.id);
+      }
     }
   };
 
@@ -519,8 +706,8 @@ export function DataSources({ onNavigate }: Props) {
   };
 
   const totalRQs = researchQuestions.length;
-  const uploadedCount = researchQuestions.filter((rq) => datasets[rq.id]?.processing_status === "done").length;
-  const approvedCount = researchQuestions.filter((rq) => datasets[rq.id]?.approval_status === "approved").length;
+  const uploadedCount = researchQuestions.filter((rq) => (datasets[rq.id] || []).some((d) => d.processing_status === "done")).length;
+  const approvedCount = researchQuestions.filter((rq) => (datasets[rq.id] || []).some((d) => d.approval_status === "approved")).length;
   const allUploaded = totalRQs > 0 && uploadedCount === totalRQs;
   const allApproved = totalRQs > 0 && approvedCount === totalRQs;
   const canApproveAll = uploadedCount > approvedCount;
@@ -552,9 +739,9 @@ export function DataSources({ onNavigate }: Props) {
             <div className="flex items-center gap-2">
               <div className="flex gap-1">
                 {researchQuestions.map((rq) => {
-                  const ds = datasets[rq.id];
-                  const isApp = ds?.approval_status === "approved";
-                  const hasD = ds?.processing_status === "done";
+                  const rqDatasets = datasets[rq.id] || [];
+                  const isApp = rqDatasets.some((d) => d.approval_status === "approved");
+                  const hasD = rqDatasets.some((d) => d.processing_status === "done");
                   return (
                     <div key={rq.id} className={`w-2.5 h-2.5 rounded-full transition-colors ${
                       isApp ? "bg-emerald-500" : hasD ? "bg-violet-400" : "bg-slate-200"
@@ -570,6 +757,23 @@ export function DataSources({ onNavigate }: Props) {
         </div>
       </div>
 
+      {/* Tabs — Review only appears once something has been enriched; switching
+          back to Data Sources always keeps the per-RQ upload/remove/approve flow. */}
+      {hasAnyEnriched && (
+        <div className="shrink-0 px-8 pt-3 border-b border-slate-100">
+          <div className="flex items-center gap-1">
+            {(["sources", "review"] as const).map((t) => (
+              <button key={t} onClick={() => { setMainTab(t); if (t === "review") loadReview(); }}
+                className={`px-4 py-2 text-xs font-medium border-b-2 transition-all -mb-px ${
+                  mainTab === t ? "border-current text-[#5B2C9D]" : "border-transparent text-slate-400 hover:text-slate-600"
+                }`}>
+                {t === "sources" ? "Data Sources" : "Review"}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Error */}
       {error && (
         <div className="mx-8 mt-4 bg-red-50 border border-red-200 rounded-lg px-4 py-3 flex items-start gap-2">
@@ -583,6 +787,12 @@ export function DataSources({ onNavigate }: Props) {
         </div>
       )}
 
+      {mainTab === "review" ? (
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <EnrichedArticlesTable records={reviewRecords} loading={reviewLoading} />
+        </div>
+      ) : (
+      <>
       {/* No RQs fallback */}
       {researchQuestions.length === 0 && (
         <div className="flex-1 flex items-center justify-center p-8">
@@ -610,15 +820,18 @@ export function DataSources({ onNavigate }: Props) {
               <RQCard
                 key={rq.id}
                 rq={rq}
-                dataset={datasets[rq.id] || null}
+                datasets={datasets[rq.id] || []}
                 uploading={uploadingRQs.has(rq.id)}
                 onUpload={(file) => handleUpload(rq.id, file)}
-                onApprove={() => handleApprove(rq.id)}
-                onDelete={() => handleDelete(rq.id)}
-                onExpand={() => setExpandedRQ(expandedRQ === rq.id ? null : rq.id)}
-                expanded={expandedRQ === rq.id}
+                onApprove={(datasetId) => handleApprove(rq.id, datasetId)}
+                onDelete={(datasetId) => handleDelete(rq.id, datasetId)}
+                expandedId={expandedDatasetId}
+                onToggleExpand={(datasetId) => setExpandedDatasetId(expandedDatasetId === datasetId ? null : datasetId)}
                 onEditRQ={(question, query) => handleEditRQ(rq.id, question, query)}
                 onDeleteRQ={() => handleDeleteRQ(rq.id)}
+                onEnrich={(datasetId) => handleEnrich(rq.id, datasetId)}
+                enrichingIds={enrichingIds}
+                enrichLogs={enrichLogs}
               />
             ))}
           </div>
@@ -648,7 +861,7 @@ export function DataSources({ onNavigate }: Props) {
                   All datasets approved
                 </span>
               )}
-              <button onClick={() => onNavigate("research-execution")}
+              <button onClick={handleRequestProceed}
                 className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-700 transition-colors">
                 Research Execution
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
@@ -656,6 +869,51 @@ export function DataSources({ onNavigate }: Props) {
             </div>
           </div>
         </div>
+      )}
+
+      {proceedBlockedMsg && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setProceedBlockedMsg(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 mb-3 text-amber-600">
+              <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+              <h3 className="text-sm font-semibold">Review required</h3>
+            </div>
+            <p className="text-sm text-slate-600 mb-4">{proceedBlockedMsg}</p>
+            <p className="text-xs text-slate-400 mb-4">
+              {reviewRecords.length} articles reviewed — {articleApprovedCount} approved, {articleDisapprovedCount} disapproved, {articlePendingCount} pending.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => { setProceedBlockedMsg(null); setMainTab("review"); loadReview(); }}
+                className="text-sm font-medium px-4 py-2 rounded-lg text-white" style={{ background: V }}>
+                Go to Review
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showProceedConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setShowProceedConfirm(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-slate-800 mb-3">Proceed to Research Execution?</h3>
+            <p className="text-xs text-slate-500 mb-4">
+              {reviewRecords.length} articles reviewed — <span className="text-emerald-600 font-medium">{articleApprovedCount} approved</span>,{" "}
+              <span className="text-red-600 font-medium">{articleDisapprovedCount} disapproved</span>,{" "}
+              <span className="text-slate-500 font-medium">{articlePendingCount} pending</span>.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowProceedConfirm(false)} className="text-sm font-medium px-4 py-2 rounded-lg text-slate-500 hover:bg-slate-100">
+                Cancel
+              </button>
+              <button onClick={() => { setShowProceedConfirm(false); onNavigate("research-execution"); }}
+                className="text-sm font-medium px-4 py-2 rounded-lg text-white" style={{ background: V }}>
+                Confirm & Proceed
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      </>
       )}
     </div>
   );

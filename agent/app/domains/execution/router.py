@@ -49,12 +49,57 @@ def start_execution(req: ExecutionStartRequest):
 
         try:
             def emit(event_type, payload):
-                total = payload.get("total", 1)
-                completed = payload.get("completed", 0)
-                pct = min(90, 10 + int(80 * completed / max(total, 1)))
+                # Human-readable text per event type — covers both phases this worker's
+                # `emit` is threaded through: auto-plan generation (executor_service.
+                # start_execution calls planner_service.generate_plan with this same emit,
+                # which in turn hands it to agents/research_planner.py) and the actual
+                # per-unit execution loop. Without this mapping the message was the bare
+                # event_type string with an empty unit_id for every planner-phase event
+                # (e.g. "auto_plan: "), which is why the UI showed nothing useful before
+                # a plan existed.
+                if event_type == "auto_plan":
+                    message = "No approved research plan found — generating one automatically..."
+                elif event_type == "planner_generating":
+                    message = payload.get("status", "Running research planner...")
+                elif event_type == "research_planner_started":
+                    message = (f"Planning {payload.get('research_questions', 0)} research "
+                               f"question(s) for {payload.get('client', '')}...")
+                elif event_type == "research_planner_attempt":
+                    message = f"Planner attempt {payload.get('attempt', 1)}..."
+                elif event_type == "research_planner_reasoning":
+                    message = payload.get("status", "LLM designing research strategy...")
+                elif event_type == "research_planner_error":
+                    message = f"Planner error: {payload.get('error', '')}"
+                elif event_type == "research_planner_validated":
+                    message = (f"Plan drafted — {payload.get('objectives', 0)} objectives, "
+                               f"{payload.get('errors', 0)} errors, {payload.get('warnings', 0)} warnings")
+                elif event_type == "research_planner_failed":
+                    message = "Planner failed — falling back to a deterministic plan"
+                elif event_type == "research_planner_complete":
+                    message = (f"Plan ready — {payload.get('objectives', 0)} objectives covering "
+                               f"{payload.get('questions_covered', 0)}/{payload.get('total_questions', 0)} "
+                               f"research questions")
+                elif event_type == "executor_unit_start":
+                    message = f"Running {payload.get('unit_id', '')} — method: {payload.get('method', '')}"
+                elif event_type == "executor_unit_done":
+                    message = (f"{payload.get('unit_id', '')} done — "
+                               f"{payload.get('completed', 0)}/{payload.get('total', 0)} units complete")
+                else:
+                    message = event_type
+
+                # Progress percentage is only meaningful once real units are running
+                # (where total/completed are unit counts); during the planning phase it
+                # stays at a fixed pre-execution value rather than defaulting to 0 or 100.
+                if event_type.startswith("executor_unit"):
+                    total = payload.get("total", 1)
+                    completed = payload.get("completed", 0)
+                    pct = min(90, 10 + int(80 * completed / max(total, 1)))
+                else:
+                    pct = 10
+
+                store.update_job(job_id, status="running", progress_pct=pct, progress_message=message)
                 _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
-                             "progress_pct": pct,
-                             "message": f"{event_type}: {payload.get('unit_id', '')}"})
+                             "progress_pct": pct, "message": message})
                 _broadcast({"type": "intel_execution_update", "project_id": req.project_id,
                              "event": event_type, "payload": payload})
 

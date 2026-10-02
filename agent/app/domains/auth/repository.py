@@ -103,6 +103,17 @@ def update_user_password(user_id: int, password_hash: str) -> None:
     conn.close()
 
 
+def reset_user_password(user_id: int, password_hash: str) -> None:
+    """Admin-initiated reset — unlike update_user_password (self-service), this sets
+    must_change_password=1 so the handed-out temp password is forced to change on next login."""
+    conn = _conn()
+    conn.execute(
+        "UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?",
+        (password_hash, user_id))
+    conn.commit()
+    conn.close()
+
+
 def create_organization(name: str, admin_email: str, admin_display_name: str,
                           admin_temp_password_hash: str) -> dict:
     conn = _conn()
@@ -119,6 +130,13 @@ def create_organization(name: str, admin_email: str, admin_display_name: str,
     return {"id": org_id, "name": name}
 
 
+def get_organization_by_id(org_id: int) -> dict | None:
+    conn = _conn()
+    row = conn.execute("SELECT id, name, archived_at FROM organizations WHERE id = ?", (org_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
 def list_organizations() -> list[dict]:
     conn = _conn()
     rows = conn.execute(
@@ -128,6 +146,30 @@ def list_organizations() -> list[dict]:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def get_organization(org_id: int) -> dict | None:
+    conn = _conn()
+    row = conn.execute("SELECT * FROM organizations WHERE id = ?", (org_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def delete_user(user_id: int) -> None:
+    conn = _conn()
+    with conn:
+        conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM user_organizations WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    conn.close()
+
+
+def delete_organization(org_id: int) -> None:
+    conn = _conn()
+    with conn:
+        conn.execute("DELETE FROM user_organizations WHERE org_id = ?", (org_id,))
+        conn.execute("DELETE FROM organizations WHERE id = ?", (org_id,))
+    conn.close()
 
 
 def archive_organization(org_id: int) -> dict | None:
@@ -222,3 +264,46 @@ def update_profile(user_id: int, display_name: str, avatar_url: str | None = Non
         conn.execute("UPDATE users SET display_name = ? WHERE id = ?", (display_name, user_id))
     conn.commit()
     conn.close()
+
+
+def is_member_of_org(user_id: int, org_id: int) -> bool:
+    """True if org_id is the user's primary org OR an additional membership."""
+    conn = _conn()
+    primary = conn.execute("SELECT 1 FROM users WHERE id = ? AND org_id = ?", (user_id, org_id)).fetchone()
+    extra = conn.execute(
+        "SELECT 1 FROM user_organizations WHERE user_id = ? AND org_id = ?", (user_id, org_id)
+    ).fetchone()
+    conn.close()
+    return bool(primary or extra)
+
+
+def add_user_to_org(user_id: int, org_id: int) -> None:
+    conn = _conn()
+    conn.execute(
+        "INSERT INTO user_organizations (user_id, org_id, added_at) VALUES (?, ?, ?) "
+        "ON CONFLICT(user_id, org_id) DO NOTHING",
+        (user_id, org_id, time.time()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def list_user_organizations(user_id: int) -> list[dict]:
+    """Every org this user belongs to — their primary org (users.org_id) plus any
+    additional memberships — for ProfileMenu's "orgs you're mapped to" display."""
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT o.id, o.name, (u.org_id = o.id) AS is_primary "
+        "FROM organizations o "
+        "JOIN users u ON u.id = ? "
+        "WHERE o.id = u.org_id "
+        "UNION "
+        "SELECT o.id, o.name, 0 AS is_primary "
+        "FROM organizations o "
+        "JOIN user_organizations uo ON uo.org_id = o.id "
+        "WHERE uo.user_id = ? "
+        "ORDER BY is_primary DESC, name",
+        (user_id, user_id),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]

@@ -53,6 +53,9 @@ def _spec_progress(step: str, payload: dict) -> tuple[int | None, str]:
         return 10, "Reading the brief"
     if step == "brief_scope_reasoning":
         return None, "Briefing under progress..."
+    if step == "brief_scope_streaming":
+        chars = payload.get("chars", 0)
+        return None, f"Agent writing specification... ({chars:,} characters generated so far)"
     if step == "brief_scope_attempt":
         attempt = payload.get("attempt", 1)
         return min(10 + attempt * 15, _LLM_STAGE_END_PCT - 5), f"Agent interpreting brief (attempt {attempt})"

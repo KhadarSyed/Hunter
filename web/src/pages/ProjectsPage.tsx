@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "@iconify/react";
 import { BrandLogo } from "../components/BrandLogo";
 import { CountryFlag } from "../components/CountryFlag";
 import { useAuth } from "../context/auth-context";
 import { useProject, type ProjectType } from "../context/project-context";
 import { intelApi, type BriefSource, type ProjectSummary } from "../services/intel-api";
+import { formatRelativeOrDate } from "../utils/time";
 
 interface Props {
   onNavigate: (page: string) => void;
@@ -56,13 +58,8 @@ function BriefSourceChip({ source }: { source: BriefSource | null }) {
   );
 }
 
-const DAY = 86_400;
 function editedAgo(ts: number): string {
-  const days = Math.floor((Date.now() / 1000 - ts) / DAY);
-  if (days <= 0) return "Edited today";
-  if (days === 1) return "Edited yesterday";
-  if (days < 30) return `Edited ${days} days ago`;
-  return `Edited ${new Date(ts * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+  return `Edited ${formatRelativeOrDate(ts)}`;
 }
 
 interface ProjectCardProps {
@@ -70,14 +67,26 @@ interface ProjectCardProps {
   onOpen: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  selected: boolean;
+  onToggleSelect: () => void;
 }
 
-function ProjectCard({ project, onOpen, onEdit, onDelete }: ProjectCardProps) {
+function ProjectCard({ project, onOpen, onEdit, onDelete, selected, onToggleSelect }: ProjectCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const brand = project.brand?.trim() ?? "";
 
+  const openMenu = () => {
+    const rect = menuButtonRef.current?.getBoundingClientRect();
+    if (rect) setMenuPos({ top: rect.bottom + 4, left: rect.right - 224 });
+    setMenuOpen((o) => !o);
+  };
+
   return (
-    <div className="group relative flex flex-col overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-900/5 transition-all hover:-translate-y-0.5 hover:shadow-xl">
+    <div className={`group relative flex flex-col overflow-hidden rounded-3xl bg-white shadow-sm ring-1 transition-all hover:-translate-y-0.5 hover:shadow-xl ${
+      selected ? "ring-2 ring-[#5B2C9D]" : "ring-slate-900/5"
+    }`}>
       <button onClick={onOpen} className="relative h-48 w-full overflow-hidden text-left" aria-label={`Open ${project.project_name}`}>
         <div className={`absolute inset-0 bg-gradient-to-br ${brand ? gradientFor(brand) : NO_BRAND_GRADIENT}`} />
         <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(white_1px,transparent_1px)] [background-size:14px_14px]" />
@@ -103,6 +112,14 @@ function ProjectCard({ project, onOpen, onEdit, onDelete }: ProjectCardProps) {
 
       <div className="flex flex-1 flex-col px-5 pt-4 pb-4">
         <div className="flex items-start gap-2">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelect}
+            onClick={(e) => e.stopPropagation()}
+            aria-label={`Select ${project.project_name}`}
+            className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-[#5B2C9D] focus:ring-[#5B2C9D]/30"
+          />
           <button onClick={onOpen} className="min-w-0 flex-1 text-left">
             <h3 className="truncate text-base font-bold text-slate-900" title={project.project_name}>
               {project.project_name}
@@ -110,16 +127,21 @@ function ProjectCard({ project, onOpen, onEdit, onDelete }: ProjectCardProps) {
           </button>
           <div className="relative">
             <button
-              onClick={() => setMenuOpen((o) => !o)}
+              ref={menuButtonRef}
+              onClick={openMenu}
               className="rounded-md px-1.5 py-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
               aria-label="Project actions"
             >
               <Icon icon="lucide:more-horizontal" width={18} />
             </button>
-            {menuOpen && (
+            {menuOpen && createPortal(
               <>
-                <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-                <div role="menu" className="absolute right-0 z-20 mt-1 w-56 overflow-hidden rounded-2xl border border-slate-100 bg-white p-1.5 shadow-xl">
+                <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+                <div
+                  role="menu"
+                  style={{ position: "fixed", top: menuPos.top, left: menuPos.left }}
+                  className="z-50 w-56 overflow-hidden rounded-2xl border border-slate-100 bg-white p-1.5 shadow-xl"
+                >
                   <button
                     role="menuitem"
                     onClick={() => { setMenuOpen(false); onEdit(); }}
@@ -135,7 +157,8 @@ function ProjectCard({ project, onOpen, onEdit, onDelete }: ProjectCardProps) {
                     <Icon icon="lucide:trash-2" width={18} /> Delete
                   </button>
                 </div>
-              </>
+              </>,
+              document.body
             )}
           </div>
         </div>
@@ -160,10 +183,12 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
   const [ownerNames, setOwnerNames] = useState<Record<number, string>>({});
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
-  const [pendingDelete, setPendingDelete] = useState<ProjectSummary | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<ProjectSummary[] | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const searchRef = useRef<HTMLInputElement>(null);
+  const selectAllRef = useRef<HTMLInputElement>(null);
 
   const load = () => {
     setError("");
@@ -222,20 +247,45 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
     setActiveProject({ id: p.id, name: p.project_name, project_type: (p.project_type as ProjectType) || projectType, brand: p.brand });
     onNavigate(page);
   };
+  const toggleSelected = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const clearSelection = () => setSelected(new Set());
+  const allSelected = filtered.length > 0 && filtered.every((p) => selected.has(p.id));
+  const someSelected = selected.size > 0 && !allSelected;
+  const toggleSelectAll = () => {
+    setSelected(allSelected ? new Set() : new Set(filtered.map((p) => p.id)));
+  };
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = someSelected;
+  }, [someSelected]);
   const confirmDelete = async () => {
     if (!pendingDelete) return;
     setDeleting(true);
     setDeleteError("");
-    try {
-      await intelApi.deleteProject(pendingDelete.id);
-      setProjects((list) => (list ?? []).filter((p) => p.id !== pendingDelete.id));
-      if (activeProject?.id === pendingDelete.id) clearProject();
-      setPendingDelete(null);
-    } catch (e) {
-      setDeleteError(e instanceof Error ? e.message : "Could not delete the project");
-    } finally {
-      setDeleting(false);
+    const deletedIds: number[] = [];
+    for (const p of pendingDelete) {
+      try {
+        await intelApi.deleteProject(p.id);
+        deletedIds.push(p.id);
+      } catch (e) {
+        setDeleteError(e instanceof Error ? e.message : `Could not delete "${p.project_name}"`);
+        break;
+      }
     }
+    setProjects((list) => (list ?? []).filter((p) => !deletedIds.includes(p.id)));
+    if (activeProject && deletedIds.includes(activeProject.id)) clearProject();
+    setSelected((prev) => {
+      const next = new Set(prev);
+      deletedIds.forEach((id) => next.delete(id));
+      return next;
+    });
+    if (deletedIds.length === pendingDelete.length) setPendingDelete(null);
+    setDeleting(false);
   };
   const closeDelete = () => {
     if (deleting) return;
@@ -248,7 +298,8 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
   const editPage = isQC ? "edit-qc-project" : "edit-project";
 
   return (
-    <div className="min-h-full bg-gradient-to-br from-slate-100 via-slate-50 to-violet-50 px-8 py-8">
+    <div className="flex h-full flex-col bg-gradient-to-br from-slate-100 via-slate-50 to-violet-50">
+      <div className="shrink-0 px-8 pt-8">
       <nav className="text-sm text-slate-500">
         {isQC ? "Monitoring QC" : "Research"} <span className="mx-2 text-slate-300">›</span>
         <span className="font-semibold text-slate-900">Projects</span>
@@ -286,6 +337,38 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
         <kbd className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500">Ctrl K</kbd>
       </div>
 
+      {projects !== null && projects.length > 0 && (
+        <div className="mt-4 flex items-center justify-between gap-4">
+          <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-600">
+            <input
+              ref={selectAllRef}
+              type="checkbox"
+              checked={allSelected}
+              onChange={toggleSelectAll}
+              aria-label="Select all projects"
+              className="h-4 w-4 rounded border-slate-300 text-[#5B2C9D] focus:ring-[#5B2C9D]/30"
+            />
+            Select all
+          </label>
+          {selected.size > 0 && (
+            <div className="flex items-center gap-2 rounded-xl border border-[#5B2C9D]/20 bg-[#5B2C9D]/5 px-3 py-1.5">
+              <span className="text-sm font-medium text-slate-700">{selected.size} selected</span>
+              <button onClick={clearSelection} className="rounded-lg px-2.5 py-1 text-sm font-medium text-slate-600 hover:bg-white">
+                Clear
+              </button>
+              <button
+                onClick={() => setPendingDelete((projects ?? []).filter((p) => selected.has(p.id)))}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-2.5 py-1 text-sm font-semibold text-white hover:bg-red-700"
+              >
+                <Icon icon="lucide:trash-2" width={14} /> Delete selected
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-8 pb-8">
       {error ? (
         <div className="mt-10 rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
           {error} <button onClick={load} className="ml-2 font-semibold underline">Retry</button>
@@ -324,7 +407,9 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
                     project={p}
                     onOpen={() => select(p, openPage)}
                     onEdit={() => select(p, editPage)}
-                    onDelete={() => setPendingDelete(p)}
+                    onDelete={() => setPendingDelete([p])}
+                    selected={selected.has(p.id)}
+                    onToggleSelect={() => toggleSelected(p.id)}
                   />
                 ))}
               </div>
@@ -339,7 +424,9 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
               project={p}
               onOpen={() => select(p, openPage)}
               onEdit={() => select(p, editPage)}
-              onDelete={() => setPendingDelete(p)}
+              onDelete={() => setPendingDelete([p])}
+              selected={selected.has(p.id)}
+              onToggleSelect={() => toggleSelected(p.id)}
             />
           ))}
           <button
@@ -351,6 +438,7 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
           </button>
         </div>
       )}
+      </div>
 
       {pendingDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={closeDelete}>
@@ -363,10 +451,17 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
             <div className="flex h-11 w-11 items-center justify-center rounded-full bg-red-50 text-red-600">
               <Icon icon="lucide:trash-2" width={20} />
             </div>
-            <h2 id="delete-title" className="mt-4 text-lg font-bold text-slate-900">Delete project?</h2>
+            <h2 id="delete-title" className="mt-4 text-lg font-bold text-slate-900">
+              {pendingDelete.length === 1 ? "Delete project?" : `Delete ${pendingDelete.length} projects?`}
+            </h2>
             <p className="mt-2 text-sm leading-relaxed text-slate-600">
-              <span className="font-semibold text-slate-800">{pendingDelete.project_name}</span> and all of its brief, research,
-              strategy, evidence, insights and deliverables will be permanently deleted. This can’t be undone.
+              {pendingDelete.length === 1 ? (
+                <span className="font-semibold text-slate-800">{pendingDelete[0].project_name}</span>
+              ) : (
+                <span className="font-semibold text-slate-800">{pendingDelete.length} selected projects</span>
+              )}{" "}
+              and all of their brief, research, strategy, evidence, insights and deliverables will be
+              permanently deleted. This can’t be undone.
             </p>
             {deleteError && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{deleteError}</p>}
             <div className="mt-6 flex justify-end gap-2">
@@ -383,7 +478,7 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
                 className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
               >
                 <Icon icon={deleting ? "lucide:loader-2" : "lucide:trash-2"} width={16} className={deleting ? "animate-spin" : ""} />
-                {deleting ? "Deleting..." : "Delete project"}
+                {deleting ? "Deleting..." : pendingDelete.length === 1 ? "Delete project" : `Delete ${pendingDelete.length} projects`}
               </button>
             </div>
           </div>

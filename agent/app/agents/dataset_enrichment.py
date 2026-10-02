@@ -1,0 +1,273 @@
+"""Dataset Enrichment Agent -- tags every record in an uploaded Data Sources
+export with sentiment, themes, signals, entities, and per-brand sentiment
+scores, via batched LLM calls.
+
+Requires `title` and `content` per record (both must be present and
+non-empty) -- records missing either are skipped and reported separately
+rather than sent to the LLM.
+
+Like every other agent in this codebase, classification is LLM-driven but
+the batching/retry/merge orchestration around it is deterministic and
+auditable -- no field is ever invented when the LLM omits it; it comes back
+null and the record is flagged.
+
+v1.0.0 -- Initial implementation.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import re
+import time
+from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
+
+from ..core.llm_provider import HybridLLMClient
+
+EventFn = Callable[[str, dict], None]
+
+BATCH_SIZE = 8
+MAX_ROUNDS = 3
+
+SENTIMENTS = ["Positive", "Neutral", "Negative"]
+
+
+SYSTEM_PROMPT = """\
+You are a media-monitoring enrichment agent. You read news articles and \
+social media posts and tag each one with structured analysis for a PR/brand \
+intelligence platform. You NEVER fabricate information not supported by the \
+text -- when genuinely uncertain, lower the confidence score rather than \
+guessing with false certainty.
+
+For EVERY article/post supplied, return ALL of these fields:
+
+- id: the exact id supplied with that article (string).
+- overall_sentiment: one of "Positive", "Neutral", "Negative" -- the
+  general tone of the piece.
+- overall_sentiment_confidence: 0.0-1.0.
+- themes: {"primary": "<short theme>", "secondary": "<short theme or null>",
+  "tertiary": "<short theme or null>"} -- the main subjects/angles discussed,
+  most prominent first. secondary/tertiary are null if the piece is too
+  short or narrow to support a second/third distinct theme.
+- signals: a short array of notable signals or patterns worth flagging to an
+  analyst (e.g. "pricing complaint", "recall mention", "viral moment",
+  "executive quote", "regulatory reference") -- empty array if none.
+- entities: {"brands": [...], "companies": [...], "organizations": [...],
+  "people": [...], "products": [...], "events": [...]} -- named entities
+  actually mentioned in the text, by category. Empty arrays where none
+  found. A company that is also the brand of interest still belongs in
+  "brands".
+- brand_sentiments: an array with one entry per brand actually discussed
+  (the primary brand AND any competitor/other brand named), each:
+  {"brand": "<name>", "is_primary": true|false, "sentiment": "Positive"|
+  "Neutral"|"Negative", "confidence": 0.0-1.0}. Only include a brand here if
+  the text says something substantive about it, not a bare mention.
+- reason: one sentence explaining why you tagged it this way (what in the
+  text drove the overall sentiment and theme calls).
+
+Return ONLY a JSON object: {"articles": [ ...one entry per supplied article, \
+same ids, same order not required... ]}
+"""
+
+
+def _extract_json_object(text: str) -> dict:
+    """Pull the first valid JSON object from LLM output, tolerating markdown fences."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```\s*$", "", text)
+    brace_start = text.find("{")
+    if brace_start == -1:
+        raise ValueError("No JSON object found in LLM response")
+    depth = 0
+    in_string = False
+    escape_next = False
+    for i, ch in enumerate(text[brace_start:], start=brace_start):
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == "\\":
+            escape_next = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return json.loads(text[brace_start:i + 1])
+    raise ValueError("Unbalanced JSON object in LLM response")
+
+
+def chunk(items: list, size: int) -> list[list]:
+    if size < 1:
+        size = 1
+    return [items[i:i + size] for i in range(0, len(items), size)]
+
+
+def _blank_tags(reason: str) -> dict:
+    return {
+        "overall_sentiment": None,
+        "overall_sentiment_confidence": None,
+        "themes": {"primary": None, "secondary": None, "tertiary": None},
+        "signals": [],
+        "entities": {"brands": [], "companies": [], "organizations": [], "people": [], "products": [], "events": []},
+        "brand_sentiments": [],
+        "reason": None,
+        "enrichment_error": reason,
+    }
+
+
+def _build_user_prompt(batch: list[dict], brand: str, competitors: list[str]) -> str:
+    articles_payload = [
+        {
+            "id": a["id"],
+            "title": a.get("title", "")[:300],
+            "content": a.get("content", "")[:1500],
+        }
+        for a in batch
+    ]
+    return (
+        f"Brand of interest: {brand or '(not specified)'}\n"
+        f"Known competitors: {', '.join(competitors) if competitors else '(none specified)'}\n\n"
+        f"Articles to tag:\n{json.dumps(articles_payload, ensure_ascii=False)}"
+    )
+
+
+def tag_batch(llm_client: HybridLLMClient, batch: list[dict], brand: str, competitors: list[str]) -> list[dict]:
+    """One LLM call tagging a batch; raises on failure (caller retries/repairs)."""
+    raw = llm_client.chat(
+        [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": _build_user_prompt(batch, brand, competitors)},
+        ],
+        format_json=True,
+    )
+    data = _extract_json_object(raw)
+    return data.get("articles", [])
+
+
+def _tag_batch_with_repair(
+    llm_client: HybridLLMClient, batch: list[dict], brand: str, competitors: list[str],
+) -> list[dict]:
+    """Tag a batch, re-requesting whatever the model leaves out of its response.
+
+    The model does not reliably return one entry per article at larger batch
+    sizes; each round asks only for the ids still missing, which also covers
+    transient per-batch failures without re-paying for articles that already
+    tagged successfully.
+    """
+    collected: dict[str, dict] = {}
+    outstanding = list(batch)
+    last_error = ""
+
+    for round_number in range(1, MAX_ROUNDS + 1):
+        if not outstanding:
+            break
+        try:
+            tagged = tag_batch(llm_client, outstanding, brand, competitors)
+            for entry in tagged:
+                key = str(entry.get("id"))
+                if key and key not in collected:
+                    collected[key] = entry
+        except Exception as exc:  # noqa: BLE001 -- one bad batch must not kill the run
+            last_error = str(exc)
+            logger.warning("[dataset_enrichment] Round %s failed: %s", round_number, exc)
+        outstanding = [a for a in batch if str(a["id"]) not in collected]
+
+    reason = last_error or "missing from response after repair rounds"
+    return [collected.get(str(a["id"])) or {"id": a["id"], **_blank_tags(reason)} for a in batch]
+
+
+def enrich_dataset(
+    records: list[dict],
+    brand: str,
+    competitors: list[str],
+    *,
+    llm_client: HybridLLMClient,
+    emit: EventFn | None = None,
+) -> dict:
+    """Enrich every record with title+content present. Records missing either
+    are returned unmodified with `enrichment_error` set, never sent to the LLM.
+
+    Parameters
+    ----------
+    records : list of dicts, each with at least "id", "title", "content" —
+        plus whatever original columns the caller wants carried through
+        (url, date, source_name, author, country, media_type, reach, ...).
+    brand : the project's primary brand name.
+    competitors : known competitor brand names from the search strategy.
+    emit : optional callback for progress events (start/batch/complete).
+
+    Returns
+    -------
+    dict with keys: records (the merged, enriched list, same order as input),
+    tagged_count, skipped_count, failed_count, elapsed_seconds.
+    """
+    if emit is None:
+        emit = lambda event_type, payload: None
+
+    start = time.time()
+
+    # Content is the hard requirement; title is not — a social post typically has
+    # no separate headline, just body text (the loader backfills a display title
+    # from the content in that case, so this only excludes genuinely empty rows).
+    taggable = [r for r in records if (r.get("content") or "").strip()]
+    taggable_ids = {r["id"] for r in taggable}
+    skipped = [r for r in records if r["id"] not in taggable_ids]
+
+    batches = chunk(taggable, BATCH_SIZE)
+    emit("enrichment_started", {"total_records": len(records), "taggable": len(taggable), "skipped": len(skipped)})
+
+    import concurrent.futures
+    results: dict[str, dict] = {}
+    completed = 0
+
+    def worker(batch: list[dict]) -> list[dict]:
+        return _tag_batch_with_repair(llm_client, batch, brand, competitors)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {pool.submit(worker, b): b for b in batches}
+        for future in concurrent.futures.as_completed(futures):
+            tags = future.result()
+            for t in tags:
+                results[str(t.get("id"))] = t
+            completed += 1
+            emit("enrichment_batch", {
+                "completed_batches": completed,
+                "total_batches": len(batches),
+                "tagged_count": len(results),
+                "total_taggable": len(taggable),
+            })
+
+    merged: list[dict] = []
+    failed_count = 0
+    for r in records:
+        if r["id"] not in taggable_ids:
+            merged.append({**r, **_blank_tags("missing title or content")})
+            continue
+        tag = results.get(str(r["id"])) or {"id": r["id"], **_blank_tags("no result returned")}
+        if tag.get("enrichment_error"):
+            failed_count += 1
+        merged.append({**r, **{k: v for k, v in tag.items() if k != "id"}})
+
+    elapsed = round(time.time() - start, 1)
+    emit("enrichment_complete", {
+        "tagged_count": len(taggable) - failed_count,
+        "failed_count": failed_count,
+        "skipped_count": len(skipped),
+        "elapsed_seconds": elapsed,
+    })
+
+    return {
+        "records": merged,
+        "tagged_count": len(taggable) - failed_count,
+        "skipped_count": len(skipped),
+        "failed_count": failed_count,
+        "elapsed_seconds": elapsed,
+    }

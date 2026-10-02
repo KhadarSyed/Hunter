@@ -517,9 +517,23 @@ async def run(
             "status": "LLM generating Boolean queries...",
         })
 
+        # The LLM call below is a single blocking request; without this, the UI
+        # would sit on "LLM generating Boolean queries..." with no further signal
+        # until it returns. Forward a throttled (max ~1/sec) character count as
+        # real, elapsed-time-based evidence the call is progressing.
+        stream_state = {"chars": 0, "last_emit": time.time()}
+
+        def _on_token(delta: str, _attempt=attempt) -> None:
+            stream_state["chars"] += len(delta)
+            now = time.time()
+            if now - stream_state["last_emit"] >= 1.0:
+                stream_state["last_emit"] = now
+                emit("query_builder_streaming", {"attempt": _attempt, "chars": stream_state["chars"]})
+
         try:
             raw_response = llm_client.chat(
                 messages,
+                on_token=_on_token,
                 format_json=True,
             )
         except Exception as e:

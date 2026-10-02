@@ -1,45 +1,25 @@
-import { Fragment, useState } from "react";
+import { useState } from "react";
 import type { Page } from "../App";
 import { useProject } from "../context/project-context";
 import { intelApi } from "../services/intel-api";
 import { PencilIcon } from "./icons";
 import { BrandLogo } from "./BrandLogo";
-import { SettingsPanel } from "./SettingsPanel";
+import { ProfileMenu } from "./ProfileMenu";
+import { ProjectSwitcher } from "./ProjectSwitcher";
+import { NotificationBell } from "./NotificationBell";
 
 interface NavItem {
-  page: Page | null;
+  page: Page;
   label: string;
   icon: string;
-  comingSoon?: boolean;
-  /** Group heading rendered above this item. */
-  section?: string;
 }
 
 const RESEARCH_NAV: NavItem[] = [
   { page: "dashboard", label: "Dashboard", icon: "grid" },
-  { page: "projects", label: "Projects", icon: "folder" },
-  { page: "brief-scope-review", label: "Brief & Scope", icon: "file-text", section: "Scope" },
-  { page: "background-research", label: "Background Research", icon: "globe" },
-  { page: "search-strategy", label: "Search Strategy", icon: "search", section: "Research" },
-  { page: "query-evaluation", label: "Query Evaluation", icon: "check-circle" },
-  { page: "data-sources", label: "Data Sources", icon: "database" },
-  { page: "research-plan", label: "Research Plan", icon: "columns" },
-  { page: "research-execution", label: "Research Execution", icon: "play" },
-  { page: "evidence-library", label: "Evidence Library", icon: "database" },
-  { page: "analysis", label: "Analysis", icon: "lightbulb", section: "Analysis" },
-  { page: "insights", label: "Insights", icon: "lightbulb" },
-  { page: "storyline", label: "Storyline", icon: "file-text" },
-  { page: "slide-intelligence", label: "Slide Intelligence", icon: "grid", section: "Deliver" },
-  { page: "presentation-composer", label: "Presentation Composer", icon: "columns" },
-  { page: "powerpoint-renderer", label: "PowerPoint Renderer", icon: "file-text" },
-  { page: "word-renderer", label: "Word Renderer", icon: "file-text" },
-  { page: "publishing-gateway", label: "Publishing Gateway", icon: "upload" },
-  { page: "deliverables", label: "Deliverables", icon: "download" },
-  { page: "pipeline-orchestrator", label: "Pipeline Orchestrator", icon: "settings", section: "Operations" },
+  { page: "pipeline-orchestrator", label: "Pipeline Orchestrator", icon: "settings" },
 ];
 
 const QC_NAV: NavItem[] = [
-  { page: "qc-projects", label: "Projects", icon: "folder" },
   { page: "qc-upload", label: "Upload Report", icon: "upload" },
   { page: "qc-results", label: "QC Results", icon: "check-circle" },
   { page: "qc-export", label: "Export", icon: "download" },
@@ -70,6 +50,9 @@ function NavIcon({ name, size = 16 }: { name: string; size?: number }) {
   }
 }
 
+/** Full pipeline-stage navigation, icon-only (matches the landing view's
+ * IconRailSidebar look), shown only once a project is open — see
+ * App.tsx's BROWSING_PAGES. */
 export function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavigate: (page: string) => void }) {
   const { activeProject, setActiveProject } = useProject();
   const isQCPage = QC_PAGES.has(currentPage);
@@ -78,7 +61,6 @@ export function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavi
 
   const accentColor = isQC ? "#0F7B6C" : "#5B2C9D";
 
-  const [showSettings, setShowSettings] = useState(false);
   const [editingProject, setEditingProject] = useState(false);
   const [editName, setEditName] = useState("");
   const [savingName, setSavingName] = useState(false);
@@ -109,55 +91,34 @@ export function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavi
   };
 
   return (
-    <aside className="w-56 border-r border-slate-200 bg-white flex flex-col shrink-0">
-      <div className="h-14 flex items-center justify-between px-5 border-b border-slate-200">
-        <button
-          onClick={() => onNavigate("landing")}
-          className="flex items-center gap-2.5 hover:opacity-80 transition-opacity"
-        >
-          <img
-            src="/logo.png"
-            alt="InfoVision Intelligence"
-            className="h-7 w-7 rounded-md object-cover"
-          />
-          <span className="text-sm font-bold text-slate-900">InfoVision</span>
-        </button>
-        <button
-          onClick={() => onNavigate("landing")}
-          className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
-          title="Home"
-        >
-          <NavIcon name="home" size={15} />
-        </button>
-      </div>
+    <aside className="w-16 border-r border-slate-200 bg-white flex flex-col items-center shrink-0 py-4">
+      <button onClick={() => onNavigate("landing")} className="hover:opacity-80 transition-opacity mb-3" title="Home">
+        <img src="/logo.png" alt="InfoVision Intelligence" className="h-8 w-8 rounded-md object-cover" />
+      </button>
 
       {activeProject && (
-        <div className="relative px-4 py-2.5 border-b border-slate-100">
-          <div className="flex items-center gap-2">
+        <div className="relative mb-3">
+          <button
+            onClick={openEditPopover}
+            title={`${activeProject.name} — click to rename`}
+            className="block"
+          >
             {activeProject.brand ? (
-              <BrandLogo brandName={activeProject.brand} size={20} rounded="lg" className="bg-white ring-1 ring-slate-200" />
+              <BrandLogo brandName={activeProject.brand} size={32} rounded="lg" className="bg-white ring-1 ring-slate-200" />
             ) : (
               <div
-                className="w-5 h-5 rounded flex items-center justify-center text-white text-[10px] font-bold shrink-0"
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold shrink-0"
                 style={{ backgroundColor: accentColor }}
               >
                 {isQC ? "Q" : "R"}
               </div>
             )}
-            <span className="text-xs font-medium text-slate-700 truncate">{activeProject.name}</span>
-            <button
-              onClick={openEditPopover}
-              className="ml-auto shrink-0 w-5 h-5 flex items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
-              title="Edit project"
-            >
-              <PencilIcon size={12} />
-            </button>
-          </div>
+          </button>
 
           {editingProject && (
             <>
               <div className="fixed inset-0 z-40" onClick={closeEditPopover} />
-              <div className="absolute left-4 top-full mt-1 w-64 bg-white border border-slate-200 rounded-lg shadow-lg z-50 p-3">
+              <div className="absolute left-full top-0 ml-2 w-64 bg-white border border-slate-200 rounded-lg shadow-lg z-50 p-3">
                 <label className="block text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-1">
                   Project name
                 </label>
@@ -207,83 +168,31 @@ export function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavi
         </div>
       )}
 
-      {/* Workflow label */}
-      <div className="px-5 pt-4 pb-1">
-        <span
-          className="text-[10px] font-semibold uppercase tracking-widest"
-          style={{ color: accentColor }}
-        >
-          {isQC ? "Monitoring QC" : "Research"}
-        </span>
-      </div>
-
-      <nav className="flex-1 py-1 px-3 space-y-0.5 overflow-y-auto">
+      <ProjectSwitcher onNavigate={onNavigate} />
+      <nav className="flex-1 flex flex-col items-center gap-1 overflow-y-auto">
         {navItems.map((item) => {
-          const isActive =
-            item.page === currentPage ||
-            (item.page === "projects" && (currentPage === "new-project" || currentPage === "edit-project")) ||
-            (item.page === "qc-projects" && (currentPage === "new-qc-project" || currentPage === "edit-qc-project")) ||
-            (item.page === "brief-scope-review" && (currentPage === "brief-scope-review" || currentPage === "brief-analysis"));
-
-          if (item.comingSoon) {
-            return (
-              <div
-                key={item.label}
-                className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-slate-300 cursor-default"
-              >
-                <NavIcon name={item.icon} size={15} />
-                <span className="text-[13px]">{item.label}</span>
-                <span className="ml-auto text-[9px] font-medium text-slate-300 bg-slate-100 px-1.5 py-0.5 rounded">
-                  Soon
-                </span>
-              </div>
-            );
-          }
+          const isActive = item.page === currentPage;
 
           return (
-            <Fragment key={item.label}>
-            {item.section && (
-              <div className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                {item.section}
-              </div>
-            )}
             <button
-              onClick={() => item.page && onNavigate(item.page)}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-colors ${
-                isActive
-                  ? "font-medium"
-                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+              key={item.page}
+              onClick={() => onNavigate(item.page)}
+              title={item.label}
+              className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors ${
+                isActive ? "" : "text-slate-400 hover:bg-slate-50 hover:text-slate-600"
               }`}
-              style={isActive ? {
-                backgroundColor: isQC ? "#0F7B6C10" : "#5B2C9D10",
-                color: accentColor,
-              } : undefined}
+              style={isActive ? { backgroundColor: isQC ? "#0F7B6C10" : "#5B2C9D10", color: accentColor } : undefined}
             >
-              <NavIcon name={item.icon} size={15} />
-              <span className="text-[13px]">{item.label}</span>
+              <NavIcon name={item.icon} size={17} />
             </button>
-            </Fragment>
           );
         })}
       </nav>
 
-      <div className="p-3 border-t border-slate-100">
-        <button
-          onClick={() => onNavigate("settings")}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors"
-        >
-          <NavIcon name="user" size={15} />
-          <span className="text-[13px]">My Account</span>
-        </button>
-        <button
-          onClick={() => setShowSettings(true)}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors"
-        >
-          <NavIcon name="settings" size={15} />
-          <span className="text-[13px]">Settings</span>
-        </button>
+      <div className="flex flex-col items-center gap-1 pt-2 border-t border-slate-100 w-full">
+        <NotificationBell />
+        <ProfileMenu onNavigate={onNavigate} />
       </div>
-      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
     </aside>
   );
 }

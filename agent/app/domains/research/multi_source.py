@@ -188,6 +188,8 @@ def fetch_and_persist(
     geography: str,
     research_id: int | None = None,
     emit=None,
+    api_keys: dict[str, str] | None = None,
+    on_source_result=None,
 ) -> dict:
     """Fetch every topic query. Each topic makes TWO fetch_and_normalize calls (each itself
     fanning out to 3 sources concurrently): a general call, and a social-biased call restricted
@@ -216,6 +218,7 @@ def fetch_and_persist(
         general_result = news_search.fetch_and_normalize(
             query=topic.boolean_query, country=geography, date_range=date_range,
             max_results=MAX_RESULTS_PER_SOURCE, tavily_query=topic.natural_query,
+            api_keys=api_keys, on_source_result=on_source_result,
         )
         _track_failures(general_result)
 
@@ -223,6 +226,7 @@ def fetch_and_persist(
             query=_build_social_query(topic.boolean_query), country=geography,
             date_range=date_range, max_results=MAX_RESULTS_PER_SOURCE,
             tavily_query=topic.natural_query, include_domains=social_domains,
+            api_keys=api_keys, on_source_result=on_source_result,
         )
         _track_failures(social_result)
 

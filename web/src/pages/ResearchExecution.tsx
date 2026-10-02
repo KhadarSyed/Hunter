@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useDemoState } from "../context/demo-state";
 import { intelApi, type JobStatus } from "../services/intel-api";
-import { useActiveProjectId } from "../context/project-context";
+import { useActiveProjectId, useProject } from "../context/project-context";
 import { useJobStatus } from "../hooks/useJobStatus";
+import { PexelsHeaderBanner } from "../components/PexelsHeaderBanner";
 
 interface UnitRow {
   id: number;
@@ -262,12 +263,20 @@ export function ResearchExecution({
     "units",
   );
   const [evidence, setEvidence] = useState<unknown[]>([]);
+  // Streaming text for the gap between clicking Start and a run row existing — the
+  // auto-plan-generation phase (and the planner LLM call within it) used to be a
+  // silent "Starting..." pill with no visible progress at all, since progress_message
+  // was broadcast over the websocket but never persisted to the job row this page
+  // polls. Reset on every new Start; once `run` exists, the Logs tab (run.logs, from
+  // the DB) takes over with the same level of per-unit detail.
+  const [progressLog, setProgressLog] = useState<{ message: string; at: number }[]>([]);
 
   const [liveElapsed, setLiveElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval>>();
   const startTimeRef = useRef<number | null>(null);
 
   const projectId = useActiveProjectId() ?? 1;
+  const { activeProject } = useProject();
 
   useEffect(() => {
     if (starting || run?.status === "running" || run?.status === "paused") {
@@ -328,12 +337,33 @@ export function ResearchExecution({
     if (polledRun) setRun(polledRun);
   }, [polledRun]);
 
+  // Surface the per-unit streaming log by default once a run is actually executing,
+  // rather than leaving the analyst on the "units" overview tab and requiring a manual
+  // click to discover that per-unit detail (method, records filtered, evidence found)
+  // exists at all.
+  const hasSwitchedToLogsRef = useRef(false);
+  useEffect(() => {
+    if (run?.status === "running" && !hasSwitchedToLogsRef.current) {
+      setActiveTab("logs");
+      hasSwitchedToLogsRef.current = true;
+    }
+    if (!run) hasSwitchedToLogsRef.current = false;
+  }, [run?.status]);
+
   // Watch the started job (if any) until it completes or fails.
   const fetchJobStatus = useMemo(
     () => (jobId ? () => intelApi.getJob(jobId) : null),
     [jobId],
   );
   const { status: polledJob } = useJobStatus<JobStatus>(fetchJobStatus);
+  useEffect(() => {
+    if (!polledJob?.progress_message) return;
+    setProgressLog((prev) => {
+      if (prev[prev.length - 1]?.message === polledJob.progress_message) return prev;
+      return [...prev, { message: polledJob.progress_message!, at: Date.now() }].slice(-30);
+    });
+  }, [polledJob?.progress_message]);
+
   useEffect(() => {
     if (!polledJob) return;
     if (polledJob.status === "failed") {
@@ -363,6 +393,7 @@ export function ResearchExecution({
     setError(null);
     startTimeRef.current = Date.now();
     setLiveElapsed(0);
+    setProgressLog([]);
     try {
       const result = await intelApi.startExecution(projectId);
       setJobId(result.job_id);
@@ -500,6 +531,7 @@ export function ResearchExecution({
 
   return (
     <div className="max-w-5xl mx-auto px-8 py-10">
+      <PexelsHeaderBanner brandName={activeProject?.brand || activeProject?.name} className="mb-6" />
       {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
@@ -615,6 +647,30 @@ export function ResearchExecution({
             dataset. Each unit runs independently — failures won't block other
             units.
           </p>
+        </div>
+      )}
+
+      {!run && starting && (
+        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="w-2 h-2 rounded-full shrink-0 bg-blue-500" style={{ animation: "pulse-dot 1.5s ease-in-out infinite" }} />
+            <h3 className="text-sm font-semibold text-slate-700">
+              {progressLog[progressLog.length - 1]?.message ?? "Starting execution..."}
+            </h3>
+          </div>
+          <p className="text-[11px] text-slate-400 mb-3">
+            No approved Research Plan exists yet for most new projects — one is generated
+            automatically before any analysis runs, which can take a minute or two.
+          </p>
+          {progressLog.length > 0 && (
+            <div className="max-h-48 overflow-y-auto border-t border-slate-100 pt-3 space-y-1.5">
+              {progressLog.map((entry, i) => (
+                <div key={i} className={`text-[11px] ${i === progressLog.length - 1 ? "text-slate-700 font-medium" : "text-slate-400"}`}>
+                  {entry.message}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

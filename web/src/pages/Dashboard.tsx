@@ -20,6 +20,11 @@ interface ProjectStats {
   pptxReady: boolean;
   wordReady: boolean;
   researchType: string;
+  briefApproved: boolean;
+  backgroundApproved: boolean;
+  strategyApproved: boolean;
+  datasetApproved: boolean;
+  executionCompleted: boolean;
 }
 
 const QUICK_ACTIONS = [
@@ -68,6 +73,8 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
   const [stats, setStats] = useState<ProjectStats>({
     insightsCount: 0, avgConfidence: 0, storylineNodes: 0,
     slidesComposed: 0, pptxReady: false, wordReady: false, researchType: "Research Project",
+    briefApproved: false, backgroundApproved: false, strategyApproved: false,
+    datasetApproved: false, executionCompleted: false,
   });
   const [stages, setStages] = useState<StageInfo[]>([]);
 
@@ -82,11 +89,11 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
       { id: "deliverables", label: "Deliverables", page: "deliverables", status: "pending", detail: s.pptxReady || s.wordReady ? "Downloads ready" : undefined },
     ];
 
-    if (demo.briefApproved) result[0].status = "completed";
-    if (demo.backgroundApproved) result[1].status = "completed";
-    if (demo.strategyApproved) result[2].status = "completed";
-    if (demo.datasetApproved) result[3].status = "completed";
-    if (demo.datasetApproved) result[4].status = "completed";
+    if (s.briefApproved) result[0].status = "completed";
+    if (s.backgroundApproved) result[1].status = "completed";
+    if (s.strategyApproved) result[2].status = "completed";
+    if (s.datasetApproved) result[3].status = "completed";
+    if (s.executionCompleted) result[4].status = "completed";
     if (s.insightsCount > 0) result[5].status = "completed";
     if (s.pptxReady || s.wordReady) result[6].status = "completed";
 
@@ -99,7 +106,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
     }
 
     return result;
-  }, [demo.briefApproved, demo.backgroundApproved, demo.strategyApproved, demo.datasetApproved]);
+  }, []);
 
   useEffect(() => {
     if (!activeProjectId) return;
@@ -108,6 +115,8 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
       const s: ProjectStats = {
         insightsCount: 0, avgConfidence: 0, storylineNodes: 0,
         slidesComposed: 0, pptxReady: false, wordReady: false, researchType: "Research Project",
+        briefApproved: false, backgroundApproved: false, strategyApproved: false,
+        datasetApproved: false, executionCompleted: false,
       };
 
       try {
@@ -116,6 +125,19 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
         if (spec) {
           s.researchType = spec.research_type || spec.methodology?.primary || "Research";
         }
+      } catch {}
+
+      try {
+        const prereqs = await intelApi.validatePlanPrereqs(activeProjectId);
+        s.briefApproved = prereqs.prerequisites.brief_scope?.status === "approved";
+        s.backgroundApproved = prereqs.prerequisites.background_research?.status === "approved";
+        s.strategyApproved = prereqs.prerequisites.search_strategy?.status === "approved";
+        s.datasetApproved = prereqs.prerequisites.dataset?.status === "approved";
+      } catch {}
+
+      try {
+        const execStatus = await intelApi.getExecutionStatus(activeProjectId);
+        s.executionCompleted = execStatus.status === "completed";
       } catch {}
 
       try {

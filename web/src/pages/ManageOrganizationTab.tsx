@@ -65,10 +65,22 @@ export function ManageOrganizationTab() {
               <td>{o.admin_name} ({o.admin_email})</td>
               <td>{o.archived_at ? "Archived" : "Active"}</td>
               <td>
-                {!o.archived_at && (
-                  <button onClick={() => intelApi.archiveOrganization(o.id).then(load)}
-                          className="text-xs text-red-600">Archive</button>
-                )}
+                <div className="flex items-center gap-3">
+                  {!o.archived_at && (
+                    <button onClick={() => intelApi.archiveOrganization(o.id).then(load)}
+                            className="text-xs text-red-600 hover:underline">Archive</button>
+                  )}
+                  <button
+                    onClick={() => {
+                      if (window.confirm(`Permanently delete "${o.name}"? This cannot be undone.`)) {
+                        intelApi.deleteOrganization(o.id).then(load);
+                      }
+                    }}
+                    className="text-xs font-medium text-red-700 hover:underline"
+                  >
+                    Delete
+                  </button>
+                </div>
               </td>
             </tr>
           ))}

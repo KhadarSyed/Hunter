@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { intelApi } from "../services/intel-api";
 import type { Insight, InsightDetail, InsightsSummary, StorylineDetail, StorylineSummary, StoryNodeEnriched } from "../types/contracts";
-import { useActiveProjectId } from "../context/project-context";
+import { useActiveProjectId, useProject } from "../context/project-context";
+import { PexelsHeaderBanner } from "../components/PexelsHeaderBanner";
 
 const STATUS_COLORS: Record<string, string> = {
   draft: "text-slate-600 bg-slate-100 border-slate-200",
@@ -265,6 +266,7 @@ function NodeDrawer({ node, loading, busy, onClose, onReview }: {
 
 export function AnalysisPage({ onNavigate }: { onNavigate: (page: string) => void }) {
   const projectId = useActiveProjectId() ?? 1;
+  const { activeProject } = useProject();
 
   const [locked, setLocked] = useState<boolean | null>(null);
   const [prereqBlockers, setPrereqBlockers] = useState<string[]>([]);
@@ -515,6 +517,7 @@ export function AnalysisPage({ onNavigate }: { onNavigate: (page: string) => voi
 
   return (
     <div className="max-w-6xl mx-auto px-8 py-10">
+      <PexelsHeaderBanner brandName={activeProject?.brand || activeProject?.name} className="mb-6" />
       <div className="flex items-start justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold text-slate-900">Analysis</h1>

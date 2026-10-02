@@ -155,8 +155,11 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
     return result;
   };
 
+  const qcFieldsValid = projectName.trim() && client.trim() && geography.trim();
+  const researchFieldsValid = qcFieldsValid && researchType.trim() && timePeriod.trim() && briefText.trim();
+
   const handleSaveQC = async () => {
-    if (!projectName.trim()) return;
+    if (!qcFieldsValid) return;
     setCreating(true);
     setError("");
     try {
@@ -170,7 +173,7 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
   };
 
   const handleAnalyze = async () => {
-    if (!briefText.trim() || !projectName.trim()) return;
+    if (!researchFieldsValid) return;
     setCreating(true);
     setError("");
     setLlmStatus(editingId !== null || savedProjectId !== null ? "Updating project..." : "Creating project...");
@@ -249,7 +252,9 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
         </nav>
         <h1 className="mt-2 text-xl font-semibold text-slate-900">{title}</h1>
         <p className="text-sm text-slate-500 mt-0.5">
-          {isQC ? "Name the QC project, then upload the monitoring report." : "Upload the client brief and click Extract Text (or paste it) — the project is saved when you click Analyze Brief."}
+          {isQC
+            ? "Name the QC project, then upload the monitoring report. All fields marked * are required."
+            : "Type or paste the client brief (or upload a file to extract it — upload is optional), then click Analyze Brief. All fields marked * are required."}
         </p>
         {draft && <span className="text-xs text-slate-400">Draft from {new Date(draft.savedAt).toLocaleDateString()}</span>}
       </div>
@@ -257,19 +262,19 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-5">
         <div className="grid grid-cols-2 gap-5">
           <label className="block">
-            <span className="block text-xs font-medium text-slate-500 mb-1.5">Project Name</span>
+            <span className="block text-xs font-medium text-slate-500 mb-1.5">Project Name <span className="text-red-500">*</span></span>
             <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)}
               placeholder={isQC ? "e.g. July 2026 QC - Acme Corp" : "e.g. Brand Audience Research"} className={INPUT} />
           </label>
           <label className="block">
-            <span className="block text-xs font-medium text-slate-500 mb-1.5">Client</span>
+            <span className="block text-xs font-medium text-slate-500 mb-1.5">Client <span className="text-red-500">*</span></span>
             <input type="text" value={client} onChange={(e) => setClient(e.target.value)} placeholder="e.g. Heineken — used as the project brand" className={INPUT} />
           </label>
         </div>
 
         <div className={`grid gap-5 ${isQC ? "grid-cols-1 max-w-xs" : "grid-cols-3"}`}>
           <label className="block">
-            <span className="block text-xs font-medium text-slate-500 mb-1.5">Geography</span>
+            <span className="block text-xs font-medium text-slate-500 mb-1.5">Geography <span className="text-red-500">*</span></span>
             <div className="relative">
               <CountryFlag country={geography} size={18} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" />
               <select value={geography} onChange={(e) => setGeography(e.target.value)} className={`${INPUT} pl-10`}>
@@ -280,7 +285,7 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
           {!isQC && (
             <>
               <label className="block">
-                <span className="block text-xs font-medium text-slate-500 mb-1.5">Research Type</span>
+                <span className="block text-xs font-medium text-slate-500 mb-1.5">Research Type <span className="text-red-500">*</span></span>
                 <select value={researchType} onChange={(e) => setResearchType(e.target.value)} className={INPUT}>
                   <option>Social Listening</option>
                   <option>Audience Insights</option>
@@ -289,7 +294,7 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
                 </select>
               </label>
               <label className="block">
-                <span className="block text-xs font-medium text-slate-500 mb-1.5">Time Period</span>
+                <span className="block text-xs font-medium text-slate-500 mb-1.5">Time Period <span className="text-red-500">*</span></span>
                 <select value={timePeriod} onChange={(e) => setTimePeriod(e.target.value)} className={INPUT}>
                   <option>Past 7 days</option>
                   <option>Past 30 days</option>
@@ -306,7 +311,10 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
       {!isQC && (
         <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
           <label className="block">
-            <span className="block text-xs font-medium text-slate-500 mb-1.5">Client Brief</span>
+            <span className="block text-xs font-medium text-slate-500 mb-1.5">
+              Client Brief <span className="text-red-500">*</span>
+              <span className="ml-2 text-[11px] font-normal text-slate-400">(type it in, or upload a file below to extract it — upload is optional)</span>
+            </span>
             <textarea rows={12} value={briefText} onChange={(e) => {
                 setBriefText(e.target.value);
                 if (!e.target.value.trim()) { setBriefSource(null); setExtractionNote(""); }
@@ -395,7 +403,8 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
           Cancel
         </button>
         {isQC ? (
-          <button disabled={!projectName.trim() || creating} onClick={handleSaveQC}
+          <button disabled={!qcFieldsValid || creating} onClick={handleSaveQC}
+            title={!qcFieldsValid ? "Fill in all required fields (Project Name, Client, Geography) first" : undefined}
             className="px-5 py-2.5 text-sm font-medium text-white rounded-lg shadow-sm disabled:opacity-40 disabled:cursor-not-allowed bg-[#0F7B6C] hover:bg-[#0A6558]">
             {creating ? "Saving..." : "Save & Upload Report"}
           </button>
@@ -413,7 +422,8 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
                 {uploadingBrief ? "Extracting..." : "Extract Text"}
               </button>
             ) : (
-              <button disabled={!briefText.trim() || !projectName.trim() || creating} onClick={handleAnalyze}
+              <button disabled={!researchFieldsValid || creating} onClick={handleAnalyze}
+                title={!researchFieldsValid ? "Fill in all required fields (Project Name, Client, Geography, Research Type, Time Period, Client Brief) first" : undefined}
                 className="px-5 py-2.5 text-sm font-medium text-white rounded-lg shadow-sm disabled:opacity-40 disabled:cursor-not-allowed bg-[#5B2C9D] hover:bg-[#4A2380]">
                 {creating ? "Analyzing..." : "Analyze Brief"}
               </button>

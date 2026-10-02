@@ -120,3 +120,20 @@ class ResearchItemView(ApiModel):
 class ResearchItemsListResponse(ApiModel):
     items: list[ResearchItemView]
     total: int
+
+
+class ArticleBlock(ApiModel):
+    type: str  # "heading" | "paragraph" | "image"
+    text: str | None = None
+    src: str | None = None
+    alt: str | None = None
+
+
+class ArticleFullTextResponse(ApiModel):
+    status: str  # "ok" | "failed" | "paywalled" | "social_media" | "video"
+    title: str | None = None
+    blocks: list[ArticleBlock] = []
+    error: str | None = None
+    platform: str | None = None  # e.g. "YouTube", "Facebook" — set for social_media/video
+    embed_url: str | None = None  # set for video (YouTube) only
+    cached: bool = False

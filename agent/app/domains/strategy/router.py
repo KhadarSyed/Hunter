@@ -8,24 +8,29 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import csv
+import itertools
+import json
 import logging
 import re
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlparse
 
 import openpyxl
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi import Path as PathParam
 
+from ...agents.dataset_enrichment import enrich_dataset
 from ...agents.meltwater_query_builder import run as run_mqb
 from ...agents.meltwater_query_builder import validate_boolean_syntax
 from ...agents.query_evaluator import evaluate_sample
 from ...core import store
 from ...core.anthropic_client import get_llm_client
 from ...core.api import OkResponse
-from ...core.auth import require_project_access
+from ...core.auth import require_dataset_access, require_project_access
 from ...core.config import UPLOAD_DIR
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
@@ -36,6 +41,7 @@ from .schemas import (
     EditQueryRequest,
     EditQueryResponse,
     EditRQRequest,
+    EnrichmentStartResponse,
     EvaluationUploadResponse,
     FinalApprovalRequest,
     FinalApprovalResult,
@@ -285,21 +291,22 @@ def _build_deterministic_strategy(spec: dict, raw_brief_text: str = "") -> dict:
             *comp_modules,
             *concept_modules,
         ],
-        "core_queries": [
-            {"type": "broad", "query": broad_q,
-             "description": "Brand name with exclusions only",
-             "estimated_noise_level": "high",
-             "use_case": "Volume estimation and broad monitoring"},
-            {"type": "balanced", "query": balanced_q,
-             "description": "Brand + category/product context",
-             "estimated_noise_level": "medium",
-             "use_case": "Day-to-day monitoring"},
-            {"type": "precise", "query": precise_q,
-             "description": "Brand in proximity to category",
-             "estimated_noise_level": "low",
-             "use_case": "High-precision analysis"},
-            *comp_core_queries,
-        ],
+        # Keyed dict (not a list) to match the schema the LLM generation path and the
+        # frontend both use — see query_versions usage in SearchStrategy.tsx.
+        "query_versions": {
+            "broad": {"query": broad_q,
+                      "description": "Brand name with exclusions only",
+                      "estimated_noise_level": "high",
+                      "use_case": "Volume estimation and broad monitoring"},
+            "balanced": {"query": balanced_q,
+                         "description": "Brand + category/product context",
+                         "estimated_noise_level": "medium",
+                         "use_case": "Day-to-day monitoring"},
+            "precise": {"query": precise_q,
+                        "description": "Brand in proximity to category",
+                        "estimated_noise_level": "low",
+                        "use_case": "High-precision analysis"},
+        },
         "research_question_queries": rq_queries,
         "exclusion_strategy": {
             "global_exclusions": not_clause.strip() if not_clause else "None",
@@ -366,10 +373,28 @@ def generate_search_strategy(req: GenerateStrategyRequest):
 
             llm_client = get_llm_client()
 
+            # Maps meltwater_query_builder's internal lifecycle events to the
+            # progress_pct/progress_message the frontend polls via GET /jobs/{id} —
+            # _broadcast alone only reaches WebSocket listeners, and this page polls.
+            _event_messages = {
+                "query_builder_started": (32, "Preparing query generation request"),
+                "query_builder_attempt": (35, "LLM generating Boolean queries"),
+                "query_builder_reasoning": (45, "LLM generating Boolean queries..."),
+                "query_builder_validated": (60, "Validating Boolean query syntax"),
+                "query_builder_error": (45, "Retrying after an LLM error"),
+                "query_builder_complete": (65, "Query strategy drafted — finalizing"),
+            }
+
             def on_event(event_type: str, payload: dict):
+                if event_type == "query_builder_streaming":
+                    pct, message = 45, f"LLM generating Boolean queries... ({payload.get('chars', 0):,} characters so far)"
+                else:
+                    default_pct, default_message = _event_messages.get(event_type, (50, event_type))
+                    pct = payload.get("progress_pct", default_pct)
+                    message = payload.get("message", default_message)
+                store.update_job(job_id, progress_pct=pct, progress_message=message)
                 _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
-                             "progress_pct": payload.get("progress_pct", 50),
-                             "message": payload.get("message", event_type)})
+                             "progress_pct": pct, "message": message})
 
             strategy_result = None
 
@@ -432,7 +457,7 @@ def generate_search_strategy(req: GenerateStrategyRequest):
 
             validation_issues = []
             if isinstance(strategy_result, dict):
-                for qv in strategy_result.get("core_queries", []):
+                for qv in strategy_result.get("query_versions", {}).values():
                     if isinstance(qv, dict) and qv.get("query"):
                         issues = validate_boolean_syntax(qv["query"])
                         if issues:
@@ -615,6 +640,102 @@ def _auto_map_columns(file_columns: list[str]) -> dict:
     return {"mapped": mapping, "unmapped": unmapped}
 
 
+def _extract_json_object(text: str) -> dict:
+    """Pull the first valid JSON object from LLM output, tolerating markdown fences."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```\s*$", "", text)
+    brace_start = text.find("{")
+    if brace_start == -1:
+        raise ValueError("No JSON object found in LLM response")
+    depth = 0
+    in_string = False
+    escape_next = False
+    for i, ch in enumerate(text[brace_start:], start=brace_start):
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == "\\":
+            escape_next = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return json.loads(text[brace_start:i + 1])
+    raise ValueError("Unbalanced JSON object in LLM response")
+
+
+def _llm_assisted_column_mapping(headers: list[str], sample_rows: list[dict]) -> dict:
+    """Fall back to an LLM when MELTWATER_COLUMN_MAP's static alias list can't identify
+    a file's headline/snippet/media_type columns — lets users upload exports with
+    arbitrary, non-Meltwater column names and still get correctly parsed. Runs only
+    when the deterministic pass left key fields unmapped (see _init_mapped below); it
+    never replaces that pass, only fills its gaps.
+
+    Returns {"mapped": {...}, "unmapped": [...], "media_type_rule": {...} | None} —
+    the same shape as _auto_map_columns, plus a media_type_rule for deriving
+    article-vs-post per row from its URL domain when no media-type-like column
+    exists in the file at all.
+    """
+    llm_client = get_llm_client()
+    if not llm_client or not llm_client.is_reachable():
+        return {"mapped": {}, "unmapped": list(headers), "media_type_rule": None}
+
+    sample_preview = [
+        {k: (str(v)[:200] if v is not None else "") for k, v in row.items()}
+        for row in sample_rows[:5]
+    ]
+    prompt = (
+        "Map this media-monitoring export's column headers to a canonical schema.\n"
+        f"Columns: {json.dumps(headers)}\n"
+        f"Sample rows: {json.dumps(sample_preview)}\n\n"
+        "Return ONLY this JSON shape:\n"
+        '{"mapping": {"headline": "<exact header or null>", "snippet": "<...>", '
+        '"url": "<...>", "date": "<...>", "source_name": "<...>", "media_type": "<...>", '
+        '"geography": "<...>", "language": "<...>", "author": "<...>", "reach": "<...>", '
+        '"sentiment": "<...>"}, '
+        '"media_type_rule": {"domain_map": {"<domain>": "Article"|"Post"}, '
+        '"default": "Article"|"Post"} or null}\n'
+        "Rules: every value in \"mapping\" must be one of the exact strings from "
+        "Columns above, or null if nothing fits. Set \"media_type_rule\" only when no "
+        "column in \"mapping\" was set to \"media_type\" — infer it from the sample "
+        "rows' URL domains: news/press/outlet-style domains are \"Article\", "
+        "social/forum/review-platform domains (reddit, x/twitter, instagram, facebook, "
+        "forums, review sites) are \"Post\"."
+    )
+    try:
+        raw = llm_client.chat(
+            [
+                {"role": "system", "content": "You map data export columns to a canonical schema. Output only JSON."},
+                {"role": "user", "content": prompt},
+            ],
+            format_json=True,
+        )
+        data = _extract_json_object(raw)
+    except Exception as e:
+        logger.warning("LLM-assisted column mapping failed: %s", e)
+        return {"mapped": {}, "unmapped": list(headers), "media_type_rule": None}
+
+    header_set = set(headers)
+    mapped = {
+        field: col for field, col in (data.get("mapping") or {}).items()
+        if col and col in header_set
+    }
+    return {
+        "mapped": mapped,
+        "unmapped": [c for c in headers if c not in mapped.values()],
+        "media_type_rule": data.get("media_type_rule"),
+    }
+
+
 KNOWN_HEADERS = {"date", "url", "headline", "title", "source name", "source", "sentiment",
                   "reach", "country", "language", "media type", "hit sentence", "opening text",
                   "author name", "document id", "source type", "information type", "keywords"}
@@ -643,7 +764,26 @@ def _parse_and_analyze(file_path: str) -> tuple[list[str], list[dict], int, dict
     reach_count = 0
 
     mapped: dict = {}
-    sentiment_col = media_col = geo_col = source_col = date_col = reach_col = lang_col = None
+    sentiment_col = media_col = geo_col = source_col = date_col = reach_col = lang_col = url_col = None
+    media_type_rule: dict | None = None
+
+    def _row_media_type(row_dict: dict) -> str:
+        """media_col is the normal path; media_type_rule (LLM-derived, from URL domain)
+        only applies when the file has no media-type-equivalent column at all."""
+        if media_col:
+            return str(row_dict.get(media_col, "")).strip()
+        if media_type_rule and url_col:
+            raw_url = str(row_dict.get(url_col, "")).strip()
+            if raw_url:
+                try:
+                    domain = (urlparse(raw_url).hostname or "").lower()
+                    if domain.startswith("www."):
+                        domain = domain[4:]
+                except ValueError:
+                    domain = ""
+                if domain:
+                    return media_type_rule.get("domain_map", {}).get(domain, media_type_rule.get("default", ""))
+        return ""
 
     def _update_stats(row_dict: dict, sheet_name: str | None = None):
         nonlocal total_count, sent_pos, sent_neg, sent_neu, sent_other
@@ -659,9 +799,8 @@ def _parse_and_analyze(file_path: str) -> tuple[list[str], list[dict], int, dict
             elif sv in ("negative", "neg"): sent_neg += 1
             elif sv in ("neutral", "neu"): sent_neu += 1
             elif sv: sent_other += 1
-        if media_col:
-            t = str(row_dict.get(media_col, "")).strip()
-            if t: types[t] = types.get(t, 0) + 1
+        t = _row_media_type(row_dict)
+        if t: types[t] = types.get(t, 0) + 1
         if geo_col:
             g = str(row_dict.get(geo_col, "")).strip()
             if g: geos[g] = geos.get(g, 0) + 1
@@ -686,10 +825,21 @@ def _parse_and_analyze(file_path: str) -> tuple[list[str], list[dict], int, dict
             except (ValueError, TypeError):
                 pass
 
-    def _init_mapped(hdrs: list[str]):
+    def _init_mapped(hdrs: list[str], sample_rows: list[dict] | None = None):
         nonlocal mapped, sentiment_col, media_col, geo_col, source_col, date_col, reach_col, lang_col
-        column_mapping = _auto_map_columns(hdrs)
-        mapped = column_mapping.get("mapped", {})
+        nonlocal url_col, media_type_rule
+        mapped = _auto_map_columns(hdrs).get("mapped", {})
+        # The static alias list above only recognizes Meltwater's own header spellings.
+        # When it leaves headline/snippet or media_type unmapped, ask the LLM once to
+        # resolve the remaining headers (and, if no media-type column exists at all, to
+        # infer an article-vs-post rule from the sample rows' URL domains) so uploads
+        # with arbitrary, non-Meltwater column names still parse correctly.
+        missing_core = not (mapped.get("headline") and mapped.get("snippet"))
+        if missing_core or not mapped.get("media_type"):
+            llm_result = _llm_assisted_column_mapping(hdrs, sample_rows or [])
+            for field, col in llm_result["mapped"].items():
+                mapped.setdefault(field, col)
+            media_type_rule = llm_result.get("media_type_rule")
         sentiment_col = mapped.get("sentiment")
         media_col = mapped.get("media_type")
         geo_col = mapped.get("geography")
@@ -697,6 +847,7 @@ def _parse_and_analyze(file_path: str) -> tuple[list[str], list[dict], int, dict
         date_col = mapped.get("date")
         reach_col = mapped.get("reach")
         lang_col = mapped.get("language")
+        url_col = mapped.get("url")
 
     if ext in (".xlsx", ".xls"):
         wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
@@ -729,11 +880,14 @@ def _parse_and_analyze(file_path: str) -> tuple[list[str], list[dict], int, dict
         with open(file_path, "r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             headers = list(reader.fieldnames or [])
-            _init_mapped(headers)
+            buffered_rows = list(itertools.islice(reader, 5))
+            _init_mapped(headers, buffered_rows)
+            for row in buffered_rows:
+                _update_stats(row)
             for row in reader:
                 _update_stats(row)
 
-    column_mapping = _auto_map_columns(headers)
+    column_mapping = {"mapped": mapped, "unmapped": [c for c in headers if c not in mapped.values()]}
     stats: dict = {"total_records": total_count}
     if sheet_counts:
         stats["sheets"] = sheet_counts
@@ -844,6 +998,221 @@ def approve_dataset(dataset_id: IdPath):
 def delete_dataset(dataset_id: IdPath):
     store.delete_dataset(dataset_id)
     return {"ok": True}
+
+
+# Domains that identify a record as social-platform content when the uploaded
+# file has no media-type column of its own (common for raw social exports) —
+# applied per-row at enrichment time so classification never depends on
+# whatever heuristic happened to run at upload time.
+_SOCIAL_DOMAINS = {
+    "reddit.com", "x.com", "twitter.com", "facebook.com", "instagram.com",
+    "tiktok.com", "youtube.com", "linkedin.com", "pinterest.com", "snapchat.com",
+    "threads.net", "tumblr.com",
+    # Community/forum/review sites: not "social media" in the strict sense, but
+    # user-generated discussion rather than press/editorial — same "Post"
+    # bucket for review purposes. Necessarily incomplete for domains this list
+    # hasn't seen; a dataset whose column_mapping already resolved a real
+    # media_type column (checked by the caller before falling back here) is
+    # always more accurate than this guess.
+    "edmunds.com", "cargurus.com", "kbb.com", "autotrader.com", "carfax.com",
+    "yelp.com", "tripadvisor.com", "quora.com", "discord.com",
+}
+
+
+def _infer_media_type_from_url(url: str) -> str:
+    try:
+        domain = urlparse(url).hostname or ""
+    except ValueError:
+        return "Article"
+    domain = domain.lower()
+    if domain.startswith("www."):
+        domain = domain[4:]
+    return "Post" if domain in _SOCIAL_DOMAINS else "Article"
+
+
+def _load_all_records(file_path: str, mapped: dict) -> list[dict]:
+    """Every row of an uploaded dataset file, as enrichment-ready records —
+    reusing the column_mapping already resolved for this dataset at upload
+    time (MELTWATER_COLUMN_MAP, or the LLM-assisted fallback) rather than
+    re-detecting it. Unlike _parse_and_analyze's streaming pass (which keeps
+    only a 20-row preview), this keeps every row — enrichment needs the full
+    title + content of each one, not just summary stats.
+    """
+    def pick(row: dict, field: str) -> str:
+        col = mapped.get(field)
+        return str(row.get(col, "") or "").strip() if col else ""
+
+    ext = Path(file_path).suffix.lower()
+    rows: list[dict] = []
+    if ext in (".xlsx", ".xls"):
+        wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+        for ws in wb.worksheets:
+            headers: list[str] = []
+            for row in ws.iter_rows(values_only=True):
+                if not headers:
+                    cells = [str(c or "").strip() for c in row]
+                    if sum(1 for c in cells if c) >= 3:
+                        headers = cells
+                    continue
+                rows.append({headers[j]: v for j, v in enumerate(row[:len(headers)])})
+        wb.close()
+    else:
+        with open(file_path, "r", encoding="utf-8-sig") as f:
+            rows = list(csv.DictReader(f))
+
+    records = []
+    for i, row in enumerate(rows):
+        url = pick(row, "url")
+        media_type = pick(row, "media_type") or _infer_media_type_from_url(url)
+        content = pick(row, "snippet") or pick(row, "headline")
+        # Social posts typically have no separate headline column — fall back to
+        # the first line of the post body as a display title rather than leaving
+        # it blank (which would make the record look untaggable).
+        title = pick(row, "headline") or (content[:80] + ("..." if len(content) > 80 else ""))
+        records.append({
+            "id": str(i),
+            "title": title,
+            "content": content,
+            "url": url,
+            "date": pick(row, "date"),
+            "source_name": pick(row, "source_name"),
+            "author": pick(row, "author"),
+            "country": pick(row, "geography"),
+            "media_type": media_type,
+            "reach": pick(row, "reach"),
+            "review_status": "relevant",
+            "approval_status": "pending",
+            "disapproval_reason": None,
+            "reviewed_by": None,
+            "reviewed_at": None,
+            "manually_edited": False,
+        })
+    return records
+
+
+@router.post("/dataset/{dataset_id}/enrich", response_model=EnrichmentStartResponse)
+def enrich_dataset_route(dataset_id: IdPath, _access: Annotated[dict, Depends(require_dataset_access)]):
+    dataset = store.get_dataset_by_id(dataset_id)
+    if not dataset:
+        raise HTTPException(404, "Dataset not found")
+    if dataset["processing_status"] != "done":
+        raise HTTPException(400, "Dataset is still processing")
+
+    project = store.get_project(dataset["project_id"])
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    brand_name = project.get("brand") or project.get("name") or ""
+    latest_spec_row = store.get_latest_spec(dataset["project_id"])
+    raw_brief_text = (latest_spec_row or {}).get("raw_brief_text", "") or ""
+    competitors = _extract_competitors_from_text(raw_brief_text, brand_name)
+
+    job_id = f"enrich_{uuid.uuid4().hex[:12]}"
+    store.create_job(job_id, dataset["project_id"], "dataset_enrichment")
+    store.update_dataset_enrichment(dataset_id, "processing")
+
+    def worker():
+        def on_event(event_type: str, payload: dict):
+            messages = {
+                "enrichment_started": f"Enriching {payload.get('taggable', 0)} of {payload.get('total_records', 0)} records ({payload.get('skipped', 0)} skipped — missing title/content)",
+                "enrichment_batch": f"Batch {payload.get('completed_batches', 0)}/{payload.get('total_batches', 0)} done — {payload.get('tagged_count', 0)}/{payload.get('total_taggable', 0)} tagged (sentiment, themes, entities, brand scores)",
+                "enrichment_complete": f"Enrichment complete — {payload.get('tagged_count', 0)} tagged, {payload.get('failed_count', 0)} failed, {payload.get('skipped_count', 0)} skipped in {payload.get('elapsed_seconds', 0)}s",
+            }
+            pct = {"enrichment_started": 10, "enrichment_batch": None, "enrichment_complete": 100}[event_type]
+            message = messages[event_type]
+            if event_type == "enrichment_batch" and payload.get("total_batches"):
+                pct = 10 + round(80 * payload["completed_batches"] / payload["total_batches"])
+            store.update_job(job_id, status="running" if event_type != "enrichment_complete" else "completed",
+                             progress_pct=pct, progress_message=message)
+            _broadcast({"type": "intel_job_update", "job_id": job_id,
+                         "status": "running" if event_type != "enrichment_complete" else "completed",
+                         "progress_pct": pct, "message": message})
+
+        try:
+            llm_client = get_llm_client()
+            if not llm_client or not llm_client.is_reachable():
+                raise RuntimeError("No LLM reachable — dataset enrichment requires Azure OpenAI")
+            records = _load_all_records(dataset["file_path"], dataset["column_mapping"].get("mapped", {}))
+
+            # A re-enrich run (e.g. retried after a partial failure) must never
+            # discard an analyst's manual tag/approval edits from the prior run —
+            # those records are kept as-is and excluded from re-tagging.
+            previous = json.loads(dataset["enrichment_json"]) if dataset.get("enrichment_json") else []
+            preserved_by_id = {str(r.get("id")): r for r in previous if r.get("manually_edited")}
+
+            to_tag = [r for r in records if str(r["id"]) not in preserved_by_id]
+            result = enrich_dataset(to_tag, brand_name, competitors, llm_client=llm_client, emit=on_event)
+            tagged_by_id = {str(r["id"]): r for r in result["records"]}
+            merged = [preserved_by_id.get(str(r["id"])) or tagged_by_id[str(r["id"])] for r in records]
+
+            store.update_dataset_enrichment(dataset_id, "done", enrichment=merged)
+            store.update_job(job_id, status="completed", progress_pct=100,
+                             progress_message="Enrichment complete",
+                             result={"dataset_id": dataset_id, "tagged_count": result["tagged_count"]})
+        except Exception as e:
+            logger.error("[enrich:%s] Failed: %s", job_id, e, exc_info=True)
+            store.update_dataset_enrichment(dataset_id, "error", error=str(e))
+            store.update_job(job_id, status="failed", error=str(e))
+            _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "failed", "error": str(e)})
+
+    submit(worker, name="strategy:dataset-enrich")
+    return {"job_id": job_id, "dataset_id": dataset_id}
+
+
+@router.get("/dataset/{dataset_id}/enriched")
+def get_dataset_enriched(dataset_id: IdPath, _access: Annotated[dict, Depends(require_dataset_access)]):
+    dataset = store.get_dataset_by_id(dataset_id)
+    if not dataset:
+        raise HTTPException(404, "Dataset not found")
+    enrichment = json.loads(dataset["enrichment_json"]) if dataset.get("enrichment_json") else None
+    return {
+        "dataset_id": dataset_id,
+        "status": dataset.get("enrichment_status"),
+        "error": dataset.get("enrichment_error"),
+        "records": enrichment or [],
+    }
+
+
+@router.get("/dataset/enriched/{project_id}")
+def get_project_enriched(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)]):
+    return {"records": store.get_enriched_records_by_project(project_id)}
+
+
+# Fields that constitute an analyst edit to a record's tagging (as opposed to
+# bookkeeping fields like reviewed_by/reviewed_at themselves) — touching any of
+# these, or the approval/review status, stamps the record as manually_edited so
+# a future re-enrichment run preserves it instead of overwriting it.
+_ENRICHMENT_EDIT_FIELDS = (
+    "overall_sentiment", "overall_sentiment_confidence", "themes", "signals",
+    "entities", "brand_sentiments", "reason", "review_status", "approval_status",
+)
+
+
+@router.patch("/dataset/{dataset_id}/enriched/{record_id}")
+def update_enriched_record_route(dataset_id: IdPath, record_id: str, updates: dict,
+                                 access_user: Annotated[dict, Depends(require_dataset_access)]):
+    """Analyst correction of one enriched record's tags (sentiment, themes,
+    entities, brand scores, reason, ...), its review_status (relevant/
+    irrelevant), or its approval_status (approved/disapproved) — merged in
+    place, never re-runs the LLM. Every such edit is attributed to the acting
+    user and marks the record manually_edited so later re-enrichment runs
+    leave it alone (see enrich_dataset_route)."""
+    updates = {k: v for k, v in updates.items() if k != "id"}
+
+    if updates.get("approval_status") == "disapproved" and not (updates.get("disapproval_reason") or "").strip():
+        raise HTTPException(400, "A reason is required to disapprove an article")
+    if updates.get("approval_status") == "approved":
+        updates.setdefault("disapproval_reason", None)
+
+    if any(k in updates for k in _ENRICHMENT_EDIT_FIELDS):
+        updates["reviewed_by"] = access_user.get("email")
+        updates["reviewed_at"] = datetime.now(timezone.utc).isoformat()
+        updates["manually_edited"] = True
+
+    record = store.update_enriched_record(dataset_id, record_id, updates)
+    if record is None:
+        raise HTTPException(404, "Record not found, or dataset has no enrichment yet")
+    return record
 
 
 @router.post("/evaluation/upload", response_model=EvaluationUploadResponse)
