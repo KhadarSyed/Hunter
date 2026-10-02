@@ -227,8 +227,10 @@ def generate_plan(
             "sheets": stats.get("sheets"),
             "format": "meltwater_export",
         }
-    research_data = research.get("research", {})
-    strategy_data = strategy.get("strategy", {})
+    # "proceeding anyway" above means tolerate missing/unapproved research or strategy,
+    # not crash on them — both can legitimately be None this early in the pipeline.
+    research_data = (research or {}).get("research", {})
+    strategy_data = (strategy or {}).get("strategy", {})
 
     emit("planner_generating", {"status": "Running research planner..."})
 

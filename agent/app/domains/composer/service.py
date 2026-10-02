@@ -129,6 +129,8 @@ _PURPOSE_VISUAL_MAP = {
     "recommendation": "kpi_cards",
     "conclusion": "kpi_cards",
     "appendix": "table",
+    "sov_competitive": "stacked_bar",
+    "entity_themes": "theme_cluster",
 }
 
 _PURPOSE_DURATION = {
@@ -211,10 +213,14 @@ def validate_prerequisites(project_id: int) -> dict:
 
 def generate_presentation(project_id: int, reviewer: str = "system") -> dict:
     prereq = validate_prerequisites(project_id)
+    storyline = store.get_latest_storyline(project_id)
+    if not storyline:
+        # Hard blocker: there is no storyline to build slides from at all, unlike an
+        # unapproved/incomplete one, which "proceeding anyway" tolerates below.
+        return {"error": "No storyline found for this project", "blockers": prereq.get("blockers", [])}
     if not prereq["valid"]:
         logger.info("[composer] Some prerequisites pending (%s) — proceeding anyway", prereq.get("blockers", []))
 
-    storyline = store.get_latest_storyline(project_id)
     storyline_id = storyline["id"]
     nodes = store.list_story_nodes(storyline_id)
 
@@ -241,6 +247,13 @@ def generate_presentation(project_id: int, reviewer: str = "system") -> dict:
 
     slides_created = 0
     total_duration = 0.0
+    # Tracks every slide title already used in this presentation. A node with no
+    # insight of its own falls back to the project's global top-3 insights (below) —
+    # harmless for one node, but when several nodes hit that same fallback they all
+    # pick the identical single highest-confidence insight as their title, producing
+    # duplicate slide titles (confirmed live: the same title reused across Executive
+    # Summary, Key Finding, and Recommendation slides on a thin, few-insight project).
+    used_titles: set[str] = set()
 
     cover_slide = _build_cover_slide(pres_id, spec, storyline)
     slides_created += 1
@@ -300,6 +313,14 @@ def generate_presentation(project_id: int, reviewer: str = "system") -> dict:
         )
 
         title = _insight_led_title(node, node_insights, section_type)
+        if title in used_titles:
+            # Fall back to this node's own section title (e.g. "Recommendations") —
+            # guaranteed distinct per node, since each storyline node carries a
+            # different section_type — rather than repeating an earlier slide's
+            # insight-derived title verbatim.
+            fallback_title = node.get("title") or section_type.replace("_", " ").title()
+            title = fallback_title if fallback_title not in used_titles else f"{fallback_title} (cont'd)"
+        used_titles.add(title)
         narrative = content_node.get("narrative_summary", "")
         key_message = _extract_key_message(content_node, node_insights)
         speaker_notes = _build_speaker_notes(slide_purpose, content_node, node_insights)

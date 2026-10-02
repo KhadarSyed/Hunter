@@ -122,10 +122,14 @@ def generate_insights(project_id: int, reviewer: str = "system") -> dict:
     research objective that has accepted evidence.
     """
     prereq = validate_prerequisites(project_id)
+    plan_row = store.get_latest_plan(project_id)
+    if not plan_row:
+        # Hard blocker: there is nothing to generate insights from at all, unlike an
+        # unapproved/incomplete plan or run, which "proceeding anyway" tolerates below.
+        return {"error": "No research plan found for this project", "blockers": prereq.get("blockers", [])}
     if not prereq["valid"]:
         logger.info("[insight_generator] Some prerequisites pending (%s) — proceeding anyway", prereq.get("blockers", []))
 
-    plan_row = store.get_latest_plan(project_id)
     plan = plan_row.get("plan") or {}
     objectives = plan.get("research_objectives") or []
 

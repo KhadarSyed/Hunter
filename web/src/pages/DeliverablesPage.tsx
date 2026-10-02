@@ -137,7 +137,9 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
       if (!list || list.length === 0) {
         throw new Error("No presentation was created");
       }
-      const presId = list[list.length - 1].id;
+      // composerList returns newest-first (ORDER BY created_at DESC) — the
+      // just-created presentation is list[0], not the last element.
+      const presId = list[0].id;
       setPresentationId(presId);
 
       if (abortRef.current) return;
@@ -178,10 +180,13 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
 
       setPhase("validating");
       try {
-        const [valRes, readRes] = await Promise.all([
-          intelApi.pubValidate(projectId, presId).catch(() => null),
-          intelApi.pubReadiness(projectId, presId).catch(() => null),
-        ]);
+        // Sequenced, not Promise.all: pubValidate is what actually runs validation and
+        // writes the intel_pub_validations row server-side; pubReadiness only reads the
+        // latest such row. Firing them concurrently let pubReadiness's GET race ahead of
+        // pubValidate's write — it would find no row yet and report 0%/draft even though
+        // the real score (confirmed directly in the DB) was fine, e.g. 98.5%/client_ready.
+        const valRes = await intelApi.pubValidate(projectId, presId).catch(() => null);
+        const readRes = await intelApi.pubReadiness(projectId, presId).catch(() => null);
         setValidationResult(valRes);
         setReadinessResult(readRes);
       } catch {
@@ -205,10 +210,9 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
   const handleRevalidate = async () => {
     if (!presentationId) return;
     try {
-      const [valRes, readRes] = await Promise.all([
-        intelApi.pubValidate(projectId, presentationId).catch(() => null),
-        intelApi.pubReadiness(projectId, presentationId).catch(() => null),
-      ]);
+      // Sequenced — see runFullPipeline's identical validate-then-read-readiness fix.
+      const valRes = await intelApi.pubValidate(projectId, presentationId).catch(() => null);
+      const readRes = await intelApi.pubReadiness(projectId, presentationId).catch(() => null);
       setValidationResult(valRes);
       setReadinessResult(readRes);
     } catch {
