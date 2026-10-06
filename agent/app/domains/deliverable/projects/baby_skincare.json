@@ -1,0 +1,28 @@
+{
+  "title": "Baby Skincare Category",
+  "subtitle": "Earned Editorial Analysis",
+  "period_label": "Oct 2025 – Oct 2026",
+  "date_label": "October 2026",
+  "geography": "US",
+  "brief_questions": [
+    "How much of the category coverage is deal/sale-led?",
+    "How much is focused on parenting advice?",
+    "How much cites experts? Which expert types are cited most? What % of experts are brand-affiliated?",
+    "How much of category coverage is celebrity-led or features celebrities?"
+  ],
+  "reference_deck": "PPT Templates/Hunter PR Research_Johnson’s (Baby) Editorial _May 2026.pptx",
+  "output_dir": "Baby-Skincare_Category/output",
+  "output_name": "Hunter PR Research_Baby Skincare Category_Editorial_Oct 2026.pptx",
+  "themes": [
+    {"key": "deal", "label": "Deal / sale-led",
+     "files": [{"path": "Baby-Skincare_Category/Baby-Skin_Category_Deal_Led_Coverage.csv", "date_order": "dmy"}]},
+    {"key": "parenting", "label": "Parenting advice",
+     "files": [{"path": "Baby-Skincare_Category/Baby-Skin_Category_Parental Advice_Led_Coverage.xlsx",
+                "columns": {"title": "Article", "url": "Link", "date": "Date", "outlet": ""}}]},
+    {"key": "expert", "label": "Expert-citing",
+     "files": [{"path": "Baby-Skincare_Category/Baby-Skin_Category_Experts_Citations_Led_Coverage.xlsx", "sheet": "MW_Extracted_Data"},
+               {"path": "Baby-Skincare_Category/Baby-Skin_Category_Experts_Citations_Led_Coverage.xlsx", "sheet": "Manual_Extracted_Data"}]},
+    {"key": "celebrity", "label": "Celebrity-led",
+     "files": [{"path": "Baby-Skincare_Category/Baby-Skin_Category_Celebrity_Led_Coverage.xlsx"}]}
+  ]
+}
