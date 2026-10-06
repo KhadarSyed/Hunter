@@ -18,17 +18,32 @@ def _norm_url(url: str) -> str:
     return str(url or "").strip().rstrip("/").lower()
 
 
+_EMPTY_BULLET = re.compile(r"^\s*[-*•]\s*$")
+_TAG_WITH_LEAD = re.compile(r"[ \t]*" + _TAG.pattern)
+
+
 def _rewrite(content: str, valid: set[str], used: list[str]) -> str:
+    """Line by line, so untouched lines (indentation, markdown) are left exactly as they were. Where a tag
+    is removed, its leading space goes too; a bullet left empty is dropped."""
     def repl(m: re.Match) -> str:
         refs = [r.strip().upper() for r in m.group(1).split(",")]
         kept = [r for r in refs if r in valid]
         for r in kept:
             if r not in used:
                 used.append(r)
-        return "".join(f"[{r}]" for r in kept)
-    out = _TAG.sub(repl, content)
-    out = _SPACE_BEFORE_PUNCT.sub(r"\1", out)          # "fell [S9]." → "fell ." → "fell."
-    return re.sub(r"[ \t]{2,}", " ", out)
+        lead = m.group(0)[: len(m.group(0)) - len(m.group(0).lstrip(" \t"))]
+        return lead + "".join(f"[{r}]" for r in kept) if kept else ""
+    out_lines = []
+    for line in content.split("\n"):
+        if not _TAG.search(line):
+            out_lines.append(line)
+            continue
+        new = _TAG_WITH_LEAD.sub(repl, line)
+        new = _SPACE_BEFORE_PUNCT.sub(r"\1", new).rstrip()      # "fell [S9]." → "fell."
+        if _EMPTY_BULLET.match(new):
+            continue
+        out_lines.append(new)
+    return "\n".join(out_lines)
 
 
 def enforce_citations(sections: dict, register: list[dict]) -> dict:

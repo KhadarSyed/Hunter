@@ -98,6 +98,7 @@ def compose_brief(project_id: int, research_id: int, spec: dict, research_data: 
         # The map-reduce summarizer reads persisted research items; register them too so every item it
         # sees has an [S#] it can cite (otherwise its citations can't resolve to a source).
         from . import multi_source
+        base_sources = all_sources
         all_sources = all_sources + citations.research_item_sources(
             multi_source.scoped_research_items(project_id, date_range),
             existing_urls={s.get("url", "") for s in all_sources})
@@ -153,6 +154,11 @@ def compose_brief(project_id: int, research_id: int, spec: dict, research_data: 
 
     if not sections:
         logger.warning("No LLM available or zero research items — falling back to rule-based brief")
+        if llm_client:
+            # the summarizer didn't run, so the research items added for it would be cited nowhere
+            all_sources = base_sources
+            source_register = _build_source_register_list(all_sources)
+            source_lookup = {s["url"]: s["ref"] for s in source_register if s.get("url")}
         sections = _compose_rule_based(
             brand_name, research_subject, category, competitors,
             brand_items, competitor_items, industry_items, research_gaps,
