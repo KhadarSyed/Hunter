@@ -175,6 +175,10 @@ def add_doughnut(slide, x, y, w, h, categories, values, number_format=PERCENT_FO
         pt.format.fill.fore_color.rgb = _rgb(style.PALETTE[i % len(style.PALETTE)])
         if values[i] / total < SMALL_SLICE_SHARE:
             _hide_point_label(pt)
+    # touching a point label makes python-pptx add a series-level <c:dLbls> with showVal=0, which would
+    # override the plot-level labels for every slice — switch the values back on there
+    for el in plot.series[0]._element.xpath("./c:dLbls/c:showVal"):
+        el.set("val", "1")
     return chart
 
 
