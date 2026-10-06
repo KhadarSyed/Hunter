@@ -292,19 +292,26 @@ def _batch_items(items: list[dict], batch_size: int) -> list[list[dict]]:
     return batches
 
 
-def _map_batch(llm_client, batch: list[dict]) -> dict | None:
+def _map_batch(llm_client, batch: list[dict], source_lookup: dict[str, str] | None = None) -> dict | None:
+    """`source_lookup` maps normalized URL → register ref (S#); tagged items are shown with their ref so the
+    key points can carry real citations through to the reduce step."""
     topic = batch[0]["topic"]
+    lookup = {str(u).strip().rstrip("/").lower(): ref for u, ref in (source_lookup or {}).items()}
     lines = []
     for item in batch:
-        lines.append(f"- [{item.get('publication', '')}] {item.get('title', '')}")
+        ref = lookup.get(str(item.get("url", "")).strip().rstrip("/").lower())
+        tag = f"[{ref}] " if ref else ""
+        lines.append(f"- {tag}[{item.get('publication', '')}] {item.get('title', '')}")
         if item.get("content"):
             lines.append(f"  {item['content'][:300]}")
 
     prompt = (
         _current_date_prefix()
         + f'Summarize these {len(batch)} items about "{topic}" into 3-6 key points a '
-        "competitive-intelligence analyst would care about. Return ONLY JSON: "
-        '{"topic": "' + topic + '", "key_points": ["...", ...], "notable_sources": ["...", ...]}\n\n'
+        "competitive-intelligence analyst would care about. End every key point with the [S#] tags of the "
+        "items it draws on, exactly as shown below; never invent a tag, and items without a tag cannot be "
+        "cited. Return ONLY JSON: "
+        '{"topic": "' + topic + '", "key_points": ["... [S1]", ...], "notable_sources": ["...", ...]}\n\n'
         + "\n".join(lines)
     )
     try:
@@ -377,6 +384,9 @@ def _reduce_batches(llm_client, batch_summaries: list[dict], brand_name: str, co
         f"{brand_name}), ending with "
         '"## Key issues to monitor over the next 6-12 months" and 5-8 bullets.\n'
         "- methodology: 5-7 bullets on scope, time window, competitor set, selection rule.\n\n"
+        "CITATIONS: in every section except methodology, every factual sentence or bullet must end with "
+        "the [S#] tags of the batch key points it comes from. Use only tags that appear in the batch "
+        "summaries; never invent one. A claim you cannot tag must be left out.\n\n"
         "BATCH SUMMARIES:\n" + summary_block
     )
     response = llm_client.chat(
@@ -393,8 +403,16 @@ def _reduce_batches(llm_client, batch_summaries: list[dict], brand_name: str, co
     return {key: _coerce_to_markdown(parsed.get(key, "")) for key in _REDUCE_KEYS}
 
 
+def scoped_research_items(project_id: int, date_range: tuple | None = None) -> list[dict]:
+    """The persisted research items a brief is built from (scoped to `date_range` when given)."""
+    if date_range:
+        since, until = date_range_to_timestamps(date_range)
+        return repository.get_research_items(project_id, since=since, until=until)
+    return repository.get_research_items(project_id)
+
+
 def summarize_map_reduce(project_id: int, spec: dict, llm_client, emit=None, date_range: tuple | None = None,
-                          revision_notes: str = "") -> dict:
+                          revision_notes: str = "", source_lookup: dict[str, str] | None = None) -> dict:
     """Batch-summarize persisted research items for this project (no truncation caps), then
     combine batch summaries into the 7-key Brief section shape. Failed batches are skipped,
     not fatal. Returns {} if there are zero items (caller falls back to _compose_rule_based,
@@ -410,11 +428,7 @@ def summarize_map_reduce(project_id: int, spec: dict, llm_client, emit=None, dat
         if emit:
             emit(step, payload)
 
-    if date_range:
-        since, until = date_range_to_timestamps(date_range)
-        items = repository.get_research_items(project_id, since=since, until=until)
-    else:
-        items = repository.get_research_items(project_id)
+    items = scoped_research_items(project_id, date_range)
     if not items:
         return {}
 
@@ -424,7 +438,7 @@ def summarize_map_reduce(project_id: int, spec: dict, llm_client, emit=None, dat
     batch_summaries = []
     for i, batch in enumerate(batches):
         _emit("summarizing_batch", {"index": i + 1, "total": len(batches)})
-        summary = _map_batch(llm_client, batch)
+        summary = _map_batch(llm_client, batch, source_lookup)
         if summary:
             batch_summaries.append(summary)
 

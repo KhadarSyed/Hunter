@@ -131,7 +131,7 @@ function ProgressBar({
 
 type SourceLookup = Record<string, SourceRef>;
 
-/** Publisher favicon as a circular badge, falling back to the bracketed ref ([S9])
+/** Publisher favicon as a circular badge, falling back to the publisher's initial (SourceInitial)
  * if the URL can't be parsed or the favicon fails to load. */
 function CitationLink({ refId, sources }: { refId: string; sources: SourceLookup }) {
   const src = sources[refId];
@@ -163,10 +163,61 @@ function CitationLink({ refId, sources }: { refId: string; sources: SourceLookup
           className="w-3.5 h-3.5 rounded-full ring-1 ring-slate-200 bg-white"
         />
       ) : (
-        <span className="font-bold text-[#5B2C9D] text-[10px]">[{refId}]</span>
+        <SourceInitial label={src.publisher || domain} />
       )}
     </a>
   );
+}
+
+/** Icon-style fallback when a favicon can't load: the publisher's initial in a small circle (never "S#"). */
+function SourceInitial({ label }: { label: string }) {
+  const letter = (label.replace(/^www\./, "").trim()[0] || "?").toUpperCase();
+  return (
+    <span className="inline-flex w-3.5 h-3.5 items-center justify-center rounded-full bg-[#5B2C9D]/10 text-[#5B2C9D] text-[8px] font-bold ring-1 ring-slate-200">
+      {letter}
+    </span>
+  );
+}
+
+/** Per-section source list: one icon chip per cited source; flags a section left without any. */
+function SectionSources({ section, sources }: { section: BriefSection; sources: SourceLookup }) {
+  if (section.unsourced) {
+    return (
+      <div className="mt-6 inline-flex items-center gap-1.5 rounded-md bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700">
+        No supporting source was found for this section — treat it as unverified.
+      </div>
+    );
+  }
+  const refs = (section.sources || []).filter((r) => sources[r]);
+  if (refs.length === 0) return null;
+  return (
+    <div className="mt-6 border-t border-slate-100 pt-3">
+      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Sources</div>
+      <div className="flex flex-wrap gap-1.5">
+        {refs.map((r) => {
+          const src = sources[r];
+          return (
+            <a key={r} href={src.url} target="_blank" rel="noopener noreferrer"
+              title={`${src.headline}${src.date ? ` (${src.date})` : ""}`}
+              className="inline-flex max-w-[16rem] items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-600 hover:border-[#5B2C9D]/40 hover:text-[#5B2C9D]">
+              <CitationIcon url={src.url} label={src.publisher} />
+              <span className="truncate">{src.publisher || src.headline}</span>
+            </a>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CitationIcon({ url, label }: { url: string; label: string }) {
+  const [failed, setFailed] = useState(false);
+  let domain = "";
+  try { domain = new URL(url).hostname; } catch { /* fall back to initial */ }
+  return domain && !failed ? (
+    <img src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`} alt="" onError={() => setFailed(true)}
+      className="w-3.5 h-3.5 rounded-full ring-1 ring-slate-200 bg-white" />
+  ) : <SourceInitial label={label || domain} />;
 }
 
 function renderContent(content: string, sources: SourceLookup = {}, sectionKey = "") {
@@ -1381,6 +1432,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
                     {activeTab === "competitor_developments"
                       ? renderCompetitorSection(currentSection.content, sourceLookup)
                       : renderContent(currentSection.content, sourceLookup, activeTab)}
+                    <SectionSources section={currentSection} sources={sourceLookup} />
                   </div>
                 )
               ) : (

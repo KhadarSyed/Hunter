@@ -103,6 +103,21 @@ def require_project_access(
     return user
 
 
+def require_strategy_access(
+    strategy_id: Annotated[int, Path(ge=1)],
+    user: Annotated[dict, Depends(get_current_user)],
+) -> dict:
+    """Ownership check for routes keyed by strategy_id: resolve the strategy's project, then apply the
+    same rule as require_project_access."""
+    from . import store  # local: avoids a circular import — see module docstring
+    project_id = store.get_strategy_project_id(strategy_id)
+    project = store.get_project(project_id) if project_id else None
+    if not project:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Strategy not found")
+    _check_project_access(project, user)
+    return user
+
+
 def require_dataset_access(
     dataset_id: Annotated[int, Path(ge=1)],
     user: Annotated[dict, Depends(get_current_user)],

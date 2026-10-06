@@ -5,7 +5,7 @@ than duplicated) since Strategy is its primary/first use.
 """
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from ...core.api import ApiModel
 
@@ -28,6 +28,20 @@ class FinalApprovalRequest(BaseModel):
 class EnrichmentStartResponse(ApiModel):
     job_id: str
     dataset_id: int
+
+
+class AddRQRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=1000)
+    query: str = Field(default="", max_length=10000)
+
+    @field_validator("question", "query", mode="before")
+    @classmethod
+    def _strip(cls, v):
+        return v.strip() if isinstance(v, str) else v
+
+
+class AddRQResult(ApiModel):
+    question_id: str
 
 
 class EditRQRequest(BaseModel):
