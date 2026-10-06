@@ -383,11 +383,37 @@ function RecordDrawer({
   );
 }
 
+type ReviewQueue = "needs_review" | "auto_accepted" | "all";
+const DEFAULT_THRESHOLD = 70;
+const THRESHOLD_KEY = "hunter.review.confidenceThreshold";
+
+/** Low-confidence rows the analyst hasn't decided on go to the review queue; the rest are auto-accepted
+ * (still relevant and counted in analysis, just hidden from the queue). An explicit approve/disapprove wins. */
+export function reviewQueueOf(r: EnrichedRecord, thresholdPct: number): "needs_review" | "auto_accepted" {
+  const decided = r.approval_status === "approved" || r.approval_status === "disapproved";
+  const confidencePct = Math.round((r.overall_sentiment_confidence ?? 0) * 100);
+  return !decided && confidencePct < thresholdPct ? "needs_review" : "auto_accepted";
+}
+
+function loadThreshold(): number {
+  try {
+    const v = Number(window.localStorage.getItem(THRESHOLD_KEY));
+    return Number.isFinite(v) && v > 0 && v <= 100 ? v : DEFAULT_THRESHOLD;
+  } catch {
+    return DEFAULT_THRESHOLD;
+  }
+}
+
 export function EnrichedArticlesTable({ records, loading }: { records: EnrichedRecord[]; loading: boolean }) {
   const [localRecords, setLocalRecords] = useState<EnrichedRecord[]>(records);
   useEffect(() => { setLocalRecords(records); }, [records]);
 
   const [subTab, setSubTab] = useState<"social" | "traditional" | "irrelevant">("traditional");
+  const [threshold, setThreshold] = useState<number>(loadThreshold);
+  const [queue, setQueue] = useState<ReviewQueue>("needs_review");
+  useEffect(() => {
+    try { window.localStorage.setItem(THRESHOLD_KEY, String(threshold)); } catch { /* storage unavailable */ }
+  }, [threshold]);
   const [search, setSearch] = useState("");
   const [sentimentFilter, setSentimentFilter] = useState("");
   const [openRecord, setOpenRecord] = useState<EnrichedRecord | null>(null);
@@ -418,6 +444,7 @@ export function EnrichedArticlesTable({ records, loading }: { records: EnrichedR
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return buckets[subTab].filter((r) => {
+      if (subTab !== "irrelevant" && queue !== "all" && reviewQueueOf(r, threshold) !== queue) return false;
       if (sentimentFilter && r.overall_sentiment !== sentimentFilter) return false;
       if (q) {
         const hay = [r.title, r.content, r.source_name, r.author, ...(r.entities?.brands || [])].filter(Boolean).join(" ").toLowerCase();
@@ -425,7 +452,13 @@ export function EnrichedArticlesTable({ records, loading }: { records: EnrichedR
       }
       return true;
     });
-  }, [buckets, subTab, search, sentimentFilter]);
+  }, [buckets, subTab, search, sentimentFilter, queue, threshold]);
+
+  const queueCounts = useMemo(() => {
+    const relevant = localRecords.filter((r) => r.review_status !== "irrelevant");
+    const needs = relevant.filter((r) => reviewQueueOf(r, threshold) === "needs_review").length;
+    return { needs_review: needs, auto_accepted: relevant.length - needs, all: relevant.length };
+  }, [localRecords, threshold]);
 
   // Approval counts are global (across every bucket), not just the active sub-tab —
   // this is a separate review workflow from the Social/Traditional/Irrelevant split.
@@ -517,6 +550,35 @@ export function EnrichedArticlesTable({ records, loading }: { records: EnrichedR
           </button>
         </div>
       )}
+
+      {/* Confidence threshold — low-confidence rows need review; the rest are auto-accepted */}
+      <div className="mb-4 flex items-center gap-4 flex-wrap rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-3">
+        <label className="flex items-center gap-3 text-xs font-medium text-slate-600">
+          Sentiment confidence threshold
+          <input type="range" min={0} max={100} step={5} value={threshold}
+            onChange={(e) => setThreshold(Number(e.target.value))}
+            aria-label="Sentiment confidence threshold" className="w-40 accent-[#5B2C9D]" />
+          <span className="w-10 tabular-nums font-semibold" style={{ color: "#5B2C9D" }}>{threshold}%</span>
+        </label>
+        <div className="flex items-center gap-1" role="tablist" aria-label="Review queue">
+          {([
+            { id: "needs_review", label: "Needs review" },
+            { id: "auto_accepted", label: "Auto-accepted" },
+            { id: "all", label: "All" },
+          ] as const).map((q) => (
+            <button key={q.id} role="tab" aria-selected={queue === q.id} onClick={() => setQueue(q.id)}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                queue === q.id ? "text-white" : "text-slate-600 bg-white border border-slate-200 hover:bg-slate-100"
+              }`}
+              style={queue === q.id ? { background: "#5B2C9D" } : undefined}>
+              {q.label} <span className={queue === q.id ? "text-white/80" : "text-slate-400"}>({queueCounts[q.id]})</span>
+            </button>
+          ))}
+        </div>
+        <span className="text-[11px] text-slate-500">
+          Below {threshold}% confidence goes to review; the rest are auto-accepted and still count in the analysis.
+        </span>
+      </div>
 
       {/* Sub-tabs */}
       <div className="flex items-center gap-1 mb-4 border-b border-slate-200">
