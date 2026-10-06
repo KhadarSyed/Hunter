@@ -14,8 +14,13 @@ _YEARS = {"2024", "2025", "2026"}
 MAX_CITES = 3
 
 
+def _with_rounded(nums: set[str]) -> set[str]:
+    """60.2 in the facts also licenses '60' in prose."""
+    return nums | {str(round(float(n))) for n in nums if "." in n}
+
+
 def allowed_numbers(facts: list[str]) -> set[str]:
-    return {n for f in facts for n in _NUM.findall(f)} | _YEARS
+    return _with_rounded({n for f in facts for n in _NUM.findall(f)}) | _YEARS
 
 
 _NUM_UNIT = re.compile(r"(\d+(?:\.\d+)?)\s*(%|[A-Za-z]+)?")
@@ -37,7 +42,8 @@ def _pairs(text: str) -> set[tuple[str, str]]:
 
 def allowed_pairs(facts: list[str]) -> set[tuple[str, str]]:
     """(number, unit) pairs stated in the facts, so '37 times' can't be restated as '37 articles'."""
-    return {p for f in facts for p in _pairs(f)}
+    pairs = {p for f in facts for p in _pairs(f)}
+    return pairs | {(str(round(float(n))), u) for n, u in pairs if "." in n}
 
 
 _WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
@@ -138,11 +144,34 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
          '{"insights":[{"headline":"<=8 words","text":"<=45 words","citations":[ids]}]}'},
     ]
     try:
-        parsed = json.loads(llm.chat(messages, format_json=True))
+        reply = llm.chat(messages, format_json=True)
+        valid, rejected = _screen(section, json.loads(reply), allowed, pairs, local)
     except (json.JSONDecodeError, RuntimeError) as e:
         logger.warning("insight drafting for %s failed (%s); using fallback", section, e)
         return _fallback(facts, candidates, registry)
-    valid = []
+    if rejected and len(valid) < n_insights:
+        # one repair round: show the model exactly why each insight failed and ask for replacements
+        feedback = "\n".join(f"- \"{t}\" — rejected: {why}" for t, why in rejected)
+        repair = messages + [{"role": "assistant", "content": reply},
+                             {"role": "user", "content": f"These insights were rejected:\n{feedback}\nWrite "
+                              f"{n_insights - len(valid)} replacement insights that fix these problems, same JSON "
+                              "format and rules."}]
+        try:
+            more, _ = _screen(section, json.loads(llm.chat(repair, format_json=True)), allowed, pairs, local)
+            seen = {t for _, t, _ in valid}
+            valid += [v for v in more if v[1] not in seen]          # the model may repeat an accepted insight
+        except (json.JSONDecodeError, RuntimeError) as e:
+            logger.warning("insight repair for %s failed (%s)", section, e)
+    supported = _verify_claims(section, valid, facts, local, llm)
+    kept = [{"headline": h, "text": t, "citations": sorted({registry.cite(local[c]) for c in cs})}
+            for i, (h, t, cs) in enumerate(valid) if i in supported]
+    return _backfill(kept, facts, candidates, registry, n_insights)
+
+
+def _screen(section: str, parsed: dict, allowed: set[str], pairs: set, local: dict[int, Article]
+            ) -> tuple[list[tuple], list[tuple[str, str]]]:
+    """Split drafted insights into valid (headline, text, local cites) and rejected (text, reason)."""
+    valid, rejected = [], []
     for ins in parsed.get("insights", []):
         headline, text = str(ins.get("headline", "")).strip(), str(ins.get("text", "")).strip()
         raw = [int(c) for c in ins.get("citations", []) if str(c).isdigit()]
@@ -150,12 +179,10 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
         reason = validate_insight(f"{headline} {text}", cites, allowed, set(local), pairs)
         if reason:
             logger.info("dropped insight in %s: %s", section, reason)
-            continue
-        valid.append((headline, text, cites))
-    supported = _verify_claims(section, valid, facts, local, llm)
-    kept = [{"headline": h, "text": t, "citations": sorted({registry.cite(local[c]) for c in cs})}
-            for i, (h, t, cs) in enumerate(valid) if i in supported]
-    return _backfill(kept, facts, candidates, registry, n_insights)
+            rejected.append((text, reason))
+        else:
+            valid.append((headline, text, cites))
+    return valid, rejected
 
 
 def _verify_claims(section: str, valid: list[tuple], facts: list[str], local: dict[int, Article], llm) -> set[int]:
@@ -173,7 +200,9 @@ def _verify_claims(section: str, valid: list[tuple], facts: list[str], local: di
          "contradicted by, or absent from, FACTS and its own EVIDENCE articles. Reasonable interpretation that "
          "follows from supported facts (e.g. 'indicating strong interest') is allowed. Check every comparison or "
          "quantifier ('fewer than 10', 'most', 'each', 'common', 'majority') against the exact FACTS numbers for "
-         "every item it covers; one item that breaks it makes the claim unsupported. Return JSON only."},
+         "every item it covers; one item that breaks it makes the claim unsupported. Check ratio words ('twice', "
+         "'double', 'triple', 'x times') by arithmetic on the FACTS numbers (60.2% vs 28.9% is about twice, not "
+         "triple). Return JSON only."},
         {"role": "user", "content": f"Section: {section}\nFACTS:\n" + "\n".join(f"- {f}" for f in facts) +
          f"\nCLAIMS:\n{json.dumps(items, ensure_ascii=False)}\n"
          'Return {"verdicts":[{"index":0,"supported":true}]} with one verdict per claim.'},

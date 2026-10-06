@@ -55,11 +55,16 @@ def _theme_facts(key: str, label: str, m: dict, cm: dict) -> list[str]:
     facts = [f"{label} share of collected coverage is {t['share']}% ({t['count']} of {m['base_n']} articles)"]
     facts += [f"Peak {p['rank']} for {label}: {metrics.month_label(p['month'])} with {p['count']} articles"
               for p in t["peaks"]]
+    if t["peaks"] and t["count"]:
+        top = t["peaks"][0]
+        facts.append(f"{metrics.month_label(top['month'])} holds {top['count']} of {t['count']} {label} articles "
+                     f"({round(100 * top['count'] / t['count'], 1)}%)")
     facts += [f"Top outlet for {label}: {o['outlet']} with {o['count']} articles" for o in t["outlets"][:5]]
     facts += [f"{k} sentiment: {v} articles" for k, v in t["sentiment"].items()]
     syn = t.get("syndication") or {}
     if syn.get("top_title_count", 0) > 1:
-        facts.append(f"{syn['top_title_count']} of {t['count']} {label} articles share one headline: "
+        facts.append(f"{syn['top_title_count']} of {t['count']} {label} articles "
+                     f"({round(100 * syn['top_title_count'] / t['count'], 1)}%) share one headline: "
                      f"\"{syn['top_title']}\"")
     if key == "expert":
         e = cm["expert"]
@@ -152,7 +157,7 @@ def driver_facts(m: dict, cm: dict) -> list[str]:
     sent = m["themes"]["celebrity"]["sentiment"]
     order = [k for k in ("positive", "neutral", "negative") if k in sent]
     return ([f"{c['name']} featured in {c['count']} articles" for c in cm["celebrity"]["top"][:6]] +
-            [f"Sentiment split: " + ", ".join(f"{k} {sent[k]}" for k in order) + " articles"])
+            ["Sentiment split: " + ", ".join(f"{sent[k]} {k} articles" for k in order)])
 
 
 def driver_candidates(arts: list, n: int) -> list:
