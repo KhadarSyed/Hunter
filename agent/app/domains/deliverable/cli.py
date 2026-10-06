@@ -4,6 +4,7 @@ Usage: python -m agent.app.domains.deliverable.cli agent/app/domains/deliverable
 """
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import os
@@ -165,6 +166,15 @@ def brand_candidates(classified: dict, by_url: dict, top_brands: list[dict], per
     return out
 
 
+def known_entities(m: dict, cm: dict) -> list[str]:
+    """Names an insight may cite by (brand, retailer, celebrity, outlet) — used to check citation relevance."""
+    names = [b["brand"] for b in cm.get("brands", [])]
+    names += [r["retailer"] for r in cm.get("deal", {}).get("retailers", [])]
+    names += [c["name"] for c in cm.get("celebrity", {}).get("top", [])]
+    names += [o["outlet"] for t in m["themes"].values() for o in t.get("outlets", [])]
+    return list(dict.fromkeys(n for n in names if n))
+
+
 def driver_facts(m: dict, cm: dict) -> list[str]:
     """Celebrity facts first (they make informative backfill cards); sentiment as one combined fact,
     since the slide's doughnut already shows the split."""
@@ -239,6 +249,7 @@ def main(argv: list[str]) -> int:
     cm = metrics.compute_classified_metrics(classified)
 
     registry = CitationRegistry()
+    draft = functools.partial(insights.draft_section, entities=known_entities(m, cm))
     labels = {t["key"]: t["label"] for t in cfg["themes"]}
     ins: dict[str, list[dict]] = {}
     all_facts: list[str] = []
@@ -246,20 +257,20 @@ def main(argv: list[str]) -> int:
         facts = _theme_facts(key, labels[key], m, cm)
         all_facts += facts
         cands = (_peak_articles(m["themes"][key], by_url) or [a for a in articles if key in a.themes])[:MAX_CANDIDATES]
-        ins[key] = insights.draft_section(labels[key], facts, cands, registry, llm,
+        ins[key] = draft(labels[key], facts, cands, registry, llm,
                                           n_insights=4)
-    ins["celebrity_drivers"] = insights.draft_section(
+    ins["celebrity_drivers"] = draft(
         "Celebrity-led coverage: what drives positive vs negative sentiment", driver_facts(m, cm),
         driver_candidates([a for a in articles if "celebrity" in a.themes], MAX_CANDIDATES), registry, llm, 5)
     exec_cands = [a for k in THEMES for a in _peak_articles(m["themes"][k], by_url)[:2]]
     ins["exec"] = exec_backfill(m, cm, labels, {k: [registry.cite(a) for a in _peak_articles(m["themes"][k], by_url)[:1]]
                                                 for k in THEMES})
-    ins["mix"] = insights.draft_section("Coverage mix across themes", all_facts, exec_cands, registry, llm, 3)
+    ins["mix"] = draft("Coverage mix across themes", all_facts, exec_cands, registry, llm, 3)
     brand_facts = [f"{b['brand']} mentioned in {b['count']} articles" for b in cm["brands"]]
     brand_cands = brand_candidates(classified, by_url, cm["brands"][:6], per_brand=2)
-    ins["brands"] = insights.draft_section("Brands in the conversation", brand_facts, brand_cands, registry, llm, 3)
-    ins["takeaways"] = insights.draft_section("Key takeaways", all_facts + brand_facts, exec_cands, registry, llm, 6)
-    ins["implications"] = insights.draft_section("Implications for consumer intent, messaging and whitespace",
+    ins["brands"] = draft("Brands in the conversation", brand_facts, brand_cands, registry, llm, 3)
+    ins["takeaways"] = draft("Key takeaways", all_facts + brand_facts, exec_cands, registry, llm, 6)
+    ins["implications"] = draft("Implications for consumer intent, messaging and whitespace",
                                                  all_facts + brand_facts, exec_cands, registry, llm, 4)
     (cm["expert"]["named"], cm["expert"]["named_total"],
      cm["parenting"]["rows"], cm["parenting"]["rows_total"]) = table_rows(classified, by_url, registry)

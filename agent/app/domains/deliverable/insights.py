@@ -150,8 +150,18 @@ def _backfill(kept: list[dict], facts: list[str], candidates: list[Article], reg
     return out
 
 
+def _entity_mismatch(text: str, cites: list[int], local: dict[int, Article], entities: list[str]) -> str | None:
+    """If the insight names known entities, at least one cited article must mention one of them."""
+    named = [e for e in entities if e and _norm(e) in _norm(text)]
+    if not named:
+        return None
+    if any(_norm(e) in _norm(f"{local[c].title} {local[c].text} {local[c].outlet}") for c in cites for e in named):
+        return None
+    return f"cited articles don't mention {', '.join(named)}"
+
+
 def draft_section(section: str, facts: list[str], candidates: list[Article], registry: CitationRegistry,
-                  llm, n_insights: int = 3) -> list[dict]:
+                  llm, n_insights: int = 3, entities: list[str] | None = None) -> list[dict]:
     """Candidates get local ids 1..k in the prompt; only articles an accepted insight actually cites are
     registered, so the appendix lists cited articles only."""
     if llm is None:
@@ -177,7 +187,7 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
     ]
     try:
         reply = llm.chat(messages, format_json=True)
-        valid, rejected = _screen(section, json.loads(reply), allowed, pairs, local)
+        valid, rejected = _screen(section, json.loads(reply), allowed, pairs, local, entities or [])
     except (json.JSONDecodeError, RuntimeError) as e:
         logger.warning("insight drafting for %s failed (%s); using fallback", section, e)
         return _fallback(facts, candidates, registry)
@@ -189,7 +199,8 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
                               f"{n_insights - len(valid)} replacement insights that fix these problems, same JSON "
                               "format and rules."}]
         try:
-            more, _ = _screen(section, json.loads(llm.chat(repair, format_json=True)), allowed, pairs, local)
+            more, _ = _screen(section, json.loads(llm.chat(repair, format_json=True)), allowed, pairs, local,
+                              entities or [])
             seen = {t for _, t, _ in valid}
             valid += [v for v in more if v[1] not in seen]          # the model may repeat an accepted insight
         except (json.JSONDecodeError, RuntimeError) as e:
@@ -201,15 +212,16 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
     return _backfill(kept, facts, candidates, registry, n_insights)
 
 
-def _screen(section: str, parsed: dict, allowed: set[str], pairs: set, local: dict[int, Article]
-            ) -> tuple[list[tuple], list[tuple[str, str]]]:
+def _screen(section: str, parsed: dict, allowed: set[str], pairs: set, local: dict[int, Article],
+            entities: list[str]) -> tuple[list[tuple], list[tuple[str, str]]]:
     """Split drafted insights into valid (headline, text, local cites) and rejected (text, reason)."""
     valid, rejected = [], []
     for ins in parsed.get("insights", []):
         headline, text = str(ins.get("headline", "")).strip(), str(ins.get("text", "")).strip()
         raw = [int(c) for c in ins.get("citations", []) if str(c).isdigit()]
         cites = [c for c in dict.fromkeys(raw) if c in local][:MAX_CITES]   # drop unknown ids, cap
-        reason = validate_insight(f"{headline} {text}", cites, allowed, set(local), pairs)
+        reason = (validate_insight(f"{headline} {text}", cites, allowed, set(local), pairs)
+                  or _entity_mismatch(f"{headline} {text}", cites, local, entities))
         if reason:
             logger.info("dropped insight in %s: %s", section, reason)
             rejected.append((text, reason))
