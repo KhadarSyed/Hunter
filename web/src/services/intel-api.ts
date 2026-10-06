@@ -330,6 +330,10 @@ export interface BriefSection {
   title: string;
   content: string;
   edited: boolean;
+  /** Register refs (S#) this section cites — set server-side after citation checks (older briefs omit it). */
+  sources?: string[];
+  /** True when no valid citation survived for this section. */
+  unsourced?: boolean;
 }
 
 export interface SourceRef {
