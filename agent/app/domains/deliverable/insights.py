@@ -40,8 +40,19 @@ def allowed_pairs(facts: list[str]) -> set[tuple[str, str]]:
     return {p for f in facts for p in _pairs(f)}
 
 
+_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
+          "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"]
+_NUM_WORD = re.compile(r"\b(" + "|".join(_WORDS[2:]) + r")\b", re.IGNORECASE)   # 'one'/'zero' are prose
+
+
+def _digits(text: str) -> str:
+    """'Four articles' → '4 articles' so spelled-out counts get the same number and unit checks."""
+    return _NUM_WORD.sub(lambda m: str(_WORDS.index(m.group(1).lower())), text)
+
+
 def validate_insight(text: str, cites: list[int], allowed: set[str], candidate_ids: set[int],
                      pairs: set[tuple[str, str]] | None = None) -> str | None:
+    text = _digits(text)
     if not cites or not set(cites) <= candidate_ids:
         return "citation missing or outside candidate set"
     bad = [n for n in _NUM.findall(text) if n not in allowed]
@@ -112,7 +123,10 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
         {"role": "system", "content": "You write insights for a media-research deck. Use ONLY numbers that appear "
          "in FACTS, with the same unit. Every insight must cite 1-3 article ids from ARTICLES: for a claim about "
          "specific coverage, cite the articles that state it; for a statistic from FACTS, cite articles that are "
-         "examples of what is being counted. never leave citations empty. Return JSON only."},
+         "examples of what is being counted. never leave citations empty. Comparisons ('more than', 'fewer than', "
+         "'most', 'all', 'each') must hold exactly for every item named — e.g. never put a brand with 10 articles in "
+         "a 'fewer than 10' list. Do not exaggerate: words like 'common', 'majority', 'dominates' must match the "
+         "numbers (4 of 17 is about a quarter, not 'common'). Return JSON only."},
         {"role": "user", "content": f"Section: {section}\nFACTS:\n" + "\n".join(f"- {f}" for f in facts) +
          f"\nARTICLES:\n{json.dumps(arts, ensure_ascii=False)}\nWrite {n_insights} insights as "
          '{"insights":[{"headline":"<=8 words","text":"<=45 words","citations":[ids]}]}'},
@@ -151,7 +165,9 @@ def _verify_claims(section: str, valid: list[tuple], facts: list[str], local: di
         {"role": "system", "content": "You fact-check insights for a media-research deck. Judge the factual content "
          "only — numbers, names, dates, events, rankings. Mark a claim unsupported only if a factual element is "
          "contradicted by, or absent from, FACTS and its own EVIDENCE articles. Reasonable interpretation that "
-         "follows from supported facts (e.g. 'indicating strong interest') is allowed. Return JSON only."},
+         "follows from supported facts (e.g. 'indicating strong interest') is allowed. Check every comparison or "
+         "quantifier ('fewer than 10', 'most', 'each', 'common', 'majority') against the exact FACTS numbers for "
+         "every item it covers; one item that breaks it makes the claim unsupported. Return JSON only."},
         {"role": "user", "content": f"Section: {section}\nFACTS:\n" + "\n".join(f"- {f}" for f in facts) +
          f"\nCLAIMS:\n{json.dumps(items, ensure_ascii=False)}\n"
          'Return {"verdicts":[{"index":0,"supported":true}]} with one verdict per claim.'},

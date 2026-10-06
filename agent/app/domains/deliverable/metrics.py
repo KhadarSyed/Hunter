@@ -77,6 +77,28 @@ def _top(counter: Counter, key: str, n: int = 10) -> list[dict]:
     return [{key: k, "count": c} for k, c in counter.most_common(n)]
 
 
+def _name_key(name: str) -> str:
+    return " ".join(name.replace("’", "'").replace("‘", "'").casefold().split())
+
+
+def _top_names(per_article: list[set[str]], key: str, n: int = 10) -> list[dict]:
+    """Count articles per name, merging case/apostrophe/spacing variants ('Rini' = 'rini');
+    display the most frequent spelling, preferring a capitalised one on ties."""
+    counts: Counter = Counter()
+    spellings: dict[str, Counter] = {}
+    for names in per_article:
+        keys = {}
+        for raw in names:
+            if raw.strip():
+                keys.setdefault(_name_key(raw), []).append(raw.strip())
+        for k, raws in keys.items():
+            counts[k] += 1
+            spellings.setdefault(k, Counter()).update(raws)
+    def display(k: str) -> str:
+        return max(spellings[k].items(), key=lambda kv: (kv[1], kv[0][:1].isupper()))[0]
+    return [{key: display(k), "count": c} for k, c in counts.most_common(n)]
+
+
 def compute_classified_metrics(classifications: dict[str, dict[str, dict]]) -> dict:
     out: dict = {}
     expert_recs = classifications.get("expert", {})
@@ -99,21 +121,18 @@ def compute_classified_metrics(classifications: dict[str, dict[str, dict]]) -> d
     }
     celebs = classifications.get("celebrity", {})
     out["celebrity"] = {
-        "top": _top(Counter(n for r in celebs.values()
-                            for n in {c["name"] for c in r.get("celebrities", []) if c["name"]}), "name"),
+        "top": _top_names([{c["name"] for c in r.get("celebrities", []) if c["name"]} for r in celebs.values()],
+                          "name"),
         "roles": dict(Counter(c["role"] for r in celebs.values() for c in r.get("celebrities", []))),
     }
     deals = classifications.get("deal", {})
     out["deal"] = {
-        "retailers": _top(Counter(rt for r in deals.values()
-                                  for rt in {d["retailer"] for d in r.get("deals", []) if d["retailer"]}), "retailer"),
+        "retailers": _top_names([{d["retailer"] for d in r.get("deals", []) if d["retailer"]} for r in deals.values()],
+                                "retailer"),
         "deal_types": dict(Counter(d["deal_type"] for r in deals.values() for d in r.get("deals", []))),
     }
     out["parenting"] = {"topics": dict(Counter(t for r in classifications.get("parenting", {}).values()
                                                for t in {x["topic"] for x in r.get("topics", [])}))}
-    brand_articles: Counter = Counter()
-    for theme_recs in classifications.values():
-        for rec in theme_recs.values():
-            brand_articles.update(set(rec.get("brands", [])))
-    out["brands"] = _top(brand_articles, "brand", 12)
+    out["brands"] = _top_names([set(rec.get("brands", [])) for theme_recs in classifications.values()
+                                for rec in theme_recs.values()], "brand", 12)
     return out
