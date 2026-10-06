@@ -145,6 +145,16 @@ def table_rows(classified: dict, by_url: dict, registry: CitationRegistry,
     return named, len(named_src), rows, len(parenting_src)
 
 
+def driver_candidates(arts: list, n: int) -> list:
+    """Highest-reach positive and negative articles, interleaved, so sentiment drivers see both sides."""
+    by_sent = {s: sorted((a for a in arts if a.sentiment == s), key=lambda a: -a.reach) for s in ("positive", "negative")}
+    out = []
+    for pos, neg in zip(by_sent["positive"], by_sent["negative"]):
+        out += [pos, neg]
+    rest = by_sent["positive"][len(out) // 2:] + by_sent["negative"][len(out) // 2:]
+    return (out + rest)[:n]
+
+
 def metrics_payload(m: dict, cm: dict) -> dict:
     """Everything a slide number can come from, in one JSON (spec §8); table rows are presentation, not metrics."""
     classified = {k: ({kk: vv for kk, vv in v.items() if kk not in ("named", "rows")} if isinstance(v, dict) else v)
@@ -208,7 +218,13 @@ def main(argv: list[str]) -> int:
         all_facts += facts
         cands = (_peak_articles(m["themes"][key], by_url) or [a for a in articles if key in a.themes])[:MAX_CANDIDATES]
         ins[key] = insights.draft_section(labels[key], facts, cands, registry, llm,
-                                          n_insights=8 if key == "celebrity" else 4)
+                                          n_insights=4)
+    celeb = m["themes"]["celebrity"]
+    driver_facts = ([f"{k} sentiment: {v} articles" for k, v in celeb["sentiment"].items()] +
+                    [f"{c['name']} featured in {c['count']} articles" for c in cm["celebrity"]["top"][:6]])
+    ins["celebrity_drivers"] = insights.draft_section(
+        "Celebrity-led coverage: what drives positive vs negative sentiment", driver_facts,
+        driver_candidates([a for a in articles if "celebrity" in a.themes], MAX_CANDIDATES), registry, llm, 5)
     exec_cands = [a for k in THEMES for a in _peak_articles(m["themes"][k], by_url)[:2]]
     ins["exec"] = exec_backfill(m, cm, labels, {k: [registry.cite(a) for a in _peak_articles(m["themes"][k], by_url)[:1]]
                                                 for k in THEMES})

@@ -240,13 +240,14 @@ def build_deck(cfg, m, cm, ins, registry: CitationRegistry, articles_by_url, log
                  "Most-featured celebrities", registry, articles_by_url)
     # 11 Celebrity: sentiment drivers
     t = m["themes"]["celebrity"]
-    s = _content(prs, cfg, m, kicker, "Celebrity-led: Sentiment Drivers", _summary(ins["celebrity"]), t)
+    drivers = ins.get("celebrity_drivers") or ins["celebrity"][4:]
+    s = _content(prs, cfg, m, kicker, "Celebrity-led: Sentiment Drivers", _summary(drivers), t)
     if t["sentiment"]:
         sk = [k for k in ("positive", "neutral", "negative") if k in t["sentiment"]]
         total = sum(t["sentiment"][k] for k in sk)
         blocks.add_doughnut(s, 0.4, 1.45, 4.8, 3.2, [k.title() for k in sk],
                             [round(100 * t["sentiment"][k] / total, 1) for k in sk])
-    blocks.add_insight_cards(s, 5.4, 1.45, 7.5, 5.7, ins["celebrity"][4:8] or ins["celebrity"][1:3], cols=2)
+    blocks.add_insight_cards(s, 5.4, 1.45, 7.5, 5.7, drivers[1:5], cols=2)
     # 12 Brands
     s = _content(prs, cfg, m, kicker, "Brands in the Conversation", _summary(ins["brands"]))
     brands = cm["brands"][:8]

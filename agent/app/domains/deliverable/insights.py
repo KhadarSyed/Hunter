@@ -50,6 +50,18 @@ def _fallback(facts: list[str], candidates: list[Article], registry: CitationReg
     return _backfill([], facts, candidates, registry, 1)
 
 
+_PEAK = re.compile(r"^Peak (\d+):")
+_LEADS = ("Top outlet", "Retailer", "Topic")
+
+
+def _fact_headline(fact: str) -> str:
+    peak = _PEAK.match(fact)
+    if peak:
+        return f"Peak month #{peak.group(1)}"
+    lead = next((l for l in _LEADS if fact.startswith(l)), None)
+    return lead or "Key finding"
+
+
 def _backfill(kept: list[dict], facts: list[str], candidates: list[Article], registry: CitationRegistry,
               n: int) -> list[dict]:
     """Top a section up to n insights with deterministic fact cards (true by construction), skipping facts whose
@@ -64,7 +76,7 @@ def _backfill(kept: list[dict], facts: list[str], candidates: list[Article], reg
         lead = _NUM.search(fact)
         if lead and lead.group() in _NUM.findall(stated):
             continue
-        headline = fact.split(":")[0] if ":" in fact else "Key finding"
+        headline = _fact_headline(fact)
         out.append({"headline": headline, "text": fact.rstrip(".") + ".",
                     "citations": [registry.cite(a) for a in candidates[:2]]})   # register only when used
         stated += " " + fact
@@ -76,7 +88,7 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
     """Candidates get local ids 1..k in the prompt; only articles an accepted insight actually cites are
     registered, so the appendix lists cited articles only."""
     if llm is None:
-        return _fallback(facts, candidates, registry)
+        return _backfill([], facts, candidates, registry, n_insights)
     allowed = allowed_numbers(facts)
     pairs = allowed_pairs(facts)
     local = {i: a for i, a in enumerate(candidates, start=1)}
@@ -120,8 +132,10 @@ def _verify_claims(section: str, valid: list[tuple], facts: list[str], local: di
               "evidence": [{"title": local[c].title, "excerpt": local[c].text[:600]} for c in cs]}
              for i, (h, t, cs) in enumerate(valid)]
     messages = [
-        {"role": "system", "content": "You fact-check insights for a media-research deck. A claim is supported only "
-         "if FACTS or its own EVIDENCE articles state it. Return JSON only."},
+        {"role": "system", "content": "You fact-check insights for a media-research deck. Judge the factual content "
+         "only — numbers, names, dates, events, rankings. Mark a claim unsupported only if a factual element is "
+         "contradicted by, or absent from, FACTS and its own EVIDENCE articles. Reasonable interpretation that "
+         "follows from supported facts (e.g. 'indicating strong interest') is allowed. Return JSON only."},
         {"role": "user", "content": f"Section: {section}\nFACTS:\n" + "\n".join(f"- {f}" for f in facts) +
          f"\nCLAIMS:\n{json.dumps(items, ensure_ascii=False)}\n"
          'Return {"verdicts":[{"index":0,"supported":true}]} with one verdict per claim.'},
