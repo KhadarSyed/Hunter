@@ -790,6 +790,9 @@ export const intelApi = {
   editResearchQuestion: (strategyId: number, questionId: string, question: string, query: string) =>
     put<{ ok: boolean }>(`/strategy/${strategyId}/research-question`, { question_id: questionId, question, query }),
 
+  addResearchQuestion: (strategyId: number, question: string, query: string) =>
+    post<{ question_id: string }>(`/strategy/${strategyId}/research-question`, { question, query }),
+
   deleteResearchQuestion: (strategyId: number, questionId: string) =>
     del<{ ok: boolean }>(`/strategy/${strategyId}/research-question/${questionId}`),
 

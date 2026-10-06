@@ -38,6 +38,63 @@ interface Props {
   onNavigate: (page: string) => void;
 }
 
+/** "RQ{n+1}" after the highest existing RQn — mirrors the backend's numbering. */
+function nextRqId(rqs: RQ[]): string {
+  const nums = rqs.map((r) => Number(/^RQ(\d+)$/.exec(r.id)?.[1] ?? 0));
+  return `RQ${Math.max(0, ...nums) + 1}`;
+}
+
+function AddRQCard({ nextId, onAdd }: { nextId: string; onAdd: (question: string, query: string) => Promise<boolean> }) {
+  const [open, setOpen] = useState(false);
+  const [question, setQuestion] = useState("");
+  const [query, setQuery] = useState("");
+  const [saving, setSaving] = useState(false);
+  const canSave = question.trim().length > 0 && !saving;
+
+  const save = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    const ok = await onAdd(question.trim(), query.trim());
+    setSaving(false);
+    if (ok) { setQuestion(""); setQuery(""); setOpen(false); }
+  };
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)}
+        className="w-full rounded-xl border-2 border-dashed px-5 py-4 text-sm font-medium transition-colors hover:bg-[#f5f3ff]"
+        style={{ borderColor: "#c4b5fd", color: V }}>
+        + Add research question
+      </button>
+    );
+  }
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-3">
+      <div className="text-xs font-semibold" style={{ color: V }}>{nextId} — new research question</div>
+      <label className="block text-xs font-medium text-slate-600">
+        Research question
+        <textarea value={question} onChange={(e) => setQuestion(e.target.value)} rows={2} maxLength={1000}
+          placeholder="e.g. How much of category coverage is celebrity-led?"
+          className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-200" />
+      </label>
+      <label className="block text-xs font-medium text-slate-600">
+        Meltwater query (optional)
+        <textarea value={query} onChange={(e) => setQuery(e.target.value)} rows={2} maxLength={10000}
+          placeholder={'e.g. ("baby skincare" OR "baby lotion") AND celebrity'}
+          className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-200" />
+      </label>
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={() => setOpen(false)}
+          className="text-sm px-3 py-1.5 rounded-lg text-slate-600 hover:bg-slate-100">Cancel</button>
+        <button type="button" onClick={save} disabled={!canSave}
+          className="text-sm px-4 py-1.5 rounded-lg text-white disabled:opacity-50" style={{ background: V }}>
+          {saving ? "Adding…" : "Add question"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function RQCard({
   rq,
   datasets,
@@ -58,7 +115,7 @@ function RQCard({
    * now hold multiple datasets (e.g. one export per media type) instead of one. */
   datasets: DatasetRecord[];
   uploading: boolean;
-  onUpload: (file: File) => void;
+  onUpload: (files: File[]) => void;
   onApprove: (datasetId: number) => void;
   onDelete: (datasetId: number) => void;
   expandedId: number | null;
@@ -232,21 +289,21 @@ function RQCard({
             onDrop={(e) => {
               e.preventDefault(); e.stopPropagation();
               e.currentTarget.style.borderColor = "#c4b5fd"; e.currentTarget.style.background = "";
-              const f = e.dataTransfer.files?.[0];
-              if (f) onUpload(f);
+              const files = Array.from(e.dataTransfer.files || []);
+              if (files.length) onUpload(files);
             }}
           >
-            <input ref={inputRef} type="file"
+            <input ref={inputRef} type="file" multiple
               accept=".csv,.xlsx,.xls"
               style={{ position: "absolute", width: 1, height: 1, opacity: 0, overflow: "hidden", pointerEvents: "none" }}
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value = ""; }}
+              onChange={(e) => { const files = Array.from(e.target.files || []); if (files.length) onUpload(files); e.target.value = ""; }}
             />
             <div className="flex flex-col items-center gap-1.5">
               <svg className={hasData ? "w-4 h-4" : "w-5 h-5"} viewBox="0 0 24 24" fill="none" stroke={V} strokeWidth="1.5">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
               </svg>
               <span className="text-xs font-medium" style={{ color: V }}>
-                {hasData ? "Add another file" : "Drop Meltwater export or click to browse"}
+                {hasData ? "Add more files" : "Drop Meltwater exports (one or more) or click to browse"}
               </span>
               {!hasData && <span className="text-[10px] text-slate-400">CSV, XLSX</span>}
             </div>
@@ -554,33 +611,48 @@ export function DataSources({ onNavigate }: Props) {
             ...prev,
             [rqId]: [...(prev[rqId] || []).filter((d) => d.id !== datasetId), ds],
           }));
-          setUploadingRQs((prev) => { const n = new Set(prev); n.delete(rqId); return n; });
           return;
         }
         if (ds?.processing_status === "error") {
           setError(`${rqId}: ${ds.processing_error || "Processing failed"}`);
-          setUploadingRQs((prev) => { const n = new Set(prev); n.delete(rqId); return n; });
           return;
         }
       } catch { /* keep polling */ }
     }
     setError(`${rqId}: Processing timed out`);
-    setUploadingRQs((prev) => { const n = new Set(prev); n.delete(rqId); return n; });
   };
 
-  const handleUpload = async (rqId: string, file: File) => {
+  /** Uploads every selected file for one RQ in turn, then waits for all of them to finish processing
+   * before clearing the RQ's "processing" state (one failed file doesn't stop the others). */
+  const handleUpload = async (rqId: string, files: File[]) => {
     if (!projectId) {
       setError("No active project selected");
       return;
     }
     setUploadingRQs((prev) => new Set(prev).add(rqId));
     setError(null);
+    const polls: Promise<void>[] = [];
+    for (const file of files) {
+      try {
+        const result = await intelApi.uploadDataset(projectId, file, rqId);
+        polls.push(pollUntilDone(rqId, result.dataset_id));
+      } catch (e) {
+        setError(`${file.name}: ${e instanceof Error ? e.message : "Upload failed"}`);
+      }
+    }
+    await Promise.all(polls);
+    setUploadingRQs((prev) => { const n = new Set(prev); n.delete(rqId); return n; });
+  };
+
+  const handleAddRQ = async (question: string, query: string): Promise<boolean> => {
+    if (!strategyId) return false;
     try {
-      const result = await intelApi.uploadDataset(projectId, file, rqId);
-      pollUntilDone(rqId, result.dataset_id);
+      const { question_id } = await intelApi.addResearchQuestion(strategyId, question, query);
+      setResearchQuestions((prev) => [...prev, { id: question_id, question, query, rationale: "" }]);
+      return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload failed");
-      setUploadingRQs((prev) => { const n = new Set(prev); n.delete(rqId); return n; });
+      setError(e instanceof Error ? e.message : "Failed to add research question");
+      return false;
     }
   };
 
@@ -822,7 +894,7 @@ export function DataSources({ onNavigate }: Props) {
                 rq={rq}
                 datasets={datasets[rq.id] || []}
                 uploading={uploadingRQs.has(rq.id)}
-                onUpload={(file) => handleUpload(rq.id, file)}
+                onUpload={(files) => handleUpload(rq.id, files)}
                 onApprove={(datasetId) => handleApprove(rq.id, datasetId)}
                 onDelete={(datasetId) => handleDelete(rq.id, datasetId)}
                 expandedId={expandedDatasetId}
@@ -834,6 +906,7 @@ export function DataSources({ onNavigate }: Props) {
                 enrichLogs={enrichLogs}
               />
             ))}
+            {strategyId && <AddRQCard nextId={nextRqId(researchQuestions)} onAdd={handleAddRQ} />}
           </div>
         </div>
       )}
