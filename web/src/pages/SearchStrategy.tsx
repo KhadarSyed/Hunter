@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as XLSX from "xlsx";
-import { intelApi, type StrategyResult, type JobStatus, type EvaluationResult } from "../services/intel-api";
+import { intelApi, type StrategyResult, type JobStatus } from "../services/intel-api";
 import { useActiveProjectId, useProject } from "../context/project-context";
 import { useDemoState } from "../context/demo-state";
 import { PexelsHeaderBanner } from "../components/PexelsHeaderBanner";
 import { BrandLogo } from "../components/BrandLogo";
 import { CountryFlag } from "../components/CountryFlag";
 
-type Tab = "overview" | "modules" | "queries" | "exclusions" | "filters" | "score" | "evaluation";
+type Tab = "overview" | "modules" | "queries" | "exclusions" | "filters" | "score";
 type LiveState = "idle" | "generating" | "completed" | "failed";
 
 /* ── Boolean query syntax highlighter ── */
@@ -212,12 +212,9 @@ export function SearchStrategy({ onNavigate }: Props) {
   const [jobProgress, setJobProgress] = useState({ pct: 0, message: "" });
   const [jobLog, setJobLog] = useState<ProgressLogEntry[]>([]);
   const [strategy, setStrategy] = useState<StrategyResult | null>(null);
-  const [evaluation, setEvaluation] = useState<EvaluationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [validationIssues, setValidationIssues] = useState<string[]>([]);
-  const [uploadingFile, setUploadingFile] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -240,9 +237,6 @@ export function SearchStrategy({ onNavigate }: Props) {
           const strat = s.strategy as Record<string, unknown>;
           setValidationIssues((strat?._validation_issues as string[]) || []);
         })
-        .catch(() => {});
-      intelApi.getEvaluation(projectId)
-        .then((e) => setEvaluation(e))
         .catch(() => {});
     }
   }, [projectId, strategy, liveState]);
@@ -332,37 +326,6 @@ export function SearchStrategy({ onNavigate }: Props) {
     }
   };
 
-  const handleFileUpload = async (file: File) => {
-    if (!projectId || !strategy) return;
-    setUploadingFile(true);
-    setError(null);
-    try {
-      const result = await intelApi.uploadSample(projectId, strategy.strategy_id, file);
-      pollRef.current = setInterval(async () => {
-        try {
-          const status = await intelApi.getJob(result.job_id);
-          if (status.status === "completed") {
-            stopPolling();
-            const evalResult = await intelApi.getEvaluation(projectId);
-            setEvaluation(evalResult);
-            setUploadingFile(false);
-          } else if (status.status === "failed") {
-            stopPolling();
-            setError(status.error || "Evaluation failed");
-            setUploadingFile(false);
-          }
-        } catch {
-          stopPolling();
-          setError("Lost connection");
-          setUploadingFile(false);
-        }
-      }, 2000);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload failed");
-      setUploadingFile(false);
-    }
-  };
-
   const handleApprove = async () => {
     if (!strategy) return;
     try {
@@ -406,7 +369,6 @@ export function SearchStrategy({ onNavigate }: Props) {
     { id: "exclusions", label: "Exclusions", count: totalExclusions },
     { id: "filters", label: "Filters" },
     { id: "score", label: "Quality" },
-    ...(strategy ? [{ id: "evaluation" as Tab, label: "Sample Eval" }] : []),
   ];
 
   const hasData = liveState === "completed" && strategy;
@@ -1020,128 +982,6 @@ export function SearchStrategy({ onNavigate }: Props) {
               </div>
             )}
 
-            {/* ── Sample Evaluation ── */}
-            {tab === "evaluation" && (
-              <div className="space-y-4 max-w-4xl mx-auto animate-fade-in">
-                {!evaluation ? (
-                  <div className="bg-white border-2 border-dashed border-slate-200 rounded-xl p-8 text-center space-y-4">
-                    <div className="w-14 h-14 rounded-2xl mx-auto flex items-center justify-center" style={{ background: "#f5f3ff" }}>
-                      <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke={V} strokeWidth="1.5">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><line x1="10" y1="9" x2="8" y2="9" />
-                      </svg>
-                    </div>
-                    <h3 className="text-sm font-semibold text-slate-700">Upload Meltwater Sample</h3>
-                    <p className="text-xs text-slate-500 max-w-md mx-auto">
-                      Export a sample dataset from Meltwater (CSV or XLSX) and upload it here to evaluate how well the queries perform.
-                    </p>
-                    <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" className="hidden"
-                      onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileUpload(file); }} />
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={uploadingFile}
-                      className="px-5 py-2.5 text-sm font-medium text-white rounded-lg transition-all shadow-sm hover:shadow-md disabled:opacity-50"
-                      style={{ background: V }}
-                    >
-                      {uploadingFile ? "Uploading..." : "Upload Sample"}
-                    </button>
-                  </div>
-                ) : (
-                  <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
-                    <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-4">
-                      Evaluation — {evaluation.file_name}
-                    </h3>
-                    {evaluation.evaluation ? (
-                      <div className="space-y-4">
-                        <div className="grid grid-cols-4 gap-4 text-center">
-                          {[
-                            { label: "Total Records", value: (evaluation.evaluation as any).total_records, color: "#0f172a" },
-                            { label: "Relevant", value: (evaluation.evaluation as any).relevant_count, color: "#059669" },
-                            { label: "Partial", value: (evaluation.evaluation as any).partially_relevant_count, color: "#d97706" },
-                            { label: "Irrelevant", value: (evaluation.evaluation as any).irrelevant_count, color: "#dc2626" },
-                          ].map((s, i) => (
-                            <div key={i}>
-                              <div className="text-2xl font-bold tabular-nums" style={{ color: s.color }}>{s.value}</div>
-                              <div className="text-xs text-slate-400">{s.label}</div>
-                            </div>
-                          ))}
-                        </div>
-                        <div className="space-y-2">
-                          <ScoreGauge score={Math.round(((evaluation.evaluation as any).precision_estimate || 0) * 10)} label="Precision" />
-                        </div>
-
-                        {/* Coverage by Research Question — computed from how many uploaded
-                            sample records actually matched each RQ's query terms. This is the
-                            real, measured counterpart to the Quality tab's coverage_score,
-                            which is just the LLM's own self-rated guess made before any real
-                            data existed. */}
-                        {Object.keys((evaluation.evaluation as any).coverage_by_research_question || {}).length > 0 && (
-                          <div className="pt-2 border-t border-slate-100">
-                            <h4 className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Coverage by Research Question</h4>
-                            <div className="space-y-2">
-                              {Object.entries((evaluation.evaluation as any).coverage_by_research_question as Record<string, any>).map(([qid, info]) => {
-                                const statusStyle: Record<string, { color: string; label: string }> = {
-                                  no_coverage: { color: "#dc2626", label: "No matches" },
-                                  low_coverage: { color: "#d97706", label: "Low" },
-                                  moderate_coverage: { color: "#2563eb", label: "Moderate" },
-                                  good_coverage: { color: "#059669", label: "Good" },
-                                };
-                                const s = statusStyle[info.status] || { color: "#64748b", label: info.status };
-                                return (
-                                  <div key={qid} className="flex items-center justify-between gap-3 text-xs border-b border-slate-50 pb-2">
-                                    <div className="min-w-0 truncate">
-                                      <span className="font-semibold text-slate-700 mr-1.5">{qid}</span>
-                                      <span className="text-slate-500">{info.question}</span>
-                                    </div>
-                                    <span className="shrink-0 font-medium px-2 py-0.5 rounded-full" style={{ color: s.color, background: `${s.color}18` }}>
-                                      {s.label} ({info.record_count})
-                                    </span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Suggested additions/exclusions, derived from the same sample */}
-                        {(((evaluation.evaluation as any).recommended_additions?.length > 0) ||
-                          ((evaluation.evaluation as any).recommended_exclusions?.length > 0)) && (
-                          <div className="pt-2 border-t border-slate-100 grid grid-cols-2 gap-4">
-                            {(evaluation.evaluation as any).recommended_additions?.length > 0 && (
-                              <div>
-                                <h4 className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wider mb-2">Suggested Additions</h4>
-                                <div className="space-y-1.5">
-                                  {(evaluation.evaluation as any).recommended_additions.map((a: any, i: number) => (
-                                    <div key={i} className="text-xs text-slate-600">
-                                      <span className="font-mono font-semibold text-emerald-700">{a.term || a.question || a.research_question_id}</span>
-                                      {" — "}{a.reason}
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                            {(evaluation.evaluation as any).recommended_exclusions?.length > 0 && (
-                              <div>
-                                <h4 className="text-[10px] font-semibold text-red-600 uppercase tracking-wider mb-2">Suggested Exclusions</h4>
-                                <div className="space-y-1.5">
-                                  {(evaluation.evaluation as any).recommended_exclusions.map((a: any, i: number) => (
-                                    <div key={i} className="text-xs text-slate-600">
-                                      <span className="font-mono font-semibold text-red-700">{a.term || a.domain}</span>
-                                      {" — "}{a.reason}
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-slate-500">Evaluation in progress...</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
 
           {/* ── Bottom bar ── */}

@@ -40,6 +40,8 @@ from .schemas import (
     DatasetUploadResponse,
     EditQueryRequest,
     EditQueryResponse,
+    AddRQRequest,
+    AddRQResult,
     EditRQRequest,
     EnrichmentStartResponse,
     EvaluationUploadResponse,
@@ -535,6 +537,14 @@ def approve_search_strategy(strategy_id: IdPath, req: ApproveRequest):
     return {"ok": True}
 
 
+@router.post("/strategy/{strategy_id}/research-question", response_model=AddRQResult)
+def add_research_question(strategy_id: IdPath, req: AddRQRequest):
+    question_id = store.add_research_question(strategy_id, req.question, req.query)
+    if question_id is None:
+        raise HTTPException(404, "Strategy not found")
+    return {"question_id": question_id}
+
+
 @router.put("/strategy/{strategy_id}/research-question", response_model=OkResponse)
 def edit_research_question(strategy_id: IdPath, req: EditRQRequest):
     ok = store.update_research_question(strategy_id, req.question_id, req.question, req.query)
@@ -571,9 +581,9 @@ def final_query_approval(project_id: IdPath, req: FinalApprovalRequest,
         if status not in ("structurally_valid", "confirmed_in_meltwater"):
             blocking.append("Query has not been validated")
 
+    # Sample evaluation is no longer a gate (Sample Eval tab removed per manager feedback); an existing
+    # evaluation is still reported in the result for traceability.
     evaluation = store.get_latest_evaluation(project_id)
-    if not evaluation and not req.sample_evaluation_waived:
-        blocking.append("Sample evaluation not completed (and not waived)")
 
     if not req.acknowledge_meltwater_validation:
         blocking.append("Must acknowledge that Meltwater platform validation may still be required")

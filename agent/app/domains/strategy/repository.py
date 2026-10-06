@@ -123,6 +123,26 @@ def update_research_question(strategy_id: int, question_id: str, question: str, 
     return True
 
 
+def add_research_question(strategy_id: int, question: str, query: str) -> str | None:
+    """Append an analyst-added RQ numbered after the highest existing RQn; returns its id (None if no strategy)."""
+    conn = _conn()
+    row = conn.execute("SELECT strategy_json FROM intel_search_strategies WHERE id = ?", (strategy_id,)).fetchone()
+    if not row:
+        conn.close()
+        return None
+    strategy = json.loads(row["strategy_json"])
+    rqs = strategy.get("research_question_queries", [])
+    numbers = [int(rq["question_id"][2:]) for rq in rqs
+               if str(rq.get("question_id", "")).startswith("RQ") and str(rq["question_id"])[2:].isdigit()]
+    question_id = f"RQ{max(numbers, default=0) + 1}"
+    rqs.append({"question_id": question_id, "question": question, "query": query, "user_added": True})
+    strategy["research_question_queries"] = rqs
+    conn.execute("UPDATE intel_search_strategies SET strategy_json = ? WHERE id = ?", (json.dumps(strategy), strategy_id))
+    conn.commit()
+    conn.close()
+    return question_id
+
+
 def delete_research_question(strategy_id: int, question_id: str) -> bool:
     conn = _conn()
     row = conn.execute("SELECT strategy_json FROM intel_search_strategies WHERE id = ?", (strategy_id,)).fetchone()
