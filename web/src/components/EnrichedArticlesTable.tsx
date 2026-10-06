@@ -395,10 +395,11 @@ export function reviewQueueOf(r: EnrichedRecord, thresholdPct: number): "needs_r
   return !decided && confidencePct < thresholdPct ? "needs_review" : "auto_accepted";
 }
 
-function loadThreshold(): number {
+export function loadThreshold(): number {
   try {
-    const v = Number(window.localStorage.getItem(THRESHOLD_KEY));
-    return Number.isFinite(v) && v > 0 && v <= 100 ? v : DEFAULT_THRESHOLD;
+    const raw = window.localStorage.getItem(THRESHOLD_KEY);
+    const v = raw === null ? NaN : Number(raw);
+    return Number.isFinite(v) && v >= 0 && v <= 100 ? v : DEFAULT_THRESHOLD;
   } catch {
     return DEFAULT_THRESHOLD;
   }
@@ -414,6 +415,8 @@ export function EnrichedArticlesTable({ records, loading }: { records: EnrichedR
   useEffect(() => {
     try { window.localStorage.setItem(THRESHOLD_KEY, String(threshold)); } catch { /* storage unavailable */ }
   }, [threshold]);
+  // A selection made in one view must never act on rows another view hides.
+  useEffect(() => { setSelected(new Set()); }, [queue, threshold, subTab]);
   const [search, setSearch] = useState("");
   const [sentimentFilter, setSentimentFilter] = useState("");
   const [openRecord, setOpenRecord] = useState<EnrichedRecord | null>(null);
@@ -501,7 +504,7 @@ export function EnrichedArticlesTable({ records, loading }: { records: EnrichedR
   };
 
   const applyBulkApproval = async (status: "approved" | "disapproved", reason?: string) => {
-    const targets = localRecords.filter((r) => selected.has(rowKey(r)) && r.dataset_id != null);
+    const targets = filtered.filter((r) => selected.has(rowKey(r)) && r.dataset_id != null);   // visible rows only
     if (targets.length === 0) return;
     setBulkPending(true);
     setToggleError(null);

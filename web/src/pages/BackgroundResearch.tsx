@@ -131,7 +131,7 @@ function ProgressBar({
 
 type SourceLookup = Record<string, SourceRef>;
 
-/** Publisher favicon as a circular badge, falling back to the bracketed ref ([S9])
+/** Publisher favicon as a circular badge, falling back to the publisher's initial (SourceInitial)
  * if the URL can't be parsed or the favicon fails to load. */
 function CitationLink({ refId, sources }: { refId: string; sources: SourceLookup }) {
   const src = sources[refId];

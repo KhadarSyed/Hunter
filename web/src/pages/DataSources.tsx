@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { intelApi, type JobStatus } from "../services/intel-api";
 import { useActiveProjectId, useProject } from "../context/project-context";
 import { useDemoState } from "../context/demo-state";
-import { EnrichedArticlesTable } from "../components/EnrichedArticlesTable";
+import { EnrichedArticlesTable, loadThreshold, reviewQueueOf } from "../components/EnrichedArticlesTable";
 
 const V = "#5B2C9D";
 
@@ -543,10 +543,14 @@ export function DataSources({ onNavigate }: Props) {
     // awaiting loadReview() would still see its pre-fetch (possibly stale) value.
     const fresh = await loadReview();
     const records = fresh ?? reviewRecords;
-    const freshApproved = records.filter((r) => r.approval_status === "approved").length;
+    // Auto-accepted rows (above the confidence threshold, not disapproved) count like approved ones.
+    const threshold = loadThreshold();
+    const freshApproved = records.filter((r) => r.approval_status === "approved"
+      || (r.review_status !== "irrelevant" && r.approval_status !== "disapproved"
+          && reviewQueueOf(r, threshold) === "auto_accepted")).length;
     if (hasAnyEnriched && freshApproved === 0) {
       setProceedBlockedMsg(
-        "At least 1 article must be approved in the Review tab before you can proceed to Research Execution."
+        "At least 1 article must be approved or auto-accepted (at or above the confidence threshold) in the Review tab before you can proceed to Research Execution."
       );
       return;
     }
@@ -614,13 +618,16 @@ export function DataSources({ onNavigate }: Props) {
           return;
         }
         if (ds?.processing_status === "error") {
-          setError(`${rqId}: ${ds.processing_error || "Processing failed"}`);
+          appendError(`${rqId}: ${ds.processing_error || "Processing failed"}`);
           return;
         }
       } catch { /* keep polling */ }
     }
-    setError(`${rqId}: Processing timed out`);
+    appendError(`${rqId}: Processing timed out`);
   };
+
+  /** Several files can fail in one batch — keep every message instead of the last one winning. */
+  const appendError = (msg: string) => setError((prev) => (prev ? `${prev}; ${msg}` : msg));
 
   /** Uploads every selected file for one RQ in turn, then waits for all of them to finish processing
    * before clearing the RQ's "processing" state (one failed file doesn't stop the others). */
@@ -637,7 +644,7 @@ export function DataSources({ onNavigate }: Props) {
         const result = await intelApi.uploadDataset(projectId, file, rqId);
         polls.push(pollUntilDone(rqId, result.dataset_id));
       } catch (e) {
-        setError(`${file.name}: ${e instanceof Error ? e.message : "Upload failed"}`);
+        appendError(`${file.name}: ${e instanceof Error ? e.message : "Upload failed"}`);
       }
     }
     await Promise.all(polls);
