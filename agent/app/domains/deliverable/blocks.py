@@ -1,11 +1,13 @@
 """python-pptx building blocks in the Hunter style (light backgrounds only)."""
 from __future__ import annotations
 
+from lxml.etree import SubElement
 from pptx.chart.data import CategoryChartData
 from pptx.dml.color import RGBColor
 from pptx.enum.chart import XL_CHART_TYPE, XL_LABEL_POSITION, XL_LEGEND_POSITION, XL_MARKER_STYLE
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+from pptx.oxml.ns import qn
 from pptx.util import Inches, Pt
 
 from . import style
@@ -147,16 +149,32 @@ def add_line_chart_with_peaks(slide, x, y, w, h, categories, values, peak_idx):
     return chart
 
 
+SMALL_SLICE_SHARE = 0.05
+
+
+def _hide_point_label(point) -> None:
+    dlbl = point.data_label._get_or_add_dLbl()
+    for child in list(dlbl)[1:]:                       # keep <c:idx>, replace the rest with <c:delete val="1"/>
+        dlbl.remove(child)
+    SubElement(dlbl, qn("c:delete")).set("val", "1")
+
+
 def add_doughnut(slide, x, y, w, h, categories, values, number_format=PERCENT_FORMAT):
-    chart = _chart(slide, XL_CHART_TYPE.DOUGHNUT, x, y, w, h, categories, values, number_format)
+    """Values also go in the legend; in-slice labels on slices under 5% are hidden so they never collide."""
+    suffix = "%" if number_format == PERCENT_FORMAT else ""
+    legend_cats = [f"{c} ({v:g}{suffix})" for c, v in zip(categories, values)]
+    chart = _chart(slide, XL_CHART_TYPE.DOUGHNUT, x, y, w, h, legend_cats, values, number_format)
     chart.has_legend = True
     chart.legend.position, chart.legend.include_in_layout = XL_LEGEND_POSITION.RIGHT, False
     chart.legend.font.size = Pt(9)
     plot = chart.plots[0]
     _labels(plot, number_format)
+    total = sum(values) or 1
     for i, pt in enumerate(plot.series[0].points):
         pt.format.fill.solid()
         pt.format.fill.fore_color.rgb = _rgb(style.PALETTE[i % len(style.PALETTE)])
+        if values[i] / total < SMALL_SLICE_SHARE:
+            _hide_point_label(pt)
     return chart
 
 
