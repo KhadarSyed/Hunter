@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Optional
 
 from ...core import store
+from . import citations
 
 logger = logging.getLogger(__name__)
 
@@ -80,17 +81,6 @@ def compose_brief(project_id: int, research_id: int, spec: dict, research_data: 
     research_gaps = research_data.get("research_gaps", [])
     metadata = research_data.get("metadata", {})
 
-    source_register = _build_source_register_list(all_sources)
-    source_lookup = {s["url"]: s["ref"] for s in source_register if s.get("url")}
-
-    brand_items, competitor_items, industry_items = _classify_items(
-        news_items, research_subject, brand_name, competitors
-    )
-
-    llm_client = _get_llm()
-    sections = {}
-    llm_succeeded = False
-
     date_range_start_str = metadata.get("date_range_start", "")
     date_range_end_str = metadata.get("date_range_end", "")
     date_range = None
@@ -103,8 +93,26 @@ def compose_brief(project_id: int, research_id: int, spec: dict, research_data: 
         except (ValueError, TypeError):
             date_range = None
 
+    llm_client = _get_llm()
     if llm_client:
+        # The map-reduce summarizer reads persisted research items; register them too so every item it
+        # sees has an [S#] it can cite (otherwise its citations can't resolve to a source).
         from . import multi_source
+        all_sources = all_sources + citations.research_item_sources(
+            multi_source.scoped_research_items(project_id, date_range),
+            existing_urls={s.get("url", "") for s in all_sources})
+
+    source_register = _build_source_register_list(all_sources)
+    source_lookup = {s["url"]: s["ref"] for s in source_register if s.get("url")}
+
+    brand_items, competitor_items, industry_items = _classify_items(
+        news_items, research_subject, brand_name, competitors
+    )
+
+    sections = {}
+    llm_succeeded = False
+
+    if llm_client:
         prior_brief = store.get_latest_brief(project_id)
         revision_notes = ""
         if prior_brief and prior_brief.get("approval_status") == "revision_requested":
@@ -113,7 +121,8 @@ def compose_brief(project_id: int, research_id: int, spec: dict, research_data: 
                     " (with analyst revision notes)" if revision_notes else "")
         try:
             map_reduce_sections = multi_source.summarize_map_reduce(
-                project_id, spec, llm_client, date_range=date_range, revision_notes=revision_notes)
+                project_id, spec, llm_client, date_range=date_range, revision_notes=revision_notes,
+                source_lookup=source_lookup)
         except Exception:
             logger.exception("Map-reduce summarization failed")
             map_reduce_sections = {}
@@ -149,6 +158,8 @@ def compose_brief(project_id: int, research_id: int, spec: dict, research_data: 
             brand_items, competitor_items, industry_items, research_gaps,
             metadata, source_register, source_lookup
         )
+
+    sections = citations.enforce_citations(sections, source_register)
 
     title_period = ""
     if date_range:
