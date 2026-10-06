@@ -26,6 +26,7 @@ from datetime import date
 from typing import Any
 
 from ..domains.research.web_research import _ddg_web_search
+from .brief_scope import is_standin_brand_name
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ You read real web search snippets about a named brand/company and extract ONE fa
 is its current CEO or top executive. Use ONLY the snippets given — never your own prior \
 knowledge of this brand, which may be outdated. If the snippets clearly and consistently \
 name a current CEO/president, return that person. If the snippets are unclear, silent on \
-leadership, or disagree with each other, return an empty list rather than guessing.
+leadership, or disagree with each other, return an empty list rather than guessing. Ignore any snippet about a different company, even one in the same industry: the person must be named in a snippet that is clearly about THIS brand.
 
 Return ONLY a JSON object: {"entities": [{"name": "<full name>", "title": "<their exact \
 title, e.g. \\"CEO\\" or \\"President and CEO\\">", "source_note": "<one short phrase \
@@ -46,11 +47,41 @@ You read real web search snippets about a named brand/company and extract up to 
 products, menu items, or offerings it has recently launched or newly announced. Use ONLY \
 the snippets given — never your own prior knowledge. If nothing in the snippets describes \
 a specific named launch, return an empty list rather than guessing or listing the brand's \
-long-standing/flagship products.
+long-standing/flagship products. Ignore any snippet about a different company, even one in the same industry: the launch must be named in a snippet that is clearly about THIS brand.
 
 Return ONLY a JSON object: {"entities": [{"name": "<product/launch name>", "source_note": \
 "<one short phrase citing which outlet/snippet named it>"}]} — empty "entities" array if \
 the snippets don't clearly name a specific recent launch."""
+
+_MAX_BRAND_NAME_LEN = 60
+
+
+def is_placeholder_brand(name: str) -> bool:
+    """True when `name` is not a real brand to search the web for: empty, a stand-in the scope
+    LLM wrote because the brief names no brand ("Not explicitly named (assume ...)"), or a
+    category study ("Baby Skincare Category"). Grounding such a name pulls in whichever company
+    the search engine happens to return (the Shiseido CEO for a baby-skincare category study)."""
+    text = (name or "").strip().lower()
+    if not text or len(text) > _MAX_BRAND_NAME_LEN:
+        return True
+    return is_standin_brand_name(text) or "category" in text
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+
+
+def _co_mentioned(hit_name: str, brand_name: str, snippets: list[dict]) -> bool:
+    """The hit and the brand must appear in the same snippet: an LLM-extracted name from a
+    snippet about some other company is dropped."""
+    hit, brand = _norm(hit_name), _norm(brand_name)
+    if not hit or not brand:
+        return False
+    for s in snippets:
+        text = _norm(f"{s.get('title', '')} {s.get('snippet', '')}")
+        if hit in text and brand in text:
+            return True
+    return False
 
 
 def _extract_json_object(text: str) -> dict:
@@ -126,7 +157,9 @@ def ground_missing_entities(spec: dict, brand_name: str, llm_client: Any) -> dic
     "product" entities appended, but only for whichever kind the brief-only pass didn't
     already surface — never duplicates or overrides an entity brief_scope.py already found.
     No-ops (returns `spec` unchanged) when `brand_name` is empty or `llm_client` can't
-    reach a chat backend."""
+    reach a chat backend, and when `brand_name` is a placeholder or category rather than a brand."""
+    if is_placeholder_brand(brand_name):
+        return spec
     if not brand_name or not llm_client or not getattr(llm_client, "is_reachable", lambda: False)():
         return spec
 
@@ -144,7 +177,7 @@ def ground_missing_entities(spec: dict, brand_name: str, llm_client: Any) -> dic
         snippets = _search_snippets(f'"{brand_name}" CEO {year}')
         for hit in _extract_grounded_entities(llm_client, _EXECUTIVE_SYSTEM_PROMPT, brand_name, snippets):
             name = (hit.get("name") or "").strip()
-            if not name:
+            if not name or not _co_mentioned(name, brand_name, snippets):
                 continue
             title = hit.get("title") or "executive"
             added.append({
@@ -163,7 +196,7 @@ def ground_missing_entities(spec: dict, brand_name: str, llm_client: Any) -> dic
         snippets = _search_snippets(f'"{brand_name}" new product launch {year}')
         for hit in _extract_grounded_entities(llm_client, _PRODUCT_LAUNCH_SYSTEM_PROMPT, brand_name, snippets):
             name = (hit.get("name") or "").strip()
-            if not name:
+            if not name or not _co_mentioned(name, brand_name, snippets):
                 continue
             added.append({
                 "name": name,

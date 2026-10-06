@@ -120,19 +120,17 @@ def generate_spec(
 
     if use_llm and llm_client and raw_brief_text:
         from ...agents.brief_scope import run as run_brief_scope
-        from ...agents.entity_grounding import ground_missing_entities
         result = run_brief_scope(
             raw_brief_text,
             llm_client,
             brief_filename=project.get("project_name", ""),
             max_retries=2,
+            client_name=_client_name(project),
             emit=emit,
         )
         if result.get("spec"):
             _emit("grounding_entities")
-            brand_name = ((result["spec"].get("commissioning_brand") or {}).get("name")
-                          or project.get("brand") or "")
-            grounded_spec = ground_missing_entities(result["spec"], brand_name, llm_client)
+            grounded_spec = _ground_scope_spec(result["spec"], project, llm_client)
             _emit("merging_form_context")
             project_spec = _apply_form_context(grounded_spec, project_spec)
             store.update_project_spec(project_id, project_spec)
@@ -226,18 +224,16 @@ def regenerate_spec(
     project_spec = project.get("spec", {})
     if use_llm and llm_client and raw_brief_text:
         from ...agents.brief_scope import run as run_brief_scope
-        from ...agents.entity_grounding import ground_missing_entities
         result = run_brief_scope(
             raw_brief_text, llm_client,
             brief_filename=project.get("project_name", ""),
             max_retries=2,
+            client_name=_client_name(project),
             emit=emit,
         )
         if result.get("spec"):
             _emit("grounding_entities")
-            brand_name = ((result["spec"].get("commissioning_brand") or {}).get("name")
-                          or project.get("brand") or "")
-            grounded_spec = ground_missing_entities(result["spec"], brand_name, llm_client)
+            grounded_spec = _ground_scope_spec(result["spec"], project, llm_client)
             _emit("merging_form_context")
             project_spec = _apply_form_context(grounded_spec, project_spec)
             store.update_project_spec(project_id, project_spec)
@@ -855,3 +851,35 @@ def _identify_clarifications(spec: dict, sections: dict) -> list[dict]:
         })
 
     return clarifications
+
+
+def _client_name(project: dict) -> str:
+    """The client typed on the project form (stored as the project's brand)."""
+    return (project.get("brand") or (project.get("spec") or {}).get("client") or "").strip()
+
+
+def _replace_standin_brand(spec: dict, client: str) -> dict:
+    """If the scope LLM still wrote stand-in text for the commissioning brand, swap in the form's client
+    name everywhere that text appears (commissioning_brand, the brand entity, included brands)."""
+    from ...agents.brief_scope import is_standin_brand_name
+    standin = (spec.get("commissioning_brand") or {}).get("name") or ""
+    if not client or (standin and not is_standin_brand_name(standin)):
+        return spec
+    entities = [{**e, "name": client} if e.get("name") == standin and standin else e
+                for e in spec.get("validated_entities") or []]
+    scope = spec.get("included_scope") or {}
+    brands = [client if b == standin and standin else b for b in scope.get("brands") or []]
+    out = {**spec, "commissioning_brand": {**(spec.get("commissioning_brand") or {}), "name": client},
+           "validated_entities": entities}
+    if scope:
+        out["included_scope"] = {**scope, "brands": brands}
+    return out
+
+
+def _ground_scope_spec(spec: dict, project: dict, llm_client) -> dict:
+    """Fix a stand-in commissioning brand, then web-ground executive/launch entities for a real brand only
+    (ground_missing_entities skips placeholder and category names)."""
+    from ...agents.entity_grounding import ground_missing_entities
+    fixed = _replace_standin_brand(spec, _client_name(project))
+    brand_name = (fixed.get("commissioning_brand") or {}).get("name") or ""
+    return ground_missing_entities(fixed, brand_name, llm_client)
