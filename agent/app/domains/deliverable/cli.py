@@ -71,6 +71,11 @@ def _theme_facts(key: str, label: str, m: dict, cm: dict) -> list[str]:
     return facts
 
 
+def is_real_logo(content_type: str) -> bool:
+    """We request logo.png; Brandfetch answers unknown brands with a WEBP placeholder instead."""
+    return content_type.split(";")[0].strip() == "image/png"
+
+
 def save_logo_png(data: bytes, path: Path) -> Path | None:
     """Normalise any raster logo (webp/jpeg/png) to PNG so python-pptx can embed it; None if not an image."""
     try:
@@ -95,7 +100,7 @@ def _download_logos(brands: list[dict], folder: Path) -> dict[str, Path | None]:
         except requests.RequestException as e:
             logger.warning("logo download failed for %s: %s", b["brand"], e)
             continue
-        if r.ok:
+        if r.ok and is_real_logo(r.headers.get("content-type", "")):
             out[b["brand"]] = save_logo_png(r.content, folder / (re.sub(r"[^a-z0-9]+", "_", b["brand"].lower()) + ".png"))
     return out
 

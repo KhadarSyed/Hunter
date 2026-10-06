@@ -16,6 +16,17 @@ COVER_SUBTITLE_PT = 22
 _EXPERT_LABELS = {"other_hcp": "Other HCP", "non_hcp_expert": "Non-HCP expert"}
 
 
+LOGO_MAX_W, LOGO_MAX_H = 0.9, 0.45
+
+
+def _add_logo(slide, path, x: float, y: float, max_h: float) -> None:
+    """Fit a logo inside LOGO_MAX_W x max_h inches, preserving its aspect ratio."""
+    pic = slide.shapes.add_picture(str(path), Inches(x), Inches(y), height=Inches(max_h))
+    if pic.width > Inches(LOGO_MAX_W):
+        ratio = Inches(LOGO_MAX_W) / pic.width
+        pic.width, pic.height = Inches(LOGO_MAX_W), int(pic.height * ratio)
+
+
 def expert_label(key: str) -> str:
     return _EXPERT_LABELS.get(key, key.replace("_", " ").capitalize())
 
@@ -220,8 +231,7 @@ def build_deck(cfg, m, cm, ins, registry: CitationRegistry, articles_by_url, log
         for i, b in enumerate(brands):
             logo = logos.get(b["brand"])
             if logo and Path(logo).exists():
-                s.shapes.add_picture(str(logo), Inches(0.5), Inches(1.55 + i * step),
-                                     height=Inches(min(0.5, step * 0.75)))
+                _add_logo(s, logo, 0.35, 1.55 + i * step, min(LOGO_MAX_H, step * 0.75))
     blocks.add_insight_cards(s, 8.3, 1.45, 4.6, 5.7, brand_cards, cols=1)
     # 13 Key takeaways
     s = _content(prs, cfg, m, kicker, "Key Takeaways", "")
