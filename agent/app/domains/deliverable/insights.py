@@ -23,8 +23,16 @@ _UNITS = {"%": "%", "article": "articles", "articles": "articles", "time": "time
           "mention": "times", "mentions": "times", "expert": "experts", "experts": "experts"}
 
 
+_X_OF_Y = re.compile(r"(\d+(?:\.\d+)?)\s+(?:of|out of)\s+(\d+(?:\.\d+)?)\s*([A-Za-z]+)")
+
+
 def _pairs(text: str) -> set[tuple[str, str]]:
-    return {(n, _UNITS[u.lower()]) for n, u in _NUM_UNIT.findall(text) if u and u.lower() in _UNITS}
+    out = {(n, _UNITS[u.lower()]) for n, u in _NUM_UNIT.findall(text)
+           if u and u.lower() in _UNITS and n not in _YEARS}          # "July 2026 experts" is a date, not a count
+    for x, y, u in _X_OF_Y.findall(text):                             # "18 of 778 articles": both are articles
+        if u.lower() in _UNITS:
+            out |= {(x, _UNITS[u.lower()]), (y, _UNITS[u.lower()])}
+    return out
 
 
 def allowed_pairs(facts: list[str]) -> set[tuple[str, str]]:
@@ -58,6 +66,8 @@ def _fact_headline(fact: str) -> str:
     peak = _PEAK.match(fact)
     if peak:
         return f"Peak month #{peak.group(1)}"
+    if "sentiment:" in fact.lower():
+        return "Sentiment split"
     lead = next((l for l in _LEADS if fact.startswith(l)), None)
     return lead or "Key finding"
 
@@ -77,7 +87,8 @@ def _backfill(kept: list[dict], facts: list[str], candidates: list[Article], reg
         if lead and lead.group() in _NUM.findall(stated):
             continue
         headline = _fact_headline(fact)
-        out.append({"headline": headline, "text": fact.rstrip(".") + ".",
+        text = fact.rstrip(".") + "."
+        out.append({"headline": headline, "text": text[:1].upper() + text[1:],
                     "citations": [registry.cite(a) for a in candidates[:2]]})   # register only when used
         stated += " " + fact
     return out
