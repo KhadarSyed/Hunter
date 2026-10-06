@@ -11,7 +11,10 @@ import re
 import sys
 from pathlib import Path
 
+import io
+
 import requests
+from PIL import Image, UnidentifiedImageError
 
 from ...core.anthropic_client import get_llm_client
 from ..research.brandfetch import resolve_logo
@@ -67,6 +70,17 @@ def _theme_facts(key: str, label: str, m: dict, cm: dict) -> list[str]:
     return facts
 
 
+def save_logo_png(data: bytes, path: Path) -> Path | None:
+    """Normalise any raster logo (webp/jpeg/png) to PNG so python-pptx can embed it; None if not an image."""
+    try:
+        img = Image.open(io.BytesIO(data))
+        img.load()
+    except (UnidentifiedImageError, OSError):
+        return None
+    img.convert("RGBA").save(path, format="PNG")
+    return path
+
+
 def _download_logos(brands: list[dict], folder: Path) -> dict[str, Path | None]:
     folder.mkdir(parents=True, exist_ok=True)
     out: dict[str, Path | None] = {}
@@ -80,11 +94,8 @@ def _download_logos(brands: list[dict], folder: Path) -> dict[str, Path | None]:
         except requests.RequestException as e:
             logger.warning("logo download failed for %s: %s", b["brand"], e)
             continue
-        ctype = r.headers.get("content-type", "")
-        if r.ok and ctype.startswith("image/") and "svg" not in ctype:
-            p = folder / (re.sub(r"[^a-z0-9]+", "_", b["brand"].lower()) + ".png")
-            p.write_bytes(r.content)
-            out[b["brand"]] = p
+        if r.ok:
+            out[b["brand"]] = save_logo_png(r.content, folder / (re.sub(r"[^a-z0-9]+", "_", b["brand"].lower()) + ".png"))
     return out
 
 
