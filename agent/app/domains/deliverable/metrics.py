@@ -42,6 +42,7 @@ def _theme_metrics(arts: list[Article], base_n: int) -> dict:
     sentiment = Counter(a.sentiment for a in arts if a.sentiment)
     return {
         "count": len(arts),
+        "undated": len(arts) - len(dated),
         "share": round(100 * len(arts) / base_n, 1) if base_n else 0.0,
         "date_min": min(a.date for a in dated).isoformat() if dated else None,
         "date_max": max(a.date for a in dated).isoformat() if dated else None,
@@ -108,8 +109,8 @@ def compute_classified_metrics(classifications: dict[str, dict[str, dict]]) -> d
                                   for rt in {d["retailer"] for d in r.get("deals", []) if d["retailer"]}), "retailer"),
         "deal_types": dict(Counter(d["deal_type"] for r in deals.values() for d in r.get("deals", []))),
     }
-    out["parenting"] = {"topics": dict(Counter(t["topic"] for r in classifications.get("parenting", {}).values()
-                                               for t in r.get("topics", [])))}
+    out["parenting"] = {"topics": dict(Counter(t for r in classifications.get("parenting", {}).values()
+                                               for t in {x["topic"] for x in r.get("topics", [])}))}
     brand_articles: Counter = Counter()
     for theme_recs in classifications.values():
         for rec in theme_recs.values():

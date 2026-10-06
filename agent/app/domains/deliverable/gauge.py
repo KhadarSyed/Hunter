@@ -8,13 +8,15 @@ from . import style
 
 RENDER_TIMEOUT_MS = 20000
 SETTLE_MS = 800
+AMCHARTS_VERSION = "5.20.8"   # pinned: the unversioned /lib/5/ path changes underneath us
+_CDN = f"https://cdn.amcharts.com/lib/version/{AMCHARTS_VERSION}"
 
 
 def gauge_html(value: float, label: str) -> str:
     return f"""<!doctype html><html><head><meta charset="utf-8">
-<script src="https://cdn.amcharts.com/lib/5/index.js"></script>
-<script src="https://cdn.amcharts.com/lib/5/xy.js"></script>
-<script src="https://cdn.amcharts.com/lib/5/radar.js"></script>
+<script src="{_CDN}/index.js"></script>
+<script src="{_CDN}/xy.js"></script>
+<script src="{_CDN}/radar.js"></script>
 <style>html,body{{margin:0;background:#FFFFFF}}#c{{width:900px;height:560px}}</style></head>
 <body><div id="c"></div><script>
 const root = am5.Root.new("c");

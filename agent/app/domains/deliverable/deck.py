@@ -23,6 +23,11 @@ def _shown_note(slide, x: float, y: float, shown: int, total: int, noun: str) ->
                         8, False, style.FOOTER_TEXT)
 
 
+def _undated_notes(m: dict, labels: dict) -> list[str]:
+    return [f"{t['undated']} {labels.get(k, k)} articles have no publication date; they count toward shares but "
+            f"not toward trend charts or peaks." for k, t in m["themes"].items() if t.get("undated")]
+
+
 def _syndication_notes(m: dict, labels: dict) -> list[str]:
     notes = []
     for k, t in m["themes"].items():
@@ -274,6 +279,7 @@ def build_deck(cfg, m, cm, ins, registry: CitationRegistry, articles_by_url, log
         "model with a fixed label set; anything the text does not state is reported as 'not stated'.",
         "Every insight cites the numbered articles that support it; see the citation list.",
         *_syndication_notes(m, labels),
+        *_undated_notes(m, labels),
     ]), 11)
     # 16+ Citations (paginated)
     pages = paginate(registry.entries(), CITES_PER_PAGE)

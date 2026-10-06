@@ -50,6 +50,11 @@ def parse_date(value, order: str = "ymd") -> date | None:
             return date(y, month, day)
         except ValueError:
             return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date()   # ISO incl. "2026-03-05T10:00:00Z"
+    except ValueError:
+        pass
+    text = re.sub(r"^Sept\b", "Sep", text)                                   # "Sept. 5, 2026" → "Sep. 5, 2026"
     for fmt in _TEXT_FORMATS:
         try:
             return datetime.strptime(text, fmt).date()
@@ -95,10 +100,10 @@ def load_articles(config: dict) -> tuple[list[Article], dict]:
                 stats["rows_read"] += 1
                 norm = normalize_url(url)
                 d = parse_date(row.get(cols["date"]), spec.get("date_order", "ymd"))
-                if d is None:
-                    stats["unparsed_dates"] += 1
                 if norm in merged:
                     merged[norm].themes.add(theme["key"])
+                    if merged[norm].date is None and d is not None:
+                        merged[norm].date = d          # a duplicate row may carry the date the first lacked
                     stats["duplicates_merged"] += 1
                     continue
                 sentiment = row.get(cols["sentiment"])
@@ -109,4 +114,5 @@ def load_articles(config: dict) -> tuple[list[Article], dict]:
                     sentiment=str(sentiment).strip().lower() if sentiment else None,
                     reach=_to_float(row.get(cols["reach"])), themes={theme["key"]},
                     source_file=Path(spec["path"]).name, row_index=idx)
+    stats["unparsed_dates"] = sum(1 for a in merged.values() if a.date is None)   # unique articles, not rows
     return list(merged.values()), stats

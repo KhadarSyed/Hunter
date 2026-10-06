@@ -75,7 +75,7 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
     except (json.JSONDecodeError, RuntimeError) as e:
         logger.warning("insight drafting for %s failed (%s); using fallback", section, e)
         return _fallback(facts, candidates, registry)
-    kept = []
+    valid = []
     for ins in parsed.get("insights", []):
         headline, text = str(ins.get("headline", "")).strip(), str(ins.get("text", "")).strip()
         raw = [int(c) for c in ins.get("citations", []) if str(c).isdigit()]
@@ -84,6 +84,36 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
         if reason:
             logger.info("dropped insight in %s: %s", section, reason)
             continue
-        kept.append({"headline": headline, "text": text,
-                     "citations": sorted({registry.cite(local[c]) for c in cites})})
+        valid.append((headline, text, cites))
+    supported = _verify_claims(section, valid, facts, local, llm)
+    kept = [{"headline": h, "text": t, "citations": sorted({registry.cite(local[c]) for c in cs})}
+            for i, (h, t, cs) in enumerate(valid) if i in supported]
     return kept or _fallback(facts, candidates, registry)
+
+
+def _verify_claims(section: str, valid: list[tuple], facts: list[str], local: dict[int, Article], llm) -> set[int]:
+    """Second pass: a judge checks every claim (numeric or not) against FACTS and its cited articles.
+    Drops only explicit 'supported: false'; a missing/garbled verdict keeps the insight, which has already
+    passed the number, unit and citation checks."""
+    if not valid:
+        return set()
+    items = [{"index": i, "claim": f"{h}. {t}",
+              "evidence": [{"title": local[c].title, "excerpt": local[c].text[:600]} for c in cs]}
+             for i, (h, t, cs) in enumerate(valid)]
+    messages = [
+        {"role": "system", "content": "You fact-check insights for a media-research deck. A claim is supported only "
+         "if FACTS or its own EVIDENCE articles state it. Return JSON only."},
+        {"role": "user", "content": f"Section: {section}\nFACTS:\n" + "\n".join(f"- {f}" for f in facts) +
+         f"\nCLAIMS:\n{json.dumps(items, ensure_ascii=False)}\n"
+         'Return {"verdicts":[{"index":0,"supported":true}]} with one verdict per claim.'},
+    ]
+    try:
+        verdicts = json.loads(llm.chat(messages, format_json=True)).get("verdicts", [])
+    except (json.JSONDecodeError, RuntimeError, AttributeError) as e:
+        logger.warning("claim verification for %s failed (%s); keeping validated insights", section, e)
+        return set(range(len(valid)))
+    rejected = {v.get("index") for v in verdicts if isinstance(v, dict) and v.get("supported") is False}
+    for i in sorted(rejected):
+        if isinstance(i, int) and 0 <= i < len(valid):
+            logger.info("dropped unsupported claim in %s: %s", section, valid[i][1][:80])
+    return {i for i in range(len(valid)) if i not in rejected}

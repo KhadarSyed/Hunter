@@ -38,6 +38,25 @@ def _font_pt(shape) -> float:
     return 12.0
 
 
+FOOTER_TOP_IN = 7.26
+CELL_MARGIN_IN = 0.2      # default left+right / top+bottom cell insets
+
+
+def _table_height_emu(table) -> int:
+    """PowerPoint grows a row to fit its tallest cell; estimate the rendered height of the whole table."""
+    total = 0
+    for row in table.rows:
+        need_in = 0.0
+        for cell, col in zip(row.cells, table.columns):
+            runs = [r for p in cell.text_frame.paragraphs for r in p.runs]
+            pt = next((r.font.size.pt for r in runs if r.font.size), 12.0)
+            chars = max(1, int(((col.width / EMU_PER_IN - CELL_MARGIN_IN) * 72) / (pt * CHAR_W_FACTOR)))
+            lines = sum(max(1, -(-len(p) // chars)) for p in cell.text_frame.text.split("\n"))
+            need_in = max(need_in, lines * pt * LINE_H_FACTOR / 72 + CELL_MARGIN_IN / 2)
+        total += max(row.height, int(need_in * EMU_PER_IN))
+    return total
+
+
 def check_layout(pptx_path: Path, skip: set[int] | None = None) -> list[dict]:
     """skip: 1-based slide numbers to ignore (e.g. inherited template cover/closing slides)."""
     prs = Presentation(pptx_path)
@@ -55,6 +74,11 @@ def check_layout(pptx_path: Path, skip: set[int] | None = None) -> list[dict]:
             if (s.left < 0 or s.top < 0 or s.left + s.width > sw + EDGE_TOLERANCE_EMU
                     or s.top + s.height > sh_ + EDGE_TOLERANCE_EMU):
                 issues.append({"slide": n, "kind": "off_slide", "detail": s.name})
+        for t in (s for s in slide.shapes if getattr(s, "has_table", False) and s.has_table):
+            bottom_in = (t.top + _table_height_emu(t.table)) / EMU_PER_IN
+            if bottom_in > FOOTER_TOP_IN:
+                issues.append({"slide": n, "kind": "table_overflow",
+                               "detail": f"{t.name} grows to {bottom_in:.2f}in (footer at {FOOTER_TOP_IN}in)"})
         boxes = [s for s in slide.shapes if s.shape_type == TEXT_BOX and s.text_frame.text.strip()]
         for b in boxes:
             if estimate_overflow(b.text_frame.text, b.width / EMU_PER_IN, b.height / EMU_PER_IN, _font_pt(b)):
