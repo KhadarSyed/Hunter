@@ -107,7 +107,9 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
              "excerpt": a.text[:400]} for i, a in local.items()]
     messages = [
         {"role": "system", "content": "You write insights for a media-research deck. Use ONLY numbers that appear "
-         "in FACTS. Every insight must cite the 1-3 article ids from ARTICLES that best support it. Return JSON only."},
+         "in FACTS, with the same unit. Every insight must cite 1-3 article ids from ARTICLES: for a claim about "
+         "specific coverage, cite the articles that state it; for a statistic from FACTS, cite articles that are "
+         "examples of what is being counted. never leave citations empty. Return JSON only."},
         {"role": "user", "content": f"Section: {section}\nFACTS:\n" + "\n".join(f"- {f}" for f in facts) +
          f"\nARTICLES:\n{json.dumps(arts, ensure_ascii=False)}\nWrite {n_insights} insights as "
          '{"insights":[{"headline":"<=8 words","text":"<=45 words","citations":[ids]}]}'},
