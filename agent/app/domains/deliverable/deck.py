@@ -42,14 +42,16 @@ _EXPERT_LABELS = {"other_hcp": "Other HCP", "non_hcp_expert": "Non-HCP expert"}
 
 
 LOGO_MAX_W, LOGO_MAX_H = 0.9, 0.45
+BRAND_PLOT_TOP, BRAND_PLOT_H = 1.6, 5.3   # bar plot area inside the 1.45in/5.6in brands chart (measured from render)
 
 
-def _add_logo(slide, path, x: float, y: float, max_h: float) -> None:
-    """Fit a logo inside LOGO_MAX_W x max_h inches, preserving its aspect ratio."""
-    pic = slide.shapes.add_picture(str(path), Inches(x), Inches(y), height=Inches(max_h))
+def _add_logo(slide, path, x: float, centre_y: float, max_h: float) -> None:
+    """Fit a logo inside LOGO_MAX_W x max_h inches, preserving aspect ratio, vertically centred on centre_y."""
+    pic = slide.shapes.add_picture(str(path), Inches(x), Inches(centre_y), height=Inches(max_h))
     if pic.width > Inches(LOGO_MAX_W):
         ratio = Inches(LOGO_MAX_W) / pic.width
         pic.width, pic.height = Inches(LOGO_MAX_W), int(pic.height * ratio)
+    pic.top = int(Inches(centre_y) - pic.height / 2)
 
 
 def expert_label(key: str) -> str:
@@ -259,7 +261,8 @@ def build_deck(cfg, m, cm, ins, registry: CitationRegistry, articles_by_url, log
         for i, b in enumerate(brands):
             logo = logos.get(b["brand"])
             if logo and Path(logo).exists():
-                _add_logo(s, logo, 0.35, 1.55 + i * step, min(LOGO_MAX_H, step * 0.75))
+                row = BRAND_PLOT_H / len(brands)
+                _add_logo(s, logo, 0.35, BRAND_PLOT_TOP + i * row + row / 2, min(LOGO_MAX_H, step * 0.75))
     blocks.add_insight_cards(s, 8.3, 1.45, 4.6, 5.7, brand_cards, cols=1)
     # 13 Key takeaways
     s = _content(prs, cfg, m, kicker, "Key Takeaways", "")

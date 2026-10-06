@@ -68,6 +68,9 @@ def _fact_headline(fact: str) -> str:
         return f"Peak month #{peak.group(1)}"
     if "sentiment:" in fact.lower():
         return "Sentiment split"
+    for verb in (" mentioned in ", " featured in "):
+        if verb in fact:
+            return fact.split(verb)[0]
     lead = next((l for l in _LEADS if fact.startswith(l)), None)
     return lead or "Key finding"
 
