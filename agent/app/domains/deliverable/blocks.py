@@ -175,11 +175,15 @@ def _headline_height(text: str, width_in: float) -> float:
 CARD_MIN_H = 1.1
 
 
+CARD_BOTTOM_PAD = 0.08
+
+
 def _card_body_height(ins: dict, width_in: float) -> float:
+    """Same line estimate the QC overflow check uses (qc.estimate_overflow), plus the card's bottom padding."""
     text = ins["text"] + citation_suffix(ins["citations"])
     chars_per_line = max(1, int((width_in * 72 - 14) / (style.CARD_BODY_PT * 0.5)))
     lines = sum(max(1, -(-len(p) // chars_per_line)) for p in text.split("\n"))
-    return lines * style.CARD_BODY_PT * 1.25 / 72 + 0.15
+    return (lines * style.CARD_BODY_PT * 1.2 + 7) / 72 + CARD_BOTTOM_PAD + 0.1
 
 
 def add_insight_cards(slide, x, y, w, h, insights: list[dict], cols: int):
