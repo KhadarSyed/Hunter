@@ -145,6 +145,18 @@ function ProgressBar({
   );
 }
 
+/** The start endpoint answers 409 with {detail: {message, prerequisites}} when approvals are missing. */
+function readableStartError(raw: string): string {
+  const match = raw.match(/^409: (.*)$/s);
+  if (!match) return raw;
+  try {
+    const body = JSON.parse(match[1]) as { detail?: { message?: string } };
+    return body.detail?.message ?? raw;
+  } catch {
+    return raw;
+  }
+}
+
 function formatElapsed(seconds: number | null): string {
   if (seconds === null || seconds === undefined) return "--";
   const m = Math.floor(seconds / 60);
@@ -411,7 +423,7 @@ export function ResearchExecution({
         }
       }, 1500);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to start");
+      setError(e instanceof Error ? readableStartError(e.message) : "Failed to start");
       setStarting(false);
     }
   };

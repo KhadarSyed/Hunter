@@ -37,6 +37,10 @@ def start_execution(req: ExecutionStartRequest):
     project = store.get_project(req.project_id)
     if not project:
         raise HTTPException(404, "Project not found")
+    prereqs = executor_service.validate_executor_prerequisites(req.project_id)
+    if not prereqs["ready"]:
+        missing = [p["message"] for p in prereqs.get("prerequisites", {}).values() if p["status"] != "approved"]
+        raise HTTPException(409, {**prereqs, "message": "Approve before running execution: " + "; ".join(missing)})
 
     job_id = f"exec_{uuid.uuid4().hex[:12]}"
     store.create_job(job_id, req.project_id, "research_execution")
