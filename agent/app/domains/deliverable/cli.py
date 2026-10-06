@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import sys
 from pathlib import Path
@@ -21,6 +22,16 @@ logger = logging.getLogger("deliverable")
 THEMES = ("deal", "parenting", "expert", "celebrity")
 MAX_CANDIDATES = 12
 LOGO_TIMEOUT_S = 20
+# Brandfetch's CDN serves an HTML page to non-browser clients; a browser UA gets the image.
+LOGO_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                              "(KHTML, like Gecko) Chrome/126.0 Safari/537.36", "Accept": "image/png,image/*"}
+
+
+def logo_png_url(info: dict) -> str | None:
+    """PowerPoint can't embed webp/svg; ask Brandfetch's CDN for a PNG explicitly."""
+    if info.get("source") == "brandfetch" and info.get("domain"):
+        return f"https://cdn.brandfetch.io/{info['domain']}/w/400/h/400/logo.png?c={os.environ.get('BRANDFETCH_CLIENT_ID', '')}"
+    return info.get("logo_url")
 
 
 def _load_json(path: Path) -> dict:
@@ -61,11 +72,11 @@ def _download_logos(brands: list[dict], folder: Path) -> dict[str, Path | None]:
     out: dict[str, Path | None] = {}
     for b in brands:
         out[b["brand"]] = None
-        info = resolve_logo(b["brand"])
-        if not info.get("logo_url"):
+        url = logo_png_url(resolve_logo(b["brand"]))
+        if not url:
             continue
         try:
-            r = requests.get(info["logo_url"], timeout=LOGO_TIMEOUT_S)
+            r = requests.get(url, headers=LOGO_HEADERS, timeout=LOGO_TIMEOUT_S)
         except requests.RequestException as e:
             logger.warning("logo download failed for %s: %s", b["brand"], e)
             continue
@@ -87,7 +98,7 @@ def _table_rows(classified: dict, by_url: dict, registry: CitationRegistry) -> t
                 aff = f"affiliated ({e['brand']})" if e["brand"] else "affiliated"
             else:
                 aff = "not stated" if e["affiliation"] == "unknown" else e["affiliation"]
-            named.append([e["name"], e["expert_type"].replace("_", " "), aff, by_url[u].outlet,
+            named.append([e["name"], deck.expert_label(e["expert_type"]), aff, by_url[u].outlet,
                           f"[{registry.cite(by_url[u])}]"])
     parenting = [[by_url[u].title[:60],
                   ", ".join(t["topic"].replace("_", " ") for t in rec.get("topics", [])) or "not stated",

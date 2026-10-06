@@ -11,6 +11,7 @@ from .ingest import Article
 logger = logging.getLogger(__name__)
 _NUM = re.compile(r"\d+(?:\.\d+)?")
 _YEARS = {"2024", "2025", "2026"}
+MAX_CITES = 3
 
 
 def allowed_numbers(facts: list[str]) -> set[str]:
@@ -44,7 +45,7 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
              "excerpt": a.text[:400]} for i, a in local.items()]
     messages = [
         {"role": "system", "content": "You write insights for a media-research deck. Use ONLY numbers that appear "
-         "in FACTS. Every insight must cite article ids from ARTICLES that support it. Return JSON only."},
+         "in FACTS. Every insight must cite the 1-3 article ids from ARTICLES that best support it. Return JSON only."},
         {"role": "user", "content": f"Section: {section}\nFACTS:\n" + "\n".join(f"- {f}" for f in facts) +
          f"\nARTICLES:\n{json.dumps(arts, ensure_ascii=False)}\nWrite {n_insights} insights as "
          '{"insights":[{"headline":"<=8 words","text":"<=45 words","citations":[ids]}]}'},
@@ -57,7 +58,8 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
     kept = []
     for ins in parsed.get("insights", []):
         headline, text = str(ins.get("headline", "")).strip(), str(ins.get("text", "")).strip()
-        cites = [int(c) for c in ins.get("citations", []) if str(c).isdigit()]
+        raw = [int(c) for c in ins.get("citations", []) if str(c).isdigit()]
+        cites = [c for c in dict.fromkeys(raw) if c in local][:MAX_CITES]   # drop unknown ids, cap
         reason = validate_insight(f"{headline} {text}", cites, allowed, set(local))
         if reason:
             logger.info("dropped insight in %s: %s", section, reason)

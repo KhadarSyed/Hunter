@@ -5,13 +5,19 @@ from pathlib import Path
 
 from pptx import Presentation
 from pptx.opc.packuri import PackURI
-from pptx.util import Inches
+from pptx.util import Inches, Pt
 
 from . import blocks, style
 from .citations import CitationRegistry
 from .metrics import month_label
 
 CITES_PER_PAGE = 18
+COVER_SUBTITLE_PT = 22
+_EXPERT_LABELS = {"other_hcp": "Other HCP", "non_hcp_expert": "Non-HCP expert"}
+
+
+def expert_label(key: str) -> str:
+    return _EXPERT_LABELS.get(key, key.replace("_", " ").capitalize())
 
 
 def paginate(entries: list, per_page: int) -> list[list]:
@@ -67,7 +73,10 @@ def _set_cover(slide, title: str, subtitle: str, date_label: str) -> None:
     title_box = max((sh for sh in boxes if not any(ch.isdigit() for ch in sh.text_frame.text)
                      and "©" not in sh.text_frame.text), key=lambda sh: sh.width * sh.height, default=None)
     if title_box is not None:
+        title_box.width = Inches(style.SLIDE_W) - 2 * title_box.left
         _replace_text(title_box, [title, subtitle] if subtitle else [title])
+        if subtitle:
+            title_box.text_frame.paragraphs[1].runs[0].font.size = Pt(COVER_SUBTITLE_PT)
 
 
 def _source(cfg, theme_metrics=None) -> str:
@@ -112,7 +121,7 @@ def _trend_slide(prs, cfg, m, key, label, ins, side_bars: list[dict], side_title
     blocks.add_text(s, 8.9, 1.45, 4.0, 0.3, side_title, 10, True, style.VIOLET)
     if bars:
         blocks.add_bar_chart(s, 8.8, 1.75, 4.2, 2.5, [b["name"] for b in bars], [b["count"] for b in bars], style.PEACH)
-    blocks.add_insight_cards(s, 0.4, 4.4, 12.5, 2.75, ins[1:4] or ins, cols=3)
+    blocks.add_insight_cards(s, 0.4, 4.4, 12.5, 2.75, ins[1:4], cols=3)
     return s
 
 
@@ -164,12 +173,12 @@ def build_deck(cfg, m, cm, ins, registry: CitationRegistry, articles_by_url, log
     if rows:
         blocks.add_table(s, 0.5, 1.8, 7.6, 0.3 * (len(rows) + 1), ["Article", "Topic", "Outlet", "Cite"], rows,
                          [4.2, 1.4, 1.4, 0.6])
-    blocks.add_insight_cards(s, 8.4, 1.8, 4.5, 5.3, ins["parenting"][1:3] or ins["parenting"], cols=1)
+    blocks.add_insight_cards(s, 8.4, 1.8, 4.5, 5.3, ins["parenting"][1:3], cols=1)
     # 8 Expert: who is cited
     e = cm["expert"]
     s = _content(prs, cfg, m, kicker, "Expert-led: Who Is Cited", _summary(ins["expert"]), m["themes"]["expert"])
     if e["type_counts"]:
-        blocks.add_doughnut(s, 0.4, 1.45, 5.2, 3.2, [k.replace("_", " ").title() for k in e["type_counts"]],
+        blocks.add_doughnut(s, 0.4, 1.45, 5.2, 3.2, [expert_label(k) for k in e["type_counts"]],
                             list(e["type_counts"].values()), "0")
     if gauge_png and Path(gauge_png).exists():
         s.shapes.add_picture(str(gauge_png), Inches(5.8), Inches(1.45), Inches(3.4))
@@ -179,7 +188,7 @@ def build_deck(cfg, m, cm, ins, registry: CitationRegistry, articles_by_url, log
     if outlets:
         blocks.add_bar_chart(s, 9.4, 1.45, 3.6, 3.2, [o["outlet"] for o in outlets], [o["count"] for o in outlets],
                              style.MINT)
-    blocks.add_insight_cards(s, 0.4, 4.85, 12.5, 2.3, ins["expert"][1:4] or ins["expert"], cols=3)
+    blocks.add_insight_cards(s, 0.4, 4.85, 12.5, 2.3, ins["expert"][1:4], cols=3)
     # 9 Expert: named experts
     s = _content(prs, cfg, m, kicker, "Expert-led: Named Experts",
                  "Experts quoted or cited, with their stated brand affiliation.", m["themes"]["expert"])
@@ -199,19 +208,21 @@ def build_deck(cfg, m, cm, ins, registry: CitationRegistry, articles_by_url, log
         total = sum(t["sentiment"][k] for k in sk)
         blocks.add_doughnut(s, 0.4, 1.45, 4.8, 3.2, [k.title() for k in sk],
                             [round(100 * t["sentiment"][k] / total, 1) for k in sk])
-    blocks.add_insight_cards(s, 5.4, 1.45, 7.5, 5.7, ins["celebrity"][4:8] or ins["celebrity"][:2], cols=2)
+    blocks.add_insight_cards(s, 5.4, 1.45, 7.5, 5.7, ins["celebrity"][4:8] or ins["celebrity"][1:3], cols=2)
     # 12 Brands
     s = _content(prs, cfg, m, kicker, "Brands in the Conversation", _summary(ins["brands"]))
     brands = cm["brands"][:8]
+    brand_cards = ins["brands"][1:3]
+    chart_w = 6.4 if brand_cards else 11.2
     if brands:
-        blocks.add_bar_chart(s, 1.6, 1.45, 6.4, 5.6, [b["brand"] for b in brands], [b["count"] for b in brands])
+        blocks.add_bar_chart(s, 1.6, 1.45, chart_w, 5.6, [b["brand"] for b in brands], [b["count"] for b in brands])
         step = 5.6 / len(brands)
         for i, b in enumerate(brands):
             logo = logos.get(b["brand"])
             if logo and Path(logo).exists():
                 s.shapes.add_picture(str(logo), Inches(0.5), Inches(1.55 + i * step),
                                      height=Inches(min(0.5, step * 0.75)))
-    blocks.add_insight_cards(s, 8.3, 1.45, 4.6, 5.7, ins["brands"][1:3] or ins["brands"], cols=1)
+    blocks.add_insight_cards(s, 8.3, 1.45, 4.6, 5.7, brand_cards, cols=1)
     # 13 Key takeaways
     s = _content(prs, cfg, m, kicker, "Key Takeaways", "")
     blocks.add_insight_cards(s, 0.4, 1.45, 12.5, 5.7, ins["takeaways"][:6], cols=3)

@@ -78,6 +78,7 @@ def _chart(slide, kind, x, y, w, h, categories, values, number_format):
     data.add_series("Articles", values)
     chart = slide.shapes.add_chart(kind, Inches(x), Inches(y), Inches(w), Inches(h), data).chart
     chart.has_legend = False
+    chart.has_title = False
     chart.font.name, chart.font.size = style.FONT, Pt(9)
     chart.font.color.rgb = _rgb(style.BODY)
     return chart
@@ -93,6 +94,7 @@ def _style_axes(chart):
 def _labels(plot, number_format):
     plot.has_data_labels = True
     dl = plot.data_labels
+    dl.show_value = True
     dl.number_format, dl.number_format_is_linked = number_format, False
     dl.font.size, dl.font.name = Pt(9), style.FONT
     dl.font.color.rgb = _rgb(style.BODY)
@@ -128,7 +130,7 @@ def add_line_chart_with_peaks(slide, x, y, w, h, categories, values, peak_idx):
     chart = _chart(slide, XL_CHART_TYPE.LINE_MARKERS, x, y, w, h, categories, values, "0")
     _style_axes(chart)
     series = chart.plots[0].series[0]
-    series.smooth = True
+    series.smooth = False      # smoothing overshoots below zero between low months
     series.format.line.color.rgb = _rgb(style.POWDER_BLUE)
     series.format.line.width = Pt(2)
     series.marker.style = XL_MARKER_STYLE.NONE
@@ -173,9 +175,11 @@ def add_insight_cards(slide, x, y, w, h, insights: list[dict], cols: int):
     for i, ins in enumerate(insights):
         cx, cy = x + (i % cols) * (cw + gap), y + (i // cols) * (ch + gap)
         _card(slide, cx, cy, cw, ch)
-        add_text(slide, cx + 0.15, cy + 0.08, cw - 0.3, 0.4, ins["headline"], style.CARD_HEAD_PT, True, style.VIOLET)
-        add_text(slide, cx + 0.15, cy + 0.5, cw - 0.3, ch - 0.58,
-                 ins["text"] + citation_suffix(ins["citations"]), style.BODY_PT)
+        add_text(slide, cx + 0.15, cy + 0.08, cw - 0.3, style.CARD_HEAD_H, ins["headline"], style.CARD_HEAD_PT, True,
+                 style.VIOLET)
+        body_top = 0.08 + style.CARD_HEAD_H + 0.04
+        add_text(slide, cx + 0.15, cy + body_top, cw - 0.3, ch - body_top - 0.08,
+                 ins["text"] + citation_suffix(ins["citations"]), style.CARD_BODY_PT)
 
 
 def add_kpi_tiles(slide, x, y, w, h, tiles: list[dict]):
