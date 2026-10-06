@@ -83,6 +83,18 @@ You do NOT research. You only interpret what the client is asking.
    you added from general industry knowledge "confidence": "medium" and reasoning noting
    they are a well-known market player in this category, not explicitly named in the brief.
 
+   NEVER invent a product, person, executive or event: product, product_group, executive,
+   person and event entities must be named in the brief text itself. Do not add a CEO, a
+   spokesperson or a "recent launch" from your own knowledge or from any other company in
+   the category — a wrong name misdirects the whole research run. Competitors are the only
+   entity type you may add beyond the brief (rule above).
+
+   COMMISSIONING BRAND: use the brand the brief names as the client/commissioner. If the
+   brief names none, use the client name given in the project details above the brief
+   (for a category study that is the category study's name, e.g. "Baby Skincare Category").
+   Never write placeholder text such as "Not explicitly named", "Unknown", "TBD" or
+   "assume a leading player" as the commissioning brand name.
+
 9. For EVERY entity you output with type "brand" or "competitor" (every one, with zero
    exceptions — the commissioning brand included), you MUST add a "keywords" array field:
    3-8 short terms for that brand's messaging/positioning (taglines, campaign names or
@@ -391,6 +403,16 @@ def validate_spec(spec: dict, brief_text: str) -> list[ValidationError]:
     return errors
 
 
+STANDIN_BRAND_MARKERS = ("not explicitly", "not named", "not specified", "unspecified", "unknown",
+                         "assume", "placeholder", "n/a", "tbd", "leading player")
+
+
+def is_standin_brand_name(name: str) -> bool:
+    """True for stand-in text the LLM writes when the brief names no brand."""
+    text = (name or "").strip().lower()
+    return any(marker in text for marker in STANDIN_BRAND_MARKERS)
+
+
 def _validate_brand_subject_audience(
     spec: dict, errors: list[ValidationError]
 ) -> None:
@@ -399,6 +421,11 @@ def _validate_brand_subject_audience(
         errors.append(ValidationError(
             "commissioning_brand.name",
             "Missing commissioning brand name"))
+    elif is_standin_brand_name(cb.get("name", "")):
+        errors.append(ValidationError(
+            "commissioning_brand.name",
+            f"'{cb.get('name')}' is placeholder text, not a brand. Use the brand the brief names, "
+            "or the client name from the project details"))
 
     rs = spec.get("research_subject", {})
     if not rs or not rs.get("description"):
@@ -759,6 +786,7 @@ def run(
     emit: Optional[EventFn] = None,
     brief_filename: str = "",
     max_retries: int = 2,
+    client_name: str = "",
 ) -> dict:
     """Execute the Brief & Scope Agent.
 
@@ -777,7 +805,7 @@ def run(
         "filename": brief_filename,
     })
 
-    user_message = _build_user_prompt(brief_text, brief_filename)
+    user_message = _build_user_prompt(brief_text, brief_filename, client_name=client_name)
 
     spec = None
     all_errors: list[ValidationError] = []
@@ -888,7 +916,7 @@ def run(
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-def _build_user_prompt(brief_text: str, filename: str) -> str:
+def _build_user_prompt(brief_text: str, filename: str, client_name: str = "") -> str:
     from datetime import datetime
     now = datetime.now()
     parts = [
@@ -897,6 +925,9 @@ def _build_user_prompt(brief_text: str, filename: str) -> str:
         "relative date/time reasoning ('past 30 days', 'this year', etc.).",
         "Analyze this client brief and return a Project Specification as JSON.\n",
     ]
+    if client_name:
+        parts.append(f"Client (from the project form): {client_name} — use this as the commissioning "
+                     "brand when the brief itself names none.\n")
     if filename:
         parts.append(f"Filename: {filename}\n")
     parts.append(f"--- BRIEF START ---\n{brief_text}\n--- BRIEF END ---")
