@@ -166,6 +166,12 @@ def _card(slide, x, y, w, h):
     return card
 
 
+def _headline_height(text: str, width_in: float) -> float:
+    chars_per_line = max(1, int((width_in * 72 - 14) / (style.CARD_HEAD_PT * 0.5)))
+    lines = max(1, -(-len(text) // chars_per_line))
+    return style.CARD_HEAD_H if lines > 1 else style.CARD_HEAD_H / 2 + 0.05
+
+
 def add_insight_cards(slide, x, y, w, h, insights: list[dict], cols: int):
     if not insights:
         return
@@ -175,9 +181,9 @@ def add_insight_cards(slide, x, y, w, h, insights: list[dict], cols: int):
     for i, ins in enumerate(insights):
         cx, cy = x + (i % cols) * (cw + gap), y + (i // cols) * (ch + gap)
         _card(slide, cx, cy, cw, ch)
-        add_text(slide, cx + 0.15, cy + 0.08, cw - 0.3, style.CARD_HEAD_H, ins["headline"], style.CARD_HEAD_PT, True,
-                 style.VIOLET)
-        body_top = 0.08 + style.CARD_HEAD_H + 0.04
+        head_h = _headline_height(ins["headline"], cw - 0.3)
+        add_text(slide, cx + 0.15, cy + 0.08, cw - 0.3, head_h, ins["headline"], style.CARD_HEAD_PT, True, style.VIOLET)
+        body_top = 0.08 + head_h + 0.04
         add_text(slide, cx + 0.15, cy + body_top, cw - 0.3, ch - body_top - 0.08,
                  ins["text"] + citation_suffix(ins["citations"]), style.CARD_BODY_PT)
 

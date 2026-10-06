@@ -15,6 +15,7 @@ import io
 
 import requests
 from PIL import Image, UnidentifiedImageError
+from pptx import Presentation
 
 from ...core.anthropic_client import get_llm_client
 from ..research.brandfetch import resolve_logo
@@ -173,7 +174,8 @@ def main(argv: list[str]) -> int:
                                            out_dir / "gauge_affiliation.png")
 
     out = deck.build_deck(cfg, m, cm, ins, registry, by_url, logos, gauge_png, out_dir / cfg["output_name"])
-    issues = qc.check_layout(out)
+    last = len(Presentation(out).slides)
+    issues = qc.check_layout(out, skip={1, last})   # inherited Hunter cover + closing slides
     _write_json(out_dir / "qc_issues.json", issues)
     pngs = qc.export_pngs(out, out_dir / "qc_png")
     logger.info("Deck: %s | slides exported: %d | QC issues: %d", out, len(pngs), len(issues))

@@ -37,11 +37,14 @@ def _font_pt(shape) -> float:
     return 12.0
 
 
-def check_layout(pptx_path: Path) -> list[dict]:
+def check_layout(pptx_path: Path, skip: set[int] | None = None) -> list[dict]:
+    """skip: 1-based slide numbers to ignore (e.g. inherited template cover/closing slides)."""
     prs = Presentation(pptx_path)
     sw, sh_ = prs.slide_width, prs.slide_height
     issues = []
     for n, slide in enumerate(prs.slides, start=1):
+        if skip and n in skip:
+            continue
         fill = slide.background.fill
         if fill.type == SOLID_FILL and _luminance(str(fill.fore_color.rgb)) < DARK_LUMINANCE:
             issues.append({"slide": n, "kind": "dark_background", "detail": str(fill.fore_color.rgb)})

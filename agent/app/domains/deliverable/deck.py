@@ -227,7 +227,7 @@ def build_deck(cfg, m, cm, ins, registry: CitationRegistry, articles_by_url, log
     s = _content(prs, cfg, m, kicker, "Key Takeaways", "")
     blocks.add_insight_cards(s, 0.4, 1.45, 12.5, 5.7, ins["takeaways"][:6], cols=3)
     # 14 Implications
-    s = _content(prs, cfg, m, kicker, "Implications: Consumer Intent & Whitespace", "")
+    s = _content(prs, cfg, m, kicker, "Implications & Whitespace", "")
     blocks.add_insight_cards(s, 0.4, 1.45, 12.5, 5.7, ins["implications"][:4], cols=2)
     # 15 Methodology
     s = _content(prs, cfg, m, "Appendix", "Definitions & Methodology", "")
