@@ -47,9 +47,28 @@ def validate_insight(text: str, cites: list[int], allowed: set[str], candidate_i
 
 
 def _fallback(facts: list[str], candidates: list[Article], registry: CitationRegistry) -> list[dict]:
-    if not facts or not candidates:
-        return []
-    return [{"headline": "Key finding", "text": facts[0], "citations": [registry.cite(a) for a in candidates[:2]]}]
+    return _backfill([], facts, candidates, registry, 1)
+
+
+def _backfill(kept: list[dict], facts: list[str], candidates: list[Article], registry: CitationRegistry,
+              n: int) -> list[dict]:
+    """Top a section up to n insights with deterministic fact cards (true by construction), skipping facts whose
+    lead number an accepted insight already states. Cites the section's evidence articles."""
+    if not candidates:
+        return kept
+    stated = " ".join(k["text"] for k in kept)
+    out = list(kept)
+    for fact in facts:
+        if len(out) >= n:
+            break
+        lead = _NUM.search(fact)
+        if lead and lead.group() in _NUM.findall(stated):
+            continue
+        headline = fact.split(":")[0] if ":" in fact else "Key finding"
+        out.append({"headline": headline, "text": fact.rstrip(".") + ".",
+                    "citations": [registry.cite(a) for a in candidates[:2]]})   # register only when used
+        stated += " " + fact
+    return out
 
 
 def draft_section(section: str, facts: list[str], candidates: list[Article], registry: CitationRegistry,
@@ -88,7 +107,7 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
     supported = _verify_claims(section, valid, facts, local, llm)
     kept = [{"headline": h, "text": t, "citations": sorted({registry.cite(local[c]) for c in cs})}
             for i, (h, t, cs) in enumerate(valid) if i in supported]
-    return kept or _fallback(facts, candidates, registry)
+    return _backfill(kept, facts, candidates, registry, n_insights)
 
 
 def _verify_claims(section: str, valid: list[tuple], facts: list[str], local: dict[int, Article], llm) -> set[int]:
