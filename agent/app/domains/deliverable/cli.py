@@ -1,0 +1,164 @@
+"""Build a reference deck from a deliverable project config.
+
+Usage: python -m agent.app.domains.deliverable.cli agent/app/domains/deliverable/projects/baby_skincare.json
+"""
+from __future__ import annotations
+
+import json
+import logging
+import re
+import sys
+from pathlib import Path
+
+import requests
+
+from ...core.anthropic_client import get_llm_client
+from ..research.brandfetch import resolve_logo
+from . import classify, config, deck, gauge, ingest, insights, metrics, qc
+from .citations import CitationRegistry
+
+logger = logging.getLogger("deliverable")
+THEMES = ("deal", "parenting", "expert", "celebrity")
+MAX_CANDIDATES = 12
+LOGO_TIMEOUT_S = 20
+
+
+def _load_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
+def _write_json(path: Path, data) -> None:
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+
+
+def _peak_articles(t: dict, by_url: dict) -> list:
+    return [by_url[u] for p in t["peaks"] for u in p["top_urls"] if u in by_url]
+
+
+def _theme_facts(key: str, label: str, m: dict, cm: dict) -> list[str]:
+    t = m["themes"][key]
+    facts = [f"{label} share of collected coverage is {t['share']}% ({t['count']} of {m['base_n']} articles)"]
+    facts += [f"Peak {p['rank']}: {metrics.month_label(p['month'])} with {p['count']} articles" for p in t["peaks"]]
+    facts += [f"Top outlet {o['outlet']} with {o['count']} articles" for o in t["outlets"][:5]]
+    facts += [f"{k} sentiment: {v} articles" for k, v in t["sentiment"].items()]
+    if key == "expert":
+        e = cm["expert"]
+        facts += [f"{k.replace('_', ' ')} cited {v} times" for k, v in e["type_counts"].items()]
+        if e["affiliated_pct"] is not None:
+            facts.append(f"{e['affiliated_pct']}% of experts with a stated affiliation are brand-affiliated "
+                         f"({e['affiliated_n']} of {e['affiliation_known_n']})")
+    if key == "celebrity":
+        facts += [f"{c['name']} featured in {c['count']} articles" for c in cm["celebrity"]["top"][:6]]
+    if key == "deal":
+        facts += [f"Retailer {r['retailer']} in {r['count']} deal articles" for r in cm["deal"]["retailers"][:6]]
+    if key == "parenting":
+        facts += [f"Topic {k.replace('_', ' ')}: {v} articles" for k, v in cm["parenting"]["topics"].items()]
+    return facts
+
+
+def _download_logos(brands: list[dict], folder: Path) -> dict[str, Path | None]:
+    folder.mkdir(parents=True, exist_ok=True)
+    out: dict[str, Path | None] = {}
+    for b in brands:
+        out[b["brand"]] = None
+        info = resolve_logo(b["brand"])
+        if not info.get("logo_url"):
+            continue
+        try:
+            r = requests.get(info["logo_url"], timeout=LOGO_TIMEOUT_S)
+        except requests.RequestException as e:
+            logger.warning("logo download failed for %s: %s", b["brand"], e)
+            continue
+        ctype = r.headers.get("content-type", "")
+        if r.ok and ctype.startswith("image/") and "svg" not in ctype:
+            p = folder / (re.sub(r"[^a-z0-9]+", "_", b["brand"].lower()) + ".png")
+            p.write_bytes(r.content)
+            out[b["brand"]] = p
+    return out
+
+
+def _table_rows(classified: dict, by_url: dict, registry: CitationRegistry) -> tuple[list, list]:
+    named = []
+    for u, rec in classified["expert"].items():
+        for e in rec.get("experts", []):
+            if not e["name"]:
+                continue
+            if e["affiliation"] == "affiliated":
+                aff = f"affiliated ({e['brand']})" if e["brand"] else "affiliated"
+            else:
+                aff = "not stated" if e["affiliation"] == "unknown" else e["affiliation"]
+            named.append([e["name"], e["expert_type"].replace("_", " "), aff, by_url[u].outlet,
+                          f"[{registry.cite(by_url[u])}]"])
+    parenting = [[by_url[u].title[:60],
+                  ", ".join(t["topic"].replace("_", " ") for t in rec.get("topics", [])) or "not stated",
+                  by_url[u].outlet, f"[{registry.cite(by_url[u])}]"] for u, rec in classified["parenting"].items()]
+    return named, parenting
+
+
+def main(argv: list[str]) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    cfg = config.load_config(argv[0])
+    out_dir = Path(cfg["output_dir"])
+    out_dir.mkdir(parents=True, exist_ok=True)
+    llm = get_llm_client()
+    if llm is None:
+        logger.error("Azure OpenAI chat is not configured/reachable — stopping (spec: no invented labels).")
+        return 2
+
+    articles, ingest_stats = ingest.load_articles(cfg)
+    by_url = {a.norm_url: a for a in articles}
+    m = metrics.compute_metrics(articles, list(THEMES))
+    m["ingest"] = ingest_stats
+    _write_json(out_dir / "metrics.json", m)
+    logger.info("Ingested %d unique articles %s", m["base_n"], ingest_stats)
+
+    cache_path = out_dir / "classifications.json"
+    cache = _load_json(cache_path)
+    classified = {}
+    for key in THEMES:
+        classified[key] = classify.classify_theme([a for a in articles if key in a.themes], key, llm, cache)
+        _write_json(cache_path, cache)
+        logger.info("Classified %s: %d articles", key, len(classified[key]))
+    cm = metrics.compute_classified_metrics(classified)
+
+    registry = CitationRegistry()
+    labels = {t["key"]: t["label"] for t in cfg["themes"]}
+    ins: dict[str, list[dict]] = {}
+    all_facts: list[str] = []
+    for key in THEMES:
+        facts = _theme_facts(key, labels[key], m, cm)
+        all_facts += facts
+        cands = (_peak_articles(m["themes"][key], by_url) or [a for a in articles if key in a.themes])[:MAX_CANDIDATES]
+        ins[key] = insights.draft_section(labels[key], facts, cands, registry, llm,
+                                          n_insights=8 if key == "celebrity" else 4)
+    exec_cands = [a for k in THEMES for a in _peak_articles(m["themes"][k], by_url)[:2]]
+    ins["exec"] = insights.draft_section("Executive summary: answer each brief question", all_facts, exec_cands,
+                                         registry, llm, 4)
+    ins["mix"] = insights.draft_section("Coverage mix across themes", all_facts, exec_cands, registry, llm, 3)
+    brand_facts = [f"{b['brand']} mentioned in {b['count']} articles" for b in cm["brands"]]
+    brand_cands = [by_url[u] for k in THEMES for u, rec in classified[k].items() if rec.get("brands")][:MAX_CANDIDATES]
+    ins["brands"] = insights.draft_section("Brands in the conversation", brand_facts, brand_cands, registry, llm, 3)
+    ins["takeaways"] = insights.draft_section("Key takeaways", all_facts + brand_facts, exec_cands, registry, llm, 6)
+    ins["implications"] = insights.draft_section("Implications for consumer intent, messaging and whitespace",
+                                                 all_facts + brand_facts, exec_cands, registry, llm, 4)
+    cm["expert"]["named"], cm["parenting"]["rows"] = _table_rows(classified, by_url, registry)
+    _write_json(out_dir / "insights.json", {"insights": ins, "citations": registry.entries()})
+
+    logos = _download_logos(cm["brands"][:8], out_dir / "logos")
+    gauge_png = None
+    if cm["expert"]["affiliated_pct"] is not None:
+        gauge_png = gauge.render_gauge_png(cm["expert"]["affiliated_pct"], "Brand-affiliated experts",
+                                           out_dir / "gauge_affiliation.png")
+
+    out = deck.build_deck(cfg, m, cm, ins, registry, by_url, logos, gauge_png, out_dir / cfg["output_name"])
+    issues = qc.check_layout(out)
+    _write_json(out_dir / "qc_issues.json", issues)
+    pngs = qc.export_pngs(out, out_dir / "qc_png")
+    logger.info("Deck: %s | slides exported: %d | QC issues: %d", out, len(pngs), len(issues))
+    for i in issues:
+        logger.warning("QC slide %s %s: %s", i["slide"], i["kind"], i["detail"])
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
