@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from decimal import ROUND_HALF_UP, Decimal
 
 from .citations import CitationRegistry
 from .ingest import Article
@@ -14,13 +15,14 @@ _YEARS = {"2024", "2025", "2026"}
 MAX_CITES = 3
 
 
-def _with_rounded(nums: set[str]) -> set[str]:
-    """60.2 in the facts also licenses '60' in prose."""
-    return nums | {str(round(float(n))) for n in nums if "." in n}
+def _half_up(n: str) -> str:
+    """Conventional rounding (2.5 → 3); Python's round() would give 2."""
+    return str(Decimal(n).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def allowed_numbers(facts: list[str]) -> set[str]:
-    return _with_rounded({n for f in facts for n in _NUM.findall(f)}) | _YEARS
+    """Exact numbers only; rounded forms are licensed through allowed_pairs, i.e. only with their unit."""
+    return {n for f in facts for n in _NUM.findall(f)} | _YEARS
 
 
 _NUM_UNIT = re.compile(r"(\d+(?:\.\d+)?)\s*(%|[A-Za-z]+)?")
@@ -43,7 +45,7 @@ def _pairs(text: str) -> set[tuple[str, str]]:
 def allowed_pairs(facts: list[str]) -> set[tuple[str, str]]:
     """(number, unit) pairs stated in the facts, so '37 times' can't be restated as '37 articles'."""
     pairs = {p for f in facts for p in _pairs(f)}
-    return pairs | {(str(round(float(n))), u) for n, u in pairs if "." in n}
+    return pairs | {(_half_up(n), u) for n, u in pairs if "." in n}     # '60%' from 60.2%, never bare '60'
 
 
 _WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
@@ -61,7 +63,8 @@ def validate_insight(text: str, cites: list[int], allowed: set[str], candidate_i
     text = _digits(text)
     if not cites or not set(cites) <= candidate_ids:
         return "citation missing or outside candidate set"
-    bad = [n for n in _NUM.findall(text) if n not in allowed]
+    unit_ok = {n for n, u in _pairs(text) if pairs is not None and (n, u) in pairs}
+    bad = [n for n in _NUM.findall(text) if n not in allowed and n not in unit_ok]
     if bad:
         return f"number(s) not in facts: {bad}"
     if pairs is not None:
@@ -96,25 +99,54 @@ def _fact_headline(fact: str) -> str:
     return lead or "Key finding"
 
 
+_MONTH = re.compile(r":\s*([A-Z][a-z]{2}-\d{2})\b")
+_OUTLET_NAME = re.compile(r"^Top outlet for .+?:\s*(.+?) with \d")
+
+
+def _norm(s: str) -> str:
+    return " ".join(s.replace("’", "'").casefold().split())
+
+
+def _fact_evidence(fact: str, candidates: list[Article]) -> list[Article]:
+    """Articles that actually illustrate this fact. Entity facts (peak month, outlet, brand/celebrity) only cite
+    matching articles — none matching means no card; aggregate facts cite the section's example articles."""
+    if _PEAK.match(fact):
+        month = _MONTH.search(fact)
+        return [a for a in candidates if month and a.date and a.date.strftime("%b-%y") == month.group(1)][:2]
+    outlet = _OUTLET_NAME.match(fact)
+    if outlet:
+        return [a for a in candidates if _norm(a.outlet) == _norm(outlet.group(1))][:2]
+    for verb in (" mentioned in ", " featured in "):
+        if verb in fact:
+            subject = _norm(fact.split(verb)[0])
+            return [a for a in candidates if subject in _norm(f"{a.title} {a.text}")][:2]
+    return candidates[:2]
+
+
+def _lead_value(fact: str) -> set[str]:
+    """The fact's headline number (first number carrying a unit), plus its rounded form."""
+    lead = next((n for n, u in _NUM_UNIT.findall(fact) if u and u.lower() in _UNITS and n not in _YEARS), None)
+    return {lead, _half_up(lead)} if lead else set()
+
+
 def _backfill(kept: list[dict], facts: list[str], candidates: list[Article], registry: CitationRegistry,
               n: int) -> list[dict]:
     """Top a section up to n insights with deterministic fact cards (true by construction), skipping facts whose
-    lead number an accepted insight already states. Cites the section's evidence articles."""
-    if not candidates:
-        return kept
-    stated = " ".join(k["text"] for k in kept)
+    value an accepted insight already states and facts with no article that illustrates them."""
     out = list(kept)
+    stated = set(_NUM.findall(_digits(" ".join(k["text"] for k in kept))))
     for fact in facts:
         if len(out) >= n:
             break
-        lead = _NUM.search(fact)
-        if lead and lead.group() in _NUM.findall(stated):
+        if _lead_value(fact) & stated:
             continue
-        headline = _fact_headline(fact)
+        evidence = _fact_evidence(fact, candidates)
+        if not evidence:
+            continue
         text = fact.rstrip(".") + "."
-        out.append({"headline": headline, "text": text[:1].upper() + text[1:],
-                    "citations": [registry.cite(a) for a in candidates[:2]]})   # register only when used
-        stated += " " + fact
+        out.append({"headline": _fact_headline(fact), "text": text[:1].upper() + text[1:],
+                    "citations": [registry.cite(a) for a in evidence]})   # register only when used
+        stated |= set(_NUM.findall(fact))
     return out
 
 
@@ -163,8 +195,9 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
         except (json.JSONDecodeError, RuntimeError) as e:
             logger.warning("insight repair for %s failed (%s)", section, e)
     supported = _verify_claims(section, valid, facts, local, llm)
+    shown = [v for i, v in enumerate(valid) if i in supported][:n_insights]   # cap before citing anything
     kept = [{"headline": h, "text": t, "citations": sorted({registry.cite(local[c]) for c in cs})}
-            for i, (h, t, cs) in enumerate(valid) if i in supported]
+            for h, t, cs in shown]
     return _backfill(kept, facts, candidates, registry, n_insights)
 
 
@@ -202,7 +235,9 @@ def _verify_claims(section: str, valid: list[tuple], facts: list[str], local: di
          "quantifier ('fewer than 10', 'most', 'each', 'common', 'majority') against the exact FACTS numbers for "
          "every item it covers; one item that breaks it makes the claim unsupported. Check ratio words ('twice', "
          "'double', 'triple', 'x times') by arithmetic on the FACTS numbers (60.2% vs 28.9% is about twice, not "
-         "triple). Return JSON only."},
+         "triple). An interpretation must not contradict FACTS (a topic that FACTS rank first is not 'minimal'). "
+         "Also judge whether its EVIDENCE articles are relevant to the claim's subject; if none of them is "
+         "relevant, mark it unsupported. Return JSON only."},
         {"role": "user", "content": f"Section: {section}\nFACTS:\n" + "\n".join(f"- {f}" for f in facts) +
          f"\nCLAIMS:\n{json.dumps(items, ensure_ascii=False)}\n"
          'Return {"verdicts":[{"index":0,"supported":true}]} with one verdict per claim.'},

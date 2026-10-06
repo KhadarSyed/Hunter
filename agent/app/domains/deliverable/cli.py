@@ -151,6 +151,20 @@ def table_rows(classified: dict, by_url: dict, registry: CitationRegistry,
     return named, len(named_src), rows, len(parenting_src)
 
 
+def brand_candidates(classified: dict, by_url: dict, top_brands: list[dict], per_brand: int = 2) -> list:
+    """For each top brand, articles whose classification names it — so brand insights cite on-topic coverage."""
+    def key(s: str) -> str:
+        return " ".join(s.replace("’", "'").casefold().split())
+    out: list = []
+    for b in top_brands:
+        hits = [by_url[u] for recs in classified.values() for u, rec in recs.items()
+                if key(b["brand"]) in {key(x) for x in rec.get("brands", [])} and u in by_url]
+        seen = {a.norm_url for a in out}
+        fresh = list({a.norm_url: a for a in hits if a.norm_url not in seen}.values())
+        out += fresh[:per_brand]
+    return out
+
+
 def driver_facts(m: dict, cm: dict) -> list[str]:
     """Celebrity facts first (they make informative backfill cards); sentiment as one combined fact,
     since the slide's doughnut already shows the split."""
@@ -242,7 +256,7 @@ def main(argv: list[str]) -> int:
                                                 for k in THEMES})
     ins["mix"] = insights.draft_section("Coverage mix across themes", all_facts, exec_cands, registry, llm, 3)
     brand_facts = [f"{b['brand']} mentioned in {b['count']} articles" for b in cm["brands"]]
-    brand_cands = [by_url[u] for k in THEMES for u, rec in classified[k].items() if rec.get("brands")][:MAX_CANDIDATES]
+    brand_cands = brand_candidates(classified, by_url, cm["brands"][:6], per_brand=2)
     ins["brands"] = insights.draft_section("Brands in the conversation", brand_facts, brand_cands, registry, llm, 3)
     ins["takeaways"] = insights.draft_section("Key takeaways", all_facts + brand_facts, exec_cands, registry, llm, 6)
     ins["implications"] = insights.draft_section("Implications for consumer intent, messaging and whitespace",

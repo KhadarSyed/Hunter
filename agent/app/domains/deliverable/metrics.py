@@ -133,6 +133,9 @@ def compute_classified_metrics(classifications: dict[str, dict[str, dict]]) -> d
     }
     out["parenting"] = {"topics": dict(Counter(t for r in classifications.get("parenting", {}).values()
                                                for t in {x["topic"] for x in r.get("topics", [])}))}
-    out["brands"] = _top_names([set(rec.get("brands", [])) for theme_recs in classifications.values()
-                                for rec in theme_recs.values()], "brand", 12)
+    per_url: dict[str, set[str]] = {}
+    for theme_recs in classifications.values():                     # an article in two themes counts once
+        for url, rec in theme_recs.items():
+            per_url.setdefault(url, set()).update(rec.get("brands", []))
+    out["brands"] = _top_names(list(per_url.values()), "brand", 12)
     return out
