@@ -172,14 +172,33 @@ def _headline_height(text: str, width_in: float) -> float:
     return style.CARD_HEAD_H if lines > 1 else style.CARD_HEAD_H / 2 + 0.05
 
 
+CARD_MIN_H = 1.1
+
+
+def _card_body_height(ins: dict, width_in: float) -> float:
+    text = ins["text"] + citation_suffix(ins["citations"])
+    chars_per_line = max(1, int((width_in * 72 - 14) / (style.CARD_BODY_PT * 0.5)))
+    lines = sum(max(1, -(-len(p) // chars_per_line)) for p in text.split("\n"))
+    return lines * style.CARD_BODY_PT * 1.25 / 72 + 0.15
+
+
 def add_insight_cards(slide, x, y, w, h, insights: list[dict], cols: int):
+    """Cards size to their text (uniform per row) and never exceed the given area."""
     if not insights:
         return
     gap = 0.15
     rows = -(-len(insights) // cols)
-    cw, ch = (w - gap * (cols - 1)) / cols, (h - gap * (rows - 1)) / rows
+    cw, max_ch = (w - gap * (cols - 1)) / cols, (h - gap * (rows - 1)) / rows
+    row_h = []
+    for r in range(rows):
+        row = insights[r * cols:(r + 1) * cols]
+        need = max(0.08 + _headline_height(i["headline"], cw - 0.3) + 0.04 + _card_body_height(i, cw - 0.3)
+                   for i in row)
+        row_h.append(min(max_ch, max(CARD_MIN_H, need)))
     for i, ins in enumerate(insights):
-        cx, cy = x + (i % cols) * (cw + gap), y + (i // cols) * (ch + gap)
+        r = i // cols
+        ch = row_h[r]
+        cx, cy = x + (i % cols) * (cw + gap), y + sum(row_h[:r]) + gap * r
         _card(slide, cx, cy, cw, ch)
         head_h = _headline_height(ins["headline"], cw - 0.3)
         add_text(slide, cx + 0.15, cy + 0.08, cw - 0.3, head_h, ins["headline"], style.CARD_HEAD_PT, True, style.VIOLET)
