@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import csv
+import io
 import itertools
 import json
 import logging
@@ -618,8 +619,9 @@ def final_query_approval(project_id: IdPath, req: FinalApprovalRequest,
 # ─── Dataset Evaluation ────────────────────────────────────────────────
 
 MELTWATER_COLUMN_MAP = {
-    "headline": ["title", "headline", "article title", "heading"],
-    "snippet": ["hit sentence", "opening text", "snippet", "extract", "summary", "content snippet"],
+    "headline": ["title", "headline", "article title", "heading", "article"],
+    "snippet": ["hit sentence", "opening text", "snippet", "extract", "summary", "content snippet",
+                "full content", "content", "article text", "body", "text"],
     "url": ["url", "link", "article url", "source url"],
     "date": ["date", "publish date", "published date", "pub date", "timestamp", "date/time"],
     "source_name": ["source name", "source", "publication", "outlet", "media outlet"],
@@ -752,9 +754,29 @@ def _llm_assisted_column_mapping(headers: list[str], sample_rows: list[dict]) ->
     }
 
 
-KNOWN_HEADERS = {"date", "url", "headline", "title", "source name", "source", "sentiment",
-                  "reach", "country", "language", "media type", "hit sentence", "opening text",
-                  "author name", "document id", "source type", "information type", "keywords"}
+KNOWN_HEADERS = ({alias for aliases in MELTWATER_COLUMN_MAP.values() for alias in aliases}
+                 | {"document id", "input name"})
+_MIN_KNOWN_HEADERS = 2
+_CSV_ENCODINGS = ("utf-8-sig", "cp1252", "latin-1")
+
+
+def _is_header_row(row) -> bool:
+    """A sheet's header row: at least two cells are recognised column names (URL + Title is enough for a
+    hand-made sheet). A title line above the table never has two."""
+    cells = [str(c or "").strip().lower() for c in row]
+    return sum(1 for c in cells if c in KNOWN_HEADERS) >= _MIN_KNOWN_HEADERS
+
+
+def _read_csv_text(file_path: str) -> str:
+    """CSV text in whatever encoding the export used — Meltwater/Excel on Windows often write cp1252
+    (curly quotes as 0x92), which is not valid UTF-8. latin-1 is last: it never fails."""
+    raw = Path(file_path).read_bytes()
+    for encoding in _CSV_ENCODINGS:
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace")
 
 
 def _parse_and_analyze(file_path: str) -> tuple[list[str], list[dict], int, dict, dict]:
@@ -873,9 +895,7 @@ def _parse_and_analyze(file_path: str) -> tuple[list[str], list[dict], int, dict
             found_header = False
             for row in ws.iter_rows(values_only=True):
                 if not found_header:
-                    cells = [str(c or "").strip().lower() for c in row]
-                    non_empty = [c for c in cells if c]
-                    if sum(1 for c in non_empty if c in KNOWN_HEADERS) >= 3:
+                    if _is_header_row(row):
                         sheet_headers = [str(c or "").strip() for c in row]
                         sheet_headers = [h for h in sheet_headers if h]
                         col_count = len(sheet_headers)
@@ -893,7 +913,7 @@ def _parse_and_analyze(file_path: str) -> tuple[list[str], list[dict], int, dict
         if not headers:
             raise ValueError("Could not detect column headers in any sheet")
     else:
-        with open(file_path, "r", encoding="utf-8-sig") as f:
+        with io.StringIO(_read_csv_text(file_path), newline="") as f:
             reader = csv.DictReader(f)
             headers = list(reader.fieldnames or [])
             buffered_rows = list(itertools.islice(reader, 5))
@@ -1055,7 +1075,13 @@ def _load_all_records(file_path: str, mapped: dict) -> list[dict]:
     title + content of each one, not just summary stats.
     """
     def pick(row: dict, field: str) -> str:
+        # A workbook's sheets can name their columns differently (a manual sheet's "Full Content" vs the
+        # Meltwater sheet's "Hit Sentence"); the dataset mapping comes from the first sheet, so fall back
+        # to this row's own columns by alias.
         col = mapped.get(field)
+        if not col or col not in row:
+            lower = {str(k).strip().lower(): k for k in row}
+            col = next((lower[a] for a in MELTWATER_COLUMN_MAP.get(field, []) if a in lower), None)
         return str(row.get(col, "") or "").strip() if col else ""
 
     ext = Path(file_path).suffix.lower()
@@ -1066,14 +1092,15 @@ def _load_all_records(file_path: str, mapped: dict) -> list[dict]:
             headers: list[str] = []
             for row in ws.iter_rows(values_only=True):
                 if not headers:
-                    cells = [str(c or "").strip() for c in row]
-                    if sum(1 for c in cells if c) >= 3:
-                        headers = cells
+                    if _is_header_row(row):
+                        headers = [str(c or "").strip() for c in row]
                     continue
-                rows.append({headers[j]: v for j, v in enumerate(row[:len(headers)])})
+                if all(v is None for v in row):
+                    continue
+                rows.append({h: v for h, v in zip(headers, row) if h})
         wb.close()
     else:
-        with open(file_path, "r", encoding="utf-8-sig") as f:
+        with io.StringIO(_read_csv_text(file_path), newline="") as f:
             rows = list(csv.DictReader(f))
 
     records = []
