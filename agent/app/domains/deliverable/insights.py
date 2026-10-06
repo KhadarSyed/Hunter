@@ -130,7 +130,9 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
          "examples of what is being counted. never leave citations empty. Comparisons ('more than', 'fewer than', "
          "'most', 'all', 'each') must hold exactly for every item named — e.g. never put a brand with 10 articles in "
          "a 'fewer than 10' list. Do not exaggerate: words like 'common', 'majority', 'dominates' must match the "
-         "numbers (4 of 17 is about a quarter, not 'common'). Return JSON only."},
+         "numbers (4 of 17 is about a quarter, not 'common'). Add no time qualifier the FACTS don't give "
+         "(late/early, 'summer'); a month is just the month. Keep one figure per clause and never imply a monthly "
+         "count equals an overall share. Return JSON only."},
         {"role": "user", "content": f"Section: {section}\nFACTS:\n" + "\n".join(f"- {f}" for f in facts) +
          f"\nARTICLES:\n{json.dumps(arts, ensure_ascii=False)}\nWrite {n_insights} insights as "
          '{"insights":[{"headline":"<=8 words","text":"<=45 words","citations":[ids]}]}'},
