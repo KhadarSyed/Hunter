@@ -166,6 +166,12 @@ def brand_candidates(classified: dict, by_url: dict, top_brands: list[dict], per
     return out
 
 
+def summary_facts(facts: list[str]) -> list[str]:
+    """Cross-theme slides get shares, top-peak shares and entity facts; per-theme peak/outlet facts stay on
+    their theme slide, where the candidate articles all come from that theme."""
+    return [f for f in facts if not f.startswith(("Peak ", "Top outlet for "))]
+
+
 def known_entities(m: dict, cm: dict) -> list[str]:
     """Names an insight may cite by (brand, retailer, celebrity, outlet) — used to check citation relevance."""
     names = [b["brand"] for b in cm.get("brands", [])]
@@ -265,13 +271,13 @@ def main(argv: list[str]) -> int:
     exec_cands = [a for k in THEMES for a in _peak_articles(m["themes"][k], by_url)[:2]]
     ins["exec"] = exec_backfill(m, cm, labels, {k: [registry.cite(a) for a in _peak_articles(m["themes"][k], by_url)[:1]]
                                                 for k in THEMES})
-    ins["mix"] = draft("Coverage mix across themes", all_facts, exec_cands, registry, llm, 3)
+    ins["mix"] = draft("Coverage mix across themes", summary_facts(all_facts), exec_cands, registry, llm, 3)
     brand_facts = [f"{b['brand']} mentioned in {b['count']} articles" for b in cm["brands"]]
     brand_cands = brand_candidates(classified, by_url, cm["brands"][:6], per_brand=2)
     ins["brands"] = draft("Brands in the conversation", brand_facts, brand_cands, registry, llm, 3)
-    ins["takeaways"] = draft("Key takeaways", all_facts + brand_facts, exec_cands, registry, llm, 6)
+    ins["takeaways"] = draft("Key takeaways", summary_facts(all_facts) + brand_facts, exec_cands, registry, llm, 6)
     ins["implications"] = draft("Implications for consumer intent, messaging and whitespace",
-                                                 all_facts + brand_facts, exec_cands, registry, llm, 4)
+                                                 summary_facts(all_facts) + brand_facts, exec_cands, registry, llm, 4)
     (cm["expert"]["named"], cm["expert"]["named_total"],
      cm["parenting"]["rows"], cm["parenting"]["rows_total"]) = table_rows(classified, by_url, registry)
     _write_json(out_dir / "metrics.json", metrics_payload(m, cm))
