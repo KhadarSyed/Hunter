@@ -69,15 +69,19 @@ def _fallback(facts: list[str], candidates: list[Article], registry: CitationReg
     return _backfill([], facts, candidates, registry, 1)
 
 
-_PEAK = re.compile(r"^Peak (\d+):")
+_PEAK = re.compile(r"^Peak (\d+)(?: for (.+?))?:")
+_OUTLET = re.compile(r"^Top outlet for (.+?):")
 _LEADS = ("Top outlet", "Retailer", "Topic")
 
 
 def _fact_headline(fact: str) -> str:
     peak = _PEAK.match(fact)
     if peak:
-        return f"Peak month #{peak.group(1)}"
-    if "sentiment:" in fact.lower():
+        return f"{peak.group(2)} peak #{peak.group(1)}" if peak.group(2) else f"Peak month #{peak.group(1)}"
+    outlet = _OUTLET.match(fact)
+    if outlet:
+        return f"Top outlet: {outlet.group(1)}"
+    if "sentiment" in fact.lower() and ":" in fact:
         return "Sentiment split"
     for verb in (" mentioned in ", " featured in "):
         if verb in fact:

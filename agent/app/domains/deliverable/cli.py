@@ -53,8 +53,9 @@ def _peak_articles(t: dict, by_url: dict) -> list:
 def _theme_facts(key: str, label: str, m: dict, cm: dict) -> list[str]:
     t = m["themes"][key]
     facts = [f"{label} share of collected coverage is {t['share']}% ({t['count']} of {m['base_n']} articles)"]
-    facts += [f"Peak {p['rank']}: {metrics.month_label(p['month'])} with {p['count']} articles" for p in t["peaks"]]
-    facts += [f"Top outlet {o['outlet']} with {o['count']} articles" for o in t["outlets"][:5]]
+    facts += [f"Peak {p['rank']} for {label}: {metrics.month_label(p['month'])} with {p['count']} articles"
+              for p in t["peaks"]]
+    facts += [f"Top outlet for {label}: {o['outlet']} with {o['count']} articles" for o in t["outlets"][:5]]
     facts += [f"{k} sentiment: {v} articles" for k, v in t["sentiment"].items()]
     syn = t.get("syndication") or {}
     if syn.get("top_title_count", 0) > 1:
@@ -145,6 +146,15 @@ def table_rows(classified: dict, by_url: dict, registry: CitationRegistry,
     return named, len(named_src), rows, len(parenting_src)
 
 
+def driver_facts(m: dict, cm: dict) -> list[str]:
+    """Celebrity facts first (they make informative backfill cards); sentiment as one combined fact,
+    since the slide's doughnut already shows the split."""
+    sent = m["themes"]["celebrity"]["sentiment"]
+    order = [k for k in ("positive", "neutral", "negative") if k in sent]
+    return ([f"{c['name']} featured in {c['count']} articles" for c in cm["celebrity"]["top"][:6]] +
+            [f"Sentiment split: " + ", ".join(f"{k} {sent[k]}" for k in order) + " articles"])
+
+
 def driver_candidates(arts: list, n: int) -> list:
     """Highest-reach positive and negative articles, interleaved, so sentiment drivers see both sides."""
     by_sent = {s: sorted((a for a in arts if a.sentiment == s), key=lambda a: -a.reach) for s in ("positive", "negative")}
@@ -219,11 +229,8 @@ def main(argv: list[str]) -> int:
         cands = (_peak_articles(m["themes"][key], by_url) or [a for a in articles if key in a.themes])[:MAX_CANDIDATES]
         ins[key] = insights.draft_section(labels[key], facts, cands, registry, llm,
                                           n_insights=4)
-    celeb = m["themes"]["celebrity"]
-    driver_facts = ([f"{k} sentiment: {v} articles" for k, v in celeb["sentiment"].items()] +
-                    [f"{c['name']} featured in {c['count']} articles" for c in cm["celebrity"]["top"][:6]])
     ins["celebrity_drivers"] = insights.draft_section(
-        "Celebrity-led coverage: what drives positive vs negative sentiment", driver_facts,
+        "Celebrity-led coverage: what drives positive vs negative sentiment", driver_facts(m, cm),
         driver_candidates([a for a in articles if "celebrity" in a.themes], MAX_CANDIDATES), registry, llm, 5)
     exec_cands = [a for k in THEMES for a in _peak_articles(m["themes"][k], by_url)[:2]]
     ins["exec"] = exec_backfill(m, cm, labels, {k: [registry.cite(a) for a in _peak_articles(m["themes"][k], by_url)[:1]]
