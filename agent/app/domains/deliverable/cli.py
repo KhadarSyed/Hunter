@@ -100,11 +100,26 @@ def _download_logos(brands: list[dict], folder: Path) -> dict[str, Path | None]:
     return out
 
 
+_NAME_TOKEN = re.compile(r"^[A-Z][a-zA-Z'.-]+$")
+_CREDENTIALS = {"MD", "PHD", "DO", "RN", "FAAD", "DR", "DR."}
+
+
+def is_named_person(name: str) -> bool:
+    """True for 'Dr. Neha Chandan' / 'Linda Stein Gold, MD'; False for generic roles like 'NICU nurses'."""
+    tokens = [t for t in re.split(r"[\s,]+", name.strip()) if t and t.upper() not in _CREDENTIALS]
+    return sum(1 for t in tokens if _NAME_TOKEN.match(t) and not t.isupper()) >= 2
+
+
+def topic_cell(topics: list[dict]) -> str:
+    names = [t["topic"].replace("_", " ") for t in topics if t.get("topic") not in (None, "", "unknown")]
+    return ", ".join(dict.fromkeys(names)) or "not stated"
+
+
 def _table_rows(classified: dict, by_url: dict, registry: CitationRegistry) -> tuple[list, list]:
     named = []
     for u, rec in classified["expert"].items():
         for e in rec.get("experts", []):
-            if not e["name"]:
+            if not is_named_person(e["name"]):
                 continue
             if e["affiliation"] == "affiliated":
                 aff = f"affiliated ({e['brand']})" if e["brand"] else "affiliated"
@@ -113,7 +128,7 @@ def _table_rows(classified: dict, by_url: dict, registry: CitationRegistry) -> t
             named.append([e["name"], deck.expert_label(e["expert_type"]), aff, by_url[u].outlet,
                           f"[{registry.cite(by_url[u])}]"])
     parenting = [[by_url[u].title[:60],
-                  ", ".join(t["topic"].replace("_", " ") for t in rec.get("topics", [])) or "not stated",
+                  topic_cell(rec.get("topics", [])),
                   by_url[u].outlet, f"[{registry.cite(by_url[u])}]"] for u, rec in classified["parenting"].items()]
     return named, parenting
 

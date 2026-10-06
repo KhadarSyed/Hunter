@@ -54,7 +54,10 @@ def _prompt(theme: str, batch: list[Article]) -> list[dict]:
     docs = [{"url": a.norm_url, "title": a.title, "text": a.text[:MAX_TEXT]} for a in batch]
     system = ("You label news articles for a media-research report. Use only what the article text says. "
               "If something is not stated, omit it. Return JSON only.")
-    user = (f"{_INSTRUCTIONS[theme]}\nAlso list 'brands': baby/skincare brand names mentioned.\n"
+    allowed = "".join(f"\nAllowed values for {f}: {', '.join(v)} (use exactly one; omit if none fits)."
+                      for f, v in schema["item"].items() if v)
+    user = (f"{_INSTRUCTIONS[theme]}{allowed}\nFor name fields give a person's name; skip unnamed generic "
+            f"references such as 'a dermatologist'.\nAlso list 'brands': baby/skincare brand names mentioned.\n"
             f"Return {{\"items\": [{{\"url\": <url>, \"{schema['list_field']}\": [objects with fields "
             f"{json.dumps(list(schema['item']))}], \"brands\": [..]}}]}} with one item per article.\n"
             f"Articles:\n{json.dumps(docs, ensure_ascii=False)}")
