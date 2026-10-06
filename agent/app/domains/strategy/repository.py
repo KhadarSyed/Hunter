@@ -123,9 +123,18 @@ def update_research_question(strategy_id: int, question_id: str, question: str, 
     return True
 
 
-def add_research_question(strategy_id: int, question: str, query: str) -> str | None:
-    """Append an analyst-added RQ numbered after the highest existing RQn; returns its id (None if no strategy)."""
+def get_strategy_project_id(strategy_id: int) -> int | None:
     conn = _conn()
+    row = conn.execute("SELECT project_id FROM intel_search_strategies WHERE id = ?", (strategy_id,)).fetchone()
+    conn.close()
+    return row["project_id"] if row else None
+
+
+def add_research_question(strategy_id: int, question: str, query: str) -> str | None:
+    """Append an analyst-added RQ numbered after the highest existing RQn; returns its id (None if no strategy).
+    BEGIN IMMEDIATE takes the write lock before the read, so two concurrent adds can't pick the same RQn."""
+    conn = _conn()
+    conn.execute("BEGIN IMMEDIATE")
     row = conn.execute("SELECT strategy_json FROM intel_search_strategies WHERE id = ?", (strategy_id,)).fetchone()
     if not row:
         conn.close()

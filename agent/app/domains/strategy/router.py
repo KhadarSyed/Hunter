@@ -30,7 +30,7 @@ from ...agents.query_evaluator import evaluate_sample
 from ...core import store
 from ...core.anthropic_client import get_llm_client
 from ...core.api import OkResponse
-from ...core.auth import require_dataset_access, require_project_access
+from ...core.auth import require_dataset_access, require_project_access, require_strategy_access
 from ...core.config import UPLOAD_DIR
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
@@ -515,7 +515,8 @@ def get_search_strategy(project_id: IdPath, _access: Annotated[dict, Depends(req
 
 
 @router.post("/strategy/{strategy_id}/edit-query", response_model=EditQueryResponse)
-def edit_query(strategy_id: IdPath, req: EditQueryRequest):
+def edit_query(strategy_id: IdPath, req: EditQueryRequest,
+               _access: Annotated[dict, Depends(require_strategy_access)]):
     issues = validate_boolean_syntax(req.query_text)
     version_id = store.update_strategy_query(strategy_id, req.query_type, req.query_text)
     return {
@@ -526,19 +527,22 @@ def edit_query(strategy_id: IdPath, req: EditQueryRequest):
 
 
 @router.get("/strategy/{strategy_id}/versions", response_model=list[QueryVersion])
-def get_query_versions(strategy_id: IdPath):
+def get_query_versions(strategy_id: IdPath,
+                       _access: Annotated[dict, Depends(require_strategy_access)]):
     return store.get_query_versions(strategy_id)
 
 
 @router.post("/strategy/{strategy_id}/approve", response_model=OkResponse)
-def approve_search_strategy(strategy_id: IdPath, req: ApproveRequest):
+def approve_search_strategy(strategy_id: IdPath, req: ApproveRequest,
+                            _access: Annotated[dict, Depends(require_strategy_access)]):
     store.approve_strategy(strategy_id, req.reviewer)
     _broadcast({"type": "intel_strategy_approved", "strategy_id": strategy_id})
     return {"ok": True}
 
 
 @router.post("/strategy/{strategy_id}/research-question", response_model=AddRQResult)
-def add_research_question(strategy_id: IdPath, req: AddRQRequest):
+def add_research_question(strategy_id: IdPath, req: AddRQRequest,
+                          _access: Annotated[dict, Depends(require_strategy_access)]):
     question_id = store.add_research_question(strategy_id, req.question, req.query)
     if question_id is None:
         raise HTTPException(404, "Strategy not found")
@@ -546,7 +550,8 @@ def add_research_question(strategy_id: IdPath, req: AddRQRequest):
 
 
 @router.put("/strategy/{strategy_id}/research-question", response_model=OkResponse)
-def edit_research_question(strategy_id: IdPath, req: EditRQRequest):
+def edit_research_question(strategy_id: IdPath, req: EditRQRequest,
+                           _access: Annotated[dict, Depends(require_strategy_access)]):
     ok = store.update_research_question(strategy_id, req.question_id, req.question, req.query)
     if not ok:
         raise HTTPException(404, "Research question not found")
@@ -554,7 +559,8 @@ def edit_research_question(strategy_id: IdPath, req: EditRQRequest):
 
 
 @router.delete("/strategy/{strategy_id}/research-question/{question_id}", response_model=OkResponse)
-def delete_research_question(strategy_id: IdPath, question_id: str):
+def delete_research_question(strategy_id: IdPath, question_id: str,
+                             _access: Annotated[dict, Depends(require_strategy_access)]):
     ok = store.delete_research_question(strategy_id, question_id)
     if not ok:
         raise HTTPException(404, "Research question not found")
