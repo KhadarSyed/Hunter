@@ -12,6 +12,26 @@ from .citations import CitationRegistry
 from .metrics import month_label
 
 CITES_PER_PAGE = 18
+NAMED_MAX = 15
+PARENTING_MAX = 14
+SYNDICATION_NOTE_SHARE = 0.25
+
+
+def _shown_note(slide, x: float, y: float, shown: int, total: int, noun: str) -> None:
+    if total > shown:
+        blocks.add_text(slide, x, y, 8.0, 0.25, f"Showing {shown} of {total} {noun}.",
+                        8, False, style.FOOTER_TEXT)
+
+
+def _syndication_notes(m: dict, labels: dict) -> list[str]:
+    notes = []
+    for k, t in m["themes"].items():
+        syn = t.get("syndication") or {}
+        if t["count"] and syn.get("top_title_count", 0) / t["count"] >= SYNDICATION_NOTE_SHARE:
+            notes.append(f"Syndication: {syn['top_title_count']} of {t['count']} {labels.get(k, k)} articles are one "
+                         f"story republished across outlets (\"{syn['top_title'][:80]}\"); its share and peaks "
+                         f"reflect syndication rather than independent coverage.")
+    return notes
 COVER_SUBTITLE_PT = 22
 _EXPERT_LABELS = {"other_hcp": "Other HCP", "non_hcp_expert": "Non-HCP expert"}
 
@@ -180,10 +200,11 @@ def build_deck(cfg, m, cm, ins, registry: CitationRegistry, articles_by_url, log
     s = _content(prs, cfg, m, kicker, "Parenting Advice", _summary(ins["parenting"]), m["themes"]["parenting"])
     blocks.add_text(s, 0.5, 1.42, 12, 0.3, f"Small sample: n={m['themes']['parenting']['count']} articles — "
                     "read as directional.", 9, True, style.PEACH)
-    rows = cm["parenting"]["rows"][:14]
+    rows = cm["parenting"]["rows"][:PARENTING_MAX]
     if rows:
         blocks.add_table(s, 0.5, 1.8, 7.6, 0.3 * (len(rows) + 1), ["Article", "Topic", "Outlet", "Cite"], rows,
                          [4.2, 1.4, 1.4, 0.6])
+    _shown_note(s, 0.5, 6.85, len(rows), cm["parenting"].get("rows_total", len(rows)), "articles")
     blocks.add_insight_cards(s, 8.4, 1.8, 4.5, 5.3, ins["parenting"][1:3], cols=1)
     # 8 Expert: who is cited
     e = cm["expert"]
@@ -203,10 +224,11 @@ def build_deck(cfg, m, cm, ins, registry: CitationRegistry, articles_by_url, log
     # 9 Expert: named experts
     s = _content(prs, cfg, m, kicker, "Expert-led: Named Experts",
                  "Experts quoted or cited, with their stated brand affiliation.", m["themes"]["expert"])
-    named = e.get("named", [])[:16]
+    named = e.get("named", [])[:NAMED_MAX]
     if named:
-        blocks.add_table(s, 0.5, 1.55, 12.3, 0.32 * (len(named) + 1), ["Expert", "Type", "Affiliation", "Outlet", "Cite"],
+        blocks.add_table(s, 0.5, 1.45, 12.3, 0.32 * (len(named) + 1), ["Expert", "Type", "Affiliation", "Outlet", "Cite"],
                          named, [3.0, 2.2, 3.0, 3.3, 0.8])
+    _shown_note(s, 0.5, 6.95, len(named), e.get("named_total", len(named)), "named experts")
     # 10 Celebrity: volume & peaks
     _trend_slide(prs, cfg, m, "celebrity", labels["celebrity"], ins["celebrity"],
                  [{"name": c["name"], "count": c["count"]} for c in cm["celebrity"]["top"][:6]],
@@ -251,6 +273,7 @@ def build_deck(cfg, m, cm, ins, registry: CitationRegistry, articles_by_url, log
         "Expert type, brand affiliation, celebrities, retailers and topics were labelled from article text by an AI "
         "model with a fixed label set; anything the text does not state is reported as 'not stated'.",
         "Every insight cites the numbered articles that support it; see the citation list.",
+        *_syndication_notes(m, labels),
     ]), 11)
     # 16+ Citations (paginated)
     pages = paginate(registry.entries(), CITES_PER_PAGE)

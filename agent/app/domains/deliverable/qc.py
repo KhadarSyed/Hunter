@@ -1,6 +1,7 @@
 """Layout QC: geometry checks on text boxes + PowerPoint PNG export for visual review."""
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -73,14 +74,15 @@ def export_pngs(pptx_path: Path, out_dir: Path) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     for old in out_dir.glob("slide_*.png"):
         old.unlink()
-    src = str(Path(pptx_path).resolve()).replace("'", "''")
-    dst = str(out_dir.resolve()).replace("'", "''")
+    # Paths travel as environment variables: PowerShell treats curly quotes (U+2018/2019, as in "Johnson’s")
+    # as string delimiters, so interpolating them into the script breaks parsing and allows injection.
+    env = {**os.environ, "QC_SRC": str(Path(pptx_path).resolve()), "QC_DST": str(out_dir.resolve())}
     script = (
         "$pp=New-Object -ComObject PowerPoint.Application;"
-        f"$p=$pp.Presentations.Open('{src}',$true,$false,$false);"
+        "$p=$pp.Presentations.Open($env:QC_SRC,$true,$false,$false);"
         "$i=1;foreach($s in $p.Slides){"
-        f"$s.Export('{dst}\\slide_' + $i.ToString('00') + '.png','PNG',1600,900);$i++}};"
+        "$s.Export((Join-Path $env:QC_DST ('slide_' + $i.ToString('00') + '.png')),'PNG',1600,900);$i++};"
         "$p.Close();$pp.Quit()"
     )
-    subprocess.run(["powershell", "-NoProfile", "-Command", script], check=True, timeout=EXPORT_TIMEOUT_S)
+    subprocess.run(["powershell", "-NoProfile", "-Command", script], check=True, timeout=EXPORT_TIMEOUT_S, env=env)
     return sorted(out_dir.glob("slide_*.png"))

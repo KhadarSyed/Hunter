@@ -29,7 +29,9 @@ _INSTRUCTIONS = {
               "brand; 'independent' only if the text makes clear there is no brand tie; otherwise omit it. "
               "evidence: the exact short phrase that supports the label.",
     "celebrity": "List every celebrity named. role: spokesperson (paid/brand partner), product_mention, or lifestyle.",
-    "deal": "List each promoted product with its retailer and deal_type (discount, freebie, bundle).",
+    "deal": "List each promoted product with its retailer and deal_type (discount, freebie, bundle). retailer is "
+            "the store or marketplace selling it (e.g. Amazon, Target, Walmart) — never the product's own brand; "
+            "leave retailer empty if the text names no store.",
     "parenting": "List the parenting-advice topics covered.",
 }
 
@@ -47,6 +49,13 @@ def _clean_item(item: dict, spec: dict) -> dict:
         else:
             out[field] = value if value in allowed else "unknown"
     return out
+
+
+def _blank_brand_retailer(deal: dict, brands: list[str]) -> dict:
+    """A retailer that is one of the article's brands is the brand selling direct, not a retailer."""
+    if deal.get("retailer", "").lower() in {b.lower() for b in brands}:
+        return {**deal, "retailer": ""}
+    return deal
 
 
 def _prompt(theme: str, batch: list[Article]) -> list[dict]:
@@ -82,9 +91,11 @@ def classify_theme(articles: list[Article], theme: str, llm, cache: dict) -> dic
             url = str(item.get("url", "")).strip().rstrip("/").lower()
             if url not in wanted:
                 continue
-            store[url] = {schema["list_field"]: [_clean_item(x, schema["item"])
-                                                 for x in item.get(schema["list_field"], []) if isinstance(x, dict)],
-                          "brands": [str(b).strip() for b in item.get("brands", []) if str(b).strip()]}
+            brands = [str(b).strip() for b in item.get("brands", []) if str(b).strip()]
+            entries = [_clean_item(x, schema["item"]) for x in item.get(schema["list_field"], []) if isinstance(x, dict)]
+            if theme == "deal":
+                entries = [_blank_brand_retailer(d, brands) for d in entries]
+            store[url] = {schema["list_field"]: entries, "brands": brands}
         for url in wanted - store.keys():
             store[url] = {schema["list_field"]: [], "brands": [], "status": "unknown"}
     return {a.norm_url: store[a.norm_url] for a in articles}

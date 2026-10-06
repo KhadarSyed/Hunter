@@ -56,12 +56,17 @@ def _theme_facts(key: str, label: str, m: dict, cm: dict) -> list[str]:
     facts += [f"Peak {p['rank']}: {metrics.month_label(p['month'])} with {p['count']} articles" for p in t["peaks"]]
     facts += [f"Top outlet {o['outlet']} with {o['count']} articles" for o in t["outlets"][:5]]
     facts += [f"{k} sentiment: {v} articles" for k, v in t["sentiment"].items()]
+    syn = t.get("syndication") or {}
+    if syn.get("top_title_count", 0) > 1:
+        facts.append(f"{syn['top_title_count']} of {t['count']} {label} articles share one headline: "
+                     f"\"{syn['top_title']}\"")
     if key == "expert":
         e = cm["expert"]
-        facts += [f"{k.replace('_', ' ')} cited {v} times" for k, v in e["type_counts"].items()]
+        facts += [f"{deck.expert_label(k)} mentioned {v} times across {e['type_articles'].get(k, 0)} articles"
+                  for k, v in e["type_counts"].items()]
         if e["affiliated_pct"] is not None:
             facts.append(f"{e['affiliated_pct']}% of experts with a stated affiliation are brand-affiliated "
-                         f"({e['affiliated_n']} of {e['affiliation_known_n']})")
+                         f"({e['affiliated_n']} of {e['affiliation_known_n']} experts)")
     if key == "celebrity":
         facts += [f"{c['name']} featured in {c['count']} articles" for c in cm["celebrity"]["top"][:6]]
     if key == "deal":
@@ -120,8 +125,10 @@ def topic_cell(topics: list[dict]) -> str:
     return ", ".join(dict.fromkeys(names)) or "not stated"
 
 
-def _table_rows(classified: dict, by_url: dict, registry: CitationRegistry) -> tuple[list, list]:
-    named = []
+def table_rows(classified: dict, by_url: dict, registry: CitationRegistry,
+               max_named: int = deck.NAMED_MAX, max_rows: int = deck.PARENTING_MAX) -> tuple[list, int, list, int]:
+    """Rows for the named-expert and parenting tables, capped to what the slide shows; only shown rows are cited."""
+    named_src = []
     for u, rec in classified["expert"].items():
         for e in rec.get("experts", []):
             if not is_named_person(e["name"]):
@@ -130,12 +137,40 @@ def _table_rows(classified: dict, by_url: dict, registry: CitationRegistry) -> t
                 aff = f"affiliated ({e['brand']})" if e["brand"] else "affiliated"
             else:
                 aff = "not stated" if e["affiliation"] == "unknown" else e["affiliation"]
-            named.append([e["name"], deck.expert_label(e["expert_type"]), aff, by_url[u].outlet,
-                          f"[{registry.cite(by_url[u])}]"])
-    parenting = [[by_url[u].title[:60],
-                  topic_cell(rec.get("topics", [])),
-                  by_url[u].outlet, f"[{registry.cite(by_url[u])}]"] for u, rec in classified["parenting"].items()]
-    return named, parenting
+            named_src.append(([e["name"], deck.expert_label(e["expert_type"]), aff, by_url[u].outlet], by_url[u]))
+    parenting_src = [([by_url[u].title[:60], topic_cell(rec.get("topics", [])), by_url[u].outlet], by_url[u])
+                     for u, rec in classified.get("parenting", {}).items()]
+    named = [cells + [f"[{registry.cite(a)}]"] for cells, a in named_src[:max_named]]
+    rows = [cells + [f"[{registry.cite(a)}]"] for cells, a in parenting_src[:max_rows]]
+    return named, len(named_src), rows, len(parenting_src)
+
+
+def metrics_payload(m: dict, cm: dict) -> dict:
+    """Everything a slide number can come from, in one JSON (spec §8); table rows are presentation, not metrics."""
+    classified = {k: ({kk: vv for kk, vv in v.items() if kk not in ("named", "rows")} if isinstance(v, dict) else v)
+                  for k, v in cm.items()}
+    return {**m, "classified": classified}
+
+
+def exec_backfill(m: dict, cm: dict, labels: dict, cites: dict[str, list[int]]) -> list[dict]:
+    """One deterministic, cited answer per brief question, so the exec summary never depends on the LLM."""
+    def share(k: str) -> str:
+        t = m["themes"][k]
+        return f"{labels[k]} coverage is {t['share']}% of collected coverage ({t['count']} of {m['base_n']} articles)."
+
+    e = cm["expert"]
+    expert_text = share("expert")
+    if e.get("type_counts"):
+        top = max(e["type_counts"], key=e["type_counts"].get)
+        expert_text += (f" {deck.expert_label(top)} is the most-cited expert type "
+                        f"({e['type_counts'][top]} mentions across {e.get('type_articles', {}).get(top, 0)} articles).")
+    if e.get("affiliated_pct") is not None:
+        expert_text += (f" {e['affiliated_pct']}% of experts with a stated affiliation are brand-affiliated "
+                        f"({e['affiliated_n']} of {e['affiliation_known_n']}).")
+    texts = {"deal": share("deal"), "parenting": share("parenting"), "expert": expert_text,
+             "celebrity": share("celebrity")}
+    return [{"headline": f"Q{i}: {labels[k]}", "text": texts[k], "citations": cites.get(k, [])}
+            for i, k in enumerate(("deal", "parenting", "expert", "celebrity"), start=1)]
 
 
 def main(argv: list[str]) -> int:
@@ -175,8 +210,8 @@ def main(argv: list[str]) -> int:
         ins[key] = insights.draft_section(labels[key], facts, cands, registry, llm,
                                           n_insights=8 if key == "celebrity" else 4)
     exec_cands = [a for k in THEMES for a in _peak_articles(m["themes"][k], by_url)[:2]]
-    ins["exec"] = insights.draft_section("Executive summary: answer each brief question", all_facts, exec_cands,
-                                         registry, llm, 4)
+    ins["exec"] = exec_backfill(m, cm, labels, {k: [registry.cite(a) for a in _peak_articles(m["themes"][k], by_url)[:1]]
+                                                for k in THEMES})
     ins["mix"] = insights.draft_section("Coverage mix across themes", all_facts, exec_cands, registry, llm, 3)
     brand_facts = [f"{b['brand']} mentioned in {b['count']} articles" for b in cm["brands"]]
     brand_cands = [by_url[u] for k in THEMES for u, rec in classified[k].items() if rec.get("brands")][:MAX_CANDIDATES]
@@ -184,7 +219,9 @@ def main(argv: list[str]) -> int:
     ins["takeaways"] = insights.draft_section("Key takeaways", all_facts + brand_facts, exec_cands, registry, llm, 6)
     ins["implications"] = insights.draft_section("Implications for consumer intent, messaging and whitespace",
                                                  all_facts + brand_facts, exec_cands, registry, llm, 4)
-    cm["expert"]["named"], cm["parenting"]["rows"] = _table_rows(classified, by_url, registry)
+    (cm["expert"]["named"], cm["expert"]["named_total"],
+     cm["parenting"]["rows"], cm["parenting"]["rows_total"]) = table_rows(classified, by_url, registry)
+    _write_json(out_dir / "metrics.json", metrics_payload(m, cm))
     _write_json(out_dir / "insights.json", {"insights": ins, "citations": registry.entries()})
 
     logos = _download_logos(cm["brands"][:8], out_dir / "logos")

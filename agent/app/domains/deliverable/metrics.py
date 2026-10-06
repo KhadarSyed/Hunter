@@ -49,7 +49,18 @@ def _theme_metrics(arts: list[Article], base_n: int) -> dict:
         "peaks": peaks,
         "outlets": [{"outlet": o, "count": c} for o, c in outlets.most_common(TOP_OUTLETS)],
         "sentiment": dict(sentiment),
+        "syndication": _syndication(arts),
     }
+
+
+def _syndication(arts: list[Article]) -> dict:
+    """How much of a theme is one story republished across outlets (URL de-dup can't see this)."""
+    titles = Counter(a.title.strip().lower() for a in arts if a.title.strip())
+    if not titles:
+        return {"top_title": "", "top_title_count": 0, "unique_titles": 0}
+    top_key, top_n = titles.most_common(1)[0]
+    original = next(a.title.strip() for a in arts if a.title.strip().lower() == top_key)
+    return {"top_title": original, "top_title_count": top_n, "unique_titles": len(titles)}
 
 
 def compute_metrics(articles: list[Article], theme_keys: list[str]) -> dict:
@@ -75,6 +86,8 @@ def compute_classified_metrics(classifications: dict[str, dict[str, dict]]) -> d
         "articles_with_expert": sum(1 for r in expert_recs.values() if r.get("experts")),
         "experts_total": len(experts),
         "type_counts": dict(Counter(e["expert_type"] for e in experts if e["expert_type"] != "unknown")),
+        "type_articles": dict(Counter(t for r in expert_recs.values()
+                                      for t in {e["expert_type"] for e in r.get("experts", [])} if t != "unknown")),
         "type_unknown": sum(1 for e in experts if e["expert_type"] == "unknown"),
         "affiliated_pct": round(100 * affiliated / len(known), 1) if known else None,
         "affiliated_n": affiliated,
@@ -91,8 +104,8 @@ def compute_classified_metrics(classifications: dict[str, dict[str, dict]]) -> d
     }
     deals = classifications.get("deal", {})
     out["deal"] = {
-        "retailers": _top(Counter(d["retailer"] for r in deals.values() for d in r.get("deals", [])
-                                  if d["retailer"]), "retailer"),
+        "retailers": _top(Counter(rt for r in deals.values()
+                                  for rt in {d["retailer"] for d in r.get("deals", []) if d["retailer"]}), "retailer"),
         "deal_types": dict(Counter(d["deal_type"] for r in deals.values() for d in r.get("deals", []))),
     }
     out["parenting"] = {"topics": dict(Counter(t["topic"] for r in classifications.get("parenting", {}).values()
