@@ -62,9 +62,12 @@ A failed stage stops the run visibly; nothing is invented to fill a gap.
 8. **Template selection.** The 69 decks in `PPT Templates/` are indexed once (title + slide text;
    NVIDIA embeddings when configured, token-overlap otherwise) in SQLite. The scope (brand, category,
    brief) picks the closest deck; its master, cover and closing slides are inherited.
-9. **Visual system.** Light backgrounds only (white + soft tint), palette from the client's Brandfetch
-   colours blended with the category tone and contrast-checked; Hunter violet headings. Logos for the
-   client and competitors via Brandfetch. Icons from Iconify (`circle-flags` for countries, a small
+9. **Visual system.** Light backgrounds only (white + soft tint). Brand kit from the Brandfetch Brand API
+   (`/v2/brands/{domain}`): colours → light chart tints plus a heading accent (contrast-checked, else Hunter
+   violet); title font for headings when it is a Google or system-safe font (custom fonts fall back to Arial
+   so nothing is substituted on the viewer's machine); brand banner image on the cover and Word brief.
+   No kit (e.g. a category study) → house palette, Arial, category photo. Logos for the client and
+   competitors via Brandfetch. Icons from Iconify (`circle-flags` for countries, a small
    line-icon set for themes / KPIs) rendered to PNG locally with Playwright (no cairosvg). Stock
    imagery: the category hero image already used on project pages (Pexels), credited.
 10. **Render.** A generic deck builder on top of the existing `deliverable/blocks.py`:
