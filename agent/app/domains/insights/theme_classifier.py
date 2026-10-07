@@ -112,23 +112,13 @@ def classify_themes(project_id: int, entity_name: str) -> dict:
         return _empty_result(entity_name, f"Project {project_id} not found")
     spec = project.get("spec") or {}
 
-    dataset = _select_dataset(project_id)
-    if not dataset:
+    if not _select_datasets(project_id):
         return _empty_result(entity_name, "No processed dataset is available for this project")
 
-    file_path = dataset.get("file_path") or ""
-    if not file_path or not Path(file_path).exists():
-        return _empty_result(entity_name, "Dataset file could not be located on disk")
-
-    column_mapping = dataset.get("column_mapping") or {}
-    mapped = _get_mapped_columns(column_mapping)
-    if not mapped:
-        return _empty_result(entity_name, "Dataset has no recognized column mapping")
-
     try:
-        records = _get_entity_records(file_path, column_mapping, entity_name)
+        records = _collect_entity_records(project_id, entity_name)
     except Exception as e:  # pragma: no cover - defensive top-level guard
-        logger.error("[theme_classifier] Failed to read dataset for entity %s: %s", entity_name, e)
+        logger.error("[theme_classifier] Failed to read datasets for entity %s: %s", entity_name, e)
         return _empty_result(entity_name, f"Failed to read dataset: {e}")
 
     total_records = len(records)
@@ -214,15 +204,27 @@ def classify_themes(project_id: int, entity_name: str) -> dict:
 
 # ─── Dataset Selection & Reading ─────────────────────────────────────────────
 
-def _select_dataset(project_id: int) -> dict | None:
-    """Pick the best available dataset for this project: prefer approved,
-    fall back to the most recently processed one."""
+def _select_datasets(project_id: int) -> list[dict]:
+    """Every approved processed dataset (one per research question file); when none is approved yet, the
+    most recently processed one."""
     datasets = store.get_datasets_by_project(project_id)
-    usable = [d for d in datasets if d.get("processing_status", "done") == "done" and d.get("file_path")]
-    if not usable:
-        return None
-    approved = next((d for d in usable if d.get("approval_status") == "approved"), None)
-    return approved or usable[0]
+    usable = [d for d in datasets if (d.get("processing_status") or "done") == "done" and d.get("file_path")]
+    approved = [d for d in usable if d.get("approval_status") == "approved"]
+    return approved or usable[:1]
+
+
+def _collect_entity_records(project_id: int, entity_name: str) -> list[dict]:
+    """Rows mentioning the entity across every selected dataset, each read with its own column mapping.
+    Raw rows, so syndicated copies count: theme shares here are shares of coverage."""
+    records: list[dict] = []
+    for dataset in _select_datasets(project_id):
+        file_path = dataset.get("file_path") or ""
+        column_mapping = dataset.get("column_mapping") or {}
+        if not file_path or not Path(file_path).exists() or not _get_mapped_columns(column_mapping):
+            logger.warning("[theme_classifier] Skipping dataset %s (missing file or column mapping)", dataset.get("id"))
+            continue
+        records.extend(_get_entity_records(file_path, column_mapping, entity_name))
+    return records
 
 
 def _get_mapped_columns(column_mapping: dict) -> dict:

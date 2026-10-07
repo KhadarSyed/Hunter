@@ -202,30 +202,31 @@ def _convert_news_items(news_items: list[dict]) -> list[dict]:
 
 
 def _deduplicate(records: list[dict], threshold: float = 0.85) -> list[dict]:
-    """Remove duplicate records by URL and headline similarity."""
-    seen_urls: set[str] = set()
-    seen_headlines: list[str] = []
+    """Remove duplicate records by URL and headline similarity. Each kept record gets `_copies`: how many
+    articles it stands for (itself plus the syndicated copies merged into it), for share-of-coverage."""
+    by_url: dict[str, dict] = {}
+    seen_headlines: list[tuple[str, dict]] = []
     unique: list[dict] = []
 
     for record in records:
         url = (record.get("url") or "").strip().lower()
         headline = (record.get("headline") or "").strip().lower()
 
-        if url and url in seen_urls:
+        if url and url in by_url:
+            by_url[url]["_copies"] += 1
             continue
         if headline:
-            is_dup = False
-            for seen_hl in seen_headlines[-200:]:
-                if SequenceMatcher(None, headline, seen_hl).ratio() >= threshold:
-                    is_dup = True
-                    break
-            if is_dup:
+            original = next((kept for seen_hl, kept in seen_headlines[-200:]
+                             if SequenceMatcher(None, headline, seen_hl).ratio() >= threshold), None)
+            if original is not None:
+                original["_copies"] += 1
                 continue
-            seen_headlines.append(headline)
-
+        kept = {**record, "_copies": 1}
+        if headline:
+            seen_headlines.append((headline, kept))
         if url:
-            seen_urls.add(url)
-        unique.append(record)
+            by_url[url] = kept
+        unique.append(kept)
 
     return unique
 
@@ -313,7 +314,7 @@ def _select_fields(records: list[dict], required_fields: list[str]) -> list[dict
     if not required_fields:
         return records
     return [
-        {k: v for k, v in r.items() if k in required_fields or k in ("url", "headline")}
+        {k: v for k, v in r.items() if k in required_fields or k in ("url", "headline", "_copies")}
         for r in records
     ]
 
