@@ -45,9 +45,14 @@ def _series(base: list[str]) -> list[str]:
 
 
 def _guard(t: DeckTokens) -> DeckTokens:
-    t.text = _darken(t.text, t.background, MIN_CONTRAST)
+    # Panels, cards and tables are light; a dark page background would leave their text unreadable
+    if contrast_ratio(t.background, "000000") < contrast_ratio(t.background, "FFFFFF"):
+        t.background = "FFFFFF"
+    if contrast_ratio(t.surface, "000000") < 12:
+        t.surface = DeckTokens().surface
+    t.text = _darken(_darken(t.text, t.surface, MIN_CONTRAST), t.background, MIN_CONTRAST)
     t.muted = _darken(t.muted, t.background, MIN_CONTRAST)
-    t.primary = _darken(t.primary, t.background, MIN_ACCENT_CONTRAST)
+    t.primary = _darken(t.primary, t.on_dark, MIN_CONTRAST)       # headers and overlays carry on-dark text
     t.accent = _darken(t.accent, t.background, MIN_ACCENT_CONTRAST)      # kickers are accent text on the background
     t.title_font = t.title_font if t.title_font in GOOGLE_FONTS else "Playfair Display"
     t.body_font = t.body_font if t.body_font in GOOGLE_FONTS else "Inter"
@@ -76,6 +81,8 @@ def choose_tokens(llm, brand_colors: list[str], intent: str, rules: dict) -> tup
                                   format_json=True))
     except Exception as e:      # any LLM failure falls back to the brand colours
         logger.warning("art direction fell back: %s", type(e).__name__)
+        return fallback_tokens(brand_colors), "fallback"
+    if not isinstance(raw, dict):
         return fallback_tokens(brand_colors), "fallback"
     base = fallback_tokens(brand_colors)
     t = DeckTokens(background=_hex(raw.get("background"), base.background), surface=_hex(raw.get("surface"), base.surface),

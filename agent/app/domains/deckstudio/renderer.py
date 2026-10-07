@@ -49,6 +49,25 @@ def render_deck(spec: DeckSpec, out_dir: Path, slide_html: dict[str, str] | None
     return path
 
 
+_ASSET = re.compile(r"assets/[\w.\-]+")
+_MIME = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".svg": "image/svg+xml", ".webp": "image/webp"}
+
+
+def inline_assets(path: Path) -> Path:
+    """The served deck runs sandboxed (no cookies, no network): its images travel inside the file."""
+    import base64
+    html = path.read_text(encoding="utf-8")
+
+    def data_uri(m: re.Match) -> str:
+        f = path.parent / m.group(0)
+        if not f.is_file():
+            return m.group(0)
+        mime = _MIME.get(f.suffix.lower(), "application/octet-stream")
+        return f"data:{mime};base64," + base64.b64encode(f.read_bytes()).decode("ascii")
+    path.write_text(_ASSET.sub(data_uri, html), encoding="utf-8")
+    return path
+
+
 def slide_text(html: str) -> str:
     html = re.sub(r"<(style|script)[^>]*>.*?</\1>", " ", html, flags=re.S | re.I)
     return re.sub(r"\s+", " ", unescape(_TAG.sub(" ", html))).strip()

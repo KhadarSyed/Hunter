@@ -9,7 +9,7 @@ from ..deliverable.engine_types import RQ, Section
 from .spec import DeckSpec
 
 ASK_MODULES = [
-    (r"theme|topic|breakdown", {"theme_clusters"}), (r"expert", {"entities:experts"}), (r"affiliat", {"entities:experts"}),
+    (r"theme|topic", {"theme_clusters"}), (r"expert", {"entities:experts"}), (r"affiliat", {"entities:experts"}),
     (r"celebrit", {"entities:celebrities"}), (r"brand|share of voice|competitor", {"brand_sov", "entities:brands"}),
     (r"sentiment|tone", {"sentiment_split"}), (r"outlet|publication", {"outlet_ranking"}),
     (r"trend|over time|month|volume", {"volume_trend"}), (r"reach|audience", {"reach"}),
@@ -51,7 +51,7 @@ def _ask_row(kind: str, ask: str, sections: list[Section], has_brief_doc: bool) 
     row = {"ask": ask, "kind": kind, "rq_id": None, "slides": [], "modules": []}
     wanted = set().union(*[mods for pattern, mods in ASK_MODULES if re.search(pattern, low)])
     if not wanted:
-        if DELIVERED.search(low) and (has_brief_doc or "summary" not in low):
+        if kind == "deliverable" and DELIVERED.search(low) and (has_brief_doc or "summary" not in low):
             return {**row, "status": "covered", "note": "Delivered as this deck and the Word brief"}
         return {**row, "status": "missing", "note": "No analysis in this run matches this request"}
     drawn = [s for s in sections if not s.skipped and _keys(s) & wanted]

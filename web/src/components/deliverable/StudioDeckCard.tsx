@@ -36,7 +36,7 @@ export function StudioDeckCard({ projectId, runId, studio }: { projectId: number
             <Icon icon="lucide:external-link" width={16} /> Open HTML deck</a>
         </div>
       </div>
-      <iframe title="Presentation preview" src={deckUrl} className="aspect-video w-full rounded-xl border border-slate-200 bg-black" />
+      <iframe title="Presentation preview" src={deckUrl} sandbox="allow-scripts" className="aspect-video w-full rounded-xl border border-slate-200 bg-black" />
       <div>
         <p className="mb-2 text-sm font-semibold text-slate-800">Did we answer the brief?</p>
         <div className="flex flex-wrap gap-2">

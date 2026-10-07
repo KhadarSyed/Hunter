@@ -58,6 +58,17 @@ def download(project_id: ProjectId, run_id: RunId, kind: str, _: Access):
     return FileResponse(path, media_type=_MEDIA[kind], filename=Path(path).name)
 
 
+# The deck holds model-written HTML: it runs in an opaque origin with no network, so even a sanitiser miss
+# cannot reach the API with the viewer's session
+_DECK_HEADERS = {
+    "Content-Security-Policy": ("sandbox allow-scripts; default-src 'none'; img-src data:; "
+                                "style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
+                                "script-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'; "
+                                "frame-ancestors 'self'"),
+    "X-Content-Type-Options": "nosniff",
+}
+
+
 @router.get("/deliverable/{project_id}/runs/{run_id}/deck/{asset_path:path}", response_class=FileResponse)
 def deck_asset(project_id: ProjectId, run_id: RunId, asset_path: str, _: Access):
     """The studio HTML deck and its assets, only from inside this run's deck folder."""
@@ -68,7 +79,7 @@ def deck_asset(project_id: ProjectId, run_id: RunId, asset_path: str, _: Access)
     target = (root / asset_path).resolve()
     if not target.is_file() or root not in target.parents:
         raise HTTPException(404, "File not available")
-    return FileResponse(target)
+    return FileResponse(target, headers=_DECK_HEADERS if target.suffix.lower() == ".html" else {"X-Content-Type-Options": "nosniff"})
 
 
 @router.get("/deliverable/{project_id}/runs/{run_id}/thumbnail/{n}", response_class=FileResponse)

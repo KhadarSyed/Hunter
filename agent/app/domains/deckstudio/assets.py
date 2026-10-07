@@ -39,11 +39,12 @@ def _pexels(query: str) -> list[dict]:
         r = requests.get(PEXELS_URL, params={"query": query, "per_page": 10, "orientation": "landscape"},
                          headers={"Authorization": key}, timeout=TIMEOUT_S)
         r.raise_for_status()
-    except requests.RequestException as e:
+        photos = r.json().get("photos") or []
+        return [{"url": p["src"].get("original") or p["src"].get("large2x"), "width": p.get("width", 0),
+                 "title": p.get("alt") or ""} for p in photos]
+    except (requests.RequestException, ValueError, KeyError, AttributeError, TypeError) as e:
         logger.warning("pexels search failed: %s", type(e).__name__)
         return []
-    return [{"url": p["src"].get("original") or p["src"].get("large2x"), "width": p.get("width", 0), "title": p.get("alt") or ""}
-            for p in r.json().get("photos") or []]
 
 
 def _serpapi(query: str) -> list[dict]:
@@ -54,11 +55,12 @@ def _serpapi(query: str) -> list[dict]:
         r = requests.get(SERP_URL, params={"engine": "google_images", "q": query, "api_key": key, "safe": "active"},
                          timeout=TIMEOUT_S)
         r.raise_for_status()
-    except requests.RequestException as e:
+        results = r.json().get("images_results") or []
+        return [{"url": i.get("original"), "width": i.get("original_width") or 0, "title": i.get("title") or ""}
+                for i in results if i.get("original")]
+    except (requests.RequestException, ValueError, AttributeError, TypeError) as e:
         logger.warning("serpapi image search failed: %s", type(e).__name__)
         return []
-    return [{"url": i.get("original"), "width": i.get("original_width") or 0, "title": i.get("title") or ""}
-            for i in r.json().get("images_results") or [] if i.get("original")]
 
 
 def _download(url: str) -> bytes | None:

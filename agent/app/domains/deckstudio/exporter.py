@@ -55,6 +55,8 @@ def build_pdf(pngs: list[Path], out: Path) -> Path:
 
 def export_all(html_path: Path, spec: DeckSpec, out_dir: Path, stem: str) -> dict:
     pngs = screenshot_slides(html_path, out_dir / "slides")
+    if len(pngs) != len(spec.slides):      # never pair titles and notes with the wrong pictures
+        raise RuntimeError(f"rendered {len(pngs)} slides for a {len(spec.slides)}-slide deck")
     safe = "".join(ch for ch in stem if ch.isalnum() or ch in " -_").strip() or "Deck"
     return {"pngs": pngs, "pptx": build_pptx(pngs, spec, out_dir / f"{safe} - Deck.pptx"),
             "pdf": build_pdf(pngs, out_dir / f"{safe} - Deck.pdf")}

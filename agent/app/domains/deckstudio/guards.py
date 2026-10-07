@@ -61,8 +61,11 @@ _LAYOUT_JS = """() => {
 
 
 def number_issues(text: str, facts_allowed: list[str]) -> list[str]:
-    allowed = _with_rounding(_figures(" ".join(facts_allowed)))
-    return sorted(_figures(_SLIDE_COUNT.sub(" ", _YEAR.sub(" ", text))) - allowed)
+    facts_text = " ".join(facts_allowed)
+    allowed = _with_rounding(_figures(facts_text))
+    known_years = {m.group(0) for m in _YEAR.finditer(facts_text)}
+    cleaned = _YEAR.sub(lambda m: " " if m.group(0) in known_years else m.group(0), _SLIDE_COUNT.sub(" ", text))
+    return sorted(_figures(cleaned) - allowed)
 
 
 def _is_wording(shingle: tuple[str, ...]) -> bool:

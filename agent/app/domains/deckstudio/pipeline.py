@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from . import art_director, assets, checklist, creative, exporter, indexer, planner
+from . import art_director, assets, checklist, creative, exporter, indexer, planner, renderer
 from .planner import PlanInput
 
 
@@ -57,6 +57,9 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     for r in report:
         if r["reasons"] and r["reasons"][0] != "no usable creative version":
             run.log(f"{r['slide_id']}: template version kept - {r['reasons'][0]}")
+        for flag in r.get("qc", []):
+            run.log(f"QC flag on {r['slide_id']}: {flag}")
+    renderer.inline_assets(html)
     run.stage("compose", "done", f"{sum(1 for r in report if r['source'] == 'creative')} slides restyled")
     (deck_dir / "spec.json").write_text(json.dumps(spec.to_dict(), default=str), encoding="utf-8")
 

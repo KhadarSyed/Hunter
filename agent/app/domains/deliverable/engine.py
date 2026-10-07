@@ -401,21 +401,30 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         n_facts, n_layout = len(report["facts"]), len(report["layout"])
         run.stage("qc", "done", "ready" if report["ready"] else f"{n_facts} fact / {n_layout} layout issues")
 
-        current = "index"
-        studio = run_studio(run, project_id, llm,
-                            _plan_input(project, inp, rqs, overview, sections_by_rq, insights_by_rq, answers, takeaways,
-                                        methodology, base, {q.id: plans[q.id]["title"] for q in rqs}),
-                            inp.brand_colors, inp.brand_image, inp.logos, out_dir)
-        run.section({"id": "studio", "rq_id": None, "module": "studio", "title": "Deck",
-                     "family": studio["family"], "family_reason": studio["family_reason"],
-                     "checklist": studio["checklist"], "scorecard": studio["scorecard"],
-                     "slides": [{"id": s.id, "type": s.type, "treatment": s.treatment, "reference": s.reference,
-                                 "source": next((r["source"] for r in studio["report"] if r["slide_id"] == s.id), "template")}
-                                for s in studio["spec"].slides]})
-        store.update_deliverable_run(run_id, status="completed", pptx_path=str(pptx_path), docx_path=str(docx_path),
-                                     thumbs_dir=str(out_dir / "thumbs"), html_path=str(studio["html"]),
-                                     pdf_path=str(studio["pdf"]), studio_pptx_path=str(studio["pptx"]),
-                                     deck_dir=str(studio["deck_dir"]), finished_at=time.time())
+        # The classic deck and brief are kept first; the studio deck is added on top and cannot fail the run
+        store.update_deliverable_run(run_id, pptx_path=str(pptx_path), docx_path=str(docx_path),
+                                     thumbs_dir=str(out_dir / "thumbs"))
+        studio_paths = {}
+        try:
+            studio = run_studio(run, project_id, llm,
+                                _plan_input(project, inp, rqs, overview, sections_by_rq, insights_by_rq, answers,
+                                            takeaways, methodology, base, {q.id: plans[q.id]["title"] for q in rqs}),
+                                inp.brand_colors, inp.brand_image, inp.logos, out_dir)
+            run.section({"id": "studio", "rq_id": None, "module": "studio", "title": "Deck",
+                         "family": studio["family"], "family_reason": studio["family_reason"],
+                         "checklist": studio["checklist"], "scorecard": studio["scorecard"],
+                         "slides": [{"id": s.id, "type": s.type, "treatment": s.treatment, "reference": s.reference,
+                                     "source": next((r["source"] for r in studio["report"] if r["slide_id"] == s.id), "template"),
+                                     "qc": next((r.get("qc", []) for r in studio["report"] if r["slide_id"] == s.id), [])}
+                                    for s in studio["spec"].slides]})
+            studio_paths = {"html_path": str(studio["html"]), "pdf_path": str(studio["pdf"]),
+                            "studio_pptx_path": str(studio["pptx"]), "deck_dir": str(studio["deck_dir"])}
+        except Exception as e:      # e.g. no Chromium: the classic deliverable still ships
+            logger.error("[deliverable:%s] studio stage %s failed: %s", run_id, run.current, e, exc_info=True)
+            run.stages[run.current] = "failed"
+            store.update_deliverable_run(run_id, stage=run.current, stages_json=run.stages)
+            run.log(f"Presentation studio failed at {run.current}: {e} - the classic deck and brief are still available")
+        store.update_deliverable_run(run_id, status="completed", finished_at=time.time(), **studio_paths)
         run.progress(100, "Deliverable ready")
         broadcast({"type": "deliverable_completed", "project_id": project_id, "run_id": run_id,
                    "ready": report["ready"]})
