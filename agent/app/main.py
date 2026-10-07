@@ -58,6 +58,8 @@ async def lifespan(app: FastAPI):
     events.bind_loop(asyncio.get_running_loop())
     from .domains.agent import autopilot
     autopilot.resume_all()
+    from .domains.agent.repair import apply as repair_apply
+    repair_apply.verify_pending_async()
     deck.start_watcher()
     logger.info("Hunter started (%s)", get_app_settings().environment)
     try:
