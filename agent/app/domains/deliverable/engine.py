@@ -18,6 +18,7 @@ from . import rows as R
 from .citations import CitationRegistry, domain_of
 from .engine_types import Section
 from ..agent import memory as agent_memory
+from ..agent.repair import issues
 from ..deckstudio import verbatims
 from ..deckstudio.pipeline import run_studio
 from ..deckstudio.planner import PlanInput
@@ -77,6 +78,7 @@ class _Run:
     def __init__(self, run_id: int, project_id: int):
         self.run_id, self.project_id, self.stages, self.lines = run_id, project_id, {}, []
         self.started_at, self.pct, self.current = time.time(), 0, "gate"
+        self.timings: dict[str, list[float]] = {}
 
     def progress(self, pct: float, label: str) -> None:
         """Overall % (never goes back) and what is happening right now; kept with the run for page reloads."""
@@ -101,6 +103,13 @@ class _Run:
 
     def stage(self, name: str, status: str, detail: str = "") -> None:
         self.stages[name] = status
+        now = time.time()
+        if status == "running":
+            self.timings[name] = [now, now]
+        elif name in self.timings:
+            self.timings[name][1] = now
+            store.replace_deliverable_section(self.run_id, {"id": "timings", "rq_id": None, "module": "timings",
+                                                            "title": "Timings", "stages": self.timings})
         store.update_deliverable_run(self.run_id, stage=name, stages_json=self.stages)
         broadcast({"type": "deliverable_stage", "project_id": self.project_id, "run_id": self.run_id,
                    "stage": name, "status": status, "detail": detail})
@@ -445,7 +454,10 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
                                             _verbatims_by_rq(rqs, rows_by_rq, insights_by_rq, registry)),
                                 inp.brand_colors, inp.brand_image, inp.logos, out_dir,
                                 on_fix=lambda sid, action, kind: agent_memory.remember(
-                                    project_id, "fix", f"run{run_id}_{sid}", {"action": action, "flag": kind}))
+                                    project_id, "fix", f"run{run_id}_{sid}", {"action": action, "flag": kind}),
+                                on_issue=lambda sid, qc: issues.file_issue(
+                                    "deck_qc", "layout", f"Slide layout problem survives repair: {qc[0].split(':')[0]}",
+                                    {"run_id": run_id, "slide_id": sid, "qc": qc}, project_id))
             run.section({"id": "studio", "rq_id": None, "module": "studio", "title": "Deck",
                          "family": studio["family"], "family_reason": studio["family_reason"],
                          "design_system": studio["design_system"], "design_reason": studio["design_reason"],
@@ -463,6 +475,10 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
             run.log(f"Presentation studio failed at {run.current}: {e} - the classic deck and brief are still available")
         store.update_deliverable_run(run_id, status="completed", finished_at=time.time(), **studio_paths)
         run.progress(100, "Deliverable ready")
+        try:
+            issues.check_progress_calibration(run_id)
+        except Exception:
+            logger.exception("[deliverable:%s] progress calibration check failed", run_id)
         broadcast({"type": "deliverable_completed", "project_id": project_id, "run_id": run_id,
                    "ready": report["ready"]})
     except Exception as e:
@@ -477,6 +493,10 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
                                      finished_at=time.time())
         broadcast({"type": "deliverable_failed", "project_id": project_id, "run_id": run_id, "stage": stage,
                    "error": str(e)})
+        try:
+            issues.from_exception(stage, e, project_id)
+        except Exception:       # filing an issue must never mask the run's own failure
+            logger.exception("[deliverable:%s] could not file the failure as an issue", run_id)
 
 
 def run_payload(run_id: int) -> dict:

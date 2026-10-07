@@ -32,7 +32,7 @@ def _judge(llm, subjects, label: str, checks: dict):
 
 
 def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: list[str], brand_image: Path | None,
-               logos: dict[str, Path], out_dir: Path, on_fix=None) -> dict:
+               logos: dict[str, Path], out_dir: Path, on_fix=None, on_issue=None) -> dict:
     deck_dir = out_dir / "deck"
     run.stage("index", "running")
     summary = indexer.index_library(progress=lambda i, n, name: run.within("index", i / max(1, n),
@@ -118,6 +118,8 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
             run.log(f"QC flag on {r['slide_id']}: {flag}")
         if r.get("repaired"):
             run.log(f"Repaired {r['slide_id']}: {', '.join(r['repaired'])}")
+        if r["qc"] and on_issue:
+            on_issue(r["slide_id"], r["qc"])
     renderer.inline_assets(html)
     run.stage("compose", "done", f"{sum(1 for r in report if r['source'] == 'creative')} slides restyled")
     (deck_dir / "spec.json").write_text(json.dumps(spec.to_dict(), default=str), encoding="utf-8")

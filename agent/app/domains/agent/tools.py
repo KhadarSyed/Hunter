@@ -304,10 +304,10 @@ for _tool in (
 
 
 def _report_issue(ctx, args):
-    key = f"user_report_{int(time.time())}"
-    memory.remember(ctx.project_id, "fix", key, {"title": args["title"], "page": args.get("page", ""),
-                                                "detail": args.get("detail", "")})
-    return {"reported": key}
+    from .repair import issues
+    issue_id, new = issues.file_issue("user", "user_report", args["title"],
+                                      {"page": args.get("page", ""), "detail": args.get("detail", "")}, ctx.project_id)
+    return {"issue_id": issue_id, "new": new}
 
 
 register(Tool("report_issue", "File a problem the user reports (a bug, an ugly slide, a wrong label, a faded page).",
