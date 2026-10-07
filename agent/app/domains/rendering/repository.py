@@ -129,7 +129,7 @@ def get_latest_rendered(presentation_id: int) -> dict | None:
     conn = _conn()
     row = conn.execute(
         "SELECT * FROM intel_rendered_presentations WHERE presentation_id=? "
-        "ORDER BY created_at DESC LIMIT 1",
+        "ORDER BY created_at DESC, id DESC LIMIT 1",
         (presentation_id,),
     ).fetchone()
     conn.close()
@@ -457,7 +457,7 @@ def list_word_documents(presentation_id: int) -> list[dict]:
 def get_latest_word_document(presentation_id: int) -> dict | None:
     conn = _conn()
     row = conn.execute(
-        "SELECT * FROM intel_word_documents WHERE presentation_id=? ORDER BY created_at DESC LIMIT 1",
+        "SELECT * FROM intel_word_documents WHERE presentation_id=? ORDER BY created_at DESC, id DESC LIMIT 1",
         (presentation_id,),
     ).fetchone()
     conn.close()

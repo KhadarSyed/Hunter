@@ -226,7 +226,7 @@ def update_dataset_error(dataset_id: int, error: str):
 def get_latest_dataset(project_id: int) -> Optional[dict]:
     conn = _conn()
     row = conn.execute(
-        "SELECT * FROM intel_datasets WHERE project_id = ? ORDER BY created_at DESC LIMIT 1",
+        "SELECT * FROM intel_datasets WHERE project_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
         (project_id,),
     ).fetchone()
     conn.close()
@@ -260,7 +260,7 @@ def get_dataset_for_rq(project_id: int, research_question_id: str) -> dict | Non
     conn = _conn()
     row = conn.execute(
         "SELECT * FROM intel_datasets WHERE project_id = ? AND research_question_id = ? "
-        "ORDER BY created_at DESC LIMIT 1",
+        "ORDER BY created_at DESC, id DESC LIMIT 1",
         (project_id, research_question_id),
     ).fetchone()
     conn.close()
@@ -386,7 +386,7 @@ def save_sample_evaluation(project_id: int, strategy_id: int, file_name: str,
 def get_latest_evaluation(project_id: int) -> Optional[dict]:
     conn = _conn()
     row = conn.execute(
-        "SELECT * FROM intel_sample_evaluations WHERE project_id = ? ORDER BY created_at DESC LIMIT 1",
+        "SELECT * FROM intel_sample_evaluations WHERE project_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
         (project_id,),
     ).fetchone()
     conn.close()

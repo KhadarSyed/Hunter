@@ -59,7 +59,7 @@ def get_qc_report(report_id: int) -> Optional[dict]:
 def get_qc_report_for_project(project_id: int) -> Optional[dict]:
     conn = _conn()
     row = conn.execute(
-        "SELECT * FROM qc_reports WHERE project_id = ? ORDER BY created_at DESC LIMIT 1",
+        "SELECT * FROM qc_reports WHERE project_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
         (project_id,),
     ).fetchone()
     conn.close()

@@ -117,22 +117,27 @@ def _load_xlsx(file_path: str) -> list[dict]:
     try:
         import openpyxl
         wb = openpyxl.load_workbook(file_path, read_only=True)
-        ws = wb.active
-        rows = list(ws.iter_rows(values_only=True))
-        if len(rows) < 2:
-            return []
-        header_idx = _find_header_row(rows)
-        headers = [str(h or "").strip() for h in rows[header_idx]]
-        records = []
-        for row in rows[header_idx + 1:]:
-            if all(v is None for v in row):
+        records: list[dict] = []
+        # Every sheet: an export can hold a Meltwater sheet plus a manually extracted one. Each sheet is
+        # normalized on its own because their column names differ.
+        for ws in wb.worksheets:
+            rows = list(ws.iter_rows(values_only=True))
+            if len(rows) < 2:
                 continue
-            record = {}
-            for i, h in enumerate(headers):
-                if h and i < len(row):
-                    record[h] = str(row[i]) if row[i] is not None else ""
-            records.append(record)
-        return _normalize_columns(records)
+            header_idx = _find_header_row(rows)
+            headers = [str(h or "").strip() for h in rows[header_idx]]
+            sheet_records = []
+            for row in rows[header_idx + 1:]:
+                if all(v is None for v in row):
+                    continue
+                record = {}
+                for i, h in enumerate(headers):
+                    if h and i < len(row):
+                        record[h] = str(row[i]) if row[i] is not None else ""
+                sheet_records.append(record)
+            records.extend(_normalize_columns(sheet_records))
+        wb.close()
+        return records
     except ImportError:
         logger.warning("openpyxl not installed — cannot load XLSX")
         return []
@@ -225,6 +230,61 @@ def _deduplicate(records: list[dict], threshold: float = 0.85) -> list[dict]:
     return unique
 
 
+def _is_excluded(record: dict) -> bool:
+    """Rows the analyst removed in the Data Sources Review tab. Needs-review rows still count."""
+    return record.get("approval_status") == "disapproved" or record.get("review_status") == "irrelevant"
+
+
+def _enriched_to_record(rec: dict) -> dict:
+    """An enriched Data Sources row in the executor's record shape, keeping its research question."""
+    return {
+        "headline": rec.get("title") or "",
+        "content": rec.get("content") or rec.get("title") or "",
+        "source": rec.get("source_name") or "",
+        "date": rec.get("date") or "",
+        "url": rec.get("url") or "",
+        "author": rec.get("author") or "",
+        "sentiment": rec.get("overall_sentiment") or "",
+        "reach": rec.get("reach") or "",
+        "engagement": "",
+        "media_type": rec.get("media_type") or "",
+        "country": rec.get("country") or "",
+        "research_question_id": rec.get("research_question_id"),
+    }
+
+
+def _collect_dataset_records(project_id: int, datasets: list[dict]) -> list[dict]:
+    """Rows from every approved dataset: the enriched rows (all sheets, analyst exclusions applied) where
+    enrichment ran, otherwise the file itself. Each row keeps its dataset's research question."""
+    approved_ids = {ds["id"] for ds in datasets}
+    enriched = [r for r in store.get_enriched_records_by_project(project_id) if r.get("dataset_id") in approved_ids]
+    enriched_ids = {r["dataset_id"] for r in enriched}
+    records = [_enriched_to_record(r) for r in enriched if not _is_excluded(r)]
+    for ds in datasets:
+        fp = ds.get("file_path") or ""
+        if ds["id"] in enriched_ids or not fp or not Path(fp).exists():
+            continue
+        rq = ds.get("research_question_id")
+        records.extend({**r, "research_question_id": rq} for r in _load_dataset(fp))
+    return records
+
+
+def _objective_rq_map(plan: dict) -> dict[str, list[str]]:
+    """objective_id -> the research questions it answers (from the plan's business_question_ids)."""
+    return {o["objective_id"]: list(o.get("business_question_ids") or [])
+            for o in plan.get("research_objectives") or [] if o.get("objective_id")}
+
+
+def _unit_records(records: list[dict], rq_ids: list[str]) -> list[dict]:
+    """The rows uploaded for a unit's research questions; every row when the unit names none or none of its
+    questions has data (so a unit is never starved by a missing mapping)."""
+    if not rq_ids:
+        return records
+    wanted = set(rq_ids)
+    subset = [r for r in records if r.get("research_question_id") in wanted]
+    return subset or records
+
+
 def _apply_filters(records: list[dict], filters: list[str], platforms: list[str]) -> list[dict]:
     """Apply planner-defined filters to the dataset."""
     filtered = records
@@ -295,19 +355,19 @@ def start_execution(
     # Find dataset: per-RQ datasets → evaluation file → web research fallback
     dataset_path = ""
     web_research_records = None
+    dataset_records: list[dict] = []
     all_datasets = store.get_datasets_by_project(project_id)
-    approved_ds = [ds for ds in all_datasets if ds.get("approval_status") == "approved"]
+    approved_ds = [ds for ds in all_datasets
+                   if ds.get("approval_status") == "approved" and (ds.get("processing_status") or "done") == "done"]
     if approved_ds:
-        for ds in approved_ds:
-            fp = ds.get("file_path", "")
-            if fp and Path(fp).exists():
-                dataset_path = fp
-                break
+        dataset_records = _collect_dataset_records(project_id, approved_ds)
+        if dataset_records:
+            dataset_path = "__approved_datasets__"
     if not dataset_path:
         evaluation = store.get_latest_evaluation(project_id)
         if evaluation:
             dataset_path = evaluation.get("file_path", "")
-    if not dataset_path or not Path(dataset_path).exists():
+    if not dataset_records and (not dataset_path or not Path(dataset_path).exists()):
         research = store.get_latest_research(project_id)
         research_data = (research or {}).get("research", {})
         news_items = research_data.get("news_items", [])
@@ -340,6 +400,8 @@ def start_execution(
         execution_units=execution_units,
         dataset_path=dataset_path,
         web_research_records=web_research_records,
+        dataset_records=dataset_records,
+        objective_rqs=_objective_rq_map(plan),
         spec=spec,
         brand_name=brand.get("name", ""),
         category=brand.get("category", ""),
@@ -356,6 +418,8 @@ def _run_execution(
     execution_units: list[dict],
     dataset_path: str,
     web_research_records: list[dict] | None = None,
+    dataset_records: list[dict] | None = None,
+    objective_rqs: dict[str, list[str]] | None = None,
     spec: dict,
     brand_name: str,
     category: str,
@@ -364,7 +428,15 @@ def _run_execution(
     """Execute all units sequentially."""
     from ...methods.registry import get_executor
 
-    if web_research_records:
+    if dataset_records:
+        all_records = dataset_records
+        by_rq: dict[str, int] = {}
+        for r in all_records:
+            key = r.get("research_question_id") or "unassigned"
+            by_rq[key] = by_rq.get(key, 0) + 1
+        store.add_execution_log(
+            run_id, "Using approved datasets: " + ", ".join(f"{k} {v}" for k, v in sorted(by_rq.items())))
+    elif web_research_records:
         all_records = web_research_records
         store.add_execution_log(run_id, f"Using web research data ({len(all_records)} articles)")
     else:
@@ -377,8 +449,8 @@ def _run_execution(
 
     store.add_execution_log(run_id, f"Loaded {len(all_records)} records")
 
-    all_records = _deduplicate(all_records)
-    store.add_execution_log(run_id, f"{len(all_records)} records after deduplication")
+    # Deduplicated per unit below: the same article uploaded for two research questions belongs to both.
+    objective_rqs = objective_rqs or {}
 
     completed = 0
     failed = 0
@@ -430,7 +502,12 @@ def _run_execution(
         emit("executor_unit_start", {"unit_id": unit_id, "method": method_name, "index": idx})
 
         try:
-            subset = _apply_filters(all_records, filters, platforms)
+            rq_ids = objective_rqs.get(unit.get("objective_id", unit_id), [])
+            subset = _deduplicate(_unit_records(all_records, rq_ids))
+            store.add_execution_log(
+                run_id, f"Unit {unit_id}: {len(subset)} records for {', '.join(rq_ids) or 'all questions'}",
+                unit_id=unit_id)
+            subset = _apply_filters(subset, filters, platforms)
             subset = _select_fields(subset, required_fields + ["url", "headline"])
             store.add_execution_log(run_id, f"Unit {unit_id}: {len(subset)} records after filtering", unit_id=unit_id)
 
