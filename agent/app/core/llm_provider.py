@@ -86,6 +86,13 @@ class HybridLLMClient:
             )
         return self._chat_backend.chat(messages, on_token=on_token, format_json=format_json)
 
+    def chat_tools(self, messages: list[dict], tools: list[dict], tool_choice: str = "auto") -> dict:
+        if self._chat_backend is None:
+            raise NoChatProviderError(
+                "No chat LLM configured — set AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_MODEL"
+            )
+        return self._chat_backend.chat_tools(messages, tools, tool_choice=tool_choice)
+
     def embed(self, text: str) -> np.ndarray:
         if self._embed_backend is None:
             raise NoEmbedProviderError(

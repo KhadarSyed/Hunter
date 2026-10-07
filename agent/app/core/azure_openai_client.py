@@ -79,3 +79,24 @@ class AzureOpenAIClient:
                     full.append(delta)
                     on_token(delta)
         return "".join(full)
+
+    def chat_tools(self, messages: list[dict], tools: list[dict], tool_choice: str = "auto") -> dict:
+        """One tool-calling turn: the reply's text and the tool calls it asks for, arguments parsed."""
+        headers = {"api-key": self.api_key, "Content-Type": "application/json"}
+        payload: dict = {"messages": messages, "max_tokens": 4096}
+        if tools:
+            payload.update(tools=tools, tool_choice=tool_choice)
+        r = requests.post(self._url(), headers=headers, json=payload, timeout=180)
+        if r.status_code != 200:
+            raise AzureOpenAIError(f"Azure OpenAI tool call failed: {r.status_code} {r.text[:300]}")
+        message = r.json()["choices"][0]["message"]
+        calls = []
+        for c in message.get("tool_calls") or []:
+            raw = c.get("function", {}).get("arguments") or "{}"
+            try:
+                args = json.loads(raw)
+            except json.JSONDecodeError:
+                args = {"_raw": raw}
+            calls.append({"id": c.get("id", ""), "name": c.get("function", {}).get("name", ""),
+                          "arguments": args if isinstance(args, dict) else {"_raw": raw}})
+        return {"content": message.get("content"), "tool_calls": calls, "message": message}
