@@ -1324,6 +1324,27 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
         "ALTER TABLE intel_datasets ADD COLUMN enrichment_json TEXT",
         "ALTER TABLE intel_datasets ADD COLUMN enrichment_error TEXT",
     ]),
+    (19, "deliverable engine", [
+        "ALTER TABLE intel_evidence ADD COLUMN url TEXT",
+        "ALTER TABLE intel_evidence ADD COLUMN document_id TEXT",
+        "ALTER TABLE intel_evidence ADD COLUMN source_file TEXT",
+        "ALTER TABLE intel_evidence ADD COLUMN row_index INTEGER",
+        """CREATE TABLE IF NOT EXISTS intel_deliverable_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'running', stage TEXT, stages_json TEXT,
+            pptx_path TEXT, docx_path TEXT, thumbs_dir TEXT, error TEXT,
+            created_at REAL NOT NULL, finished_at REAL)""",
+        "CREATE INDEX IF NOT EXISTS idx_deliv_runs_project ON intel_deliverable_runs(project_id)",
+        """CREATE TABLE IF NOT EXISTS intel_deliverable_sections (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER NOT NULL, section_key TEXT NOT NULL,
+            rq_id TEXT, module TEXT, payload_json TEXT NOT NULL, created_at REAL NOT NULL)""",
+        "CREATE INDEX IF NOT EXISTS idx_deliv_sections_run ON intel_deliverable_sections(run_id)",
+        """CREATE TABLE IF NOT EXISTS intel_article_classifications (
+            norm_url TEXT NOT NULL, field TEXT NOT NULL, value_json TEXT NOT NULL, model TEXT,
+            created_at REAL NOT NULL, PRIMARY KEY (norm_url, field))""",
+        """CREATE TABLE IF NOT EXISTS intel_reference_decks (
+            path TEXT PRIMARY KEY, text TEXT, embedding_json TEXT, indexed_at REAL NOT NULL)""",
+    ]),
 ]
 
 

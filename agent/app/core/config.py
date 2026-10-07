@@ -25,6 +25,9 @@ DATA_DIR = Path(os.getenv("HUNTER_AGENT_DATA_DIR") or AGENT_DIR / "data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR = DATA_DIR / "uploads"
 EXPORT_DIR = DATA_DIR / "exports"
+DELIVERABLE_DIR = DATA_DIR / "deliverables"
+DELIVERABLE_DIR.mkdir(parents=True, exist_ok=True)
+TEMPLATES_DIR = AGENT_DIR.parent / "PPT Templates"   # reference decks shipped with the repo
 
 SETTINGS_PATH = DATA_DIR / "settings.json"
 MEMORY_DB_PATH = DATA_DIR / "memory.db"
