@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import Counter
 
+from ...agents import question_dimensions as qd
 from .engine_types import RQ, EngineRow, Section
 from .metrics import TOP_PEAKS, month_label
 
@@ -11,6 +12,7 @@ _AFFILIATION_WORDS = ("affiliat", "sponsor", "paid", "brand")
 NO_ROWS = "No articles for this question"
 _NOT_A_NAME = {"unknown", "none", "n/a", "na", "not stated", "unnamed", ""}
 LABEL_CHARS = 30
+CROSSTAB_COLUMNS = 6      # a slide table stays readable: the biggest values only
 PEAK_GAP = 2      # labelled peaks at least two periods apart so their labels never touch
 
 
@@ -34,7 +36,8 @@ def _pct(n: int, base: int) -> float:
 
 
 def _section(module: dict, rq: RQ, **kw) -> Section:
-    suffix = f"-{module['entity_kind']}" if module.get("entity_kind") else ""
+    kind = module.get("entity_kind") or (module.get("dimension") or {}).get("key")
+    suffix = f"-{kind}" if kind else ""
     return Section(id=f"{rq.id.lower()}-{module['module']}{suffix}", rq_id=rq.id, module=module["module"],
                    title=module.get("title") or module["module"], **kw)
 
@@ -222,9 +225,63 @@ def _words(value) -> str:
     return " ".join(words)[:1].upper() + " ".join(words)[1:] if words else ""
 
 
+def _values_of(row: EngineRow, dim: qd.Dimension) -> list[str]:
+    """The dimension's values this article names: the LLM's enrichment tags when it tagged this dimension,
+    otherwise the question's own keywords (a judged dimension has none, so untagged rows count as unknown)."""
+    tagged = qd.valid_names((row.tags or {}).get(dim.key), dim)
+    if tagged is not None:
+        return tagged
+    if dim.judged:
+        return []
+    return qd.tag_text(f"{row.article.title}\n{row.article.text}", [dim])[dim.key]
+
+
+def _breakdown(module, rq, rows, base_n, _):
+    (dim,) = qd.from_json([module["dimension"]])
+    per_row = [(r, _values_of(r, dim)) for r in rows]
+    counts = Counter(v for _, vals in per_row for v in vals)
+    order = [v.name for v in dim.values]
+    top = sorted((n for n in order if counts.get(n)), key=lambda n: -counts[n])[:TOP_N + 4]
+    if not top:
+        return _section(module, rq, skipped=f"No articles name a {dim.label.lower()}")
+    n = len(rows)
+    named = sum(1 for _, vals in per_row if vals)
+    facts = [f"{rq.id} {dim.label}: {v} named in {counts[v]} of {n} articles ({_pct(counts[v], n)}%)" for v in top]
+    facts.append(f"{rq.id}: {named} of {n} articles name at least one {dim.label.lower()} ({_pct(named, n)}%)")
+    return _section(module, rq, chart={"kind": "bar", "categories": [_label(v) for v in top],
+                                       "values": [counts[v] for v in top], "unit": "count", "peaks": [],
+                                       "series_label": "Articles"},
+                    facts=facts,
+                    candidate_urls=[next(r.article.norm_url for r, vals in per_row if v in vals) for v in top[:5]])
+
+
+def _crosstab(module, rq, rows, base_n, _):
+    """Share of each column value within each row value, e.g. the injury-type mix of each sport's articles."""
+    row_dim, col_dim = qd.from_json(module["dimensions"])
+    per_row = [(_values_of(r, row_dim), _values_of(r, col_dim)) for r in rows]
+    totals = Counter(v for rv, _ in per_row for v in rv)
+    row_names = sorted((v.name for v in row_dim.values if totals.get(v.name)), key=lambda n: -totals[n])[:TOP_N]
+    col_totals = Counter(c for rv, cv in per_row if rv for c in cv)
+    cols = sorted((v.name for v in col_dim.values if col_totals.get(v.name)), key=lambda n: -col_totals[n])[:CROSSTAB_COLUMNS]
+    cols = cols or [v.name for v in col_dim.values][:CROSSTAB_COLUMNS]
+    if not row_names:
+        return _section(module, rq, skipped=f"No articles name a {row_dim.label.lower()}")
+    table_rows, facts = [], []
+    for name in row_names:
+        within = [cv for rv, cv in per_row if name in rv]
+        counts = Counter(c for cv in within for c in cv)
+        table_rows.append([name] + [f"{_pct(counts[c], len(within))}%" for c in cols] + [str(len(within))])
+        facts += [f"{rq.id}: {_pct(counts[c], len(within))}% of {name} articles mention {c} ({counts[c]} of {len(within)})"
+                  for c in cols if counts[c]]
+    return _section(module, rq, table={"header": [row_dim.label] + cols + ["Articles"], "rows": table_rows,
+                                       "col_widths": [3.0] + [1.6] * len(cols) + [1.2]},
+                    facts=facts)
+
+
 _HANDLERS = {"share_kpi": _share_kpi, "volume_trend": _trend, "outlet_ranking": _outlets,
              "sentiment_split": _sentiment, "reach": _reach, "theme_clusters": _themes, "brand_sov": _brand_sov,
-             "top_articles": _top_articles, "entities": _entities}
+             "top_articles": _top_articles, "entities": _entities, "question_breakdown": _breakdown,
+             "dimension_crosstab": _crosstab}
 
 
 def compute_module(module: dict, rq: RQ, rows: list[EngineRow], base_n: int,

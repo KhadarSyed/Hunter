@@ -15,6 +15,8 @@ class EngineRow:
     media_type: str = ""
     themes: list[str] = field(default_factory=list)
     entities: dict = field(default_factory=dict)
+    tags: dict = field(default_factory=dict)          # question dimension key -> values the LLM tagged
+    author_type: str = ""
 
 
 @dataclass

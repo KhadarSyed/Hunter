@@ -18,6 +18,7 @@ _SECTION = re.compile(r"<section\b.*?</section>", re.S | re.I)
 _SVG = re.compile(r"<svg\b.*?</svg>", re.S | re.I)
 # Creative HTML is untrusted: only these tags and attributes may appear, links only to the deck's own assets/
 ALLOWED_TAGS = {"section", "div", "span", "p", "h1", "h2", "h3", "h4", "strong", "em", "b", "i", "br", "ul", "ol", "li",
+                "figure", "figcaption",
                 "img", "table", "thead", "tbody", "tr", "th", "td", "svg", "g", "rect", "path", "text", "tspan", "line",
                 "polyline", "circle", "image"}
 ALLOWED_ATTRS = {"class", "style", "data-id", "data-type", "data-treatment", "src", "href", "alt", "x", "y", "x1", "y1",
@@ -25,6 +26,26 @@ ALLOWED_ATTRS = {"class", "style", "data-id", "data-type", "data-treatment", "sr
                  "stroke-width", "stroke-opacity", "stroke-linejoin", "opacity", "text-anchor", "transform",
                  "preserveaspectratio", "xmlns", "font-size", "colspan", "rowspan"}
 _BAD_STYLE = re.compile(r"url\s*\(|expression|@import|javascript|behavior|content\s*:|\\", re.I)
+# The deck's own backgrounds point at assets/; any other url() is still refused
+_ASSET_URL = re.compile(r"""url\(\s*(['"]?)assets/[\w./-]+\1\s*\)""", re.I)
+# Inline logos and icons are swapped for assets/inline-N placeholders while the model edits the slide: it never
+# sees (or rewrites) the image bytes, and the allowlist keeps refusing any data: URI the model writes itself
+_INLINE = re.compile(r"data:image/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+", re.I)
+_PLACEHOLDER = re.compile(r"assets/__inline-(\d+)__")
+
+
+def _stash(html: str) -> tuple[str, list[str]]:
+    inline: list[str] = []
+
+    def keep(m: re.Match) -> str:
+        if m.group(0) not in inline:
+            inline.append(m.group(0))
+        return f"assets/__inline-{inline.index(m.group(0))}__"
+    return _INLINE.sub(keep, html), inline
+
+
+def _restore(html: str, inline: list[str]) -> str:
+    return _PLACEHOLDER.sub(lambda m: inline[int(m.group(1))] if int(m.group(1)) < len(inline) else m.group(0), html)
 _PROMPT = ("You are a presentation designer. Improve this one slide's HTML (a 1920x1080 <section>) so it looks "
            "premium and on-brand. Keep the same data-id, every number and every word of the question exactly as "
            "given; never add numbers. Use only the CSS variables --primary, --accent, --text, --muted, --surface, "
@@ -50,7 +71,7 @@ class _Allowlist(HTMLParser):
                 self.ok = False
             elif name in ("src", "href") and not value.startswith("assets/"):
                 self.ok = False
-            elif name == "style" and _BAD_STYLE.search(value):
+            elif name == "style" and _BAD_STYLE.search(_ASSET_URL.sub("", value)):
                 self.ok = False
 
     def handle_startendtag(self, tag, attrs):
@@ -108,8 +129,9 @@ def compose(spec: DeckSpec, out_dir: Path, llm, shingles: set, progress=None, wo
         return _finish(template_path, spec, out_dir, {}, report, on_fix)
     tokens = spec.tokens or DeckTokens()
     candidates: dict[str, str] = {}
+    stashed = {s.id: _stash(template_html.get(s.id, "")) for s in spec.slides}
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {s.id: pool.submit(creative_slide, llm, template_html.get(s.id, ""), s, tokens, s.reference)
+        futures = {s.id: pool.submit(creative_slide, llm, stashed[s.id][0], s, tokens, s.reference)
                    for s in spec.slides}
         for k, s in enumerate(spec.slides, start=1):
             html = futures[s.id].result()
@@ -121,6 +143,7 @@ def compose(spec: DeckSpec, out_dir: Path, llm, shingles: set, progress=None, wo
             if not _safe(html):
                 report[s.id]["reasons"].append("unsafe or malformed html")
                 continue
+            html = _restore(html, stashed[s.id][1])
             if not _same_charts(template_html.get(s.id, ""), html):
                 report[s.id]["reasons"].append("chart changed")
                 continue

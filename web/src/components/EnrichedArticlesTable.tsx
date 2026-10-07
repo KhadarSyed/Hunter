@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { intelApi, type EnrichedRecord, type BrandSentiment } from "../services/intel-api";
+import { intelApi, type EnrichedRecord, type BrandSentiment, type QuestionDimension } from "../services/intel-api";
 import { CountryFlag } from "./CountryFlag";
 
 const V = "#5B2C9D";
@@ -405,7 +405,23 @@ export function loadThreshold(): number {
   }
 }
 
-export function EnrichedArticlesTable({ records, loading }: { records: EnrichedRecord[]; loading: boolean }) {
+/** One review column per question dimension across every research question (same key = same column). */
+function dimensionColumns(dimensions: Record<string, QuestionDimension[]> | undefined): { key: string; label: string; judged: boolean }[] {
+  const byKey = new Map<string, { key: string; label: string; judged: boolean }>();
+  for (const dims of Object.values(dimensions || {})) {
+    for (const d of dims) if (!byKey.has(d.key)) byKey.set(d.key, { key: d.key, label: d.label, judged: !!d.judged });
+  }
+  return [...byKey.values()];
+}
+
+type EnrichedArticlesTableProps = {
+  records: EnrichedRecord[];
+  loading: boolean;
+  dimensions?: Record<string, QuestionDimension[]>;
+};
+
+export function EnrichedArticlesTable({ records, loading, dimensions }: EnrichedArticlesTableProps) {
+  const dimColumns = useMemo(() => dimensionColumns(dimensions), [dimensions]);
   const [localRecords, setLocalRecords] = useState<EnrichedRecord[]>(records);
   useEffect(() => { setLocalRecords(records); }, [records]);
 
@@ -674,6 +690,13 @@ export function EnrichedArticlesTable({ records, loading }: { records: EnrichedR
               <th className="px-3 py-2.5 w-56">Title / Post</th>
               <th className="px-3 py-2.5 w-64">Content</th>
               <th className="px-3 py-2.5 w-24">Author</th>
+              <th className="px-3 py-2.5 w-28">Author type</th>
+              {dimColumns.map((d) => (
+                <th key={d.key} className="px-3 py-2.5 w-32"
+                  title={d.judged ? "Tagged by the LLM from what the research question asks" : "Tagged by the LLM against the research question's terms"}>
+                  {d.label}
+                </th>
+              ))}
               <th className="px-3 py-2.5 w-24">Country</th>
               <th className="px-3 py-2.5 w-24">Overall</th>
               {brandColumns.map((b) => (
@@ -717,6 +740,19 @@ export function EnrichedArticlesTable({ records, loading }: { records: EnrichedR
                   </td>
                   <td className="px-3 py-2.5"><ClampedCell text={r.content} onSeeMore={() => setOpenRecord(r)} /></td>
                   <td className="px-3 py-2.5 text-xs text-slate-600">{r.author || "—"}</td>
+                  <td className="px-3 py-2.5 text-xs text-slate-600">{r.author_type && r.author_type !== "Unknown" ? r.author_type : <span className="text-slate-300">—</span>}</td>
+                  {dimColumns.map((d) => {
+                    const tagged = r.question_tags?.[d.key] || [];
+                    return (
+                      <td key={d.key} className="px-3 py-2.5">
+                        <div className="flex flex-wrap gap-1">
+                          {tagged.length > 0
+                            ? tagged.map((v) => <span key={v} className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-teal-50 text-teal-700">{v}</span>)
+                            : <span className="text-slate-300 text-xs">—</span>}
+                        </div>
+                      </td>
+                    );
+                  })}
                   <td className="px-3 py-2.5">{r.country ? <CountryFlag country={r.country} size={14} showLabel className="text-xs text-slate-600" /> : <span className="text-slate-300">—</span>}</td>
                   <td className="px-3 py-2.5"><SentimentPill sentiment={r.overall_sentiment} confidence={r.overall_sentiment_confidence} /></td>
                   {brandColumns.map((b) => {

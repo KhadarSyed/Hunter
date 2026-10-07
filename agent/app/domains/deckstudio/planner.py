@@ -152,7 +152,8 @@ def build_deck_spec(inp: PlanInput) -> DeckSpec:
                                 tables=[{"header": ["#", "Source", "Headline", "Date"],
                                          "rows": [[str(c["n"]), c.get("outlet") or c.get("domain", ""), c["title"], c["date"]] for c in page]}],
                                 facts_allowed=all_facts + [str(c["n"]) for c in page] + [c["date"] for c in page],
-                                notes="\n".join(c["url"] for c in page)))
+                                notes="\n".join(c["url"] for c in page),
+                                logos={(c.get("outlet") or c.get("domain", "")): c["icon"] for c in page if c.get("icon")}))
     slides.append(SlideSpec(id="closing", type="closing", treatment="full", title="Thank you", so_what=inp.title,
                             image={"query": f"{inp.title} thank you", "role": "background"}, reference=pick_reference("closing", family)))
     for s in slides:

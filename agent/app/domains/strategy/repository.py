@@ -406,3 +406,26 @@ def update_evaluation(eval_id: int, evaluation: dict):
     )
     conn.commit()
     conn.close()
+
+
+# ─── Question dimensions ─────────────────────────────────────────────────────
+
+def get_question_dimensions(project_id: int) -> dict[str, dict]:
+    """rq_id -> {signature, dimensions, source} for every question whose dimensions were derived."""
+    conn = _conn()
+    rows = conn.execute("SELECT rq_id, signature, dimensions_json, source FROM intel_question_dimensions "
+                        "WHERE project_id = ?", (project_id,)).fetchall()
+    conn.close()
+    return {r["rq_id"]: {"signature": r["signature"], "dimensions": json.loads(r["dimensions_json"]),
+                         "source": r["source"]} for r in rows}
+
+
+def save_question_dimensions(project_id: int, rq_id: str, signature: str, dimensions: list, source: str) -> None:
+    conn = _conn()
+    conn.execute("INSERT INTO intel_question_dimensions (project_id, rq_id, signature, dimensions_json, source, "
+                 "updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, rq_id) DO UPDATE SET "
+                 "signature = excluded.signature, dimensions_json = excluded.dimensions_json, "
+                 "source = excluded.source, updated_at = excluded.updated_at",
+                 (project_id, rq_id, signature, json.dumps(dimensions), source, time.time()))
+    conn.commit()
+    conn.close()

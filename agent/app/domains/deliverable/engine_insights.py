@@ -1,6 +1,9 @@
 """Insights stage: cited, number-checked insight cards per RQ (draft_section does the validation)."""
 from __future__ import annotations
 
+import re
+
+from ...agents import question_dimensions as qd
 from .citations import CitationRegistry
 from .engine_types import RQ, EngineRow, Section
 from .insights import draft_section
@@ -35,6 +38,22 @@ def executive_answers(rqs: list[RQ], sections_by_rq: dict[str, list[Section]], b
             answers.append({"rq_id": rq.id, "question": rq.question, "value": "n/a",
                             "answer": "No articles for this question"})
         else:
-            answers.append({"rq_id": rq.id, "question": rq.question, "value": f"{kpi.chart['values'][0]}%",
+            answers.append(_breakdown_answer(rq, sections_by_rq.get(rq.id, [])) or
+                           {"rq_id": rq.id, "question": rq.question, "value": f"{kpi.chart['values'][0]}%",
                             "answer": kpi.facts[0].split(": ", 1)[1]})
     return answers
+
+
+def _breakdown_answer(rq: RQ, sections: list[Section]) -> dict | None:
+    """'Which sport…?' is answered by the sport that leads its breakdown, not by the question's share of coverage."""
+    s = next((s for s in sections if s.module == "question_breakdown" and not s.skipped and s.chart), None)
+    if s is None or not qd.asks_breakdown(rq.question):
+        return None
+    cats, vals = s.chart["categories"], s.chart["values"]
+    total = re.search(r" of (\d+) articles", s.facts[0])
+    n = int(total.group(1)) if total else 0
+    pct = round(100 * vals[0] / n, 1) if n else 0.0
+    share = f" ({pct}%)" if n else ""
+    rest = ", ".join(f"{c} ({v})" for c, v in zip(cats[1:4], vals[1:4]))
+    text = f"{cats[0]} leads with {vals[0]} of {n} articles{share}" + (f", then {rest}" if rest else "")
+    return {"rq_id": rq.id, "question": rq.question, "value": f"{pct}%", "answer": text}

@@ -279,6 +279,14 @@ export interface BrandSentiment {
   confidence: number | null;
 }
 
+/** What a research question asks to break volume down by (sport, injury type, ...); judged = LLM-only categories. */
+export interface QuestionDimension {
+  key: string;
+  label: string;
+  judged?: boolean;
+  values: { name: string; terms: string[] }[];
+}
+
 export interface EnrichedRecord {
   id: string;
   title: string;
@@ -310,6 +318,9 @@ export interface EnrichedRecord {
   reviewed_by?: string | null;
   reviewed_at?: string | null;
   manually_edited?: boolean;
+  /** Research-question dimension key -> values the LLM tagged (e.g. sport: ["Soccer"]). */
+  question_tags?: Record<string, string[]>;
+  author_type?: string;
 }
 
 export interface PlanResult {
@@ -874,7 +885,7 @@ export const intelApi = {
     get<{ dataset_id: number; status: string | null; error: string | null; records: EnrichedRecord[] }>(`/dataset/${datasetId}/enriched`),
 
   getProjectEnriched: (projectId: number) =>
-    get<{ records: EnrichedRecord[] }>(`/dataset/enriched/${projectId}`),
+    get<{ records: EnrichedRecord[]; dimensions?: Record<string, QuestionDimension[]> }>(`/dataset/enriched/${projectId}`),
 
   updateEnrichedRecord: (datasetId: number, recordId: string, updates: Partial<EnrichedRecord>) =>
     patch<EnrichedRecord>(`/dataset/${datasetId}/enriched/${recordId}`, updates),

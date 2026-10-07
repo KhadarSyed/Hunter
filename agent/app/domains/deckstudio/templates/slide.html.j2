@@ -9,6 +9,8 @@
     {% if s.so_what %}<div class="sowhat clamp" style="margin-top:22px;opacity:.95">{{ s.so_what }}</div>{% endif %}
     {% if s.type == 'cover' and s.notes %}<div class="kicker" style="margin-top:26px;color:var(--on-dark);opacity:.8">{{ s.notes }}</div>{% endif %}
   </div>
+  {% if s.type == 'cover' and marks.brand %}<div class="logo-chip" style="position:absolute;left:110px;top:90px"><img class="brand-logo" src="{{ marks.brand }}" alt="{{ marks.name }}" style="height:84px;max-width:320px;object-fit:contain"></div>{% endif %}
+  {% if s.type == 'cover' and marks.strip %}<div style="position:absolute;left:110px;right:110px;bottom:64px;display:flex;align-items:center;gap:16px;flex-wrap:wrap"><span class="kicker" style="color:var(--on-dark);opacity:.85;margin-right:6px">Brand and competitive set</span>{% for name, rel in marks.strip %}<span class="logo-chip"><img src="{{ rel }}" alt="{{ name }}" style="height:40px;max-width:150px;object-fit:contain"></span>{% endfor %}</div>{% endif %}
 {% elif s.treatment == "A" %}
   <div class="photo" style="inset:0;background-image:{{ bg }}"></div><div class="overlay"></div>
   <div style="position:absolute;left:70px;top:56px;width:1120px;color:var(--on-dark)">
@@ -61,5 +63,5 @@
   </div>
 {% endif %}
   {% if s.type not in ("cover", "closing", "divider") %}
-  <div class="footer" style="{% if s.treatment == 'A' %}color:var(--on-dark){% elif s.treatment == 'C' %}left:672px{% endif %}"><span>Source: {{ source }} | {{ period }}</span><span>{{ n }} / {{ total }}</span></div>{% endif %}
+  <div class="footer" style="{% if s.treatment == 'A' %}color:var(--on-dark){% elif s.treatment == 'C' %}left:672px{% endif %}"><span>Source: {{ source }} | {{ period }}</span><span style="display:flex;align-items:center;gap:14px">{% if marks.brand %}<span class="logo-chip mark"><img class="brand-mark" src="{{ marks.brand }}" alt="{{ marks.name }}" style="height:20px;max-width:100px;object-fit:contain"></span>{% endif %}{{ n }} / {{ total }}</span></div>{% endif %}
 </section>

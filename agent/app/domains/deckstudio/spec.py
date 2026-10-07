@@ -58,6 +58,8 @@ class DeckSpec:
     family_reason: str
     tokens: DeckTokens | None
     slides: list[SlideSpec]
+    brand_logo: str = ""                                          # the client's logo: cover and every footer
+    logo_strip: dict[str, str] = field(default_factory=dict)      # competitive set shown on the cover
 
     def to_dict(self) -> dict:
         return asdict(self)

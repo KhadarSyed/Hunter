@@ -24,6 +24,7 @@ from typing import Any, Callable
 logger = logging.getLogger(__name__)
 
 from ..core.llm_provider import HybridLLMClient
+from . import question_dimensions as qd
 
 EventFn = Callable[[str, dict], None]
 
@@ -31,6 +32,8 @@ BATCH_SIZE = 8
 MAX_ROUNDS = 3
 
 SENTIMENTS = ["Positive", "Neutral", "Negative"]
+AUTHOR_TYPES = ["Consumer", "Parent", "Athlete", "Coach", "Healthcare professional", "Journalist / media",
+                "Influencer / creator", "Brand / company", "Retailer", "Organisation", "Unknown"]
 
 
 SYSTEM_PROMPT = """\
@@ -63,6 +66,14 @@ For EVERY article/post supplied, return ALL of these fields:
   {"brand": "<name>", "is_primary": true|false, "sentiment": "Positive"|
   "Neutral"|"Negative", "confidence": 0.0-1.0}. Only include a brand here if
   the text says something substantive about it, not a bare mention.
+- author_type: who wrote or posted it, one of: Consumer, Parent, Athlete,
+  Coach, Healthcare professional, Journalist / media, Influencer / creator,
+  Brand / company, Retailer, Organisation, Unknown.
+- question_tags: only when QUESTION DIMENSIONS are supplied -- an object with
+  one key per dimension key, each an array of that dimension's value names
+  the text actually talks about (exact names from the list; [] if none).
+  These are what the research questions ask about (e.g. which sport, which
+  injury type), so tag them carefully.
 - reason: one sentence explaining why you tagged it this way (what in the
   text drove the overall sentiment and theme calls).
 
@@ -123,7 +134,15 @@ def _blank_tags(reason: str) -> dict:
     }
 
 
-def _build_user_prompt(batch: list[dict], brand: str, competitors: list[str]) -> str:
+def _dimensions_prompt(dimensions: list[qd.Dimension] | None) -> str:
+    if not dimensions:
+        return ""
+    listed = [{"key": d.key, "label": d.label, "values": [v.name for v in d.values]} for d in dimensions]
+    return f"QUESTION DIMENSIONS (tag question_tags against these):\n{json.dumps(listed, ensure_ascii=False)}\n\n"
+
+
+def _build_user_prompt(batch: list[dict], brand: str, competitors: list[str],
+                       dimensions: list[qd.Dimension] | None = None) -> str:
     articles_payload = [
         {
             "id": a["id"],
@@ -135,16 +154,18 @@ def _build_user_prompt(batch: list[dict], brand: str, competitors: list[str]) ->
     return (
         f"Brand of interest: {brand or '(not specified)'}\n"
         f"Known competitors: {', '.join(competitors) if competitors else '(none specified)'}\n\n"
+        f"{_dimensions_prompt(dimensions)}"
         f"Articles to tag:\n{json.dumps(articles_payload, ensure_ascii=False)}"
     )
 
 
-def tag_batch(llm_client: HybridLLMClient, batch: list[dict], brand: str, competitors: list[str]) -> list[dict]:
+def tag_batch(llm_client: HybridLLMClient, batch: list[dict], brand: str, competitors: list[str],
+              dimensions: list[qd.Dimension] | None = None) -> list[dict]:
     """One LLM call tagging a batch; raises on failure (caller retries/repairs)."""
     raw = llm_client.chat(
         [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": _build_user_prompt(batch, brand, competitors)},
+            {"role": "user", "content": _build_user_prompt(batch, brand, competitors, dimensions)},
         ],
         format_json=True,
     )
@@ -152,8 +173,36 @@ def tag_batch(llm_client: HybridLLMClient, batch: list[dict], brand: str, compet
     return data.get("articles", [])
 
 
+def _question_tags(record: dict, llm_tags, dimensions: list[qd.Dimension]) -> dict[str, list[str]]:
+    """The LLM's tags where they name real values; the question's own keywords for any dimension it left out
+    or filled with names that are not in the list."""
+    keyword = None
+    out: dict[str, list[str]] = {}
+    llm_tags = llm_tags if isinstance(llm_tags, dict) else {}
+    for dim in dimensions:
+        valid = qd.valid_names(llm_tags.get(dim.key), dim)
+        if valid is None:
+            if keyword is None:
+                keyword = qd.tag_text(f"{record.get('title') or ''}\n{record.get('content') or ''}", dimensions)
+            valid = keyword[dim.key]
+        out[dim.key] = valid
+    return out
+
+
+def _finish(record: dict, tag: dict, dimensions: list[qd.Dimension] | None) -> dict:
+    author = tag.get("author_type")
+    merged = {**record, **{k: v for k, v in tag.items() if k != "id"},
+              "author_type": author if author in AUTHOR_TYPES else "Unknown"}
+    if dimensions:
+        merged["question_tags"] = _question_tags(record, tag.get("question_tags"), dimensions)
+    else:
+        merged.pop("question_tags", None)
+    return merged
+
+
 def _tag_batch_with_repair(
     llm_client: HybridLLMClient, batch: list[dict], brand: str, competitors: list[str],
+    dimensions: list[qd.Dimension] | None = None,
 ) -> list[dict]:
     """Tag a batch, re-requesting whatever the model leaves out of its response.
 
@@ -170,7 +219,7 @@ def _tag_batch_with_repair(
         if not outstanding:
             break
         try:
-            tagged = tag_batch(llm_client, outstanding, brand, competitors)
+            tagged = tag_batch(llm_client, outstanding, brand, competitors, dimensions)
             for entry in tagged:
                 key = str(entry.get("id"))
                 if key and key not in collected:
@@ -191,6 +240,7 @@ def enrich_dataset(
     *,
     llm_client: HybridLLMClient,
     emit: EventFn | None = None,
+    dimensions: list[qd.Dimension] | None = None,
 ) -> dict:
     """Enrich every record with title+content present. Records missing either
     are returned unmodified with `enrichment_error` set, never sent to the LLM.
@@ -229,7 +279,7 @@ def enrich_dataset(
     completed = 0
 
     def worker(batch: list[dict]) -> list[dict]:
-        return _tag_batch_with_repair(llm_client, batch, brand, competitors)
+        return _tag_batch_with_repair(llm_client, batch, brand, competitors, dimensions)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
         futures = {pool.submit(worker, b): b for b in batches}
@@ -249,12 +299,12 @@ def enrich_dataset(
     failed_count = 0
     for r in records:
         if r["id"] not in taggable_ids:
-            merged.append({**r, **_blank_tags("missing title or content")})
+            merged.append(_finish(r, _blank_tags("missing title or content"), dimensions))
             continue
         tag = results.get(str(r["id"])) or {"id": r["id"], **_blank_tags("no result returned")}
         if tag.get("enrichment_error"):
             failed_count += 1
-        merged.append({**r, **{k: v for k, v in tag.items() if k != "id"}})
+        merged.append(_finish(r, tag, dimensions))
 
     elapsed = round(time.time() - start, 1)
     emit("enrichment_complete", {

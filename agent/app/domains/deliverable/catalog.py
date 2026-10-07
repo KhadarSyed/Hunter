@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
+from ...agents import question_dimensions as qd
 from .engine_types import RQ, EngineRow
 
 logger = logging.getLogger(__name__)
@@ -102,3 +104,35 @@ def _ensure_required(plan: dict, rq: RQ, rows: list[EngineRow]) -> dict:
     if kind and not any(m["module"] == "entities" and m["entity_kind"] == kind for m in modules):
         modules.insert(2, {"module": "entities", "title": f"Named {kind}", "entity_kind": kind})
     return {**plan, "modules": modules[:MAX_MODULES]}
+
+
+BREAKDOWN_MODULES = ("question_breakdown", "dimension_crosstab")
+MAX_BREAKDOWNS = 2
+
+
+def _rows_dimension(question: str, dims: list[qd.Dimension]) -> qd.Dimension:
+    """The dimension a question breaks the other down by: the one named after "by" ("injury types by sport")."""
+    after = question.lower().rsplit(" by ", 1)[1] if " by " in question.lower() else ""
+    for d in dims:
+        words = [w for w in re.findall(r"[a-z0-9]+", d.label.lower()) if len(w) > 2]
+        words += [t.rstrip("*").lower() for v in d.values for t in v.terms] + [v.name.lower() for v in d.values]
+        if after and any(re.search(r"(?<![a-z0-9])" + re.escape(w), after) for w in words if w):
+            return d
+    return dims[0]
+
+
+def with_breakdowns(plan: dict, rq: RQ, dims: list[qd.Dimension]) -> dict:
+    """The question's own dimensions answer it first: one chart per dimension straight after the KPI, and the
+    cross-tab when it asks for two ("injury types by sport")."""
+    if not dims:
+        return plan
+    dims = dims[:MAX_BREAKDOWNS]
+    kept = [m for m in plan["modules"] if m["module"] not in BREAKDOWN_MODULES]
+    added = [{"module": "question_breakdown", "title": d.label, "entity_kind": None, "dimension": qd.to_json([d])[0]}
+             for d in dims]
+    if len(dims) == 2:
+        rows_dim = _rows_dimension(rq.question, dims)
+        col_dim = dims[1] if rows_dim is dims[0] else dims[0]
+        added.append({"module": "dimension_crosstab", "title": f"{col_dim.label} by {rows_dim.label}",
+                      "entity_kind": None, "dimensions": qd.to_json([rows_dim, col_dim])})
+    return {**plan, "modules": (kept[:1] + added + kept[1:])[:MAX_MODULES + len(added)]}

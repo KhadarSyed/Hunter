@@ -34,6 +34,14 @@ def _judge(llm, subjects, label: str, checks: dict):
     return judge
 
 
+def attach_logos(spec, logos: dict[str, Path], client: str) -> None:
+    """A client deck carries the client's logo on the cover and every footer, and the competitive set on the
+    cover (client first), not only beside chart labels."""
+    spec.brand_logo = str(logos[client]) if client in logos else ""
+    ordered = ([client] if client in logos else []) + [n for n in logos if n != client]
+    spec.logo_strip = {n: str(logos[n]) for n in ordered}
+
+
 def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: list[str], brand_image: Path | None,
                logos: dict[str, Path], out_dir: Path, on_fix=None, on_issue=None) -> dict:
     deck_dir = out_dir / "deck"
@@ -48,6 +56,7 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     rows = checklist.build_checklist(plan_input.rqs, plan_input.sections_by_rq, checklist.brief_asks(project_id))
     plan_input.checklist = rows
     spec = planner.build_deck_spec(plan_input)
+    attach_logos(spec, logos, plan_input.title)
     rows = checklist.attach_slide_numbers(spec, rows)
     entry, design_why = design_systems.choose(llm, plan_input.scope_text, [])
     design = {**design_systems.load(entry["slug"]), "slug": entry["slug"]}

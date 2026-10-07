@@ -28,6 +28,7 @@ from ...agents.dataset_enrichment import enrich_dataset
 from ...agents.meltwater_query_builder import run as run_mqb
 from ...agents.meltwater_query_builder import validate_boolean_syntax
 from ...agents.query_evaluator import evaluate_sample
+from ...agents.question_dimensions import to_json as qd_to_json
 from ...core import store
 from ...core.anthropic_client import get_llm_client
 from ...core.api import OkResponse
@@ -37,6 +38,7 @@ from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from ...core.tabular import decode_text, sniff_delimiter
 from ..research.schemas import ApproveRequest
+from .dimensions import dimensions_for_dataset, project_dimensions
 from .schemas import (
     DatasetRecord,
     DatasetUploadResponse,
@@ -1178,7 +1180,11 @@ def enrich_dataset_route(dataset_id: IdPath, _access: Annotated[dict, Depends(re
             preserved_by_id = {str(r.get("id")): r for r in previous if r.get("manually_edited")}
 
             to_tag = [r for r in records if str(r["id"]) not in preserved_by_id]
-            result = enrich_dataset(to_tag, brand_name, competitors, llm_client=llm_client, emit=on_event)
+            # Tag against what this file's research question asks about (sport, injury type, ...), not only the
+            # fixed sentiment/theme/entity schema
+            dimensions = dimensions_for_dataset(dataset, llm_client)
+            result = enrich_dataset(to_tag, brand_name, competitors, llm_client=llm_client, emit=on_event,
+                                    dimensions=dimensions)
             tagged_by_id = {str(r["id"]): r for r in result["records"]}
             merged = [preserved_by_id.get(str(r["id"])) or tagged_by_id[str(r["id"])] for r in records]
 
@@ -1212,7 +1218,9 @@ def get_dataset_enriched(dataset_id: IdPath, _access: Annotated[dict, Depends(re
 
 @router.get("/dataset/enriched/{project_id}")
 def get_project_enriched(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)]):
-    return {"records": store.get_enriched_records_by_project(project_id)}
+    dims = project_dimensions(project_id, None)   # stored copy only: a GET never calls the LLM
+    return {"records": store.get_enriched_records_by_project(project_id),
+            "dimensions": {rq: qd_to_json(d) for rq, d in dims.items()}}
 
 
 # Fields that constitute an analyst edit to a record's tagging (as opposed to
@@ -1222,6 +1230,7 @@ def get_project_enriched(project_id: IdPath, _access: Annotated[dict, Depends(re
 _ENRICHMENT_EDIT_FIELDS = (
     "overall_sentiment", "overall_sentiment_confidence", "themes", "signals",
     "entities", "brand_sentiments", "reason", "review_status", "approval_status",
+    "question_tags", "author_type",
 )
 
 

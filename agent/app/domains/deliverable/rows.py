@@ -53,7 +53,9 @@ def _row(rec: dict, rq: str | None, source_file: str, index: int) -> EngineRow |
                       sentiment=rec.get("overall_sentiment") or rec.get("sentiment") or None,
                       reach=_to_float(rec.get("reach")), source_file=source_file, row_index=index)
     return EngineRow(article=article, rq_ids={rq} if rq else set(), media_type=str(rec.get("media_type") or ""),
-                     themes=_theme_labels(rec.get("themes")), entities=rec.get("entities") or {})
+                     themes=_theme_labels(rec.get("themes")), entities=rec.get("entities") or {},
+                     tags=rec.get("question_tags") if isinstance(rec.get("question_tags"), dict) else {},
+                     author_type=str(rec.get("author_type") or ""))
 
 
 def load_rows(project_id: int, rqs: list[RQ]) -> list[EngineRow]:
@@ -70,17 +72,24 @@ def load_rows(project_id: int, rqs: list[RQ]) -> list[EngineRow]:
         else:
             merged[row.article.norm_url] = row
 
-    enriched = [r for r in store.get_enriched_records_by_project(project_id) if r.get("dataset_id") in approved]
-    enriched_ids = {r["dataset_id"] for r in enriched}
-    for i, rec in enumerate(enriched):
-        if not _is_excluded(rec):
+    # Enriched records come first (their tags win); every row of every file is then read too, because enrichment
+    # may cover only a sample (or be empty, left by a misparsed file). An analyst's exclusion drops the URL.
+    excluded: set[str] = set()
+    for i, rec in enumerate(store.get_enriched_records_by_project(project_id)):
+        if rec.get("dataset_id") not in approved:
+            continue
+        if _is_excluded(rec):
+            excluded.add(normalize_url(str(rec.get("url") or "")))
+        else:
             add(_row(rec, rec.get("research_question_id"), rec.get("dataset_file_name") or "", i))
     for ds in datasets:
         fp = ds.get("file_path") or ""
-        if ds["id"] in enriched_ids or not fp or not Path(fp).exists():
+        if not fp or not Path(fp).exists():
             continue
         for i, rec in enumerate(_load_dataset(fp)):
-            add(_row(rec, ds.get("research_question_id"), ds.get("file_name") or "", i))
+            row = _row(rec, ds.get("research_question_id"), ds.get("file_name") or "", i)
+            if row is not None and row.article.norm_url not in excluded:
+                add(row)
     return list(merged.values())
 
 

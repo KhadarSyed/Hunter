@@ -31,7 +31,7 @@ def _asset(path: str | None, out_dir: Path) -> str | None:
 
 
 def render_slide(slide: SlideSpec, tokens: DeckTokens, n: int, total: int, base_n: int, period: str, source: str,
-                 out_dir: Path) -> str:
+                 out_dir: Path, marks: dict | None = None) -> str:
     slide = replace(slide, cards=[{**c, **({"image": _asset(c["image"], out_dir)} if c.get("image") else {}),
                                    **({"thumb": _asset(c["thumb"], out_dir)} if c.get("thumb") else {})}
                                   for c in slide.cards])
@@ -40,13 +40,25 @@ def render_slide(slide: SlideSpec, tokens: DeckTokens, n: int, total: int, base_
     w, h = CHART_SIZE.get(slide.treatment, (1000, 540))
     charts = [chart_svg(c, tokens, logos, w, h) for c in slide.charts]
     return _env.get_template("slide.html.j2").render(s=slide, t=tokens, n=n, total=total, base_n=base_n, period=period,
-                                                     source=source, image=image, charts=charts)
+                                                     source=source, image=image, charts=charts, logos=logos,
+                                                     marks=marks or {"brand": None, "name": "", "strip": []})
+
+
+MAX_STRIP_LOGOS = 6
+
+
+def _marks(spec: DeckSpec, out_dir: Path) -> dict:
+    """The client's logo (cover and footers) and the competitive set (cover), copied into assets/."""
+    strip = [(name, rel) for name, p in list(spec.logo_strip.items())[:MAX_STRIP_LOGOS] if (rel := _asset(p, out_dir))]
+    return {"brand": _asset(spec.brand_logo, out_dir), "name": spec.title, "strip": strip}
 
 
 def render_deck(spec: DeckSpec, out_dir: Path, slide_html: dict[str, str] | None = None, source: str = "Meltwater") -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     tokens = spec.tokens or DeckTokens()
-    parts = [(slide_html or {}).get(s.id) or render_slide(s, tokens, n, len(spec.slides), spec.base_n, spec.period, source, out_dir)
+    marks = _marks(spec, out_dir)
+    parts = [(slide_html or {}).get(s.id) or render_slide(s, tokens, n, len(spec.slides), spec.base_n, spec.period, source,
+                                                          out_dir, marks)
              for n, s in enumerate(spec.slides, start=1)]
     html = _env.get_template("deck.html.j2").render(spec=spec, t=tokens, fonts=fonts_href(tokens), slides=parts,
                                                      frontend_css=FRONTEND_CSS)

@@ -22,6 +22,7 @@ from ..agent.repair import issues
 from ..deckstudio import verbatims
 from ..deckstudio.pipeline import run_studio
 from ..deckstudio.planner import PlanInput
+from ..strategy.dimensions import project_dimensions as question_dimensions
 
 logger = logging.getLogger(__name__)
 STAGES = ("gate", "ingest", "routing", "plan", "classify", "compute", "insights", "template", "render", "qc",
@@ -80,6 +81,15 @@ def _typical_seconds() -> float | None:
     return durations[len(durations) // 2] if durations else None
 
 
+_QUOTED = re.compile(r'\s*"[^"]*"')
+
+
+def _wire(text: str) -> str:
+    """What /ws may carry: ids and counts. Quoted text (a research question, a headline) stays in the stored
+    log, which the page reads through the access-checked REST route."""
+    return _QUOTED.sub("", text)
+
+
 def _stage_span(name: str) -> tuple[float, float]:
     before = 0
     for stage in STAGES:
@@ -103,20 +113,22 @@ class _Run:
                  "typical_seconds": self.typical}
         store.replace_deliverable_section(self.run_id, {"id": "progress", "rq_id": None, "module": "progress",
                                                         "title": "Progress", **state})
-        broadcast({"type": "deliverable_progress", "project_id": self.project_id, "run_id": self.run_id, **state})
+        broadcast({"type": "deliverable_progress", "project_id": self.project_id, "run_id": self.run_id,
+                   **state, "label": _wire(label)})
 
     def within(self, stage: str, fraction: float, label: str) -> None:
         start, end = _stage_span(stage)
         self.progress(start + (end - start) * max(0.0, min(1.0, fraction)), label)
 
     def log(self, message: str) -> None:
-        """A progress line, streamed live and kept with the run. Step names and counts only, never article
-        content, because /ws is unauthenticated."""
+        """A progress line, kept with the run in full and streamed live without its quoted text (see _wire),
+        because /ws is unauthenticated."""
         line = {"ts": time.time(), "message": message}
         self.lines.append(line)
         store.replace_deliverable_section(self.run_id, {"id": "log", "rq_id": None, "module": "log",
                                                         "title": "Run log", "lines": self.lines})
-        broadcast({"type": "deliverable_log", "project_id": self.project_id, "run_id": self.run_id, **line})
+        broadcast({"type": "deliverable_log", "project_id": self.project_id, "run_id": self.run_id,
+                   **line, "message": _wire(message)})
 
     def stage(self, name: str, status: str, detail: str = "") -> None:
         self.stages[name] = status
@@ -129,7 +141,7 @@ class _Run:
                                                             "title": "Timings", "stages": self.timings})
         store.update_deliverable_run(self.run_id, stage=name, stages_json=self.stages)
         broadcast({"type": "deliverable_stage", "project_id": self.project_id, "run_id": self.run_id,
-                   "stage": name, "status": status, "detail": detail})
+                   "stage": name, "status": status, "detail": _wire(detail)})
         if status == "running":
             self.current = name
             self.log(f"{_STAGE_LABELS.get(name, name)} ({name})…")
@@ -311,7 +323,8 @@ def _plan_input(project: dict, inp, rqs, overview, sections_by_rq, insights_by_r
     return PlanInput(title=inp.title, subtitle=inp.subtitle, period=inp.period_label, base_n=base, rqs=rqs,
                      rq_titles=rq_titles, sections_by_rq=sections_by_rq, insights_by_rq=insights_by_rq,
                      answers=answers, takeaways=takeaways, overview=overview, methodology=methodology,
-                     citations=inp.citations, scope_text=_scope_text(project), brands=list(inp.logos),
+                     citations=[{**c, "icon": str(inp.citation_icons.get(c["n"]) or "")} for c in inp.citations],
+                     scope_text=_scope_text(project), brands=list(inp.logos),
                      geography=str(geography), sources="Meltwater", verbatims_by_rq=verbatims_by_rq or {},
                      products=_products(project), category=_category(project, inp.title))
 
@@ -380,7 +393,11 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
 
         current = "plan"
         run.stage("plan", "running")
-        plans = {q.id: catalog.plan_rq(llm, q, rows_by_rq[q.id])[0] for q in rqs}
+        # Each question's own dimensions (sport, injury type, ...) answer it first: a "which sport" question gets
+        # a by-sport chart, not only brand volume
+        dims_by_rq = question_dimensions(project_id, llm)
+        plans = {q.id: catalog.with_breakdowns(catalog.plan_rq(llm, q, rows_by_rq[q.id])[0], q, dims_by_rq.get(q.id, []))
+                 for q in rqs}
         for q in rqs:
             run.log(f"{_rq_label(q)}: " + ", ".join(m["module"] for m in plans[q.id]["modules"]))
         counts = [f"{_rq_label(q, 40)}: {len(plans[q.id]['modules'])}" for q in rqs]

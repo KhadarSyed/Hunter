@@ -14,6 +14,8 @@ ASK_MODULES = [
     (r"sentiment|tone", {"sentiment_split"}), (r"outlet|publication", {"outlet_ranking"}),
     (r"trend|over time|month|volume", {"volume_trend"}), (r"reach|audience", {"reach"}),
     (r"retailer", {"entities:retailers"}),
+    (r"\bby (sport|activit|injur|type|categor|product|occasion)|which (sport|activit|injur|product)",
+     {"question_breakdown", "dimension_crosstab"}),
 ]
 DELIVERED = re.compile(r"written summary|report|deck|presentation|visual|quantitative|findings", re.I)
 NOT_STATED = re.compile(r"not stated", re.I)

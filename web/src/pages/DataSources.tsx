@@ -558,6 +558,7 @@ export function DataSources({ onNavigate }: Props) {
   const [enrichingIds, setEnrichingIds] = useState<Set<number>>(new Set());
   const [enrichLogs, setEnrichLogs] = useState<Record<number, EnrichLogEntry[]>>({});
   const [reviewRecords, setReviewRecords] = useState<import("../services/intel-api").EnrichedRecord[]>([]);
+  const [reviewDimensions, setReviewDimensions] = useState<Record<string, import("../services/intel-api").QuestionDimension[]>>({});
   const [reviewLoading, setReviewLoading] = useState(false);
   const [showProceedConfirm, setShowProceedConfirm] = useState(false);
   const [proceedBlockedMsg, setProceedBlockedMsg] = useState<string | null>(null);
@@ -706,6 +707,7 @@ export function DataSources({ onNavigate }: Props) {
     try {
       const res = await intelApi.getProjectEnriched(projectId);
       setReviewRecords(res.records);
+      setReviewDimensions(res.dimensions ?? {});
       return res.records;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load enriched articles");
@@ -905,7 +907,7 @@ export function DataSources({ onNavigate }: Props) {
 
       {mainTab === "review" ? (
         <div className="flex-1 min-h-0 overflow-y-auto">
-          <EnrichedArticlesTable records={reviewRecords} loading={reviewLoading} />
+          <EnrichedArticlesTable records={reviewRecords} loading={reviewLoading} dimensions={reviewDimensions} />
         </div>
       ) : (
       <>

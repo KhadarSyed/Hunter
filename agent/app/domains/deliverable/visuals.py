@@ -20,6 +20,7 @@ ICONS = {
     "share_kpi": "lucide:pie-chart", "volume_trend": "lucide:trending-up", "sentiment_split": "lucide:smile",
     "outlet_ranking": "lucide:newspaper", "reach": "lucide:radio-tower", "theme_clusters": "lucide:layout-grid",
     "entities": "lucide:users", "brand_sov": "lucide:award", "top_articles": "lucide:file-text",
+    "question_breakdown": "lucide:bar-chart-horizontal", "dimension_crosstab": "lucide:table-2",
     "takeaway": "lucide:lightbulb", "methodology": "lucide:database", "overview": "lucide:bar-chart-3",
 }
 _ISO = {"united states": "us", "usa": "us", "us": "us", "united kingdom": "gb", "uk": "gb", "canada": "ca",
