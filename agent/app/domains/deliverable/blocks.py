@@ -283,6 +283,7 @@ def add_table(slide, x, y, w, h, header: list[str], rows: list[list[str]], col_w
             cell.fill.solid()
             cell.fill.fore_color.rgb = _rgb(style.FOOTER_BAND if r == 0 else (style.WHITE if r % 2 else style.CARD_FILL))
             for p in cell.text_frame.paragraphs:
+                p.font.size = Pt(9 if r == 0 else 8)     # empty cells have no runs; without this they use 18pt
                 for run in p.runs:
                     run.font.name, run.font.size, run.font.bold = style.FONT, Pt(9 if r == 0 else 8), r == 0
                     run.font.color.rgb = _rgb(style.VIOLET if r == 0 else style.BODY)

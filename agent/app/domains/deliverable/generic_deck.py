@@ -32,6 +32,7 @@ CONTACT_BAND = 0.8          # template pictures below this share of the slide he
 TITLE_FONT_FILE = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts" / "arialbd.ttf"
 TITLE_PAD_IN = 0.2          # text box insets
 QUESTION_CHARS = 95
+CITE_TITLE_CHARS = 62     # one line in the 5in headline column
 
 
 @dataclass
@@ -233,7 +234,8 @@ def _citations(prs, inp: DeckInput) -> list[int]:
     numbers = []
     for i, page in enumerate(pages, start=1):
         s = _slide(prs, inp, "APPENDIX", f"Citations ({i}/{len(pages)})")
-        rows = [["", str(c["n"]), c["outlet"], c["title"][:70], c["date"], c["url"][:55]] for c in page]
+        rows = [["", str(c["n"]), c["outlet"] or c.get("domain", ""), _shorten(c["title"], CITE_TITLE_CHARS),
+                 c["date"], c["url"][:55]] for c in page]
         blocks.add_table(s, style.MARGIN, CHART_TOP, style.SLIDE_W - 2 * style.MARGIN, 0.3 * (len(rows) + 1),
                          ["", "#", "Outlet", "Headline", "Date", "URL"], rows, [0.45, 0.45, 1.9, 5.0, 1.15, 3.45])
         for r, c in enumerate(page, start=1):   # the source domain icon sits in the first column
