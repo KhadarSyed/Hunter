@@ -95,17 +95,35 @@ def _llm_call(system: str, user: str, format_json: bool = False) -> str | None:
 # ─── Insight Generation ──────────────────────────────────────────────────────
 
 
+def _measurements_section(measurement_block: str) -> str:
+    if not measurement_block:
+        return ""
+    return (
+        "\nMeasured figures for the whole dataset (from the analysis methods):\n"
+        f"{measurement_block}\n\n"
+        "Every number you state must come from these measured figures. The excerpts above are illustrative "
+        "quotes, not the sample: never compute counts or percentages from the number of excerpts. For questions "
+        "about how much coverage something gets, quote the share of articles counting syndicated copies and "
+        "its base (e.g. '54 of 225 articles, 24%'), and mention the unique-story share where it differs.\n"
+    )
+
+
 def synthesize_insight(
     objective_text: str,
     insight_type: str,
     evidence_excerpts: list[str],
     platforms: list[str],
+    measurements: list[str] | None = None,
 ) -> dict[str, str] | None:
     """Generate executive_summary, observation, interpretation, business_impact
-    from evidence using the LLM. Returns None if LLM is unavailable."""
+    from evidence using the LLM. Returns None if LLM is unavailable.
+
+    `measurements` are the analysis methods' measured figures (counts and shares over the whole dataset);
+    the excerpts are only illustrative quotes, so every number must come from the measurements."""
     evidence_block = "\n".join(
         f"- {ex[:400]}" for ex in evidence_excerpts[:20]
     )
+    measurement_block = "\n".join(f"- {m}" for m in (measurements or [])[:15])
     platform_str = ", ".join(platforms) if platforms else "various sources"
 
     system = (
@@ -118,8 +136,9 @@ def synthesize_insight(
 
     user = f"""Analyze this evidence for the research objective: "{objective_text}"
 
-Evidence from {platform_str} ({len(evidence_excerpts)} items):
+Evidence from {platform_str} ({len(evidence_excerpts)} illustrative excerpts):
 {evidence_block}
+{_measurements_section(measurement_block)}
 
 Respond in JSON with exactly these keys:
 - "title": A specific, descriptive title for this insight (max 15 words, no "Insight:" prefix)
