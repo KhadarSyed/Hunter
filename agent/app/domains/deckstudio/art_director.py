@@ -48,6 +48,7 @@ def _guard(t: DeckTokens) -> DeckTokens:
     t.text = _darken(t.text, t.background, MIN_CONTRAST)
     t.muted = _darken(t.muted, t.background, MIN_CONTRAST)
     t.primary = _darken(t.primary, t.background, MIN_ACCENT_CONTRAST)
+    t.accent = _darken(t.accent, t.background, MIN_ACCENT_CONTRAST)      # kickers are accent text on the background
     t.title_font = t.title_font if t.title_font in GOOGLE_FONTS else "Playfair Display"
     t.body_font = t.body_font if t.body_font in GOOGLE_FONTS else "Inter"
     r, g, b = (int(t.primary[i:i + 2], 16) for i in (0, 2, 4))
