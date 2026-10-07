@@ -55,6 +55,7 @@ def _trend(module, rq, rows, base_n, _):
     undated = len(rows) - len(dated)
     plural = "s" if undated != 1 else ""
     notes = [f"{undated} undated article{plural} not shown on the trend"] if undated else []
+    facts += notes
     return _section(module, rq, chart={"kind": "line_peaks", "categories": [month_label(k) for k in series],
                                        "values": values, "peaks": sorted(top), "unit": "count", "series_label": "Articles"},
                     facts=facts, candidate_urls=cands, notes=notes)

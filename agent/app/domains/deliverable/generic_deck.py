@@ -14,6 +14,7 @@ from .amcharts_png import render_treemap_png
 from .deck import _add_logo, _move_to_end, _set_cover, keep_cover_and_closing, paginate
 from .engine_types import RQ, Section
 from .gauge import render_gauge_png
+from .qc import estimate_overflow
 
 CITES_PER_PAGE = 14
 CHART_TOP = 1.5
@@ -22,6 +23,7 @@ EMU_PER_IN = 914400
 COVER_IMAGE_TOP = 1.2
 COVER_IMAGE_W = 4.2
 COVER_IMAGE_MAX_H = 5.0
+TITLE_BOX_W, TITLE_BOX_H = 5.7, 0.8      # blocks.add_header title box
 
 
 @dataclass
@@ -51,9 +53,18 @@ class DeckInput:
     rq_titles: dict[str, str] = field(default_factory=dict)   # short slide titles from the analysis plan
 
 
+def _fit_title(text: str) -> str:
+    """Trim at a word boundary until the header title box holds it (same estimate the QC overflow check uses)."""
+    words = text.split()
+    while len(words) > 1 and estimate_overflow(" ".join(words), TITLE_BOX_W, TITLE_BOX_H, style.TITLE_PT):
+        words = words[:-1]
+    fitted = " ".join(words)
+    return fitted if fitted == text.strip() else fitted.rstrip(",;:") + "…"
+
+
 def _slide(prs, inp: DeckInput, kicker: str, title: str, summary: str = "", icon: Path | None = None):
     s = blocks.new_content_slide(prs)
-    blocks.add_header(s, kicker, title, summary, font=inp.title_font, accent=inp.accent)
+    blocks.add_header(s, kicker, _fit_title(title), summary, font=inp.title_font, accent=inp.accent)
     blocks.add_footer(s, f"{FOOT_SOURCE}  |  {inp.period_label}", inp.base_n)
     if icon and icon.exists():
         s.shapes.add_picture(str(icon), Inches(style.SLIDE_W - 0.95), Inches(0.3), height=Inches(0.5))
@@ -136,7 +147,6 @@ def _rq_slides(prs, inp: DeckInput, rq: RQ, work: Path):
     summary = kpi.facts[0].split(": ", 1)[-1] if kpi else "No articles for this question"
     title = inp.rq_titles.get(rq.id) or rq.question[:60]
     s = _slide(prs, inp, rq.id, title, summary, inp.icons.get("share_kpi"))
-    blocks.add_text(s, style.MARGIN, CHART_TOP - 0.12, style.SLIDE_W - 2 * style.MARGIN, 0.2, rq.question, 8)
     if not kpi:
         blocks.add_text(s, style.MARGIN, CHART_TOP + 0.4, 12, 0.6, "No articles for this question", 18, True,
                         inp.accent, font=inp.title_font)
