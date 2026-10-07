@@ -100,6 +100,14 @@ def _is_probe(url: str) -> bool:
     return "/api/intel/agent/" in url or (url.rstrip("/").endswith("/latest") and "/deliverable/" in url)
 
 
+def _keep_error(message: str) -> bool:
+    """Console "Failed to load resource" lines repeat a failed request without its URL; the HTTP line is kept.
+    Requests the QA agent made itself are not the app's failures."""
+    if message.startswith("Failed to load resource"):
+        return False
+    return not (message.startswith("HTTP") and _is_probe(message.split(" ")[-1]))
+
+
 def check_page(page, name: str, project_id: int | None) -> list[Finding]:
     found: list[Finding] = []
     lowest = 1.0
@@ -156,7 +164,7 @@ def walk(base_url: str, user_id: int, project_id: int, out_dir: Path, pages=WALK
                 if name == "projects":
                     here += _check_project_switch(page, project_id)
                 here += [Finding(name, "failed_request" if e.startswith("HTTP") else "console_error", e[:200])
-                         for e in dict.fromkeys(errors) if not _is_probe(e.split(" ")[-1])]
+                         for e in dict.fromkeys(errors) if _keep_error(e)]
                 if here:
                     shot = out_dir / f"{name}.png"
                     page.screenshot(path=str(shot), full_page=True)
