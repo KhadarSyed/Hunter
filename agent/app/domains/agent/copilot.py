@@ -23,15 +23,19 @@ def _action(tool: str, out: dict) -> dict:
     return {"tool": tool, "ok": out["ok"], **({"error": out.get("error")} if not out["ok"] else {})}
 
 
-def _pending(project_id: int, tool: str, args: dict) -> dict:
+def _pending(project_id: int, user_id: int, tool: str, args: dict) -> dict:
     pid = secrets.token_hex(8)
-    item = {"id": pid, "tool": tool, "args": args, "summary": f"{tool} {json.dumps(args)[:120]}", "at": time.time()}
+    item = {"id": pid, "tool": tool, "args": args, "summary": f"{tool} {json.dumps(args)[:120]}", "at": time.time(),
+            "user_id": user_id}
     store.set_memory(project_id, "pending", pid, item)
     return {k: item[k] for k in ("id", "tool", "args", "summary")}
 
 
 def _confirm(ctx: ToolContext, pending_id: str) -> dict:
     item = next((m["value"] for m in store.list_memory(ctx.project_id, "pending") if m["key"] == pending_id), None)
+    if item and item.get("user_id") != ctx.user_id:     # left pending: only the user who asked can confirm it
+        return {"reply": "That action was asked for by another user; only they can confirm it.", "actions": [],
+                "pending": None}
     store.delete_memory(ctx.project_id, "pending", pending_id)
     if not item or time.time() - item["at"] > PENDING_TTL:
         return {"reply": "There is no pending action with that id (it may have expired).", "actions": [], "pending": None}
@@ -98,7 +102,7 @@ def _reply(ctx: ToolContext, message: str, llm, confirm: str | None) -> dict:
                 actions.append({"tool": call["name"], "ok": False, "error": "no such tool"})
                 result = {"ok": False, "error": "no such tool; this cannot be done"}
             elif tool.costly:
-                pending = _pending(project_id, call["name"], call["arguments"])
+                pending = _pending(project_id, ctx.user_id, call["name"], call["arguments"])
                 return {"reply": f"This will run {call['name'].replace('_', ' ')}, which takes a while. Confirm to go ahead.",
                         "actions": actions, "pending": pending}
             else:

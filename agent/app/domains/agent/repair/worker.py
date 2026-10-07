@@ -5,19 +5,45 @@ import logging
 import threading
 import time
 
-from ....core import store
+from pathlib import Path
+
+from ....core import config, store
 from . import apply as apply_mod
-from . import fixer
+from . import fixer, worktree
 
 logger = logging.getLogger(__name__)
 POLL_SECONDS = 60
 
 
+MIN_REPORT_WORDS = 6
+_NOTICE_SOURCES = ("repair",)      # status notices about the fixer itself, not code defects
+
+
+def _vague(issue: dict) -> str:
+    """Why an issue is too thin for a fix attempt ("" when it is actionable)."""
+    detail = issue.get("detail") or {}
+    if issue["source"] in _NOTICE_SOURCES:
+        return "a notice, not a code defect"
+    if not detail:
+        return "no detail recorded"
+    if issue["source"] == "user":
+        words = len(str(detail.get("detail") or "").split()) + len(issue["title"].split())
+        if not detail.get("page") or words < MIN_REPORT_WORDS:
+            return "needs more detail (which page, what was expected, what happened)"
+    return ""
+
+
 def tick(llm, propose=fixer.propose, apply_fix=apply_mod.apply_fix) -> dict | None:
-    open_issues = sorted(store.list_issues("open"), key=lambda i: i["id"])
-    if not open_issues:
+    """The oldest actionable open issue gets one fix attempt; vague ones wait in triage for a person."""
+    issue = None
+    for candidate in sorted(store.list_issues("open"), key=lambda i: i["id"]):
+        why = _vague(candidate)
+        if not why:
+            issue = candidate
+            break
+        store.set_issue_status(candidate["id"], "triage", f"not sent to the fixer: {why}")
+    if issue is None:
         return None
-    issue = open_issues[0]
     out = propose(issue["id"], llm)
     result = {"issue_id": issue["id"], **out}
     if out.get("status") == "proposed" and (store.get_fix(out["fix_id"]) or {}).get("tier") == "auto":
@@ -42,6 +68,31 @@ def propose_in_background(issue_id: int) -> bool:
             store.set_issue_status(issue_id, "discarded", f"fixer error: {type(e).__name__}")
     threading.Thread(target=work, daemon=True, name=f"fix-proposal-{issue_id}").start()
     return True
+
+
+INTERRUPTED = "proposal interrupted by a restart"
+
+
+def recover_interrupted(repo: Path | None = None) -> list[int]:
+    """At startup no proposal can still be running: an issue left "fixing" was cut off by a restart. It goes back
+    to the queue, and any autofix worktree no fix was recorded for is removed."""
+    recovered = []
+    for issue in store.list_issues("fixing"):
+        if INTERRUPTED in (issue.get("note") or ""):        # killed the process twice: a person looks first
+            store.set_issue_status(issue["id"], "triage", "proposal interrupted by a restart twice; needs a person")
+            continue
+        store.set_issue_status(issue["id"], "open", f"{INTERRUPTED}; queued again")
+        recovered.append(issue["id"])
+    known = {f["branch"].replace("/", "-") for f in store.list_fixes()}
+    if config.AUTOFIX_DIR.is_dir():
+        for path in config.AUTOFIX_DIR.glob("autofix-*"):
+            if path.is_dir() and path.name not in known:
+                branch = "autofix/" + path.name[len("autofix-"):]
+                try:
+                    worktree.remove(worktree.Worktree(path=path, branch=branch, base=""), repo)
+                except Exception as e:  # noqa: BLE001 -- a stale folder must never stop startup
+                    logger.warning("could not remove stale worktree %s: %s", path.name, type(e).__name__)
+    return recovered
 
 
 def _loop() -> None:

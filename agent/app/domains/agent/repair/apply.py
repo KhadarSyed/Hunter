@@ -98,6 +98,7 @@ def apply_fix(fix_id: int, approved_by: str | None, restart=None, build_web=None
                  / f"test_autofix_{fix['issue_id']}.py")
     if test_file.exists():
         shutil.copy2(test_file, config.REPO_ROOT / "agent" / "tests" / test_file.name)
+    _discard_worktree(fix)
     if "web/" in fix["diff"]:
         code, out = (build_web or _build_web)()
         if code != 0:
@@ -107,6 +108,17 @@ def apply_fix(fix_id: int, approved_by: str | None, restart=None, build_web=None
     store.update_fix(fix_id, status="verifying", commit_sha=sha)
     (restart or _restart)()
     return {"status": "verifying", "reason": "merged; restarting to verify"}
+
+
+def _discard_worktree(fix: dict) -> None:
+    """Once merged, the fix's worktree and autofix branch have nothing left to give: rollback reverts the commit."""
+    path = config.AUTOFIX_DIR / fix["branch"].replace("/", "-")
+    if not path.exists():
+        return
+    try:
+        worktree.remove(worktree.Worktree(path=path, branch=fix["branch"], base=""))
+    except (RuntimeError, OSError, subprocess.CalledProcessError) as e:
+        logger.warning("could not remove worktree for fix %s: %s", fix["id"], type(e).__name__)
 
 
 def _health() -> bool:

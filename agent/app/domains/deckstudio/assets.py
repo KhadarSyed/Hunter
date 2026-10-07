@@ -148,17 +148,29 @@ def _download(url: str) -> bytes | None:
         return None
     except requests.RequestException:
         pass
-    if not is_public_http(start):
-        return None
     try:      # some sites refuse plain requests; Scrapling fetches like a browser
-        from scrapling.fetchers import Fetcher
-        page = Fetcher.get(start, timeout=TIMEOUT_S)
-        body = page.body if getattr(page, "status", 0) == 200 else None
-        final = str(getattr(page, "url", start) or start)
-        return body if body and len(body) <= MAX_DOWNLOAD_BYTES and is_public_http(final) else None
+        return _scrapling_download(start)
     except Exception as e:
         logger.warning("image download failed: %s", type(e).__name__)
         return None
+
+
+def _scrapling_download(url: str) -> bytes | None:
+    """The browser-like fallback, with redirects walked one hop at a time so a private host is never requested."""
+    from scrapling.fetchers import Fetcher
+    for _ in range(MAX_REDIRECTS + 1):
+        if not is_public_http(url):
+            return None
+        page = Fetcher.get(url, timeout=TIMEOUT_S, follow_redirects=False)
+        status = getattr(page, "status", 0)
+        headers = getattr(page, "headers", None) or {}
+        location = headers.get("location") or headers.get("Location")
+        if 300 <= status < 400 and location:
+            url = urljoin(url, location)
+            continue
+        body = page.body if status == 200 else None
+        return body if body and len(body) <= MAX_DOWNLOAD_BYTES else None
+    return None
 
 
 def crop_to(path: Path, role: str, out: Path) -> Path:

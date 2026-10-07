@@ -60,6 +60,8 @@ async def lifespan(app: FastAPI):
     from .domains.agent import autopilot
     autopilot.resume_all()
     from .domains.agent.repair import apply as repair_apply
+    from .domains.agent.repair import worker as repair_worker
+    repair_worker.recover_interrupted()
     repair_apply.verify_pending_async()
     if os.environ.get("HUNTER_AUTOFIX", "1") == "1" and os.environ.get("HUNTER_SUPERVISED") == "1":
         from .domains.agent.repair import worker

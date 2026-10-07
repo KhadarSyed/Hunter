@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 MAX_STEPS = 60
 MAX_FAILURES_PER_STEP = 3
 WAIT_SECONDS = 20
+MAX_WAIT_SECONDS = 6 * 3600       # a job still running after this long is stuck, not slow
 _worker = threading.Semaphore(1)          # one project at a time per worker (spec 3.3)
 _stop: set[int] = set()
 _SYSTEM = ("You are Hunter's autopilot. You move a research project from client brief to delivered deck by calling one "
@@ -58,8 +59,10 @@ def drive(project_id: int, user_id: int, llm=None, sleep=time.sleep) -> str:
     failures: dict[str, int] = {}
     api = _api(user_id)
     ctx = ToolContext(project_id=project_id, user_id=user_id, actor="autopilot", api=api, llm=llm)
+    n, waited = 0, 0
     try:
-        for n in range(1, MAX_STEPS + 1):
+        # Only actions count toward MAX_STEPS: polling a long research or deck job is not progress lost
+        while n < MAX_STEPS:
             if project_id in _stop:
                 _stop.discard(project_id)
                 store.upsert_autopilot(project_id, user_id, "stopped", "stopped by user")
@@ -67,13 +70,19 @@ def drive(project_id: int, user_id: int, llm=None, sleep=time.sleep) -> str:
             status = project_status(project_id)
             if status["next"] is None:
                 store.upsert_autopilot(project_id, user_id, "done", "deck delivered")
-                memory.record(project_id, "autopilot", "done", {"steps": n - 1})
+                memory.record(project_id, "autopilot", "done", {"steps": n})
                 return "done"
             name, args, why = decide(project_id, llm, status)
-            store.upsert_autopilot(project_id, user_id, "running", f"step {n}: {name}")
             if name == "wait":
+                if waited >= MAX_WAIT_SECONDS:
+                    store.upsert_autopilot(project_id, user_id, "blocked", f"waited {waited // 60} minutes for a job")
+                    return "blocked"
+                store.upsert_autopilot(project_id, user_id, "running", f"step {n}: waiting for a running job")
                 sleep(WAIT_SECONDS)
+                waited += WAIT_SECONDS
                 continue
+            n += 1
+            store.upsert_autopilot(project_id, user_id, "running", f"step {n}: {name}")
             out = run_tool(ctx, name, args)
             if out.get("needs_human"):
                 store.upsert_autopilot(project_id, user_id, "blocked", f"{name}: {out['error']}")
