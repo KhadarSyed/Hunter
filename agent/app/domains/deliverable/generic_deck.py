@@ -4,6 +4,7 @@ citation appendix - in the brand heading font, accent and chart tints."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import os
 from pathlib import Path
 
 from pptx import Presentation
@@ -26,6 +27,9 @@ COVER_IMAGE_W = 4.2
 COVER_IMAGE_MAX_H = 5.0
 TITLE_BOX_W, TITLE_BOX_H = 5.7, 0.55     # blocks.add_header title box, one line at TITLE_PT
 MAX_TILES = 5
+CONTACT_BAND = 0.8          # template pictures below this share of the slide height are contact icons
+TITLE_FONT_FILE = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts" / "arialbd.ttf"
+TITLE_PAD_IN = 0.2          # text box insets
 QUESTION_CHARS = 95
 
 
@@ -57,10 +61,19 @@ class DeckInput:
     citation_icons: dict[int, Path] = field(default_factory=dict)   # citation number -> source domain favicon
 
 
+def _title_too_wide(text: str) -> bool:
+    """Measured with the bold font when it is installed; the character estimate under-counts bold capitals."""
+    if TITLE_FONT_FILE.exists():
+        from PIL import ImageFont
+        font = ImageFont.truetype(str(TITLE_FONT_FILE), style.TITLE_PT)
+        return font.getlength(text + "…") / 72 > TITLE_BOX_W - TITLE_PAD_IN
+    return estimate_overflow(text, TITLE_BOX_W, TITLE_BOX_H, style.TITLE_PT)
+
+
 def _fit_title(text: str) -> str:
-    """Trim at a word boundary until the header title box holds it (same estimate the QC overflow check uses)."""
+    """Trim at a word boundary until the title sits on one line of the header title box."""
     words = text.split()
-    while len(words) > 1 and estimate_overflow(" ".join(words), TITLE_BOX_W, TITLE_BOX_H, style.TITLE_PT):
+    while len(words) > 1 and _title_too_wide(" ".join(words)):
         words = words[:-1]
     fitted = " ".join(words)
     return fitted if fitted == text.strip() else fitted.rstrip(",;:") + "…"
@@ -190,8 +203,8 @@ def _rq_slides(prs, inp: DeckInput, rq: RQ, work: Path):
         s2 = _slide(prs, inp, rq.id, sec.title, sec.facts[0] if sec.facts else "", inp.icons.get(sec.module))
         _draw_chart(s2, sec, inp, work, style.MARGIN, CHART_TOP, 7.6, 4.6)
         blocks.add_text(s2, 8.4, CHART_TOP, 4.4, 3.8, "\n".join(sec.facts[1:7]), 10)
-        if "logos" in sec.notes:
-            _logo_row(s2, inp, sec.chart["categories"], 8.4, 5.6)
+        if any(c in inp.logos for c in sec.chart["categories"]):
+            _logo_row(s2, inp, sec.chart["categories"], 8.4, 5.3)
     for sec in (x for x in sections if not x.skipped and x.table):
         s3 = _slide(prs, inp, rq.id, sec.title, sec.facts[0] if sec.facts else "", inp.icons.get(sec.module))
         rows = sec.table["rows"][:12]
@@ -231,9 +244,18 @@ def _citations(prs, inp: DeckInput) -> list[int]:
     return numbers
 
 
+def _drop_contact_icons(slide) -> None:
+    """The template's phone/mail/location icons label contact text we removed; alone they mean nothing."""
+    band = Inches(style.SLIDE_H * CONTACT_BAND)
+    for sh in list(slide.shapes):
+        if sh.shape_type in (MSO_SHAPE_TYPE.PICTURE, MSO_SHAPE_TYPE.GROUP) and sh.top >= band:
+            sh._element.getparent().remove(sh._element)
+
+
 def _closing(prs, inp: DeckInput):
     closing = prs.slides[-1]
     _strip_template_text(closing)
+    _drop_contact_icons(closing)
     blocks.add_text(closing, 0.8, 2.6, 8.0, 1.0, "Thank you", 44, True, inp.accent, font=inp.title_font)
     blocks.add_text(closing, 0.8, 3.7, 8.0, 0.5, f"{inp.title} – {inp.subtitle}", 18, False, style.BODY,
                     font=inp.title_font)

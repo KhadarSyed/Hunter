@@ -66,7 +66,7 @@ def autofix(pptx_path: Path, issues: list[dict]) -> int:
         slide = prs.slides[issue["slide"] - 1]
         if issue["kind"] == "overflow":
             for sh in slide.shapes:
-                if sh.has_text_frame and sh.text_frame.text.startswith(issue["detail"][:20]):
+                if sh.has_text_frame and sh.text_frame.text.startswith(issue["detail"]):
                     for p in sh.text_frame.paragraphs:
                         for r in p.runs:
                             r.font.size = Pt(max(MIN_FONT_PT, (r.font.size.pt if r.font.size else 12) - SHRINK_PT))

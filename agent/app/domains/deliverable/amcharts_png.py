@@ -33,7 +33,7 @@ const s = root.container.children.push(am5hierarchy.Treemap.new(root, {{
   downDepth: 1, initialDepth: 1, valueField: "value", categoryField: "name", childDataField: "children",
   nodePaddingOuter: 4, nodePaddingInner: 4}}));
 s.set("colors", am5.ColorSet.new(root, {{colors: {json.dumps(colors)}.map(c => am5.color(c))}}));
-s.labels.template.setAll({{fontSize: 18, fill: am5.color("#{style.BODY}"), text: "{{category}}: {{sum}}"}});
+s.labels.template.setAll({{fontSize: 16, fill: am5.color("#{style.BODY}"), text: "{{category}}: {{sum}}", oversizedBehavior: "wrap", textAlign: "center"}});
 s.data.setAll([{{name: "root", children: {json.dumps(data)}}}]);
 s.set("selectedDataItem", s.dataItems[0]);
 </script></body></html>"""
