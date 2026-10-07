@@ -20,6 +20,10 @@ class DeckTokens:
     title_font: str = "Playfair Display"
     body_font: str = "Inter"
     mood: list[str] = field(default_factory=list)
+    design_system: str = ""
+    type_scale: dict = field(default_factory=dict)
+    chrome_font: str = ""
+    radius: int = 18
 
 
 @dataclass

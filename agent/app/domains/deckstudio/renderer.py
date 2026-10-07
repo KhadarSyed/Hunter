@@ -16,6 +16,7 @@ from .spec import DeckSpec, DeckTokens, SlideSpec
 TEMPLATES = Path(__file__).parent / "templates"
 _env = Environment(loader=FileSystemLoader(str(TEMPLATES)), autoescape=select_autoescape(["html", "j2"]))
 _TAG = re.compile(r"<[^>]+>")
+FRONTEND_CSS = (Path(__file__).parent / "frontend_slides" / "viewport-base.css").read_text(encoding="utf-8")
 CHART_SIZE = {"A": (1000, 540), "C": (1100, 600), "plain": (1600, 600), "full": (900, 420)}
 
 
@@ -47,7 +48,8 @@ def render_deck(spec: DeckSpec, out_dir: Path, slide_html: dict[str, str] | None
     tokens = spec.tokens or DeckTokens()
     parts = [(slide_html or {}).get(s.id) or render_slide(s, tokens, n, len(spec.slides), spec.base_n, spec.period, source, out_dir)
              for n, s in enumerate(spec.slides, start=1)]
-    html = _env.get_template("deck.html.j2").render(spec=spec, t=tokens, fonts=fonts_href(tokens), slides=parts)
+    html = _env.get_template("deck.html.j2").render(spec=spec, t=tokens, fonts=fonts_href(tokens), slides=parts,
+                                                     frontend_css=FRONTEND_CSS)
     path = out_dir / "deck.html"
     path.write_text(html, encoding="utf-8")
     return path

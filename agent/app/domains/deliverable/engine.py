@@ -448,6 +448,7 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
                                     project_id, "fix", f"run{run_id}_{sid}", {"action": action, "flag": kind}))
             run.section({"id": "studio", "rq_id": None, "module": "studio", "title": "Deck",
                          "family": studio["family"], "family_reason": studio["family_reason"],
+                         "design_system": studio["design_system"], "design_reason": studio["design_reason"],
                          "checklist": studio["checklist"], "scorecard": studio["scorecard"],
                          "slides": [{"id": s.id, "type": s.type, "treatment": s.treatment, "reference": s.reference,
                                      "source": next((r["source"] for r in studio["report"] if r["slide_id"] == s.id), "template"),

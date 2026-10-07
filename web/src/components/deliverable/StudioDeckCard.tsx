@@ -23,6 +23,9 @@ export function StudioDeckCard({ projectId, runId, studio }: { projectId: number
           {studio.family && (
             <p className="mt-1 text-xs text-slate-500">Design: {studio.family.replace("_", " ")} — {studio.family_reason}</p>
           )}
+          {studio.design_system && (
+            <p className="mt-1 text-xs text-slate-500">Design system: {studio.design_system} — {studio.design_reason}</p>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           <a href={intelApi.deliverableDownloadUrl(projectId, runId, "studio_pptx")}

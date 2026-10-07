@@ -42,3 +42,22 @@ produces.
 7. **Export:** `cli export --html <dir>/deck.html --spec spec.json --out <dir>` writes the `.pptx` and `.pdf`.
 8. **Check before handing over:** open `deck.html`; confirm no overflow, every question in full, the
    "Did we answer the brief?" scorecard and the checklist present, every Partial or Missing row with a reason.
+
+## frontend-slides assets (vendored)
+
+Deck Studio uses the real frontend-slides skill (github.com/zarazhangrui/frontend-slides, MIT), vendored at
+commit `9906a34` in `agent/app/domains/deckstudio/frontend_slides/` (see `SOURCE.md`):
+
+- **Design systems**: the bold template pack's `selection-index.json` + each system's `design.md`. The art
+  director shortlists systems by the brief's intent (only medium-to-high formality for client research), lets
+  the model pick one, and takes its fonts, weights, paper colours and hero sizes. Brand colours stay primary and
+  accent; the contrast guard still has the last word. The system's name appears in the run log and on the
+  Deliverables page, never on a slide.
+- **`viewport-base.css`**: inlined first in every deck; Deck Studio's own stage rules follow and take precedence.
+- **Animation patterns**: fade-up content, staggered cards, chart fade-scale; off for reduced motion and in
+  exports (PDF/PPTX).
+- Not used: template HTML and preview cards.
+
+To refresh: copy the same files from a newer commit, update `SOURCE.md`, and run
+`agent/tests/test_deckstudio_design_systems.py` plus the render/export tests. `/frontend-slides` itself is
+installed in `~/.claude/skills/frontend-slides` for interactive use.

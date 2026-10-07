@@ -1553,7 +1553,7 @@ export interface DeliverableSection {
   brand?: string;
   lines?: DeliverableLogLine[];
   pct?: number; stage?: string; label?: string; started_at?: number;
-  family?: string; family_reason?: string;
+  family?: string; family_reason?: string; design_system?: string; design_reason?: string;
   checklist?: { ask: string; kind: string; status: "covered" | "partial" | "missing"; slides: number[]; note: string }[];
   scorecard?: { covered: number; partial: number; missing: number };
 }

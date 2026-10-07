@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from ...core import config
-from . import (art_director, assets, checklist, creative, exporter, image_brief, indexer, planner, renderer, verbatims,
+from . import (art_director, assets, checklist, creative, design_systems, exporter, image_brief, indexer, planner, renderer, verbatims,
                vision)
 from .planner import PlanInput
 
@@ -46,8 +46,11 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     plan_input.checklist = rows
     spec = planner.build_deck_spec(plan_input)
     rows = checklist.attach_slide_numbers(spec, rows)
+    entry, design_why = design_systems.choose(llm, plan_input.scope_text, [])
+    design = {**design_systems.load(entry["slug"]), "slug": entry["slug"]}
     spec.tokens, source = art_director.choose_tokens(llm, brand_colors, plan_input.scope_text,
-                                                     indexer.design_rules(spec.family))
+                                                     indexer.design_rules(spec.family), design=design)
+    run.log(f"Design system: {entry['name']} - {design_why}")
     run.log(f"Design family: {spec.family} - {spec.family_reason}")
     run.log(f"Palette and fonts ({source}): {spec.tokens.title_font} / {spec.tokens.body_font}, primary #{spec.tokens.primary}")
     for s in spec.slides:
@@ -124,5 +127,6 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     run.stage("export", "done", f"{len(out['pngs'])} slides")
     counts = {k: sum(1 for r in rows if r["status"] == k) for k in ("covered", "partial", "missing")}
     return {"html": html, "pptx": out["pptx"], "pdf": out["pdf"], "family": spec.family,
-            "family_reason": spec.family_reason, "checklist": rows, "scorecard": counts, "report": report,
+            "family_reason": spec.family_reason,
+            "design_system": entry["name"], "design_reason": design_why, "checklist": rows, "scorecard": counts, "report": report,
             "assets": found, "spec": spec, "deck_dir": deck_dir}
