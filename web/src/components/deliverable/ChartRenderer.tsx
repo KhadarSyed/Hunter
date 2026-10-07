@@ -25,7 +25,9 @@ function buildXY(root: am5.Root, spec: ChartSpec, fill: string) {
   const data: Datum[] = spec.categories.map((c, i) => ({ category: c, value: spec.values[i] ?? 0, peak: (spec.peaks ?? []).includes(i) }));
   const percent = spec.unit === "percent";
   if (spec.kind === "bar") {
-    const yAxis = chart.yAxes.push(am5xy.CategoryAxis.new(root, { categoryField: "category", renderer: am5xy.AxisRendererY.new(root, { inversed: true, minGridDistance: 12 }) }));
+    const yRenderer = am5xy.AxisRendererY.new(root, { inversed: true, minGridDistance: 12 });
+    yRenderer.labels.template.setAll({ fontSize: 11, oversizedBehavior: "truncate", maxWidth: 160 });
+    const yAxis = chart.yAxes.push(am5xy.CategoryAxis.new(root, { categoryField: "category", renderer: yRenderer }));
     const xAxis = chart.xAxes.push(am5xy.ValueAxis.new(root, { min: 0, renderer: am5xy.AxisRendererX.new(root, {}) }));
     yAxis.data.setAll(data);
     const series = chart.series.push(am5xy.ColumnSeries.new(root, { xAxis, yAxis, valueXField: "value", categoryYField: "category" }));
@@ -35,7 +37,10 @@ function buildXY(root: am5.Root, spec: ChartSpec, fill: string) {
     series.data.setAll(data);
     return;
   }
-  const xAxis = chart.xAxes.push(am5xy.CategoryAxis.new(root, { categoryField: "category", renderer: am5xy.AxisRendererX.new(root, { minGridDistance: 30 }) }));
+  // Labels angled and spaced so long month axes never overlap; amCharts drops labels that would collide
+  const xRenderer = am5xy.AxisRendererX.new(root, { minGridDistance: 45 });
+  xRenderer.labels.template.setAll({ rotation: -40, centerY: am5.p50, centerX: am5.p100, fontSize: 11, oversizedBehavior: "truncate", maxWidth: 110 });
+  const xAxis = chart.xAxes.push(am5xy.CategoryAxis.new(root, { categoryField: "category", renderer: xRenderer }));
   const yAxis = chart.yAxes.push(am5xy.ValueAxis.new(root, { min: 0, renderer: am5xy.AxisRendererY.new(root, {}) }));
   xAxis.data.setAll(data);
   if (spec.kind === "line_peaks") {

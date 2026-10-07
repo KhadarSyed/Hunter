@@ -1544,5 +1544,11 @@ export interface DeliverableSection {
   takeaways?: DeliverableCard[];
   data?: { files: number; unique_urls: number; stories: number; base_n: number; by_rq: Record<string, number> };
   report?: { ready: boolean; facts: unknown[]; layout: unknown[]; pngs: string[]; fixed: number };
+  citations?: DeliverableCitation[];
+  hero?: { url: string | null; credit: string };
+  logos?: Record<string, string>;
+  country?: string | null;
+  brand?: string;
 }
+export interface DeliverableCitation { n: number; outlet: string; title: string; url: string; date: string; domain: string }
 export interface DeliverablePayload { run: DeliverableRun | null; sections: DeliverableSection[] }

@@ -1,42 +1,75 @@
 import { useEffect, useState } from "react";
+import { Icon } from "@iconify/react";
 import { intelApi } from "../services/intel-api";
-import type { DeliverableCard, DeliverablePayload, DeliverableSection } from "../services/intel-api";
+import type { DeliverableCard, DeliverableCitation, DeliverablePayload, DeliverableSection } from "../services/intel-api";
 import { agentSocket } from "../services/ws";
 import { useActiveProjectId } from "../context/project-context";
 import { ChartRenderer } from "../components/deliverable/ChartRenderer";
 import { RunTimeline } from "../components/deliverable/RunTimeline";
 
 const MAX_TABLE_ROWS = 12;
+const MODULE_ICONS: Record<string, string> = {
+  share_kpi: "lucide:pie-chart", volume_trend: "lucide:trending-up", sentiment_split: "lucide:smile",
+  outlet_ranking: "lucide:newspaper", reach: "lucide:radio-tower", theme_clusters: "lucide:layout-grid",
+  entities: "lucide:users", brand_sov: "lucide:award", top_articles: "lucide:file-text", overview: "lucide:bar-chart-3",
+};
+const favicon = (domain: string) => `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`;
 
-function CiteChip({ n }: { n: number }) {
-  return <span className="ml-0.5 rounded bg-violet-50 px-1 text-[10px] font-medium text-violet-700">{n}</span>;
+type CiteMap = Record<number, DeliverableCitation>;
+
+/** A citation shows its source site icon (linked), never a bare number. */
+function CiteChip({ n, cites }: { n: number; cites: CiteMap }) {
+  const c = cites[n];
+  if (!c) return null;
+  return (
+    <a href={c.url} target="_blank" rel="noopener noreferrer" title={`${c.outlet || c.domain}: ${c.title}`}
+      className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white align-middle">
+      <img src={favicon(c.domain)} alt={c.domain} className="h-3.5 w-3.5 rounded-sm" loading="lazy" />
+    </a>
+  );
 }
 
-function Cards({ cards }: { cards: DeliverableCard[] }) {
+function Cards({ cards, cites }: { cards: DeliverableCard[]; cites: CiteMap }) {
   if (!cards.length) return null;
   return (
     <div className="grid gap-3 md:grid-cols-3">
       {cards.map((c, i) => (
         <div key={i} className="rounded-xl border border-violet-100 bg-violet-50/30 p-4">
           <p className="text-sm font-semibold text-violet-800">{c.headline}</p>
-          <p className="mt-1 text-xs text-slate-600">
-            {c.text}
-            {c.citations.map((n) => <CiteChip key={n} n={n} />)}
-          </p>
+          <p className="mt-1 text-xs text-slate-600">{c.text}</p>
+          <div className="mt-2">{c.citations.map((n) => <CiteChip key={n} n={n} cites={cites} />)}</div>
         </div>
       ))}
     </div>
   );
 }
 
-function SectionView({ section }: { section: DeliverableSection }) {
+function LogoStrip({ names, logos }: { names: string[]; logos: Record<string, string> }) {
+  const shown = names.filter((n) => logos[n]).slice(0, 8);
+  if (!shown.length) return null;
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-3">
+      {shown.map((n) => (
+        <img key={n} src={logos[n]} alt={n} title={n} className="h-7 max-w-[90px] object-contain" loading="lazy" />
+      ))}
+    </div>
+  );
+}
+
+function SectionView({ section, logos }: { section: DeliverableSection; logos: Record<string, string> }) {
+  const icon = MODULE_ICONS[section.module];
   if (section.skipped) {
     return <p className="text-xs text-slate-400">{section.title}: {section.skipped}</p>;
   }
+  const brandChart = section.module === "brand_sov" || section.id.endsWith("-brands");
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <p className="mb-2 text-sm font-semibold text-slate-800">{section.title}</p>
+      <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-800">
+        {icon && <Icon icon={icon} width={16} className="text-[#5B2C9D]" />}
+        {section.title}
+      </p>
       {section.chart && <ChartRenderer spec={section.chart} height={260} />}
+      {brandChart && section.chart && <LogoStrip names={section.chart.categories} logos={logos} />}
       {section.table && (
         <div className="mt-2 overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -106,19 +139,32 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
   const summary = byId("executive-summary");
   const overview = byId("overview");
   const qc = byId("qc")?.report;
+  const visuals = byId("visuals");
+  const logos = visuals?.logos ?? {};
+  const cites: CiteMap = Object.fromEntries((byId("citations")?.citations ?? []).map((c) => [c.n, c]));
   const running = run?.status === "running";
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-8 py-10">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Deliverables</h1>
-          <p className="mt-1 text-sm text-slate-500">Charts, tables, cited insights and a brand-styled deck, built from your approved data</p>
+      <div className="relative overflow-hidden rounded-2xl border border-violet-100 bg-gradient-to-r from-violet-50 to-white">
+        {visuals?.hero?.url && (
+          <img src={visuals.hero.url} alt="" className="absolute inset-y-0 right-0 h-full w-1/2 object-cover opacity-90" />
+        )}
+        <div className="relative flex items-start justify-between gap-4 bg-gradient-to-r from-white via-white/95 to-transparent p-6">
+          <div>
+            <h1 className="flex items-center gap-2 text-xl font-semibold text-slate-900">
+              Deliverables
+              {visuals?.country && <Icon icon={`circle-flags:${visuals.country}`} width={22} />}
+            </h1>
+            <p className="mt-1 text-sm text-slate-500">Charts, tables, cited insights and a brand-styled deck, built from your approved data</p>
+            <LogoStrip names={Object.keys(logos)} logos={logos} />
+          </div>
+          <button onClick={generate} disabled={running}
+            className="rounded-lg bg-[#5B2C9D] px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+            {running ? "Generating..." : run ? "Regenerate" : "Generate Deliverable"}
+          </button>
         </div>
-        <button onClick={generate} disabled={running}
-          className="rounded-lg bg-[#5B2C9D] px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
-          {running ? "Generating..." : run ? "Regenerate" : "Generate Deliverable"}
-        </button>
+        {visuals?.hero?.url && <p className="relative px-6 pb-2 text-right text-[10px] text-slate-500">{visuals.hero.credit}</p>}
       </div>
 
       {(startError || (run?.status === "failed" && run.error)) && (
@@ -129,8 +175,10 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
 
       {collection && (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          {[["Files", collection.files], ["Unique URLs", collection.unique_urls], ["Stories", collection.stories], ["Base N", collection.base_n]].map(([label, value]) => (
-            <div key={label} className="rounded-xl border border-slate-200 bg-white p-4 text-center">
+          {[["Files", collection.files, "lucide:files"], ["Unique URLs", collection.unique_urls, "lucide:link"],
+            ["Stories", collection.stories, "lucide:newspaper"], ["Base N", collection.base_n, "lucide:sigma"]].map(([label, value, icon]) => (
+            <div key={String(label)} className="rounded-xl border border-slate-200 bg-white p-4 text-center">
+              <Icon icon={String(icon)} width={18} className="mx-auto text-[#5B2C9D]" />
               <p className="text-2xl font-bold text-[#5B2C9D]">{value}</p>
               <p className="text-xs text-slate-500">{label}</p>
             </div>
@@ -139,7 +187,7 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
       )}
 
       {summary?.answers && (
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-5">
           {summary.answers.map((a) => (
             <div key={a.rq_id} className="rounded-xl border border-violet-100 bg-white p-4">
               <p className="text-3xl font-bold text-[#5B2C9D]">{a.value}</p>
@@ -150,7 +198,7 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
         </div>
       )}
 
-      {overview?.chart && <SectionView section={overview} />}
+      {overview?.chart && <SectionView section={overview} logos={logos} />}
 
       {rqIds.map((rq) => {
         const sections = payload.sections.filter((s) => s.rq_id === rq && s.module !== "insights");
@@ -159,17 +207,19 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
           <section key={rq} className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/40 p-5">
             <h2 className="text-base font-semibold text-slate-900">{rq}</h2>
             <div className="grid gap-3 md:grid-cols-2">
-              {sections.map((s) => <SectionView key={s.id} section={s} />)}
+              {sections.map((s) => <SectionView key={s.id} section={s} logos={logos} />)}
             </div>
-            <Cards cards={insights} />
+            <Cards cards={insights} cites={cites} />
           </section>
         );
       })}
 
       {summary?.takeaways && summary.takeaways.length > 0 && (
         <section className="space-y-3">
-          <h2 className="text-base font-semibold text-slate-900">Key takeaways</h2>
-          <Cards cards={summary.takeaways} />
+          <h2 className="flex items-center gap-2 text-base font-semibold text-slate-900">
+            <Icon icon="lucide:lightbulb" width={18} className="text-[#5B2C9D]" /> Key takeaways
+          </h2>
+          <Cards cards={summary.takeaways} cites={cites} />
         </section>
       )}
 
@@ -192,9 +242,11 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
       {run?.status === "completed" && (
         <div className="flex gap-3">
           <a href={intelApi.deliverableDownloadUrl(projectId, run.id, "pptx")}
-            className="rounded-lg bg-[#5B2C9D] px-4 py-2 text-sm font-medium text-white">Download .pptx</a>
+            className="inline-flex items-center gap-2 rounded-lg bg-[#5B2C9D] px-4 py-2 text-sm font-medium text-white">
+            <Icon icon="lucide:presentation" width={16} /> Download .pptx</a>
           <a href={intelApi.deliverableDownloadUrl(projectId, run.id, "docx")}
-            className="rounded-lg border border-[#5B2C9D] px-4 py-2 text-sm font-medium text-[#5B2C9D]">Download .docx</a>
+            className="inline-flex items-center gap-2 rounded-lg border border-[#5B2C9D] px-4 py-2 text-sm font-medium text-[#5B2C9D]">
+            <Icon icon="lucide:file-text" width={16} /> Download .docx</a>
         </div>
       )}
 
