@@ -90,27 +90,42 @@ def validate_prerequisites(project_id: int) -> dict:
             f"(current status: {run.get('status')})"
         )
 
-    # 3. Evidence library — auto-ingest + auto-accept if empty
+    # 3. Evidence library — make sure the latest completed run's evidence is in it (a re-run of Research
+    # Execution otherwise never reaches the insights)
+    if run and run.get("status") == "completed" and (run.get("id") or run.get("run_id")):
+        _ensure_run_ingested(project_id, run.get("id") or run.get("run_id"))
     status_counts = store.get_library_status_counts(project_id)
     total_items = sum(status_counts.get("by_status", {}).values())
-    if total_items == 0 and run:
-        run_id = run.get("id") or run.get("run_id")
-        if run_id:
-            logger.info("[insight_generator] Auto-ingesting evidence for project %s run %s", project_id, run_id)
-            elib.ingest_evidence(project_id, run_id)
-            all_items = store.list_library_items(project_id, limit=10000)
-            if all_items:
-                item_ids = [it["id"] for it in all_items]
-                elib.bulk_review(item_ids, "accepted", reviewer="auto")
-                logger.info("[insight_generator] Auto-accepted %d evidence items", len(item_ids))
-            status_counts = store.get_library_status_counts(project_id)
-            total_items = sum(status_counts.get("by_status", {}).values())
     if total_items == 0:
         blockers.append("No evidence found — run Research Execution first")
 
     if blockers:
         logger.info("[insight_generator] Prerequisites info: %s", blockers)
     return {"valid": not blockers, "blockers": blockers}
+
+
+def _items_from_run(items: list[dict], run_id: int) -> list[dict]:
+    """Library items whose evidence came from `run_id` (older runs' evidence is stale once execution re-ran)."""
+    out = []
+    for item in items:
+        ev = store.get_evidence_record(item["evidence_id"]) if item.get("evidence_id") else None
+        if ev and ev.get("run_id") == run_id:
+            out.append(item)
+    return out
+
+
+def _ensure_run_ingested(project_id: int, run_id: int) -> None:
+    """Ingest a run's evidence into the library (and auto-accept the new items) when none of the library's
+    items come from it yet."""
+    existing = store.list_library_items(project_id, limit=100000)
+    if _items_from_run(existing, run_id):
+        return
+    logger.info("[insight_generator] Auto-ingesting evidence for project %s run %s", project_id, run_id)
+    result = elib.ingest_evidence(project_id, run_id) or {}
+    new_ids = result.get("new_item_ids") or []
+    if new_ids:
+        elib.bulk_review(new_ids, "accepted", reviewer="auto")
+        logger.info("[insight_generator] Auto-accepted %d evidence items", len(new_ids))
 
 
 # ─── Main Generation ──────────────────────────────────────────────────────
@@ -133,6 +148,8 @@ def generate_insights(project_id: int, reviewer: str = "system") -> dict:
     plan = plan_row.get("plan") or {}
     objectives = plan.get("research_objectives") or []
 
+    run = store.get_latest_execution_run(project_id) or {}
+    latest_run_id = run.get("id") or run.get("run_id")
     generation_id = str(uuid.uuid4())
     total_generated = 0
     objectives_covered = 0
@@ -148,6 +165,8 @@ def generate_insights(project_id: int, reviewer: str = "system") -> dict:
         evidence_items = store.list_library_items(
             project_id, review_status="accepted", objective_id=oid, limit=100000,
         )
+        if latest_run_id:
+            evidence_items = _items_from_run(evidence_items, latest_run_id)
 
         if len(evidence_items) < MIN_EVIDENCE_FOR_INSIGHT:
             objectives_skipped += 1
@@ -163,6 +182,11 @@ def generate_insights(project_id: int, reviewer: str = "system") -> dict:
         )
         total_generated += len(insight_ids)
         objectives_covered += 1
+
+    if total_generated:
+        superseded = store.supersede_insights(project_id, keep_generation_id=generation_id)
+        if superseded:
+            logger.info("[insight_generator] project=%s superseded %d earlier insights", project_id, superseded)
 
     logger.info(
         "[insight_generator] project=%s generation=%s generated=%s "

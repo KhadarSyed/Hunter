@@ -105,6 +105,7 @@ def ingest_evidence(project_id: int, run_id: int) -> dict:
         "skipped": skipped,
         "duplicates_found": duplicates_found,
         "total": len(evidence_records),
+        "new_item_ids": new_item_ids,
     }
 
 
