@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { Icon } from "@iconify/react";
 import { intelApi } from "../services/intel-api";
 import type {
-  DeliverableCard, DeliverableCitation, DeliverableLogLine, DeliverablePayload, DeliverableSection,
+  DeliverableCard, DeliverableCitation, DeliverableLogLine, DeliverablePayload, DeliverableProgress, DeliverableSection,
 } from "../services/intel-api";
+import { RunProgress } from "../components/deliverable/RunProgress";
 import { agentSocket } from "../services/ws";
 import { useActiveProjectId } from "../context/project-context";
 import { ChartRenderer } from "../components/deliverable/ChartRenderer";
@@ -112,6 +113,7 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
   const [details, setDetails] = useState<Record<string, string>>({});
   const [startError, setStartError] = useState<string | null>(null);
   const [liveLog, setLiveLog] = useState<Record<number, DeliverableLogLine[]>>({});
+  const [liveProgress, setLiveProgress] = useState<Record<number, DeliverableProgress>>({});
   const runIdRef = useRef<number | null>(null);
   runIdRef.current = payload.run?.id ?? null;
 
@@ -123,7 +125,10 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
       if (msg.project_id !== projectId) return;
       // Events can beat the POST response on Generate: a run id we have not seen yet means "reload the latest"
       if (String(msg.type).startsWith("deliverable_") && msg.run_id !== runIdRef.current) refresh();
-      if (msg.type === "deliverable_log") {
+      if (msg.type === "deliverable_progress") {
+        setLiveProgress((p) => ({ ...p, [msg.run_id]: { pct: msg.pct, stage: msg.stage, label: msg.label,
+          started_at: msg.started_at } }));
+      } else if (msg.type === "deliverable_log") {
         setLiveLog((l) => ({ ...l, [msg.run_id]: [...(l[msg.run_id] ?? []), { ts: msg.ts, message: msg.message }] }));
       } else if (msg.type === "deliverable_stage") {
         setPayload((p) => (p.run && p.run.id === msg.run_id
@@ -166,6 +171,12 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
   const stored = byId("log")?.lines ?? [];
   const streamed = (run && liveLog[run.id]) || [];
   const logLines = streamed.length > stored.length ? streamed : stored;
+  const savedProgress = byId("progress");
+  const fromStore: DeliverableProgress | null = savedProgress && savedProgress.pct !== undefined
+    ? { pct: savedProgress.pct, stage: savedProgress.stage ?? "", label: savedProgress.label ?? "",
+        started_at: savedProgress.started_at ?? 0 } : null;
+  const fromStream = run ? liveProgress[run.id] : undefined;
+  const progress = fromStream && (!fromStore || fromStream.pct >= fromStore.pct) ? fromStream : fromStore;
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-8 py-10">
@@ -187,13 +198,13 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
             {running ? "Generating..." : run ? "Regenerate" : "Generate Deliverable"}
           </button>
         </div>
-        {visuals?.hero?.url && <p className="relative px-6 pb-2 text-right text-[10px] text-slate-500">{visuals.hero.credit}</p>}
       </div>
 
       {(startError || (run?.status === "failed" && run.error)) && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{startError || run?.error}</div>
       )}
 
+      {run && progress && <RunProgress progress={progress} isLive={running} failed={run.status === "failed"} />}
       {run && <RunTimeline stages={run.stages ?? {}} details={details} />}
       {run && <RunLog lines={logLines} isLive={running} />}
 

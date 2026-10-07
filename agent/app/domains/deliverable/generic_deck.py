@@ -160,9 +160,6 @@ def _cover(prs, inp: DeckInput):
         if pic.height > Inches(COVER_IMAGE_MAX_H):          # tall images: fit the height, keep the aspect ratio
             ratio = Inches(COVER_IMAGE_MAX_H) / pic.height
             pic.height, pic.width = Inches(COVER_IMAGE_MAX_H), int(pic.width * ratio)
-        if not use_brand and inp.hero_credit:
-            blocks.add_text(cover, style.SLIDE_W - 4.6, COVER_IMAGE_TOP + pic.height / EMU_PER_IN + 0.05, 4.2, 0.3,
-                            inp.hero_credit, 7)
     if inp.flag and inp.flag.exists():   # bottom right, clear of the template title block on the left
         cover.shapes.add_picture(str(inp.flag), Inches(style.SLIDE_W - 1.1), Inches(6.35), height=Inches(0.4))
 

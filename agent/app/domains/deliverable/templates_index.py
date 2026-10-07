@@ -62,13 +62,20 @@ def _cosine(a, b) -> float:
 
 
 def choose_template(scope_text: str, llm=None) -> Path:
-    path = _choose(scope_text, llm)
+    return choose_template_explained(scope_text, llm)[0]
+
+
+def choose_template_explained(scope_text: str, llm=None) -> tuple[Path, str]:
+    """The template deck and a one-line reason a person can read in the run log."""
+    path, score, count = _choose_scored(scope_text, llm)
     if not Path(path).exists():
         raise FileNotFoundError(f"No usable PowerPoint template: add a .pptx to {config.TEMPLATES_DIR}")
-    return path
+    if score <= 0:
+        return Path(path), f"no close match among {count} reference decks, so the house default is used"
+    return Path(path), f"closest of {count} reference decks to this project's scope (similarity {score:.2f})"
 
 
-def _choose(scope_text: str, llm=None) -> Path:
+def _choose_scored(scope_text: str, llm=None) -> tuple[Path, float, int]:
     folder = str(Path(config.TEMPLATES_DIR))
 
     def current():
@@ -76,7 +83,7 @@ def _choose(scope_text: str, llm=None) -> Path:
 
     decks = current() or (current() if index_templates(llm) else [])
     if not decks:
-        return DEFAULT_TEMPLATE
+        return DEFAULT_TEMPLATE, 0.0, 0
     query_vec = _embed(llm, scope_text) if any(d["embedding"] for d in decks) else None
     query_tokens = _tokens(scope_text)
 
@@ -86,4 +93,5 @@ def _choose(scope_text: str, llm=None) -> Path:
         return len(query_tokens & _tokens(d["text"])) / (len(query_tokens) or 1)
 
     best = max(decks, key=score)
-    return Path(best["path"]) if score(best) > 0 else DEFAULT_TEMPLATE
+    best_score = score(best)
+    return (Path(best["path"]) if best_score > 0 else DEFAULT_TEMPLATE), best_score, len(decks)

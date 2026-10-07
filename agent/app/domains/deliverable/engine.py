@@ -51,9 +51,36 @@ _STAGE_LABELS = {"gate": "Checking approvals", "ingest": "Ingesting approved dat
                  "render": "Building slides", "qc": "Fact check and layout QC"}
 
 
+# Share of a typical run's time spent in each stage: the overall % moves with the work, not the stage count
+STAGE_WEIGHTS = {"gate": 1, "ingest": 4, "routing": 2, "plan": 8, "classify": 40, "compute": 4, "insights": 20,
+                 "template": 3, "render": 13, "qc": 5}
+
+
+def _stage_span(name: str) -> tuple[float, float]:
+    before = 0
+    for stage in STAGES:
+        if stage == name:
+            return before, before + STAGE_WEIGHTS.get(stage, 0)
+        before += STAGE_WEIGHTS.get(stage, 0)
+    return before, before
+
+
 class _Run:
     def __init__(self, run_id: int, project_id: int):
         self.run_id, self.project_id, self.stages, self.lines = run_id, project_id, {}, []
+        self.started_at, self.pct, self.current = time.time(), 0, "gate"
+
+    def progress(self, pct: float, label: str) -> None:
+        """Overall % (never goes back) and what is happening right now; kept with the run for page reloads."""
+        self.pct = max(self.pct, min(100, int(round(pct))))
+        state = {"pct": self.pct, "stage": self.current, "label": label, "started_at": self.started_at}
+        store.replace_deliverable_section(self.run_id, {"id": "progress", "rq_id": None, "module": "progress",
+                                                        "title": "Progress", **state})
+        broadcast({"type": "deliverable_progress", "project_id": self.project_id, "run_id": self.run_id, **state})
+
+    def within(self, stage: str, fraction: float, label: str) -> None:
+        start, end = _stage_span(stage)
+        self.progress(start + (end - start) * max(0.0, min(1.0, fraction)), label)
 
     def log(self, message: str) -> None:
         """A progress line, streamed live and kept with the run. Step names and counts only, never article
@@ -70,9 +97,12 @@ class _Run:
         broadcast({"type": "deliverable_stage", "project_id": self.project_id, "run_id": self.run_id,
                    "stage": name, "status": status, "detail": detail})
         if status == "running":
+            self.current = name
             self.log(f"{_STAGE_LABELS.get(name, name)} ({name})…")
+            self.within(name, 0, _STAGE_LABELS.get(name, name))
         elif status == "done":
             self.log(f"Done: {name}" + (f" - {detail}" if detail else ""))
+            self.within(name, 1, f"Done: {_STAGE_LABELS.get(name, name)}")
 
     def section(self, payload: dict) -> None:
         store.save_deliverable_section(self.run_id, payload)
@@ -127,20 +157,28 @@ def _methodology(summary: dict, rqs) -> list[str]:
             + [f"{q.id} query: {q.query}" for q in rqs if q.query])
 
 
-def _extract_all(llm, rqs, plans, rows_by_rq) -> tuple[dict, set[str]]:
+def _extract_all(llm, rqs, plans, rows_by_rq, run: "_Run | None" = None) -> tuple[dict, set[str]]:
     extraction: dict[tuple[str, str], dict | None] = {}
     skipped: set[str] = set()
-    for q in rqs:
-        for m in plans[q.id]["modules"]:
-            if m["module"] != "entities":
-                continue
-            kind = m["entity_kind"]
-            try:
-                extraction[(q.id, kind)] = extract.extract(llm, rows_by_rq[q.id], kind)
-            except extract.ExtractionUnavailable as e:
-                extraction[(q.id, kind)] = None
-                skipped.add(kind)
-                logger.warning("extraction skipped for %s/%s: %s", q.id, kind, e)
+    jobs = [(q, m["entity_kind"]) for q in rqs for m in plans[q.id]["modules"] if m["module"] == "entities"]
+    total = sum(len(rows_by_rq[q.id]) for q, _ in jobs) or 1
+    finished = 0
+    for q, kind in jobs:
+        n = len(rows_by_rq[q.id])
+
+        def report(done, _of, q=q, kind=kind, n=n, base=finished):
+            if run:
+                run.within("classify", (base + done) / total,
+                           f"Classifying {kind} in {q.id}: {done} of {n} articles")
+        if run:
+            run.log(f"{q.id}: classifying {kind} in {n} articles")
+        try:
+            extraction[(q.id, kind)] = extract.extract(llm, rows_by_rq[q.id], kind, progress=report)
+        except extract.ExtractionUnavailable as e:
+            extraction[(q.id, kind)] = None
+            skipped.add(kind)
+            logger.warning("extraction skipped for %s/%s: %s", q.id, kind, e)
+        finished += n
     return extraction, skipped
 
 
@@ -274,7 +312,7 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
 
         current = "classify"
         run.stage("classify", "running")
-        extraction, skipped_kinds = _extract_all(llm, rqs, plans, rows_by_rq)
+        extraction, skipped_kinds = _extract_all(llm, rqs, plans, rows_by_rq, run)
         run.stage("classify", "done", ("skipped: " + ", ".join(sorted(skipped_kinds))) if skipped_kinds else "")
 
         current = "compute"
@@ -296,7 +334,8 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         run.stage("insights", "running")
         registry = CitationRegistry()
         insights_by_rq = {}
-        for q in rqs:
+        for k, q in enumerate(rqs):
+            run.within("insights", k / len(rqs), f"Drafting cited insights for {q.id}")
             insights_by_rq[q.id] = engine_insights.rq_insights(q, sections_by_rq[q.id], rows_by_rq[q.id], registry, llm)
             run.section({"id": f"{q.id.lower()}-insights", "rq_id": q.id, "module": "insights", "title": "Insights",
                          "insights": insights_by_rq[q.id]})
@@ -310,8 +349,9 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         current = "template"
         run.stage("template", "running")
         project = store.get_project(project_id) or {}
-        template = templates_index.choose_template(_scope_text(project), llm)
-        run.stage("template", "done", template.name)
+        template, why = templates_index.choose_template_explained(_scope_text(project), llm)
+        run.log(f"Template: {template.stem} - {why}")
+        run.stage("template", "done", template.stem)
 
         current = "render"
         run.stage("render", "running")
@@ -346,6 +386,7 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
 
         store.update_deliverable_run(run_id, status="completed", pptx_path=str(pptx_path), docx_path=str(docx_path),
                                      thumbs_dir=str(out_dir / "thumbs"), finished_at=time.time())
+        run.progress(100, "Deliverable ready")
         broadcast({"type": "deliverable_completed", "project_id": project_id, "run_id": run_id,
                    "ready": report["ready"]})
     except Exception as e:

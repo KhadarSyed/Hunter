@@ -1550,7 +1550,9 @@ export interface DeliverableSection {
   country?: string | null;
   brand?: string;
   lines?: DeliverableLogLine[];
+  pct?: number; stage?: string; label?: string; started_at?: number;
 }
+export interface DeliverableProgress { pct: number; stage: string; label: string; started_at: number }
 export interface DeliverableLogLine { ts: number; message: string }
 export interface DeliverableCitation { n: number; outlet: string; title: string; url: string; date: string; domain: string }
 export interface DeliverablePayload { run: DeliverableRun | null; sections: DeliverableSection[] }
