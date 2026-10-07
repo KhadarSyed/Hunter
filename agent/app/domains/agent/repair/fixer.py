@@ -95,8 +95,12 @@ def _converse(wt, llm, issue: dict, test_rel: str, ask: str, stop_when=None) -> 
                 return
 
 
-def _discard(issue_id: int, wt, repo: Path, reason: str) -> dict:
-    store.set_issue_status(issue_id, "discarded", reason)
+OUTPUT_IN_NOTE = 800
+
+
+def _discard(issue_id: int, wt, repo: Path, reason: str, output: str = "") -> dict:
+    note = f"{reason}\n{output[-OUTPUT_IN_NOTE:]}" if output else reason
+    store.set_issue_status(issue_id, "discarded", note.strip())
     worktree.remove(wt, repo)
     return {"status": "discarded", "fix_id": None, "reason": reason}
 
@@ -135,11 +139,11 @@ def propose(issue_id: int, llm, repo: Path | None = None, create_wt=worktree.cre
         if not ui:
             code, tests["green"] = _pytest(wt, test_rel)
             if code != 0:
-                return _discard(issue_id, wt, repo, "the fix does not make its test pass")
+                return _discard(issue_id, wt, repo, "the fix does not make its test pass", tests["green"])
             code, out = worktree.run(wt, SUITE, timeout=3600)
             tests["suite"] = out[-1500:]
             if code != 0:
-                return _discard(issue_id, wt, repo, "the full suite fails with the fix")
+                return _discard(issue_id, wt, repo, "the full suite fails with the fix", out)
         else:
             _junction_node_modules(wt, repo)
             code, out = worktree.run(wt, ["cmd", "/c", "npx", "tsc", "--noEmit"], cwd_rel="web") \
