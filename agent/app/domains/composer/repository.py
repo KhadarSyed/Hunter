@@ -49,7 +49,7 @@ def list_pc_presentations(project_id: int) -> list[dict]:
 def get_latest_pc_presentation(project_id: int) -> dict | None:
     conn = _conn()
     row = conn.execute(
-        "SELECT * FROM intel_pc_presentations WHERE project_id=? ORDER BY created_at DESC LIMIT 1",
+        "SELECT * FROM intel_pc_presentations WHERE project_id=? ORDER BY created_at DESC, id DESC LIMIT 1",
         (project_id,),
     ).fetchone()
     conn.close()

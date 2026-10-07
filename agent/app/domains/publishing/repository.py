@@ -56,7 +56,7 @@ def get_pub_validation(validation_id: int) -> dict | None:
 def get_latest_pub_validation(presentation_id: int) -> dict | None:
     conn = _conn()
     row = conn.execute(
-        "SELECT * FROM intel_pub_validations WHERE presentation_id=? ORDER BY created_at DESC LIMIT 1",
+        "SELECT * FROM intel_pub_validations WHERE presentation_id=? ORDER BY created_at DESC, id DESC LIMIT 1",
         (presentation_id,),
     ).fetchone()
     conn.close()
@@ -125,7 +125,7 @@ def get_pub_diff_report(diff_id: int) -> dict | None:
 def get_latest_diff_report(presentation_id: int) -> dict | None:
     conn = _conn()
     row = conn.execute(
-        "SELECT * FROM intel_pub_diff_reports WHERE presentation_id=? ORDER BY created_at DESC LIMIT 1",
+        "SELECT * FROM intel_pub_diff_reports WHERE presentation_id=? ORDER BY created_at DESC, id DESC LIMIT 1",
         (presentation_id,),
     ).fetchone()
     conn.close()
@@ -166,7 +166,7 @@ def get_pub_version(version_id: int) -> dict | None:
 def get_latest_pub_version(presentation_id: int) -> dict | None:
     conn = _conn()
     row = conn.execute(
-        "SELECT * FROM intel_pub_versions WHERE presentation_id=? ORDER BY created_at DESC LIMIT 1",
+        "SELECT * FROM intel_pub_versions WHERE presentation_id=? ORDER BY created_at DESC, id DESC LIMIT 1",
         (presentation_id,),
     ).fetchone()
     conn.close()
@@ -232,7 +232,7 @@ def get_pub_package(package_id: int) -> dict | None:
 def get_latest_pub_package(presentation_id: int) -> dict | None:
     conn = _conn()
     row = conn.execute(
-        "SELECT * FROM intel_pub_packages WHERE presentation_id=? ORDER BY created_at DESC LIMIT 1",
+        "SELECT * FROM intel_pub_packages WHERE presentation_id=? ORDER BY created_at DESC, id DESC LIMIT 1",
         (presentation_id,),
     ).fetchone()
     conn.close()

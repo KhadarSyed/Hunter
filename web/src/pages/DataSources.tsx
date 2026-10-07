@@ -3,6 +3,7 @@ import { intelApi, type JobStatus } from "../services/intel-api";
 import { useActiveProjectId, useProject } from "../context/project-context";
 import { useDemoState } from "../context/demo-state";
 import { EnrichedArticlesTable, loadThreshold, reviewQueueOf } from "../components/EnrichedArticlesTable";
+import type { EnrichedRecord } from "../services/intel-api";
 
 const V = "#5B2C9D";
 
@@ -132,6 +133,7 @@ function RQCard({
   const [editQuery, setEditQuery] = useState(rq.query);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const doneDatasets = datasets.filter((d) => d.processing_status === "done");
+  const failedDatasets = datasets.filter((d) => d.processing_status === "error");
   const isApproved = doneDatasets.some((d) => d.approval_status === "approved");
   const isProcessing = uploading || datasets.some((d) => d.processing_status === "processing");
   const hasData = doneDatasets.length > 0;
@@ -309,6 +311,17 @@ function RQCard({
             </div>
           </label>
         )}
+
+        {/* Files that failed to process stay visible (with the reason) until removed */}
+        {failedDatasets.map((dataset) => (
+          <div key={dataset.id} className="mt-3 flex items-start gap-3 px-4 py-3 bg-red-50 border border-red-100 rounded-lg">
+            <span className="text-xs font-medium text-slate-700 truncate">{dataset.file_name}</span>
+            <span className="text-xs text-red-600 flex-1">{dataset.processing_error || "Processing failed"}</span>
+            <button onClick={() => onDelete(dataset.id)} className="text-xs font-medium text-red-600 hover:text-red-700 shrink-0">
+              Remove
+            </button>
+          </div>
+        ))}
 
         {/* Dataset summaries — one per uploaded file */}
         {doneDatasets.map((dataset) => {
@@ -500,6 +513,31 @@ function RQCard({
   );
 }
 
+interface ReviewSummary {
+  total: number;
+  approved: number;
+  autoAccepted: number;
+  needsReview: number;
+  excluded: number;
+}
+
+/** Same rules as the proceed gate: disapproved/irrelevant rows are excluded, manually approved rows count,
+ * and the rest split by the confidence threshold into auto-accepted vs needs-review. */
+function summarizeReview(records: EnrichedRecord[], threshold: number): ReviewSummary {
+  const summary: ReviewSummary = { total: records.length, approved: 0, autoAccepted: 0, needsReview: 0, excluded: 0 };
+  for (const r of records) {
+    if (r.approval_status === "disapproved" || r.review_status === "irrelevant") summary.excluded += 1;
+    else if (r.approval_status === "approved") summary.approved += 1;
+    else if (reviewQueueOf(r, threshold) === "auto_accepted") summary.autoAccepted += 1;
+    else summary.needsReview += 1;
+  }
+  return summary;
+}
+
+function reviewSummaryText(s: ReviewSummary): string {
+  return `${s.total} articles — ${s.approved} approved, ${s.autoAccepted} auto-accepted, ${s.needsReview} need review, ${s.excluded} excluded.`;
+}
+
 export function DataSources({ onNavigate }: Props) {
   const projectId = useActiveProjectId();
   const { activeProject } = useProject();
@@ -532,9 +570,7 @@ export function DataSources({ onNavigate }: Props) {
   // approval_status independently: only enforced when there IS enriched data to review at
   // all (hasAnyEnriched) — a project that hasn't enriched anything yet isn't blocked by a
   // gate about a review step it has no way to have done.
-  const articleApprovedCount = reviewRecords.filter((r) => r.approval_status === "approved").length;
-  const articleDisapprovedCount = reviewRecords.filter((r) => r.approval_status === "disapproved").length;
-  const articlePendingCount = reviewRecords.length - articleApprovedCount - articleDisapprovedCount;
+  const reviewSummary = summarizeReview(reviewRecords, loadThreshold());
 
   const handleRequestProceed = async () => {
     // Re-fetch and use the returned records directly, rather than the articleApprovedCount
@@ -544,11 +580,8 @@ export function DataSources({ onNavigate }: Props) {
     const fresh = await loadReview();
     const records = fresh ?? reviewRecords;
     // Auto-accepted rows (above the confidence threshold, not disapproved) count like approved ones.
-    const threshold = loadThreshold();
-    const freshApproved = records.filter((r) => r.approval_status === "approved"
-      || (r.review_status !== "irrelevant" && r.approval_status !== "disapproved"
-          && reviewQueueOf(r, threshold) === "auto_accepted")).length;
-    if (hasAnyEnriched && freshApproved === 0) {
+    const freshSummary = summarizeReview(records, loadThreshold());
+    if (hasAnyEnriched && freshSummary.approved + freshSummary.autoAccepted === 0) {
       setProceedBlockedMsg(
         "At least 1 article must be approved or auto-accepted (at or above the confidence threshold) in the Review tab before you can proceed to Research Execution."
       );
@@ -618,6 +651,10 @@ export function DataSources({ onNavigate }: Props) {
           return;
         }
         if (ds?.processing_status === "error") {
+          setDatasets((prev) => ({
+            ...prev,
+            [rqId]: [...(prev[rqId] || []).filter((d) => d.id !== datasetId), ds],
+          }));
           appendError(`${rqId}: ${ds.processing_error || "Processing failed"}`);
           return;
         }
@@ -960,7 +997,7 @@ export function DataSources({ onNavigate }: Props) {
             </div>
             <p className="text-sm text-slate-600 mb-4">{proceedBlockedMsg}</p>
             <p className="text-xs text-slate-400 mb-4">
-              {reviewRecords.length} articles reviewed — {articleApprovedCount} approved, {articleDisapprovedCount} disapproved, {articlePendingCount} pending.
+              {reviewSummaryText(reviewSummary)}
             </p>
             <div className="flex justify-end gap-2">
               <button onClick={() => { setProceedBlockedMsg(null); setMainTab("review"); loadReview(); }}
@@ -977,9 +1014,10 @@ export function DataSources({ onNavigate }: Props) {
           <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-sm font-semibold text-slate-800 mb-3">Proceed to Research Execution?</h3>
             <p className="text-xs text-slate-500 mb-4">
-              {reviewRecords.length} articles reviewed — <span className="text-emerald-600 font-medium">{articleApprovedCount} approved</span>,{" "}
-              <span className="text-red-600 font-medium">{articleDisapprovedCount} disapproved</span>,{" "}
-              <span className="text-slate-500 font-medium">{articlePendingCount} pending</span>.
+              {reviewSummary.total} articles — <span className="text-emerald-600 font-medium">{reviewSummary.approved + reviewSummary.autoAccepted} included</span>{" "}
+              ({reviewSummary.approved} approved, {reviewSummary.autoAccepted} auto-accepted),{" "}
+              <span className="text-amber-600 font-medium">{reviewSummary.needsReview} need review</span>,{" "}
+              <span className="text-red-600 font-medium">{reviewSummary.excluded} excluded</span>.
             </p>
             <div className="flex justify-end gap-2">
               <button onClick={() => setShowProceedConfirm(false)} className="text-sm font-medium px-4 py-2 rounded-lg text-slate-500 hover:bg-slate-100">

@@ -78,7 +78,7 @@ def get_storyline(storyline_id: int) -> Optional[dict]:
 def get_latest_storyline(project_id: int) -> Optional[dict]:
     conn = _conn()
     row = conn.execute(
-        "SELECT * FROM intel_storylines WHERE project_id = ? ORDER BY created_at DESC LIMIT 1",
+        "SELECT * FROM intel_storylines WHERE project_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
         (project_id,),
     ).fetchone()
     conn.close()

@@ -39,7 +39,7 @@ def get_execution_run(run_id: int) -> Optional[dict]:
 def get_latest_execution_run(project_id: int) -> Optional[dict]:
     conn = _conn()
     row = conn.execute(
-        "SELECT * FROM intel_execution_runs WHERE project_id = ? ORDER BY created_at DESC LIMIT 1",
+        "SELECT * FROM intel_execution_runs WHERE project_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
         (project_id,),
     ).fetchone()
     conn.close()

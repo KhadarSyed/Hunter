@@ -96,7 +96,7 @@ def update_pipeline_run(run_id: str, **kw) -> None:
 def get_latest_pipeline_run(project_id: int) -> dict | None:
     conn = _conn()
     row = conn.execute(
-        "SELECT * FROM intel_pipeline_runs WHERE project_id=? ORDER BY created_at DESC LIMIT 1",
+        "SELECT * FROM intel_pipeline_runs WHERE project_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1",
         (project_id,),
     ).fetchone()
     conn.close()
@@ -224,7 +224,7 @@ def set_pipeline_cache(project_id: int, stage_id: str, input_hash: str, **kw) ->
 def get_pipeline_cache(project_id: int, stage_id: str) -> dict | None:
     conn = _conn()
     row = conn.execute(
-        "SELECT * FROM intel_pipeline_cache WHERE project_id=? AND stage_id=? ORDER BY created_at DESC LIMIT 1",
+        "SELECT * FROM intel_pipeline_cache WHERE project_id=? AND stage_id=? ORDER BY created_at DESC, id DESC LIMIT 1",
         (project_id, stage_id),
     ).fetchone()
     conn.close()

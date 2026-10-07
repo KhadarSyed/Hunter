@@ -83,18 +83,6 @@ You do NOT research. You only interpret what the client is asking.
    you added from general industry knowledge "confidence": "medium" and reasoning noting
    they are a well-known market player in this category, not explicitly named in the brief.
 
-   NEVER invent a product, person, executive or event: product, product_group, executive,
-   person and event entities must be named in the brief text itself. Do not add a CEO, a
-   spokesperson or a "recent launch" from your own knowledge or from any other company in
-   the category — a wrong name misdirects the whole research run. Competitors are the only
-   entity type you may add beyond the brief (rule above).
-
-   COMMISSIONING BRAND: use the brand the brief names as the client/commissioner. If the
-   brief names none, use the client name given in the project details above the brief
-   (for a category study that is the category study's name, e.g. "Baby Skincare Category").
-   Never write placeholder text such as "Not explicitly named", "Unknown", "TBD" or
-   "assume a leading player" as the commissioning brand name.
-
 9. For EVERY entity you output with type "brand" or "competitor" (every one, with zero
    exceptions — the commissioning brand included), you MUST add a "keywords" array field:
    3-8 short terms for that brand's messaging/positioning (taglines, campaign names or
@@ -390,6 +378,8 @@ def validate_spec(spec: dict, brief_text: str) -> list[ValidationError]:
     _validate_brand_subject_audience(spec, errors)
     _validate_industry(spec, errors)
     _validate_entities(spec, errors)
+    _validate_competitor_count(spec, errors)
+    _validate_audience_entities(spec, errors)
     _validate_research_questions(spec, brief_text, errors)
     _validate_audience_segments(spec, brief_text, errors)
     _validate_scope(spec, errors)
@@ -411,6 +401,38 @@ def is_standin_brand_name(name: str) -> bool:
     """True for stand-in text the LLM writes when the brief names no brand."""
     text = (name or "").strip().lower()
     return any(marker in text for marker in STANDIN_BRAND_MARKERS)
+
+
+MIN_COMPETITORS = 4
+
+
+def _validate_competitor_count(spec: dict, errors: list[ValidationError]) -> None:
+    """RULE #8 in code: once the industry/category is known, the competitor list needs at least
+    MIN_COMPETITORS entries. Without it the LLM often returns none for a category study (the commissioning
+    "brand" is the category itself), leaving research with no brands to track."""
+    industry = (spec.get("industry") or {}).get("name") or ""
+    has_category = industry or any(e.get("type") == "category" for e in spec.get("validated_entities") or [])
+    if not has_category:
+        return
+    count = sum(1 for e in spec.get("validated_entities") or [] if e.get("type") == "competitor")
+    if count < MIN_COMPETITORS:
+        errors.append(ValidationError(
+            "validated_entities.competitor",
+            f"Only {count} competitor entities. Per RULE #8, add the major, widely recognized brands in "
+            f"this category (at least {MIN_COMPETITORS}, confidence \"medium\" for ones not named in the brief, "
+            "each with keywords) — for a category study these are the leading brands in the category — and "
+            "list them in included_scope.competitors"))
+
+
+def _validate_audience_entities(spec: dict, errors: list[ValidationError]) -> None:
+    """Every brief has a research audience (research_audience is required), so at least one entity must
+    carry type "audience" — the LLM otherwise drops the groups or files them as topics."""
+    if any(e.get("type") == "audience" for e in spec.get("validated_entities") or []):
+        return
+    errors.append(ValidationError(
+        "validated_entities.audience",
+        "No entity has type \"audience\". Add the audience groups the brief names or implies (e.g. expert "
+        "types, celebrities, consumer segments) as separate entities with type \"audience\", not \"topic\""))
 
 
 def _validate_brand_subject_audience(

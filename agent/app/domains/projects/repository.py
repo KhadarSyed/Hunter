@@ -139,7 +139,7 @@ def get_or_create_project(spec: dict) -> int:
 
     conn = _conn()
     row = conn.execute(
-        "SELECT id FROM intel_projects WHERE project_name = ? ORDER BY created_at DESC LIMIT 1",
+        "SELECT id FROM intel_projects WHERE project_name = ? ORDER BY created_at DESC, id DESC LIMIT 1",
         (name,),
     ).fetchone()
     conn.close()

@@ -7,6 +7,8 @@ research/service.py's single fixed-truncation LLM call.
 """
 from __future__ import annotations
 
+import re
+
 import json as _json
 import logging
 import time
@@ -50,11 +52,21 @@ def _exclusion_suffix(spec: dict) -> str:
     return "".join(f' -"{t}"' for t in terms)
 
 
+_CATEGORY_WORD = re.compile(r"^\s*category\s*[:\-–—]?\s*|\s*[\-–—]?\s*category\s*$", re.IGNORECASE)
+
+
+def search_brand_term(name: str) -> str:
+    """The phrase to search for a commissioning brand. A category study's "brand" is a label like
+    "Baby Skincare Category" that articles never use — search the category phrase ("Baby Skincare")."""
+    stripped = _CATEGORY_WORD.sub("", name or "").strip()
+    return stripped or (name or "").strip()
+
+
 def build_boolean_queries(spec: dict) -> list[TopicQuery]:
     """Build one TopicQuery per research angle from an approved Research Specification.
     Every topic includes the brand OR'd with every competitor (brand_or_competitors) — no
     topic is brand-only or competitor-only, so no query is blind to the competitive set."""
-    brand_name = (spec.get("commissioning_brand") or {}).get("name", "")
+    brand_name = search_brand_term((spec.get("commissioning_brand") or {}).get("name", ""))
     competitors = _entities_by_type(spec, "competitor")
     products = _entities_by_type(spec, "product") + _entities_by_type(spec, "product_group")
     events = _entities_by_type(spec, "event")
