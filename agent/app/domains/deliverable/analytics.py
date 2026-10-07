@@ -8,6 +8,7 @@ from .metrics import TOP_PEAKS, month_label
 
 TOP_N = 8
 NO_ROWS = "No articles for this question"
+_NOT_A_NAME = {"unknown", "none", "n/a", "na", "not stated", "unnamed", ""}
 
 
 def _pct(n: int, base: int) -> float:
@@ -98,7 +99,14 @@ def _reach(module, rq, rows, base_n, _):
 
 
 def _themes(module, rq, rows, base_n, _):
-    top = Counter(t for r in rows for t in set(r.themes)).most_common(TOP_N)
+    display: dict[str, str] = {}
+    counts: Counter = Counter()
+    for r in rows:
+        for key in {t.strip().lower() for t in r.themes if t and t.strip()}:   # merge case variants
+            counts[key] += 1
+        for t in r.themes:
+            display.setdefault(t.strip().lower(), t.strip())
+    top = [(display[k], c) for k, c in counts.most_common(TOP_N)]
     if not top:
         return _section(module, rq, skipped="No themes in the data")
     return _section(module, rq, chart={"kind": "treemap", "categories": [t for t, _ in top], "values": [c for _, c in top],
@@ -136,6 +144,8 @@ def _entities(module, rq, rows, base_n, extraction):
     people: dict[str, dict] = {}
     for r in rows:
         for item in extraction.get(r.article.norm_url, []):
+            if item["name"].strip().lower() in _NOT_A_NAME:
+                continue
             entry = people.setdefault(item["name"].lower(), {**item, "count": 0, "urls": []})
             entry["count"] += 1
             entry["urls"].append(r.article.norm_url)

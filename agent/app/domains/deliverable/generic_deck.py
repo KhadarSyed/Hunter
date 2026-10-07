@@ -23,7 +23,9 @@ EMU_PER_IN = 914400
 COVER_IMAGE_TOP = 1.2
 COVER_IMAGE_W = 4.2
 COVER_IMAGE_MAX_H = 5.0
-TITLE_BOX_W, TITLE_BOX_H = 5.7, 0.8      # blocks.add_header title box
+TITLE_BOX_W, TITLE_BOX_H = 5.7, 0.55     # blocks.add_header title box, one line at TITLE_PT
+MAX_TILES = 5
+QUESTION_CHARS = 95
 
 
 @dataclass
@@ -60,6 +62,15 @@ def _fit_title(text: str) -> str:
         words = words[:-1]
     fitted = " ".join(words)
     return fitted if fitted == text.strip() else fitted.rstrip(",;:") + "…"
+
+
+def _shorten(text: str, limit: int) -> str:
+    """Cut at a word boundary with an ellipsis, never mid-word."""
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0]
+    return cut.rstrip(",;:") + "…"
 
 
 def _slide(prs, inp: DeckInput, kicker: str, title: str, summary: str = "", icon: Path | None = None):
@@ -113,16 +124,16 @@ def _cover(prs, inp: DeckInput):
         if not use_brand and inp.hero_credit:
             blocks.add_text(cover, style.SLIDE_W - 4.6, COVER_IMAGE_TOP + pic.height / EMU_PER_IN + 0.05, 4.2, 0.3,
                             inp.hero_credit, 7)
-    if inp.flag and inp.flag.exists():
-        cover.shapes.add_picture(str(inp.flag), Inches(0.6), Inches(6.2), height=Inches(0.45))
+    if inp.flag and inp.flag.exists():   # bottom right, clear of the template title block on the left
+        cover.shapes.add_picture(str(inp.flag), Inches(style.SLIDE_W - 1.1), Inches(6.35), height=Inches(0.4))
 
 
 def _exec_summary(prs, inp: DeckInput):
     s = _slide(prs, inp, "EXECUTIVE SUMMARY", "What the coverage says",
                f"Base: {inp.base_n} unique articles across {len(inp.rqs)} questions", inp.icons.get("overview"))
-    tiles = [{"value": a["value"], "label": a["rq_id"], "note": a["answer"]} for a in inp.answers[:4]]
+    tiles = [{"value": a["value"], "label": a["rq_id"], "note": a["answer"]} for a in inp.answers[:MAX_TILES]]
     blocks.add_kpi_tiles(s, style.MARGIN, CHART_TOP, style.SLIDE_W - 2 * style.MARGIN, 2.4, tiles)
-    rows = [[a["rq_id"], a["question"][:80], a["answer"]] for a in inp.answers]
+    rows = [[a["rq_id"], _shorten(a["question"], QUESTION_CHARS), a["answer"]] for a in inp.answers]
     blocks.add_table(s, style.MARGIN, 4.1, style.SLIDE_W - 2 * style.MARGIN, 0.3 * (len(rows) + 1),
                      ["Question", "Asked", "Answer"], rows, [1.0, 6.0, 5.4])
 
