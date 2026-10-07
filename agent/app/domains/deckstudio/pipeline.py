@@ -22,11 +22,14 @@ def _article_urls(slide, plan_input: PlanInput) -> list[str]:
 
 
 def _judge(llm, subjects, label: str, checks: dict):
-    """Vision check per candidate photo while the run's budget lasts; None afterwards (text gate applies)."""
+    """Vision check per candidate photo while the slide's and the run's budgets last; None afterwards (text gate)."""
+    mine = {"n": 0}
+
     def judge(data: bytes):
-        if checks["n"] >= assets.MAX_VISION_CHECKS:
+        if checks["n"] >= assets.MAX_VISION_CHECKS or mine["n"] >= assets.VISION_PER_SLIDE:
             return None
         checks["n"] += 1
+        mine["n"] += 1
         return vision.matches(llm, data, subjects, label)
     return judge
 

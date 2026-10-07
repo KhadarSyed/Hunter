@@ -26,7 +26,8 @@ SERP_URL = "https://serpapi.com/search.json"
 MAX_TRIES = 4
 ARTICLE_TIMEOUT_S = 10
 MAX_ARTICLES = 4
-MAX_VISION_CHECKS = 60
+MAX_VISION_CHECKS = 150
+VISION_PER_SLIDE = 6
 _WORD = re.compile(r"[a-z]{3,}")
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36"}
 

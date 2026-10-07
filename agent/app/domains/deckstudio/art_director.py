@@ -99,7 +99,7 @@ def _apply_design(t: DeckTokens, design: dict, brand_colors: list[str]) -> DeckT
     from .design_systems import first_family
     typo = design.get("typography") or {}
     hero, head = _role(typo, "display", "hero", "title"), _role(typo, "headline", "heading", "section")
-    body = _role(typo, "body", "text", "lede", "paragraph")
+    body = next((v for k, v in typo.items() if isinstance(v, dict) and k.startswith(("body", "lede", "paragraph"))), {})
     chrome = next((v for k, v in typo.items() if isinstance(v, dict) and (
         "mono" in str(v.get("fontFamily", "")).lower() or any(w in k for w in ("label", "caption", "eyebrow")))), {})
     t.title_font = first_family(str(hero.get("fontFamily", ""))) or t.title_font
