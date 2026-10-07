@@ -3708,6 +3708,161 @@ git add agent/app/domains/deckstudio/image_brief.py agent/app/domains/deckstudio
 git commit -m "fix(deckstudio): slide photos chosen for brand, product and slide subject, vision-checked; no photo rather than an off-topic one"
 ```
 
+### Task 12B: Rotate across several SerpAPI keys
+
+The user has several SerpAPI keys (2026-10-07). Today only `SERP_API_KEY` is read, and that key's account is out of searches (HTTP 429). It is read in four places: `deckstudio/assets.py:51`, `research/brandfetch.py:128`, `research/news_search.py:155` and `research/video_search.py:141`.
+
+**Files:**
+- Create: `agent/app/core/serp_keys.py`
+- Modify these call sites to use it: `deckstudio/assets.py`, `research/brandfetch.py`, `research/news_search.py`, `research/video_search.py`. Each passes the `api_key` it is given; on a 429 or quota error it calls `serp_keys.exhausted(key)` and retries once with the next key.
+- Modify: `.env.example`, if present. Document `SERP_API_KEYS=key1,key2,key3` (comma-separated; `SERP_API_KEY` still works).
+- Test: `agent/tests/test_serp_keys.py`
+
+**Interfaces:**
+- Produces:
+  - `serp_keys.current() -> str | None`: the first key not marked exhausted. Keys come from `SERP_API_KEYS` (comma-separated), then `SERP_API_KEY`, de-duplicated and in order.
+  - `serp_keys.exhausted(key: str) -> None`: marks a key exhausted for `COOLDOWN_SECONDS = 3600`. Only the key's position is logged ("SerpAPI key 2 of 3 exhausted"), never its value.
+  - `serp_keys.is_quota_error(status: int, body: dict | None) -> bool`: true for 429, or for a body `error` mentioning "run out of searches" or "limit".
+  - Task 12A's `_serp_disabled` breaker becomes "every key exhausted" (`current() is None`).
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+"""SerpAPI keys rotate on quota errors; key values never appear in logs."""
+from __future__ import annotations
+import logging
+from agent.app.core import serp_keys
+
+
+def test_rotation_and_cooldown(monkeypatch):
+    monkeypatch.setenv("SERP_API_KEYS", "aaa111,bbb222, ccc333")
+    monkeypatch.setenv("SERP_API_KEY", "aaa111")
+    serp_keys._reset()
+    assert serp_keys.current() == "aaa111"
+    serp_keys.exhausted("aaa111")
+    assert serp_keys.current() == "bbb222"
+    serp_keys.exhausted("bbb222"); serp_keys.exhausted("ccc333")
+    assert serp_keys.current() is None
+    monkeypatch.setattr(serp_keys.time, "time", lambda: 10**12)        # an hour later
+    assert serp_keys.current() == "aaa111"
+
+
+def test_single_key_still_works(monkeypatch):
+    monkeypatch.delenv("SERP_API_KEYS", raising=False)
+    monkeypatch.setenv("SERP_API_KEY", "only1")
+    serp_keys._reset()
+    assert serp_keys.current() == "only1"
+
+
+def test_quota_error_detection():
+    assert serp_keys.is_quota_error(429, None)
+    assert serp_keys.is_quota_error(200, {"error": "Your account has run out of searches."})
+    assert not serp_keys.is_quota_error(200, {"images_results": []})
+
+
+def test_key_value_never_logged(monkeypatch, caplog):
+    monkeypatch.setenv("SERP_API_KEYS", "secretvalue1,secretvalue2")
+    serp_keys._reset()
+    with caplog.at_level(logging.WARNING):
+        serp_keys.exhausted("secretvalue1")
+    assert "secretvalue1" not in caplog.text and "1 of 2" in caplog.text
+```
+
+Run: `$PY -m pytest agent/tests/test_serp_keys.py -q -p no:cacheprovider`
+Expected: FAIL with `ImportError`.
+
+- [ ] **Step 2: Write `core/serp_keys.py`**
+
+```python
+"""Several SerpAPI keys, used in order; a key that hits its quota rests for an hour. Key values are never logged."""
+from __future__ import annotations
+
+import logging
+import os
+import threading
+import time
+
+logger = logging.getLogger(__name__)
+COOLDOWN_SECONDS = 3600
+_QUOTA_WORDS = ("run out of searches", "limit")
+_lock = threading.Lock()
+_resting: dict[str, float] = {}
+
+
+def _keys() -> list[str]:
+    raw = (os.environ.get("SERP_API_KEYS") or "").split(",") + [os.environ.get("SERP_API_KEY") or ""]
+    return list(dict.fromkeys(k.strip() for k in raw if k.strip()))
+
+
+def _reset() -> None:
+    with _lock:
+        _resting.clear()
+
+
+def current() -> str | None:
+    now = time.time()
+    with _lock:
+        return next((k for k in _keys() if _resting.get(k, 0) <= now), None)
+
+
+def exhausted(key: str) -> None:
+    keys = _keys()
+    with _lock:
+        _resting[key] = time.time() + COOLDOWN_SECONDS
+    position = keys.index(key) + 1 if key in keys else "?"
+    logger.warning("SerpAPI key %s of %s exhausted; resting %ss", position, len(keys), COOLDOWN_SECONDS)
+
+
+def is_quota_error(status: int, body: dict | None) -> bool:
+    err = str((body or {}).get("error") or "").lower()
+    return status == 429 or any(w in err for w in _QUOTA_WORDS)
+```
+
+- [ ] **Step 3: Use it at the four call sites**
+
+Apply the same shape at each site. For example, in `assets._serpapi`:
+
+```python
+def _serpapi(query: str) -> list[dict]:
+    for _ in range(len(serp_keys._keys()) or 1):
+        key = serp_keys.current()
+        if not key:
+            return []
+        try:
+            r = requests.get(SERP_URL, params={"engine": "google_images", "q": query, "api_key": key, "safe": "active"},
+                             timeout=TIMEOUT_S)
+            body = r.json() if r.headers.get("content-type", "").startswith("application/json") else None
+            if serp_keys.is_quota_error(r.status_code, body):
+                serp_keys.exhausted(key)
+                continue
+            r.raise_for_status()
+            return [{"url": i.get("original"), "width": i.get("original_width") or 0, "title": i.get("title") or ""}
+                    for i in (body or {}).get("images_results") or [] if i.get("original")]
+        except (requests.RequestException, ValueError, AttributeError, TypeError) as e:
+            logger.warning("serpapi image search failed: %s", type(e).__name__)
+            return []
+    return []
+```
+
+At the other sites:
+- `brandfetch.py:128`: replace `_env("SERP_API_KEY")` with `serp_keys.current()`.
+- `news_search.py:155`: `api_key_override or os.getenv("SERP_API_KEY", "")` becomes `api_key_override or serp_keys.current() or ""`.
+- `video_search.py:141`: replace `os.getenv("SERP_API_KEY", "")` with `serp_keys.current() or ""`.
+
+Each site also adds the quota check and a one-retry loop around its request, in the same shape as above. Remove Task 12A's `_serp_disabled` flag and its test (`test_serpapi_quota_trips_breaker`). Replace that test with an `assets` test: two keys, the first returns 429 and the second returns results, so results come back from the second key.
+
+- [ ] **Step 4: Run the tests**
+
+Run: `$PY -m pytest agent/tests/test_serp_keys.py agent/tests/test_deckstudio_image_relevance.py agent/tests/test_brand_logos.py agent/tests/test_news_search.py -q -p no:cacheprovider`
+Expected: PASS (all).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add agent/app/core/serp_keys.py agent/app/domains/deckstudio/assets.py agent/app/domains/research/brandfetch.py agent/app/domains/research/news_search.py agent/app/domains/research/video_search.py
+git commit -m "feat: rotate across several SerpAPI keys on quota errors"
+```
+
 ---
 
 ## Phase 3: detection, fixer, tiered apply
