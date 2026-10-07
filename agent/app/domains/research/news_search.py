@@ -31,6 +31,8 @@ from urllib.parse import quote, urlparse
 
 import requests
 
+from ...core import serp_keys
+
 logger = logging.getLogger(__name__)
 
 SERPAPI_URL = "https://serpapi.com/search"
@@ -152,21 +154,18 @@ def _search_serpapi(query: str, country: str, max_results: int, recency_days: in
     whether THIS call indicates the key itself is valid — only a 401/403 or a vendor
     "invalid api key" error counts as ok=False; network/rate-limit issues are inconclusive
     and don't call it at all, so they never flip a key's status."""
-    api_key = api_key_override or os.getenv("SERP_API_KEY", "")
-    if not api_key:
-        logger.debug("SERP_API_KEY not set — skipping SerpAPI search")
-        return []
-
     q = f"when:{recency_days}d {query}" if recency_days else query
     params = {
         "engine": "google_news",
         "q": q,
         "gl": country.lower(),
         "hl": "en",
-        "api_key": api_key,
     }
     try:
-        r = requests.get(SERPAPI_URL, params=params, timeout=DEFAULT_TIMEOUT)
+        r = serp_keys.get(SERPAPI_URL, params, DEFAULT_TIMEOUT, override=api_key_override)
+        if r is None:
+            logger.debug("No SerpAPI key available — skipping SerpAPI search")
+            return []
         if r.status_code in (401, 403):
             if on_result:
                 on_result(False, f"SerpAPI rejected this key ({r.status_code})")

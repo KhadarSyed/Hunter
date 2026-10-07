@@ -26,6 +26,7 @@ import time
 
 import requests
 
+from ...core import serp_keys
 from . import repository
 
 logger = logging.getLogger(__name__)
@@ -125,11 +126,14 @@ def _is_plausible_image(query: str, url: str) -> bool:
 
 def _google_logo(brand_name: str) -> str | None:
     """First plausible .svg for "<name> logo svg" on Google Images, else first plausible image."""
-    key = _env("SERP_API_KEY")
-    if not key:
+    try:
+        r = serp_keys.get(SERPAPI_URL, {"engine": "google_images", "q": f"{brand_name} logo svg"}, GOOGLE_TIMEOUT_S)
+    except requests.RequestException as e:
+        raise LookupUnavailable(type(e).__name__) from e
+    if r is None:
         return None
-    r = _get(SERPAPI_URL, timeout=GOOGLE_TIMEOUT_S,
-             params={"engine": "google_images", "q": f"{brand_name} logo svg", "api_key": key})
+    if r.status_code == 429 or r.status_code >= 500:
+        raise LookupUnavailable(f"HTTP {r.status_code}")
     try:
         images = r.json().get("images_results", []) if r.status_code == 200 else []
     except ValueError:

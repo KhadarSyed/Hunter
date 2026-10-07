@@ -13,6 +13,7 @@ from pathlib import Path
 import requests
 from PIL import Image, ImageOps
 
+from ...core import serp_keys
 from .image_brief import Subjects, queries as brief_queries, text_relevant
 from .verbatims import is_public_http
 
@@ -26,7 +27,6 @@ MAX_TRIES = 4
 ARTICLE_TIMEOUT_S = 10
 MAX_ARTICLES = 4
 MAX_VISION_CHECKS = 60
-_serp_disabled = False
 _WORD = re.compile(r"[a-z]{3,}")
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36"}
 
@@ -56,16 +56,9 @@ def _pexels(query: str) -> list[dict]:
 
 
 def _serpapi(query: str) -> list[dict]:
-    global _serp_disabled
-    key = os.environ.get("SERP_API_KEY", "")
-    if not key or _serp_disabled:
-        return []
     try:
-        r = requests.get(SERP_URL, params={"engine": "google_images", "q": query, "api_key": key, "safe": "active"},
-                         timeout=TIMEOUT_S)
-        if r.status_code == 429:
-            _serp_disabled = True
-            logger.warning("serpapi quota exhausted; image search falls back to DuckDuckGo and Pexels for this process")
+        r = serp_keys.get(SERP_URL, {"engine": "google_images", "q": query, "safe": "active"}, TIMEOUT_S)
+        if r is None:
             return []
         r.raise_for_status()
         results = r.json().get("images_results") or []

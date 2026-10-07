@@ -55,6 +55,7 @@ from urllib.parse import quote, urlencode
 import requests
 from scrapling import StealthyFetcher
 
+from ...core import serp_keys
 from . import repository
 
 logger = logging.getLogger(__name__)
@@ -138,16 +139,14 @@ def _discover_official_channel_url(brand_name: str) -> str | None:
     links to a youtube.com channel — both are legitimate "nothing to find here" outcomes, not
     transient failures, so the caller is free to cache None. Raises only on a genuine
     request-level failure (network, timeout), which the caller must NOT cache."""
-    api_key = os.getenv("SERP_API_KEY", "")
-    if not api_key:
-        return None
     params = {
         "engine": "google",
         "q": f'"{brand_name}" official youtube channel',
-        "api_key": api_key,
         "num": 10,
     }
-    r = requests.get(_SERPAPI_URL, params=params, timeout=20)
+    r = serp_keys.get(_SERPAPI_URL, params, 20)
+    if r is None:
+        return None
     if r.status_code in (401, 403):
         logger.warning("SerpAPI rejected key during channel discovery for %r (%s)", brand_name, r.status_code)
         return None
