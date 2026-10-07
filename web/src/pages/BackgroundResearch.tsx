@@ -51,6 +51,21 @@ interface ProgressLogEntry {
   at: number;
 }
 
+interface ProgressState {
+  pct: number;
+  message: string;
+}
+
+/** Progress arrives from two channels (WebSocket events and the status poll) that can race.
+ * The header must never lag or regress behind the latest log line, so an update only applies
+ * when it is at or ahead of what is already shown (a missing pct keeps the current one);
+ * a stale poll snapshot is ignored. */
+function mergeProgress(prev: ProgressState, pct: number | undefined, message: string): ProgressState {
+  const nextPct = pct ?? prev.pct;
+  if (nextPct < prev.pct) return prev;
+  return { pct: nextPct, message: message || prev.message };
+}
+
 function ProgressBar({
   pct, message, startedAt, geography, timePeriod, log, showLog, onToggleLog,
 }: {
@@ -667,7 +682,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
   const demo = useDemoState();
 
   const [pageState, setPageState] = useState<PageState>("idle");
-  const [progress, setProgress] = useState({ pct: 0, message: "" });
+  const [progress, setProgress] = useState<ProgressState>({ pct: 0, message: "" });
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [briefResult, setBriefResult] = useState<BriefResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -725,6 +740,8 @@ export function BackgroundResearch({ onNavigate }: Props) {
     const pct = typeof msg.progress_pct === "number" ? msg.progress_pct : 0;
     if (message) {
       setProgressLog((prev) => [...prev, { message, pct, at: Date.now() }].slice(-50));
+      // The header follows the same event as the log line, so it can never lag behind it.
+      setProgress((prev) => mergeProgress(prev, typeof msg.progress_pct === "number" ? msg.progress_pct : undefined, message));
     }
   }, [researchJobId]);
 
@@ -733,7 +750,8 @@ export function BackgroundResearch({ onNavigate }: Props) {
   const proceedToComposing = useCallback(async () => {
     if (!projectId) return;
     setPageState("composing");
-    setProgress({ pct: 92, message: "Synthesizing analytical brief with AI — this may take up to 2 minutes..." });
+    // Monotonic: research has usually already reported 100% by now — never drag it back to 92.
+    setProgress((prev) => mergeProgress(prev, 92, "Synthesizing analytical brief with AI — this may take up to 2 minutes..."));
     try {
       try {
         const research = await intelApi.getResearch(projectId);
@@ -766,7 +784,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
 
   useEffect(() => {
     if (!researchStatus) return;
-    setProgress({ pct: Math.min(researchStatus.progress_pct, 90), message: researchStatus.progress_message });
+    setProgress((prev) => mergeProgress(prev, researchStatus.progress_pct, researchStatus.progress_message));
     if (researchStatus.status === "completed") {
       setResearchJobId(null);
       void proceedToComposing();
@@ -1125,10 +1143,13 @@ export function BackgroundResearch({ onNavigate }: Props) {
                 { key: "composing", label: "AI Synthesis" },
                 { key: "ready", label: "Complete" },
               ].map((stage, i) => {
-                const done = stage.key === "researching" ? pageState === "composing" :
-                             stage.key === "composing" ? false :
+                // Once the log/header reached 100% the work is complete, even if the brief
+                // assembly request is still returning — the indicator follows the header.
+                const reachedComplete = progress.pct >= 100;
+                const done = stage.key === "researching" ? pageState === "composing" || reachedComplete :
+                             stage.key === "composing" ? reachedComplete :
                              false;
-                const active = stage.key === pageState;
+                const active = reachedComplete ? stage.key === "ready" : stage.key === pageState;
                 return (
                   <div key={stage.key} className="flex items-center gap-3">
                     {i > 0 && (
@@ -1169,7 +1190,9 @@ export function BackgroundResearch({ onNavigate }: Props) {
             />
 
             <p className="text-center text-xs text-slate-400">
-              {pageState === "composing"
+              {pageState === "composing" && progress.pct >= 100
+                ? "Research is complete — opening your brief."
+                : pageState === "composing"
                 ? "The AI model is generating each section — this typically takes 1–2 minutes on CPU."
                 : "Searching the web for recent news, articles, and competitive intelligence."}
             </p>
