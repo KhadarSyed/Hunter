@@ -43,6 +43,8 @@ class PlanInput:
     sources: str
     checklist: list[dict] = field(default_factory=list)
     verbatims_by_rq: dict[str, list[dict]] = field(default_factory=dict)
+    products: list[str] = field(default_factory=list)
+    category: str = ""
 
 
 def treatment(slide_type: str, charts: list[dict], tables: list[dict]) -> str:

@@ -6,8 +6,29 @@ import json
 from pathlib import Path
 
 from ...core import config
-from . import art_director, assets, checklist, creative, exporter, indexer, planner, renderer, verbatims
+from . import (art_director, assets, checklist, creative, exporter, image_brief, indexer, planner, renderer, verbatims,
+               vision)
 from .planner import PlanInput
+
+
+def _article_urls(slide, plan_input: PlanInput) -> list[str]:
+    """The articles behind a slide: its cards' citations, else the first verbatims of its question."""
+    by_n = {c["n"]: c["url"] for c in plan_input.citations}
+    cited = [by_n[n] for c in slide.cards for n in c.get("citations", []) if n in by_n]
+    if cited:
+        return cited[:assets.MAX_ARTICLES]
+    rq_id = slide.id.split("-", 1)[0].upper()
+    return [v["url"] for v in plan_input.verbatims_by_rq.get(rq_id, [])][:assets.MAX_ARTICLES]
+
+
+def _judge(llm, subjects, label: str, checks: dict):
+    """Vision check per candidate photo while the run's budget lasts; None afterwards (text gate applies)."""
+    def judge(data: bytes):
+        if checks["n"] >= assets.MAX_VISION_CHECKS:
+            return None
+        checks["n"] += 1
+        return vision.matches(llm, data, subjects, label)
+    return judge
 
 
 def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: list[str], brand_image: Path | None,
@@ -37,21 +58,30 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     run.stage("assets", "running")
     used: set[str] = set()
     found = []
-    mood = " ".join(spec.tokens.mood[:2])
+    photo_slides = [s for s in spec.slides if s.treatment in ("A", "C", "full") and s.image.get("query")]
+    scene_by_id = image_brief.scenes(llm, photo_slides, plan_input.brands, plan_input.products, plan_input.category)
+    checks = {"n": 0}
     for k, s in enumerate(spec.slides, start=1):
-        run.within("assets", k / len(spec.slides), f"Finding photos and logos for slide {k} of {len(spec.slides)}")
-        if s.treatment in ("A", "C", "full") and s.image.get("query"):
-            role = "panel" if s.treatment == "C" else "background"
-            photo = assets.find_photo(f"{s.image['query']} {mood}".strip(), role, deck_dir / "photos", used,
-                                      brand_image if s.type == "cover" else None)
-            if not photo.path and s.kicker:
-                photo = assets.find_photo(s.kicker, role, deck_dir / "photos", used, None)
-            s.image["path"] = str(photo.path) if photo.path else None
-            found.append({"slide": s.id, "source": photo.source_url, "licence": photo.licence})
-            if photo.path:
-                run.log(f"Photo for {s.id}: {photo.licence} source {photo.source_url[:90]}")
+        run.within("assets", 0.9 * k / len(spec.slides), f"Finding photos and logos for slide {k} of {len(spec.slides)}")
         names = [c for ch in s.charts for c in ch.get("categories", [])]
         s.logos = {n: str(logos[n]) for n in names if n in logos}
+        if s not in photo_slides:
+            continue
+        role = "panel" if s.treatment == "C" else "background"
+        subjects = image_brief.subjects_for(s, plan_input.brands, plan_input.products, plan_input.category,
+                                            scene_by_id.get(s.id, ""))
+        label = s.question or s.title or s.kicker
+        photo = assets.find_photo(" ".join(image_brief.queries(subjects)[:1]) or s.image["query"], role,
+                                  deck_dir / "photos", used, brand_image if s.type == "cover" else None,
+                                  subjects=subjects, article_urls=_article_urls(s, plan_input),
+                                  judge=_judge(llm, subjects, label, checks))
+        s.image["path"] = str(photo.path) if photo.path else None
+        s.image["why"] = photo.why
+        found.append({"slide": s.id, "source": photo.source_url, "licence": photo.licence, "why": photo.why})
+        if photo.path:
+            run.log(f"Photo for {s.id}: {photo.licence} - {photo.why} - {photo.source_url[:90]}")
+        else:
+            run.log(f"No relevant photo for {s.id} ({photo.why}); brand gradient kept")
     walls = [s for s in spec.slides if s.type == "verbatim_wall"]
     shots: dict[str, str] = {}
     for k, s in enumerate(walls, start=1):

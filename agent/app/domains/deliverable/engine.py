@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from datetime import date
@@ -285,7 +286,29 @@ def _plan_input(project: dict, inp, rqs, overview, sections_by_rq, insights_by_r
                      rq_titles=rq_titles, sections_by_rq=sections_by_rq, insights_by_rq=insights_by_rq,
                      answers=answers, takeaways=takeaways, overview=overview, methodology=methodology,
                      citations=inp.citations, scope_text=_scope_text(project), brands=list(inp.logos),
-                     geography=str(geography), sources="Meltwater", verbatims_by_rq=verbatims_by_rq or {})
+                     geography=str(geography), sources="Meltwater", verbatims_by_rq=verbatims_by_rq or {},
+                     products=_products(project), category=_category(project, inp.title))
+
+
+MAX_PRODUCT_HINTS = 6
+_TITLE_NOISE = re.compile(r"\b(category|analysis|media|earned|editorial|coverage|research|report)\b", re.I)
+
+
+def _products(project: dict) -> list[str]:
+    """What photos should show besides brands: the scope's topics (e.g. soccer, running) and the commissioning
+    brand's product keywords (e.g. wound care, colloidal oatmeal)."""
+    entities = [e for e in (project.get("spec") or {}).get("validated_entities") or [] if isinstance(e, dict)]
+    topics = [e["name"] for e in entities if e.get("type") == "topic" and e.get("name")]
+    brand = next((e for e in entities if e.get("type") == "brand"), {})
+    return list(dict.fromkeys(topics + list(brand.get("keywords") or [])))[:MAX_PRODUCT_HINTS]
+
+
+def _category(project: dict, title: str) -> str:
+    """The category photos must show: the industry's most specific part ("Personal Care / Baby Skincare" ->
+    "baby skincare"), else the title without report words."""
+    industry = ((project.get("spec") or {}).get("industry") or {}).get("name") or ""
+    named = industry.split("/")[-1].strip()
+    return (named or " ".join(_TITLE_NOISE.sub(" ", title).split())).lower()
 
 
 def _verbatims_by_rq(rqs, rows_by_rq, insights_by_rq, registry) -> dict[str, list[dict]]:
