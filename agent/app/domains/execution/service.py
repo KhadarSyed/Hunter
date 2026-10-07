@@ -251,6 +251,8 @@ def _enriched_to_record(rec: dict) -> dict:
         "media_type": rec.get("media_type") or "",
         "country": rec.get("country") or "",
         "research_question_id": rec.get("research_question_id"),
+        "document_id": rec.get("id"),
+        "source_file": rec.get("dataset_file_name"),
     }
 
 
@@ -314,7 +316,7 @@ def _select_fields(records: list[dict], required_fields: list[str]) -> list[dict
     if not required_fields:
         return records
     return [
-        {k: v for k, v in r.items() if k in required_fields or k in ("url", "headline", "_copies")}
+        {k: v for k, v in r.items() if k in required_fields or k in ("url", "headline", "_copies", "document_id", "source_file")}
         for r in records
     ]
 
@@ -559,6 +561,8 @@ def _run_execution(
                     metrics=ev.get("metrics"),
                     confidence=ev.get("confidence", "medium"),
                     rationale=ev.get("rationale", ""),
+                url=ev.get("url"), document_id=ev.get("document_id"),
+                source_file=ev.get("source_file"), row_index=ev.get("row_index"),
                     dataset="meltwater_export",
                 )
 
@@ -784,6 +788,8 @@ def retry_unit(project_id: int, run_id: int, unit_id: str, *, emit: Any = None) 
                 metrics=ev.get("metrics"),
                 confidence=ev.get("confidence", "medium"),
                 rationale=ev.get("rationale", ""),
+                url=ev.get("url"), document_id=ev.get("document_id"),
+                source_file=ev.get("source_file"), row_index=ev.get("row_index"),
             )
 
         store.update_execution_unit(

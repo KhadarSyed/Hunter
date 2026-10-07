@@ -227,6 +227,7 @@ class ThemeClusteringExecutor(BaseMethodExecutor):
                     "platform": _record_platform(rep),
                     "source": _record_source(rep),
                     "date": rep.get("date"),
+                    "url": rep.get("url"),
                     "text_excerpt": self._truncate(_record_text(rep)),
                     "metrics": {
                         "theme": theme,
@@ -270,6 +271,7 @@ class ConversationAnalysisExecutor(BaseMethodExecutor):
                 "platform": _record_platform(group[0]),
                 "source": source,
                 "date": reps[0].get("date") if reps else None,
+                "url": reps[0].get("url") if reps else None,
                 "text_excerpt": self._truncate(_record_text(reps[0])) if reps else "",
                 "metrics": {"record_count": len(group), "share_of_records": round(share, 4),
                             **_coverage(group, records)},
@@ -292,6 +294,7 @@ class ConversationAnalysisExecutor(BaseMethodExecutor):
                 "platform": _record_platform(rep),
                 "source": _record_source(rep),
                 "date": rep.get("date"),
+                "url": rep.get("url"),
                 "text_excerpt": self._truncate(_record_text(rep)),
                 "metrics": {
                     "engagement": _to_number(rep.get("engagement")),
@@ -340,6 +343,7 @@ class SentimentAnalysisExecutor(BaseMethodExecutor):
                     "platform": _record_platform(rep),
                     "source": _record_source(rep),
                     "date": rep.get("date"),
+                    "url": rep.get("url"),
                     "text_excerpt": self._truncate(_record_text(rep)),
                     "metrics": {
                         "sentiment": label,
@@ -484,6 +488,7 @@ class ShareOfVoiceExecutor(BaseMethodExecutor):
                 "platform": _record_platform(group[0]),
                 "source": source,
                 "date": reps[0].get("date") if reps else None,
+                "url": reps[0].get("url") if reps else None,
                 "text_excerpt": self._truncate(_record_text(reps[0])) if reps else "",
                 "metrics": {"mentions": len(group), "share_pct": round(share * 100, 2),
                             **_coverage(group, records)},
@@ -533,6 +538,7 @@ class AudienceSegmentationExecutor(BaseMethodExecutor):
                 "platform": _record_platform(group[0]),
                 "source": _record_source(group[0]),
                 "date": reps[0].get("date") if reps else None,
+                "url": reps[0].get("url") if reps else None,
                 "text_excerpt": self._truncate(_record_text(reps[0])) if reps else "",
                 "metrics": {
                     "segment": author,
@@ -693,6 +699,7 @@ class CrisisDetectionExecutor(BaseMethodExecutor):
                 "platform": _record_platform(r),
                 "source": _record_source(r),
                 "date": r.get("date"),
+                "url": r.get("url"),
                 "text_excerpt": self._truncate(_record_text(r)),
                 "metrics": {"matched_terms": sorted(hits), "sentiment": r.get("sentiment")},
                 "confidence": "high" if hits else "medium",
@@ -759,6 +766,7 @@ class InfluencerIdentificationExecutor(BaseMethodExecutor):
                 "platform": _record_platform(group[0]),
                 "source": _record_source(group[0]),
                 "date": reps[0].get("date") if reps else None,
+                "url": reps[0].get("url") if reps else None,
                 "text_excerpt": self._truncate(_record_text(reps[0])) if reps else "",
                 "metrics": {
                     "author": author,
@@ -818,6 +826,7 @@ class CompetitiveBenchmarkingExecutor(BaseMethodExecutor):
                 "platform": _record_platform(brand_group[0]),
                 "source": _record_source(brand_group[0]),
                 "date": reps[0].get("date") if reps else None,
+                "url": reps[0].get("url") if reps else None,
                 "text_excerpt": self._truncate(_record_text(reps[0])) if reps else "",
                 "metrics": {
                     "entity": brand or "brand",
@@ -844,6 +853,7 @@ class CompetitiveBenchmarkingExecutor(BaseMethodExecutor):
                 "platform": _record_platform(group[0]),
                 "source": _record_source(group[0]),
                 "date": reps[0].get("date") if reps else None,
+                "url": reps[0].get("url") if reps else None,
                 "text_excerpt": self._truncate(_record_text(reps[0])) if reps else "",
                 "metrics": {
                     "entity": competitor,
@@ -900,6 +910,7 @@ class MediaFramingExecutor(BaseMethodExecutor):
                     "platform": _record_platform(rep),
                     "source": _record_source(rep),
                     "date": rep.get("date"),
+                    "url": rep.get("url"),
                     "text_excerpt": self._truncate(rep.get("headline", "")),
                     "metrics": {
                         "frame": frame,
