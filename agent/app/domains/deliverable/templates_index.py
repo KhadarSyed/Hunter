@@ -32,7 +32,8 @@ def _deck_text(path: Path) -> str:
 
 def _embed(llm, text: str):
     try:
-        return llm.embed(text) if llm is not None and hasattr(llm, "embed") else None
+        vec = llm.embed(text) if llm is not None and hasattr(llm, "embed") else None
+        return [float(x) for x in vec] if vec is not None else None   # embed clients may return numpy arrays
     except Exception as e:   # embeddings are optional: token overlap still works
         logger.info("template embedding unavailable (%s)", e)
         return None
