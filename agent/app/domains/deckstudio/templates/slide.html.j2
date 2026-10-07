@@ -1,0 +1,56 @@
+{% set bg = ("url('" ~ image ~ "')") if image else ("linear-gradient(135deg,#" ~ t.accent ~ ",#" ~ t.primary ~ ")") %}
+<section class="slide" data-id="{{ s.id }}" data-type="{{ s.type }}" data-treatment="{{ s.treatment }}">
+{% if s.treatment == "full" %}
+  <div class="photo" style="inset:0;background-image:{{ bg }}"></div><div class="overlay"></div>
+  <div class="reveal" style="position:absolute;left:110px;right:110px;top:{{ 520 if s.type == 'cover' else 330 }}px;color:var(--on-dark)">
+    {% if s.kicker %}<div class="kicker" style="color:var(--on-dark);opacity:.85">{{ s.kicker }}</div>{% endif %}
+    {% if s.question %}<div class="question clamp" style="margin-top:18px">{{ s.question }}</div>
+    {% else %}<div class="title clamp" style="color:var(--on-dark);font-size:84px">{{ s.title }}</div>{% endif %}
+    {% if s.so_what %}<div class="sowhat clamp" style="margin-top:22px;opacity:.95">{{ s.so_what }}</div>{% endif %}
+    {% if s.type == 'cover' and s.notes %}<div class="kicker" style="margin-top:26px;color:var(--on-dark);opacity:.8">{{ s.notes }}</div>{% endif %}
+  </div>
+{% elif s.treatment == "A" %}
+  <div class="photo" style="inset:0;background-image:{{ bg }}"></div><div class="overlay"></div>
+  <div style="position:absolute;left:70px;top:56px;width:1120px;color:var(--on-dark)">
+    {% if s.kicker %}<div class="kicker" style="color:var(--on-dark);opacity:.85">{{ s.kicker }}</div>{% endif %}
+    <div class="title clamp" style="color:var(--on-dark);margin-top:10px;font-size:46px">{{ s.question or s.title }}</div>
+  </div>
+  {% if s.so_what %}<div class="sowhat clamp" style="position:absolute;right:70px;top:66px;width:560px;color:var(--on-dark)">{{ s.so_what }}</div>{% endif %}
+  <div class="panel reveal" style="left:70px;top:320px;width:{{ 1090 if (charts and s.cards) else 1780 }}px;height:680px;overflow:hidden">
+    {% if s.title and s.question %}<div class="kicker" style="margin-bottom:12px">{{ s.title }}</div>{% endif %}
+    {% if charts %}<div style="height:580px">{{ charts[0] | safe }}</div>
+    {% elif s.tables and s.type != 'scorecard' %}{% include "table.html.j2" %}
+    {% else %}<div class="cards" style="grid-template-columns:repeat({{ [s.cards|length, 3]|min or 1 }},1fr)">
+      {% for c in s.cards[:6] %}<div class="card"><h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}{% if c.note %} — {{ c.note }}{% endif %}</p></div>{% endfor %}</div>
+      {% if s.type == 'scorecard' and s.tables and s.tables[0].rows %}<div style="margin-top:22px">{% include "table.html.j2" %}</div>{% endif %}
+    {% endif %}
+  </div>
+  {% if charts and s.cards %}<div class="cards reveal" style="position:absolute;left:1190px;right:70px;top:320px;grid-template-columns:1fr">
+    {% for c in s.cards[:3] %}<div class="card" style="background:rgba(255,255,255,.94)"><h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}</p></div>{% endfor %}</div>{% endif %}
+  {% if charts %}<div class="nlabel" style="position:absolute;right:80px;top:280px;color:var(--on-dark)">N = {{ base_n }}</div>{% endif %}
+{% elif s.treatment == "C" %}
+  <div class="photo" style="left:0;top:0;bottom:0;width:672px;background-image:{{ bg }}"></div>
+  <div class="overlay" style="right:auto;width:672px"></div>
+  {% if s.so_what %}<div class="sowhat clamp" style="position:absolute;left:56px;bottom:90px;width:560px;color:var(--on-dark)">{{ s.so_what }}</div>{% endif %}
+  <div style="position:absolute;left:740px;right:70px;top:56px">
+    {% if s.kicker %}<div class="kicker">{{ s.kicker }}</div>{% endif %}
+    <div class="title clamp" style="margin-top:10px;font-size:40px">{{ s.question or s.title }}</div>
+    {% if s.question and s.title %}<div class="kicker" style="margin-top:14px;color:var(--muted)">{{ s.title }}</div>{% endif %}
+  </div>
+  <div class="nlabel" style="position:absolute;right:80px;top:290px">N = {{ base_n }}</div>
+  <div class="reveal" style="position:absolute;left:740px;right:70px;top:330px;height:660px;overflow:hidden">
+    {% if charts %}{{ charts[0] | safe }}{% elif s.tables %}{% include "table.html.j2" %}{% endif %}
+  </div>
+{% else %}
+  <div style="position:absolute;left:70px;right:70px;top:56px">
+    {% if s.kicker %}<div class="kicker">{{ s.kicker }}</div>{% endif %}
+    <div class="title clamp" style="margin-top:10px">{{ s.title }}</div>
+  </div>
+  <div class="reveal" style="position:absolute;left:70px;right:70px;top:210px;bottom:80px;overflow:hidden">
+    {% if s.tables %}{% include "table.html.j2" %}
+    {% else %}{% for c in s.cards %}<p style="font-size:22px;line-height:1.5;margin-bottom:12px">{{ c.text }}</p>{% endfor %}{% endif %}
+  </div>
+{% endif %}
+  {% if s.type not in ("cover", "closing", "divider") %}
+  <div class="footer"><span>Source: {{ source }} | {{ period }}</span><span>{{ n }} / {{ total }}</span></div>{% endif %}
+</section>

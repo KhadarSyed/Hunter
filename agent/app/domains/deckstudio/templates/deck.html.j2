@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ spec.title }} — {{ spec.subtitle }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="{{ fonts }}" rel="stylesheet">
+<style>
+:root{--bg:#{{t.background}};--surface:#{{t.surface}};--primary:#{{t.primary}};--accent:#{{t.accent}};--text:#{{t.text}};
+--muted:#{{t.muted}};--on-dark:#{{t.on_dark}};--overlay:{{t.overlay}};--title:'{{t.title_font}}',Georgia,serif;--body:'{{t.body_font}}',Arial,sans-serif}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#111;height:100%;overflow:hidden;font-family:var(--body);color:var(--text)}
+.deck{position:relative;width:100vw;height:100vh}
+.slide{position:absolute;left:50%;top:50%;width:1920px;height:1080px;overflow:hidden;background:var(--bg);display:none}
+.slide.active{display:block}
+body.export{overflow:visible;background:#fff;height:auto}
+body.export .deck{width:1920px;height:auto}
+body.export .slide{position:relative;left:0;top:0;transform:none!important;display:block}
+.photo{position:absolute;background-size:cover;background-position:center}
+.overlay{position:absolute;inset:0;background:var(--overlay)}
+.kicker{font:700 20px/1.2 var(--body);letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+.clamp{overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical}
+.title{font:700 50px/1.12 var(--title);color:var(--text);-webkit-line-clamp:3}
+.question{font:700 44px/1.2 var(--title);-webkit-line-clamp:4}
+.sowhat{font:700 24px/1.4 var(--body);-webkit-line-clamp:6}
+.panel{position:absolute;background:rgba(255,255,255,.94);border-radius:22px;padding:28px;box-shadow:0 18px 50px rgba(0,0,0,.18)}
+.cards{display:grid;gap:22px}
+.card{background:var(--surface);border-radius:18px;padding:24px;overflow:hidden}
+.card h3{font:700 24px/1.25 var(--title);color:var(--primary);margin-bottom:10px;-webkit-line-clamp:3}
+.card p{font:400 19px/1.45 var(--body);-webkit-line-clamp:6}
+.footer{position:absolute;left:0;right:0;bottom:0;height:44px;padding:12px 60px;font:600 14px var(--body);letter-spacing:.12em;
+text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between}
+.nlabel{font:700 20px var(--body);color:var(--primary)}
+table{width:100%;border-collapse:collapse;font:400 17px/1.35 var(--body);table-layout:fixed}
+th{background:var(--primary);color:var(--on-dark);text-align:left;padding:12px 14px;font-weight:700}
+td{padding:10px 14px;border-bottom:1px solid rgba(0,0,0,.08);vertical-align:top;overflow:hidden;word-wrap:break-word}
+.status-covered{color:#2E7D32;font-weight:700}.status-partial{color:#B26A00;font-weight:700}.status-missing{color:#C62828;font-weight:700}
+svg.chart text{font-family:var(--body);fill:var(--text)} svg .ylab{font-size:22px} svg .xlab{font-size:18px;fill:var(--muted)}
+svg .val{font-size:21px;font-weight:700} svg .peak{font-size:21px;font-weight:700;fill:var(--primary)} svg .kpi{font:700 160px var(--title)}
+@media (prefers-reduced-motion:no-preference){body:not(.export) .slide.active .reveal{animation:rise .6s ease both}}
+@keyframes rise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+</style></head>
+<body><div class="deck">
+{% for html in slides %}{{ html | safe }}
+{% endfor %}</div>
+<script>
+// Presentation controller: keyboard, wheel and touch navigation; scales the 1920x1080 stage to the window.
+const slides=[...document.querySelectorAll('.slide')];let i=0;
+const exportMode=new URLSearchParams(location.search).has('export');
+if(exportMode){document.body.classList.add('export');slides.forEach(s=>s.classList.add('active'));}
+function fit(){if(exportMode)return;const k=Math.min(innerWidth/1920,innerHeight/1080);
+slides.forEach(s=>s.style.transform=`translate(-50%,-50%) scale(${k})`);}
+function show(n){i=Math.max(0,Math.min(slides.length-1,n));slides.forEach((s,j)=>s.classList.toggle('active',j===i));}
+addEventListener('resize',fit);
+addEventListener('keydown',e=>{if(['ArrowRight','PageDown',' '].includes(e.key))show(i+1);if(['ArrowLeft','PageUp'].includes(e.key))show(i-1);});
+let lock=0;addEventListener('wheel',e=>{if(Date.now()-lock<500)return;lock=Date.now();show(i+(e.deltaY>0?1:-1));});
+let x0=null;addEventListener('touchstart',e=>x0=e.touches[0].clientX);
+addEventListener('touchend',e=>{if(x0===null)return;const dx=e.changedTouches[0].clientX-x0;if(Math.abs(dx)>40)show(i+(dx<0?1:-1));x0=null;});
+fit();if(!exportMode)show(0);
+</script></body></html>
