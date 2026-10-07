@@ -62,6 +62,10 @@ NARRATIVE_PATTERNS = {
         "executive_summary", "campaign_overview", "audience_engagement",
         "media_coverage", "key_findings", "recommendations",
     ],
+    "media_coverage_analysis": [
+        "executive_summary", "media_coverage", "key_findings",
+        "emerging_themes", "opportunities", "recommendations",
+    ],
     "competitive_landscape": [
         "executive_summary", "market_overview", "competitive_perspective",
         "strengths_weaknesses", "opportunities", "risks", "recommendations",
@@ -283,7 +287,11 @@ def _select_narrative_pattern(insights: list[dict], project_spec: dict | None = 
     if type_counts.get("audience", 0) + type_counts.get("behavioural", 0) >= 3:
         return "consumer_insights"
     if type_counts.get("media", 0) >= 2:
-        return "campaign_performance"
+        # Media-led findings are a campaign review only when the scope names a campaign; otherwise they
+        # describe earned coverage (e.g. a category's editorial landscape).
+        entities = (project_spec or {}).get("validated_entities") or []
+        has_campaign = any(isinstance(e, dict) and e.get("type") == "campaign" for e in entities)
+        return "campaign_performance" if has_campaign else "media_coverage_analysis"
     if type_counts.get("opportunity", 0) >= 2:
         return "innovation_opportunities"
     if type_counts.get("brand", 0) >= 1 and type_counts.get("media", 0) >= 1:
@@ -464,6 +472,7 @@ def _build_storyline_title(pattern: str, spec: dict | None) -> str:
         "brand_health_review": "Brand Health Review",
         "crisis_analysis": "Crisis Analysis",
         "campaign_performance": "Campaign Performance Review",
+        "media_coverage_analysis": "Earned Media Analysis",
         "competitive_landscape": "Competitive Landscape Analysis",
         "consumer_insights": "Consumer Insights Report",
         "innovation_opportunities": "Innovation Opportunities",
