@@ -9,7 +9,7 @@ _MIN_LEN = 6
 _PATTERNS = (re.compile(r"(api-key\s*[:=]\s*)\S+", re.I), re.compile(r"(Bearer\s+)\S+", re.I),
              re.compile(r"(X-API-Key\s*[:=]\s*)\S+", re.I),
              # query parameters and key=value pairs: ...&api_key=..., ?key=..., client_id=..., token=...
-             re.compile(r"\b((?:api_?key|key|client_id|access_token|token|secret)=)[^&\s\"']+", re.I))
+             re.compile(r"\b((?:api_?key|key|client_id|access_token|token|secret)=)(?!\[REDACTED)[^&\s\"']+", re.I))
 
 
 def _values(value: str) -> list[str]:
