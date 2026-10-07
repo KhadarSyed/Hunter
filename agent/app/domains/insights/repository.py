@@ -112,6 +112,8 @@ def list_insights(
     if status is not None:
         where.append("status = ?")
         vals.append(status)
+    else:
+        where.append("status != 'superseded'")  # replaced by a later generation
 
     sort_col = sort_by if sort_by in _INSIGHT_SORT_COLUMNS else "created_at"
     sort_direction = "ASC" if str(sort_dir).lower() == "asc" else "DESC"
@@ -279,18 +281,34 @@ def count_insights(project_id: int, *, status: str | None = None) -> int:
     return row["c"] if row else 0
 
 
+def supersede_insights(project_id: int, keep_generation_id: str) -> int:
+    """Mark every insight from other generations 'superseded' so lists, counts and the storyline only see the
+    latest generation. Returns the number of rows changed."""
+    conn = _conn()
+    cur = conn.execute(
+        "UPDATE intel_insights SET status = 'superseded', updated_at = ? "
+        "WHERE project_id = ? AND (generation_id IS NULL OR generation_id != ?) AND status != 'superseded'",
+        (time.time(), project_id, keep_generation_id),
+    )
+    conn.commit()
+    conn.close()
+    return cur.rowcount
+
+
 def get_insight_status_counts(project_id: int) -> dict:
     conn = _conn()
     status_rows = conn.execute(
-        "SELECT status, COUNT(*) as c FROM intel_insights WHERE project_id = ? GROUP BY status",
+        "SELECT status, COUNT(*) as c FROM intel_insights WHERE project_id = ? AND status != 'superseded' "
+        "GROUP BY status",
         (project_id,),
     ).fetchall()
     type_rows = conn.execute(
-        "SELECT insight_type, COUNT(*) as c FROM intel_insights WHERE project_id = ? GROUP BY insight_type",
+        "SELECT insight_type, COUNT(*) as c FROM intel_insights WHERE project_id = ? AND status != 'superseded' "
+        "GROUP BY insight_type",
         (project_id,),
     ).fetchall()
     total_row = conn.execute(
-        "SELECT COUNT(*) as c FROM intel_insights WHERE project_id = ?",
+        "SELECT COUNT(*) as c FROM intel_insights WHERE project_id = ? AND status != 'superseded'",
         (project_id,),
     ).fetchone()
     conn.close()
