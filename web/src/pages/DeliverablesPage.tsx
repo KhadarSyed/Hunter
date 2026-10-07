@@ -88,6 +88,40 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
     });
   }, [projectId]);
 
+  // Restore the latest deliverables on load, so a reload or a later visit shows what was already generated.
+  useEffect(() => {
+    let cancelled = false;
+    const newestCompleted = (jobs: { id: string; status: string; created_at?: number | null }[] = []) =>
+      [...jobs].filter((j) => j.status === "completed")
+        .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))[0];
+    (async () => {
+      try {
+        const list = await intelApi.composerList(projectId);
+        if (cancelled || !list?.length) return;
+        const presId = list[0].id;
+        const [pptxJobs, wordJobs, readiness, slideData] = await Promise.all([
+          intelApi.rendererJobs(presId).catch(() => []),
+          intelApi.wordJobs(presId).catch(() => []),
+          intelApi.pubReadiness(projectId, presId).catch(() => null),
+          intelApi.composerSlides(presId).catch(() => []),
+        ]);
+        if (cancelled) return;
+        const pptx = newestCompleted(pptxJobs as any[]);
+        const word = newestCompleted(wordJobs as any[]);
+        if (!pptx && !word) return;
+        setPresentationId(presId);
+        if (pptx) setPptxUrl(intelApi.rendererDownloadUrl(pptx.id));
+        if (word) setWordUrl(intelApi.wordDownloadUrl(word.id));
+        setReadinessResult(readiness);
+        setSlides(Array.isArray(slideData) ? slideData : []);
+        setPhase((p) => (p === "idle" ? "done" : p));
+      } catch {
+        // nothing generated yet, or the backend is unreachable — the page stays on "Generate"
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [projectId]);
+
   useEffect(() => {
     const running = phase !== "idle" && phase !== "done" && phase !== "error";
     if (running) {
