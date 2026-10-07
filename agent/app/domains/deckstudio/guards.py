@@ -17,8 +17,29 @@ _BOOLEAN = {"or", "and", "not", "near"}
 _SECTION = re.compile(r'(<section class="slide[^"]*" data-id="([^"]+)".*?</section>)', re.S)
 _LAYOUT_JS = """() => {
   const out = [];
+  const rgb = s => (s.match(/[\\d.]+/g) || []).map(Number);
+  const lum = ([r, g, b]) => [r, g, b].map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; })
+                                   .reduce((a, v, i) => a + v * [0.2126, 0.7152, 0.0722][i], 0);
+  const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  const hex = h => { h = h.trim().replace('#', ''); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); };
   document.querySelectorAll('.slide').forEach(slide => {
     const id = slide.dataset.id, box = slide.getBoundingClientRect();
+    const treatment = slide.dataset.treatment || 'plain';
+    const primary = hex(getComputedStyle(slide).getPropertyValue('--primary') || '#3D1A6B');
+    const bgRaw = rgb(getComputedStyle(slide).backgroundColor);
+    const slideBg = bgRaw.length > 3 && bgRaw[3] === 0 ? [255, 255, 255] : bgRaw;
+    const behind = el => {
+      for (let a = el; a && a !== slide.parentElement; a = a.parentElement) {
+        const c = rgb(getComputedStyle(a).backgroundColor);
+        if (c.length >= 3 && (c.length < 4 || c[3] >= 0.5) && a !== slide) return c.slice(0, 3);
+      }
+      const r = el.getBoundingClientRect(), photoSide = treatment === 'C' ? (r.left + r.width / 2 - box.left) < 672 : true;
+      return (treatment === 'full' || treatment === 'A' || (treatment === 'C' && photoSide)) ? primary : slideBg.slice(0, 3);
+    };
+    const labels = [...slide.querySelectorAll('svg text.xlab')].map(t => t.getBoundingClientRect());
+    for (let i = 1; i < labels.length; i++)
+      if (labels[i].left < labels[i - 1].right - 1 && labels[i].width && labels[i - 1].width)
+        out.push({slide_id: id, kind: 'overlap', detail: 'axis labels ' + i});
     slide.querySelectorAll('*').forEach(el => {
       if (el.closest('svg')) return;
       const r = el.getBoundingClientRect();
@@ -28,6 +49,9 @@ _LAYOUT_JS = """() => {
       if (r.right > box.right + 1 || r.bottom > box.bottom + 1 || r.left < box.left - 1 || r.top < box.top - 1)
         out.push({slide_id: id, kind: 'off_slide', detail: el.textContent.trim().slice(0, 60)});
       const cs = getComputedStyle(el), clamped = cs.webkitLineClamp && cs.webkitLineClamp !== 'none';
+      const fg = rgb(cs.color), alpha = fg.length > 3 ? fg[3] : 1, op = parseFloat(cs.opacity || '1');
+      if (alpha * op > 0.4 && ratio(fg.slice(0, 3), behind(el)) < 3)
+        out.push({slide_id: id, kind: 'low_contrast', detail: el.textContent.trim().slice(0, 60)});
       if (!clamped && cs.overflow !== 'visible' && (el.scrollHeight > el.clientHeight + 2 || el.scrollWidth > el.clientWidth + 2))
         out.push({slide_id: id, kind: 'overflow', detail: el.textContent.trim().slice(0, 60)});
     });

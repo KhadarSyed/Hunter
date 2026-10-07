@@ -22,7 +22,7 @@ from ..deckstudio.planner import PlanInput
 logger = logging.getLogger(__name__)
 STAGES = ("gate", "ingest", "routing", "plan", "classify", "compute", "insights", "template", "render", "qc",
           "index", "design", "assets", "compose", "export")
-MAX_LOGOS = 10
+MAX_LOGOS = 24
 _lock = threading.Lock()
 
 
@@ -250,8 +250,9 @@ def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_
     country = (spec.get("included_scope") or {}).get("geography") or spec.get("geography") or ""
     kit = brand_kit.fetch_kit(brand, out_dir / "brand")
     competitors = [e["name"] for e in spec.get("validated_entities") or [] if e.get("type") == "competitor"]
-    sov_brands = [c for secs in sections_by_rq.values() for s in secs
-                  if s.module == "brand_sov" and s.chart for c in s.chart["categories"]]
+    # every brand or retailer drawn in a chart gets its logo looked up, not only the share-of-voice chart
+    sov_brands = [c for secs in sections_by_rq.values() for s in secs if s.chart and not s.skipped
+                  and (s.module == "brand_sov" or s.id.endswith(("-brands", "-retailers"))) for c in s.chart["categories"]]
     logo_map = visuals.logos(list(dict.fromkeys(competitors + sov_brands))[:MAX_LOGOS], out_dir / "logos")
     if kit.logo:
         logo_map[brand] = kit.logo

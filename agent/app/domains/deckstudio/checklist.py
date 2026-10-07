@@ -38,7 +38,9 @@ def _question_row(rq: RQ, sections: list[Section]) -> dict:
     if kpi is None or kpi.skipped:
         return {**row, "status": "missing", "note": (kpi.skipped if kpi else "") or "No articles for this question"}
     skipped = [s for s in sections if s.skipped and s.module != "share_kpi"]
-    unstated = next((f for s in sections for f in s.facts if NOT_STATED.search(f)), "")
+    # "affiliation not stated" only falls short of a question that asked about affiliation
+    asks_affiliation = bool(re.search("affiliat", rq.question.lower()))
+    unstated = next((f for s in sections for f in s.facts if NOT_STATED.search(f)), "") if asks_affiliation else ""
     if skipped or unstated:
         return {**row, "status": "partial", "note": unstated or "; ".join(f"{s.title}: {s.skipped}" for s in skipped)}
     return {**row, "status": "covered", "note": ""}

@@ -52,5 +52,5 @@
   </div>
 {% endif %}
   {% if s.type not in ("cover", "closing", "divider") %}
-  <div class="footer"><span>Source: {{ source }} | {{ period }}</span><span>{{ n }} / {{ total }}</span></div>{% endif %}
+  <div class="footer" style="{% if s.treatment == 'A' %}color:var(--on-dark){% elif s.treatment == 'C' %}left:672px{% endif %}"><span>Source: {{ source }} | {{ period }}</span><span>{{ n }} / {{ total }}</span></div>{% endif %}
 </section>

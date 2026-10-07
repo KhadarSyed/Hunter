@@ -19,7 +19,8 @@ _REMOTE = re.compile(r"""\s(src|href)\s*=\s*["'](https?:)?//[^"']*["']""", re.I)
 _PROMPT = ("You are a presentation designer. Improve this one slide's HTML (a 1920x1080 <section>) so it looks "
            "premium and on-brand. Keep the same data-id, every number and every word of the question exactly as "
            "given; never add numbers. Use only the CSS variables --primary, --accent, --text, --muted, --surface, "
-           "--on-dark, --overlay, --title, --body and the existing assets/ images. No scripts, no external URLs, "
+           "--on-dark, --overlay, --title, --body and the existing assets/ images. Text over a photo or overlay must use "
+           "var(--on-dark); every text must contrast clearly with what is behind it. No scripts, no external URLs, "
            "nothing outside the slide. Return only the <section>...</section>.")
 
 
