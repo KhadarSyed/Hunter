@@ -49,7 +49,8 @@ GENERIC_CHECKS_JS = r"""() => {
     const s = getComputedStyle(el);
     if (s.visibility === 'hidden' || Number(s.opacity) === 0) continue;
     const text = el.innerText.trim();
-    if (/\bRQ\d+\b/.test(text) && !/\bRQ\d+\b\s*[:"“-]?\s*["“]?\s*\w+.*\?/.test(text) && !seen.has('code')) {
+    const around = (el.parentElement ? el.parentElement.innerText : text).replace(/\s+/g, ' ');  // a badge beside its question is fine
+    if (/\bRQ\d+\b/.test(text) && !/\bRQ\d+\b\s*[:"“-]?\s*["“]?\s*\w+.*\?/.test(around) && !seen.has('code')) {
       seen.add('code'); out.push({kind: 'internal_code', detail: text.slice(0, 120)}); }
     const bg = bgOf(el); const f = lum(s.color); const b = bg && lum(bg);
     if (f && b && (f[1] === undefined || Number(f[1]) > .5)) {
@@ -65,7 +66,10 @@ GENERIC_CHECKS_JS = r"""() => {
   return out;
 }"""
 FADE_JS = """() => { const r = document.getElementById('root') || document.body; const big = innerWidth * innerHeight / 4;
-  const all = [...r.querySelectorAll('*')]; const area = e => { const b = e.getBoundingClientRect(); return b.width * b.height; };
+  const hidden = e => { const s = getComputedStyle(e);           // closed overlays/backdrops are invisible on purpose
+    return s.pointerEvents === 'none' && Number(s.opacity) === 0 || s.visibility === 'hidden'; };
+  const all = [...r.querySelectorAll('*')].filter(e => !hidden(e));
+  const area = e => { const b = e.getBoundingClientRect(); return b.width * b.height; };
   const largest = all.reduce((m, e) => area(e) > area(m || e) ? e : (m || e), null);
   let min = 1;
   for (const e of all) { if (e !== largest && area(e) < big) continue;
