@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type ComponentType } from "react";
+import { AgentDrawer } from "./components/agent/AgentDrawer";
 import { Sidebar } from "./components/Sidebar";
 import { IconRailSidebar } from "./components/IconRailSidebar";
 import { AuthProvider, useAuth } from "./context/auth-context";
@@ -125,10 +126,16 @@ function AppShell() {
 
   const [page, setPageState] = useState<Page>(() => parseUrl(window.location.pathname).page ?? "landing");
   const [hydrated, setHydrated] = useState(false);
+  const pushNext = useRef(false);
 
   const hydrateProjectFromUrl = useCallback((projectId: number) => {
     if (projectId === activeProjectRef.current?.id) return;
     intelApi.getProject(projectId).then((p) => {
+      if (p.archived_at) {           // an archived project in an old URL or bookmark is not reopened
+        window.history.replaceState(null, "", buildUrl(null, "projects"));
+        setPageState("projects");
+        return;
+      }
       setActiveProject({
         id: p.id, name: p.project_name,
         project_type: (p.project_type as ProjectType) || "research",
@@ -163,13 +170,19 @@ function AppShell() {
   useEffect(() => {
     if (!hydrated) return;
     const url = buildUrl(activeProject?.id ?? null, page);
-    if (window.location.pathname !== url) window.history.replaceState(null, "", url);
+    if (window.location.pathname !== url) {
+      if (pushNext.current) window.history.pushState(null, "", url);
+      else window.history.replaceState(null, "", url);
+    }
+    pushNext.current = false;
   }, [page, activeProject?.id, hydrated]);
 
+  // Push only after the project switch that usually accompanies a navigation has landed, so the new URL carries
+  // the new project (building it here would read the previous project from this render's closure).
   const navigate = (p: string) => {
     if (!isPage(p)) { console.warn(`Unknown page "${p}"`); return; }
+    pushNext.current = true;
     setPageState(p);
-    window.history.pushState(null, "", buildUrl(activeProject?.id ?? null, p));
   };
 
   const CurrentPage: ComponentType<PageProps> = PAGES[page];
@@ -188,6 +201,7 @@ function AppShell() {
           </main>
         </div>
       </div>
+      {activeProject && !BROWSING_PAGES.has(page) && <AgentDrawer projectId={activeProject.id} />}
     </>
   );
 }

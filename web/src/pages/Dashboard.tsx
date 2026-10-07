@@ -4,6 +4,9 @@ import { useProject, useActiveProjectId } from "../context/project-context";
 import { BrandLogo } from "../components/BrandLogo";
 import { intelApi } from "../services/intel-api";
 
+type ActivityItem = { action: string; detail: string; timestamp: string };
+const clock = (seconds: number) => new Date(seconds * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
 interface StageInfo {
   id: string;
   label: string;
@@ -77,6 +80,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
     datasetApproved: false, executionCompleted: false,
   });
   const [stages, setStages] = useState<StageInfo[]>([]);
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
 
   const computeStages = useCallback((s: ProjectStats): StageInfo[] => {
     const result: StageInfo[] = [
@@ -136,11 +140,6 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
       } catch {}
 
       try {
-        const execStatus = await intelApi.getExecutionStatus(activeProjectId);
-        s.executionCompleted = execStatus?.status === "completed";
-      } catch {}
-
-      try {
         const summary = await intelApi.getInsightsSummary(activeProjectId);
         s.insightsCount = summary.total_insights || 0;
         s.avgConfidence = summary.avg_confidence || 0;
@@ -167,6 +166,31 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
         }
       } catch {}
 
+      // The deliverable engine writes none of the legacy summaries above; its latest run is the real source
+      let runActivity: ActivityItem[] = [];
+      try {
+        const d = await intelApi.deliverableLatest(activeProjectId);
+        if (d.run) {
+          const run = d.run;
+          const n = d.sections.filter((x) => x.module === "insights").reduce((a, x) => a + (x.insights?.length ?? 0), 0);
+          if (n) s.insightsCount = n;
+          const slides = d.sections.find((x) => x.id === "studio")?.slides?.length ?? 0;
+          if (slides) s.slidesComposed = slides;
+          if (run.status === "completed") {
+            s.pptxReady = s.pptxReady || !!(run.pptx_path || run.studio_pptx_path);
+            s.wordReady = s.wordReady || !!run.docx_path;
+            s.executionCompleted = true;
+          }
+          const lines = d.sections.find((x) => x.id === "log")?.lines ?? [];
+          runActivity = lines.slice(-10).reverse().map((l) => ({
+            action: l.message, detail: `Deliverable run #${run.id}`, timestamp: clock(l.ts),
+          }));
+        }
+      } catch { /* no deliverable yet: keep the pipeline counts */ }
+
+      const events = await intelApi.agentEvents(activeProjectId, 10).catch(() => []);
+      setActivity([...events.map((e) => ({ action: e.action.replace(/_/g, " "), detail: e.actor, timestamp: clock(e.at) })),
+                   ...runActivity].slice(0, 10));
       setStats(s);
       setStages(computeStages(s));
     };
@@ -174,6 +198,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
     load();
   }, [activeProjectId, computeStages]);
 
+  const recent = activity.length ? activity : demo.activityLog;
   const completedCount = stages.filter((s) => s.status === "completed").length;
   const progress = stages.length > 0 ? Math.round((completedCount / stages.length) * 100) : 0;
   const projectName = activeProject?.name ?? "No Active Project";
@@ -367,7 +392,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
           <div>
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Recent Activity</h2>
             <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden" style={{ maxHeight: 320 }}>
-              {demo.activityLog.length === 0 ? (
+              {recent.length === 0 ? (
                 <div className="px-5 py-10 text-center">
                   <svg className="w-8 h-8 mx-auto text-slate-200 mb-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                     <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" strokeLinecap="round" strokeLinejoin="round" />
@@ -376,7 +401,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
                 </div>
               ) : (
                 <div className="divide-y divide-slate-100 overflow-y-auto" style={{ maxHeight: 320 }}>
-                  {demo.activityLog.slice(0, 10).map((item, i) => (
+                  {recent.slice(0, 10).map((item, i) => (
                     <div key={i} className="flex items-start gap-3 px-4 py-3 hover:bg-slate-50/50 transition-colors">
                       <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[#5B2C9D] shrink-0" />
                       <div className="flex-1 min-w-0">

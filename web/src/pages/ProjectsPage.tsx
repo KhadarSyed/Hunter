@@ -87,7 +87,7 @@ function ProjectCard({ project, onOpen, onEdit, onDelete, selected, onToggleSele
     <div className={`group relative flex flex-col overflow-hidden rounded-3xl bg-white shadow-sm ring-1 transition-all hover:-translate-y-0.5 hover:shadow-xl ${
       selected ? "ring-2 ring-[#5B2C9D]" : "ring-slate-900/5"
     }`}>
-      <button onClick={onOpen} className="relative h-48 w-full overflow-hidden text-left" aria-label={`Open ${project.project_name}`}>
+      <button onClick={onOpen} data-project-id={project.id} className="relative h-48 w-full overflow-hidden text-left" aria-label={`Open ${project.project_name}`}>
         <div className={`absolute inset-0 bg-gradient-to-br ${brand ? gradientFor(brand) : NO_BRAND_GRADIENT}`} />
         <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(white_1px,transparent_1px)] [background-size:14px_14px]" />
         <BriefSourceChip source={project.brief_source} />

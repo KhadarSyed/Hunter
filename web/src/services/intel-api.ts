@@ -604,7 +604,7 @@ export const intelApi = {
     }),
 
   getProject: (projectId: number) =>
-    get<{ id: number; project_name: string; project_type: string; brand?: string | null; spec: Record<string, unknown> }>(`/projects/${projectId}`),
+    get<{ id: number; project_name: string; project_type: string; brand?: string | null; spec: Record<string, unknown>; archived_at?: number | null }>(`/projects/${projectId}`),
 
   updateProject: (id: number, body: { project_name?: string; spec?: Record<string, unknown>; brand?: string }) =>
     put<{ id: number; project_name: string; project_type: string; brand?: string | null; spec: Record<string, unknown> }>(`/projects/${id}`, body),
@@ -1522,6 +1522,18 @@ export const intelApi = {
   // Deliverable engine: one run streams stages and sections over /ws and produces the PPTX + Word brief.
   deliverableRun: (projectId: number) => post<{ run_id: number }>(`/deliverable/${projectId}/run`, {}),
   deliverableLatest: (projectId: number) => get<DeliverablePayload>(`/deliverable/${projectId}/latest`),
+  agentState: (projectId: number) => get<AgentState>(`/agent/${projectId}`),
+  agentStart: (projectId: number, inputFolder?: string) =>
+    post<AgentState["autopilot"]>(`/agent/${projectId}/autopilot/start`, { input_folder: inputFolder || null }),
+  agentStop: (projectId: number) => post<{ ok: boolean }>(`/agent/${projectId}/autopilot/stop`, {}),
+  copilotSend: (projectId: number, message: string, confirm?: string) =>
+    post<CopilotReply>(`/agent/${projectId}/copilot`, { message, confirm: confirm ?? null }),
+  adminIssues: (status?: string) => get<AgentIssue[]>(`/agent/admin/issues${status ? `?status=${status}` : ""}`),
+  adminFixes: (status?: string) => get<AgentFix[]>(`/agent/admin/fixes${status ? `?status=${status}` : ""}`),
+  adminApplyFix: (id: number) => post<{ status: string; reason: string }>(`/agent/admin/fixes/${id}/apply`, {}),
+  adminRejectFix: (id: number, reason: string) => post<{ ok: boolean }>(`/agent/admin/fixes/${id}/reject`, { reason }),
+  adminRetryIssue: (id: number) => post<{ ok: boolean }>(`/agent/admin/issues/${id}/retry`, {}),
+  agentEvents: (projectId: number, limit = 10) => get<AgentEvent[]>(`/agent/${projectId}/events?limit=${limit}`),
   deliverableDownloadUrl: (projectId: number, runId: number, kind: "pptx" | "docx" | "html" | "pdf" | "studio_pptx") =>
     `${API_BASE}/deliverable/${projectId}/runs/${runId}/download/${kind}`,
   deliverableDeckUrl: (projectId: number, runId: number, path: string) =>
@@ -1533,6 +1545,7 @@ export const intelApi = {
 export interface DeliverableRun {
   id: number; project_id: number; status: "running" | "completed" | "failed"; stage: string | null;
   stages: Record<string, "running" | "done" | "failed">; pptx_path: string | null; docx_path: string | null;
+  studio_pptx_path?: string | null; html_path?: string | null; pdf_path?: string | null;
   error: string | null;
 }
 export interface DeliverableCard { headline: string; text: string; citations: number[] }
@@ -1554,10 +1567,21 @@ export interface DeliverableSection {
   lines?: DeliverableLogLine[];
   pct?: number; stage?: string; label?: string; started_at?: number;
   family?: string; family_reason?: string; design_system?: string; design_reason?: string;
+  slides?: unknown[];
   checklist?: { ask: string; kind: string; status: "covered" | "partial" | "missing"; slides: number[]; note: string }[];
   scorecard?: { covered: number; partial: number; missing: number };
 }
-export interface DeliverableProgress { pct: number; stage: string; label: string; started_at: number }
+export interface DeliverableProgress { pct: number; stage: string; label: string; started_at: number; typical_seconds?: number | null }
+export type AgentStep = { key: string; label: string; state: "done" | "ready" | "waiting" | "failed" | "todo"; detail: string };
+export type AgentState = { autopilot: { status: string; note: string; updated_at: number } | null;
+  status: { project_id: number; name: string; steps: AgentStep[]; next: string | null } };
+export type CopilotReply = { reply: string; actions: { tool: string; ok: boolean; error?: string }[];
+  pending: { id: string; tool: string; args: Record<string, unknown>; summary: string } | null };
+export type AgentIssue = { id: number; project_id: number | null; source: string; kind: string; title: string;
+  detail: Record<string, unknown>; status: string; note: string; seen: number; created_at: number };
+export type AgentFix = { id: number; issue_id: number; branch: string; tier: "auto" | "inbox" | "never"; diff: string;
+  tests: Record<string, string>; status: string; note: string; commit_sha: string | null; created_at: number };
+export type AgentEvent = { id: number; actor: string; action: string; detail: Record<string, unknown> | null; at: number; run_id: number | null };
 export interface DeliverableLogLine { ts: number; message: string }
 export interface DeliverableCitation { n: number; outlet: string; title: string; url: string; date: string; domain: string }
 export interface DeliverablePayload { run: DeliverableRun | null; sections: DeliverableSection[] }

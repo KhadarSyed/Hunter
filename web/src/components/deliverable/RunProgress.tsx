@@ -10,7 +10,7 @@ const NAMES: Record<string, string> = {
   qc: "Fact check and layout QC", index: "Reading reference decks", design: "Designing the deck",
   assets: "Finding photos & logos", compose: "Composing slides", export: "Exporting PPTX & PDF",
 };
-const MIN_PCT_FOR_ESTIMATE = 5;
+const MIN_PCT_FOR_ESTIMATE = 10;
 
 function duration(seconds: number): string {
   const s = Math.max(0, Math.round(seconds));
@@ -30,8 +30,11 @@ export function RunProgress({ progress, isLive, failed }: { progress: Deliverabl
 
   const elapsed = now - progress.started_at;
   const step = STAGES.indexOf(progress.stage) + 1;
-  const remaining = progress.pct >= MIN_PCT_FOR_ESTIMATE && progress.pct < 100
+  const linear = progress.pct >= MIN_PCT_FOR_ESTIMATE && progress.pct < 100
     ? (elapsed * (100 - progress.pct)) / progress.pct : null;
+  // Recent runs' typical length keeps an early, fast stage from promising a too-short wait
+  const typical = progress.typical_seconds && progress.pct < 100 ? Math.max(0, progress.typical_seconds - elapsed) : null;
+  const remaining = linear === null ? typical : typical === null ? linear : Math.max(linear, typical);
   const bar = failed ? "bg-red-500" : progress.pct >= 100 ? "bg-emerald-500" : "bg-[#5B2C9D]";
 
   return (

@@ -290,6 +290,7 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
                   <option>Social Listening</option>
                   <option>Audience Insights</option>
                   <option>Competitor Analysis</option>
+                  <option>Category / Editorial Analysis</option>
                   <option>Brand Tracking</option>
                 </select>
               </label>

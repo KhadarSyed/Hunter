@@ -162,6 +162,7 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
   const rqIds = [...new Set(payload.sections.map((s) => s.rq_id).filter(Boolean))] as string[];
   const collection = byId("data-collection")?.data;
   const summary = byId("executive-summary");
+  const question = (rq: string) => summary?.answers?.find((a) => a.rq_id === rq)?.question ?? "";
   const overview = byId("overview");
   const qc = byId("qc")?.report;
   const visuals = byId("visuals");
@@ -228,6 +229,7 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
             <div key={a.rq_id} className="rounded-xl border border-violet-100 bg-white p-4">
               <p className="text-3xl font-bold text-[#5B2C9D]">{a.value}</p>
               <p className="text-xs font-semibold text-slate-700">{a.rq_id}</p>
+              <p className="text-xs text-slate-600">{a.question}</p>
               <p className="mt-1 text-xs text-slate-500">{a.answer}</p>
             </div>
           ))}
@@ -241,7 +243,7 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
         const insights = byId(`${rq.toLowerCase()}-insights`)?.insights ?? [];
         return (
           <section key={rq} className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/40 p-5">
-            <h2 className="text-base font-semibold text-slate-900">{rq}</h2>
+            <h2 className="text-base font-semibold text-slate-900">{rq}{question(rq) ? `: ${question(rq)}` : ""}</h2>
             <div className="grid gap-3 md:grid-cols-2">
               {sections.map((s) => <SectionView key={s.id} section={s} logos={logos} />)}
             </div>
