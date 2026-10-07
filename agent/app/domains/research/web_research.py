@@ -13,7 +13,7 @@ from typing import Callable, Optional
 from urllib.parse import urlparse
 
 from . import news_search
-from .multi_source import build_boolean_queries, date_range_to_timestamps, fetch_and_persist
+from .multi_source import build_boolean_queries, date_range_to_timestamps, fetch_and_persist, search_brand_term
 
 EventFn = Callable[[str, dict], None]
 
@@ -429,7 +429,7 @@ class LiveWebResearchAdapter:
 
         # Build entity validator — still used below to score each retained item's relevance
         exclude_patterns = self._extract_exclusions(spec)
-        validator = EntityValidator(brand_name, category, geography, exclude_patterns)
+        validator = EntityValidator(search_brand_term(brand_name), category, geography, exclude_patterns)
 
         topics = build_boolean_queries(spec)
         _emit("research_started", {"brand": brand_name, "topics": [t.topic for t in topics]})
