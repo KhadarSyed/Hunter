@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from ...core import store
+from ...core.tabular import read_csv_dicts
 
 logger = logging.getLogger(__name__)
 
@@ -100,16 +101,11 @@ def _load_dataset(file_path: str) -> list[dict]:
     if path.suffix.lower() in (".xlsx", ".xls"):
         return _load_xlsx(file_path)
 
-    encodings = ["utf-8-sig", "utf-8", "latin-1", "cp1252"]
-    for enc in encodings:
-        try:
-            with open(file_path, "r", encoding=enc, newline="") as fh:
-                reader = csv.DictReader(fh)
-                raw = list(reader)
-                return _normalize_columns(raw)
-        except (UnicodeDecodeError, csv.Error):
-            continue
-    return []
+    try:
+        return _normalize_columns(read_csv_dicts(file_path))
+    except (OSError, csv.Error) as e:
+        logger.error("Could not read dataset %s: %s", file_path, e)
+        return []
 
 
 def _load_xlsx(file_path: str) -> list[dict]:
@@ -162,7 +158,7 @@ def _normalize_columns(records: list[dict]) -> list[dict]:
     if not records:
         return []
 
-    raw_columns = list(records[0].keys())
+    raw_columns = [c for c in records[0].keys() if isinstance(c, str)]
     col_map = {}
     for standard, variants in MELTWATER_COLUMN_MAP.items():
         for col in raw_columns:
@@ -174,6 +170,8 @@ def _normalize_columns(records: list[dict]) -> list[dict]:
     for r in records:
         row = {}
         for raw_col, value in r.items():
+            if not isinstance(raw_col, str):      # csv extra fields arrive under the key None
+                continue
             mapped = col_map.get(raw_col, raw_col.lower().strip().replace(" ", "_"))
             row[mapped] = value
         normalized.append(row)

@@ -35,6 +35,7 @@ from ...core.auth import require_dataset_access, require_project_access, require
 from ...core.config import UPLOAD_DIR
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
+from ...core.tabular import decode_text, sniff_delimiter
 from ..research.schemas import ApproveRequest
 from .schemas import (
     DatasetRecord,
@@ -757,7 +758,6 @@ def _llm_assisted_column_mapping(headers: list[str], sample_rows: list[dict]) ->
 KNOWN_HEADERS = ({alias for aliases in MELTWATER_COLUMN_MAP.values() for alias in aliases}
                  | {"document id", "input name"})
 _MIN_KNOWN_HEADERS = 2
-_CSV_ENCODINGS = ("utf-8-sig", "cp1252", "latin-1")
 
 
 def _is_header_row(row) -> bool:
@@ -768,15 +768,9 @@ def _is_header_row(row) -> bool:
 
 
 def _read_csv_text(file_path: str) -> str:
-    """CSV text in whatever encoding the export used — Meltwater/Excel on Windows often write cp1252
-    (curly quotes as 0x92), which is not valid UTF-8. latin-1 is last: it never fails."""
-    raw = Path(file_path).read_bytes()
-    for encoding in _CSV_ENCODINGS:
-        try:
-            return raw.decode(encoding)
-        except UnicodeDecodeError:
-            continue
-    return raw.decode("utf-8", errors="replace")
+    """CSV text in whatever encoding the export used: Meltwater writes UTF-16 LE (tab-separated), Excel on
+    Windows writes cp1252 (curly quotes as 0x92). See core.tabular.decode_text."""
+    return decode_text(Path(file_path).read_bytes())
 
 
 def _parse_and_analyze(file_path: str) -> tuple[list[str], list[dict], int, dict, dict]:
@@ -914,7 +908,7 @@ def _parse_and_analyze(file_path: str) -> tuple[list[str], list[dict], int, dict
             raise ValueError("Could not detect column headers in any sheet")
     else:
         with io.StringIO(_read_csv_text(file_path), newline="") as f:
-            reader = csv.DictReader(f)
+            reader = csv.DictReader(f, delimiter=sniff_delimiter(f.getvalue()))
             headers = list(reader.fieldnames or [])
             buffered_rows = list(itertools.islice(reader, 5))
             _init_mapped(headers, buffered_rows)
@@ -1101,7 +1095,7 @@ def _load_all_records(file_path: str, mapped: dict) -> list[dict]:
         wb.close()
     else:
         with io.StringIO(_read_csv_text(file_path), newline="") as f:
-            rows = list(csv.DictReader(f))
+            rows = list(csv.DictReader(f, delimiter=sniff_delimiter(f.getvalue())))
 
     records = []
     for i, row in enumerate(rows):
