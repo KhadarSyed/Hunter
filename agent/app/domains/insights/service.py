@@ -220,8 +220,9 @@ def _build_insight_for_objective(
         if excerpt:
             evidence_excerpts.append(excerpt)
 
-    # LLM-powered synthesis with template fallback
-    llm_result = llm.synthesize_insight(obj_text, insight_type, evidence_excerpts, platforms)
+    # LLM-powered synthesis with template fallback; numbers come from the methods' measured figures
+    llm_result = llm.synthesize_insight(obj_text, insight_type, evidence_excerpts, platforms,
+                                        measurements=_evidence_measurements(evidence_items))
 
     if llm_result:
         title = llm_result["title"][:200]
@@ -319,6 +320,21 @@ def _build_insight_for_objective(
 
 
 # ─── Classification ───────────────────────────────────────────────────────
+
+def _evidence_measurements(evidence_items: list[dict]) -> list[str]:
+    """The distinct measured statements behind the evidence (each method's rationale carries its counts and
+    shares over the whole dataset, e.g. '47 of 62 records (76%) ... 54 of 225 articles (24%)')."""
+    out: list[str] = []
+    for item in evidence_items:
+        rationale = item.get("rationale") or ""
+        if not rationale and item.get("evidence_id"):
+            ev = store.get_evidence_record(item["evidence_id"]) or {}
+            rationale = ev.get("rationale") or ""
+        rationale = rationale.strip()
+        if rationale and rationale not in out:
+            out.append(rationale)
+    return out
+
 
 def _classify_insight_type(objective: dict, evidence_items: list[dict]) -> str:
     """Heuristic classification based on objective text and evidence characteristics."""
