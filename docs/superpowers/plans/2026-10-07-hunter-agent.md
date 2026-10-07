@@ -3308,6 +3308,406 @@ git add agent/app/domains/deckstudio/revise.py agent/app/domains/deckstudio/crea
 git commit -m "feat(deckstudio): guarded single-slide revision and design-token changes for the copilot"
 ```
 
+### Task 12A: Photos that match the brand, the products and the slide
+
+The user reported (2026-10-07) that deck images are irrelevant to the brand, the products and the slide label. Diagnosis from project 262, run 17 (`deck/spec.json`):
+- **Queries are analysis labels, not subjects.** Examples: "Deal-Led Editorial Coverage Share Coverage over time" and "… Top Outlets for Deal-Led Content".
+- **Brands and products are never in the query.**
+- **Nothing gates relevance.** `find_photo` accepts the best of whatever Pexels returns, even with zero matching words.
+- **SerpAPI is unavailable.** It returns HTTP 429 "Your account has run out of searches", so brand and product shots never arrive.
+
+**Files:**
+- Create:
+  - `agent/app/domains/deckstudio/image_brief.py`: subjects, jargon stripping, tiered queries and the text relevance gate.
+  - `agent/app/domains/deckstudio/vision.py`: Azure `gpt-4.1` image check.
+- Modify `agent/app/domains/deckstudio/assets.py`:
+  - add a DuckDuckGo image source;
+  - add article lead images (`og:image`);
+  - add a SerpAPI quota circuit breaker;
+  - make `find_photo` subject-aware with a judge;
+  - return no photo rather than an irrelevant one.
+- Modify `agent/app/domains/deckstudio/planner.py`: add `PlanInput.products`, `PlanInput.category`.
+- Modify `agent/app/domains/deckstudio/pipeline.py`: build a brief per slide, ask for one batched LLM scene line, and log query, source and verdict for each slide.
+- Modify `agent/app/domains/deliverable/engine.py` `_plan_input`: pass products (spec `validated_entities` of type product/sub-brand) and the category phrase.
+- Test: `agent/tests/test_deckstudio_image_relevance.py`
+
+**Interfaces:**
+- Consumes:
+  - Task 9: `verbatims.is_public_http`.
+  - Task 10: `PlanInput.verbatims_by_rq`.
+  - Task 4: none. Vision uses plain `llm.chat` with an image content part, which `AzureOpenAIClient.chat` passes through unchanged.
+- Produces:
+  - `image_brief.Subjects(brands: list[str], products: list[str], category: str, scene: str)`, a frozen dataclass.
+  - `image_brief.JARGON`, a frozenset of analysis words dropped from queries.
+  - `image_brief.subjects_for(slide, brands: list[str], products: list[str], category: str, scene: str = "") -> Subjects`. The brands are those in the slide's chart categories or logos, else none.
+  - `image_brief.queries(s: Subjects) -> list[str]`: most specific first, at most 4, no duplicates.
+  - `image_brief.text_relevant(text: str, s: Subjects) -> bool`: shares at least one brand, product or category word.
+  - `vision.matches(llm, image_bytes: bytes, s: Subjects, slide_label: str) -> bool | None`. `None` means it could not judge (no LLM, or an error).
+  - `assets.article_image(url: str) -> str | None`: the page's `og:image` / `twitter:image`. Public URLs only.
+  - `assets.find_photo(query, role, folder, used, brand_image=None, *, subjects: Subjects | None = None, article_urls: list[str] = (), judge=None) -> Photo`. The original positional use stays valid. `Photo` gains `why: str`.
+  - `assets.MAX_VISION_CHECKS = 60` per run, counted by the caller-provided `judge`.
+  - Global rule: **no photo is better than an irrelevant photo.** If nothing passes the gate, the slide keeps its brand-colour gradient.
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+"""Slide photos must match the brand, products, category and the slide's subject; otherwise no photo."""
+from __future__ import annotations
+import os, tempfile
+os.environ.setdefault("HUNTER_AGENT_DATA_DIR", tempfile.mkdtemp())
+from io import BytesIO
+from PIL import Image
+from agent.app.domains.deckstudio import assets, image_brief as IB, vision
+from agent.app.domains.deckstudio.spec import SlideSpec
+
+BRANDS, PRODUCTS, CATEGORY = ["Aveeno", "Cetaphil", "Johnson's"], ["baby wash", "baby lotion"], "baby skincare"
+
+
+def _jpeg(w=2000, h=1200) -> bytes:
+    b = BytesIO()
+    Image.new("RGB", (w, h), (200, 180, 160)).save(b, "JPEG")
+    return b.getvalue()
+
+
+def test_jargon_never_reaches_a_query():
+    slide = SlideSpec(id="rq1-volume_trend-0", type="trend_with_peaks", kicker="Deal-Led Editorial Coverage Share",
+                      title="Coverage over time")
+    qs = IB.queries(IB.subjects_for(slide, BRANDS, PRODUCTS, CATEGORY))
+    assert qs and all(not (set(q.lower().split()) & {"coverage", "share", "editorial", "over", "time", "top", "outlets"})
+                      for q in qs)
+    assert all("baby" in q.lower() for q in qs)
+
+
+def test_brand_slide_queries_name_the_brand_and_product():
+    slide = SlideSpec(id="rq4-brand_sov-2", type="bar_with_cards", kicker="Expert Brand Affiliation",
+                      title="Brand Share of Voice", charts=[{"kind": "bar", "categories": ["Aveeno", "Cetaphil", "Other"]}])
+    s = IB.subjects_for(slide, BRANDS, PRODUCTS, CATEGORY)
+    assert s.brands == ["Aveeno", "Cetaphil"]
+    assert IB.queries(s)[0].startswith("Aveeno") and "baby" in IB.queries(s)[0].lower()
+
+
+def test_text_gate():
+    s = IB.Subjects(brands=["Aveeno"], products=["baby lotion"], category="baby skincare", scene="")
+    assert IB.text_relevant("Mother applying lotion to her baby", s)
+    assert IB.text_relevant("Aveeno Baby Daily Moisture", s)
+    assert not IB.text_relevant("Business people in a meeting room", s)
+
+
+def test_irrelevant_candidates_give_no_photo(tmp_path, monkeypatch):
+    monkeypatch.setattr(assets, "_pexels", lambda q: [{"url": "https://img.example.com/office.jpg", "width": 3000,
+                                                       "title": "Business people in a meeting room"}])
+    monkeypatch.setattr(assets, "_ddg_images", lambda q: [])
+    monkeypatch.setattr(assets, "_serpapi", lambda q: [])
+    monkeypatch.setattr(assets, "_download", lambda url: _jpeg())
+    s = IB.Subjects(brands=[], products=[], category="baby skincare", scene="")
+    photo = assets.find_photo("baby skincare", "panel", tmp_path, set(), subjects=s)
+    assert photo.path is None and "no relevant" in photo.why
+
+
+def test_vision_judge_overrides_text(tmp_path, monkeypatch):
+    monkeypatch.setattr(assets, "_pexels", lambda q: [
+        {"url": "https://img.example.com/a.jpg", "width": 3000, "title": "baby lotion"},
+        {"url": "https://img.example.com/b.jpg", "width": 3000, "title": "baby lotion bottle"}])
+    monkeypatch.setattr(assets, "_ddg_images", lambda q: [])
+    monkeypatch.setattr(assets, "_serpapi", lambda q: [])
+    monkeypatch.setattr(assets, "_download", lambda url: _jpeg())
+    verdicts = iter([False, True])
+    s = IB.Subjects(brands=[], products=["baby lotion"], category="baby skincare", scene="")
+    photo = assets.find_photo("baby lotion", "panel", tmp_path, set(), subjects=s, judge=lambda data: next(verdicts))
+    assert photo.source_url.endswith("b.jpg") and "vision" in photo.why
+
+
+def test_article_lead_image_preferred_for_evidence(tmp_path, monkeypatch):
+    monkeypatch.setattr(assets, "article_image", lambda url: "https://news.example.com/lead.jpg")
+    monkeypatch.setattr(assets, "_pexels", lambda q: [])
+    monkeypatch.setattr(assets, "_ddg_images", lambda q: [])
+    monkeypatch.setattr(assets, "_serpapi", lambda q: [])
+    monkeypatch.setattr(assets, "_download", lambda url: _jpeg())
+    s = IB.Subjects(brands=[], products=[], category="baby skincare", scene="")
+    photo = assets.find_photo("baby skincare", "panel", tmp_path, set(), subjects=s,
+                              article_urls=["https://news.example.com/a"], judge=lambda data: True)
+    assert photo.source_url == "https://news.example.com/lead.jpg" and photo.licence == "article"
+
+
+def test_article_image_parses_og_tag_and_refuses_private(monkeypatch):
+    html = '<html><head><meta property="og:image" content="https://cdn.example.com/x.jpg"></head></html>'
+    class R:
+        status_code, text, headers = 200, html, {"content-type": "text/html"}
+    monkeypatch.setattr(assets.requests, "get", lambda *a, **k: R())
+    monkeypatch.setattr(assets, "is_public_http", lambda u: "127.0.0.1" not in u)
+    assert assets.article_image("https://news.example.com/a") == "https://cdn.example.com/x.jpg"
+    assert assets.article_image("http://127.0.0.1/a") is None
+
+
+def test_serpapi_quota_trips_breaker(monkeypatch):
+    calls = []
+    class R:
+        status_code = 429
+        def json(self): return {"error": "Your account has run out of searches."}
+    monkeypatch.setenv("SERP_API_KEY", "k" * 64)
+    monkeypatch.setattr(assets, "_serp_disabled", False)
+    monkeypatch.setattr(assets.requests, "get", lambda *a, **k: calls.append(1) or R())
+    assert assets._serpapi("a") == [] and assets._serpapi("b") == [] and len(calls) == 1
+
+
+def test_vision_parses_yes_no_and_degrades():
+    class L:
+        def __init__(self, reply): self.reply = reply
+        def is_reachable(self): return True
+        def chat(self, messages, **_):
+            assert messages[-1]["content"][1]["type"] == "image_url"
+            return self.reply
+    s = IB.Subjects(brands=["Aveeno"], products=[], category="baby skincare", scene="")
+    assert vision.matches(L("YES - a baby lotion bottle"), _jpeg(), s, "Brand share") is True
+    assert vision.matches(L("no, an office"), _jpeg(), s, "Brand share") is False
+    assert vision.matches(None, _jpeg(), s, "Brand share") is None
+```
+
+Run: `$PY -m pytest agent/tests/test_deckstudio_image_relevance.py -q -p no:cacheprovider`
+Expected: FAIL with `ImportError: cannot import name 'image_brief'`.
+
+- [ ] **Step 2: Write `image_brief.py`**
+
+```python
+"""What a slide's photo should show: the brands on the slide, the project's products and category, and the slide's
+subject with analysis jargon removed. Queries go from most specific (brand + product) to most general (category)."""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+MAX_QUERIES = 4
+_WORD = re.compile(r"[A-Za-z][A-Za-z'&-]+")
+JARGON = frozenset("""coverage share voice editorial earned media analysis overview top key trend trends over time
+sentiment split themes theme cluster clusters outlets outlet ranking volume named mentions mention most cited
+led citations affiliation affiliated across among featured associated centered with in of the and for on to by
+question questions research brief takeaways summary objectives scope methodology sources thank you""".split())
+
+
+@dataclass(frozen=True)
+class Subjects:
+    brands: list[str]
+    products: list[str]
+    category: str
+    scene: str
+
+
+def _words(text: str) -> list[str]:
+    return [w for w in _WORD.findall(text or "") if w.lower() not in JARGON and len(w) > 2]
+
+
+def subjects_for(slide, brands: list[str], products: list[str], category: str, scene: str = "") -> Subjects:
+    on_slide = {c for ch in slide.charts for c in ch.get("categories", [])} | set(slide.logos)
+    named = [b for b in brands if b in on_slide]
+    topic = " ".join(dict.fromkeys(_words(f"{slide.kicker} {slide.title}")))[:60]
+    return Subjects(brands=named, products=list(products), category=category, scene=scene or topic)
+
+
+def queries(s: Subjects) -> list[str]:
+    product = s.products[0] if s.products else s.category
+    out = [f"{b} {product}" for b in s.brands[:2]]
+    if s.scene:
+        out.append(f"{s.category} {s.scene}" if s.category.split()[0].lower() not in s.scene.lower() else s.scene)
+    out += [f"{s.category} {p}" for p in s.products[:1]] + [s.category]
+    clean = []
+    for q in out:
+        q = " ".join(w for w in q.split() if w.lower() not in JARGON)
+        if q and q.lower() not in {c.lower() for c in clean}:
+            clean.append(q)
+    return clean[:MAX_QUERIES]
+
+
+def text_relevant(text: str, s: Subjects) -> bool:
+    have = {w.lower() for w in _WORD.findall(text or "")}
+    want = {w.lower() for term in (*s.brands, *s.products, s.category) for w in _WORD.findall(term) if len(w) > 3}
+    return bool(have & want)
+```
+
+- [ ] **Step 3: Write `vision.py`**
+
+```python
+"""Ask Azure OpenAI (gpt-4.1, image input) whether a candidate photo fits the slide. None = could not judge."""
+from __future__ import annotations
+
+import base64
+import logging
+from io import BytesIO
+
+from PIL import Image
+
+logger = logging.getLogger(__name__)
+THUMB_PX = 512
+_PROMPT = ("Answer YES or NO first. Is this photo a good, on-topic image for a presentation slide about {label}, "
+           "for the {category} category{brands}{products}? Say NO for logos alone, charts, screenshots of text, "
+           "watermarked stock, unrelated scenes, or a different brand's product.")
+
+
+def _thumb(data: bytes) -> str:
+    with Image.open(BytesIO(data)) as im:
+        im = im.convert("RGB")
+        im.thumbnail((THUMB_PX, THUMB_PX))
+        out = BytesIO()
+        im.save(out, "JPEG", quality=80)
+    return base64.b64encode(out.getvalue()).decode("ascii")
+
+
+def matches(llm, image_bytes: bytes, s, slide_label: str) -> bool | None:
+    if llm is None or not getattr(llm, "is_reachable", lambda: False)():
+        return None
+    text = _PROMPT.format(label=slide_label, category=s.category,
+                          brands=f", brands {', '.join(s.brands)}" if s.brands else "",
+                          products=f", products {', '.join(s.products[:3])}" if s.products else "")
+    try:
+        reply = llm.chat([{"role": "user", "content": [
+            {"type": "text", "text": text},
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{_thumb(image_bytes)}"}}]}])
+    except Exception as e:      # the text gate still applies when vision is unavailable
+        logger.warning("vision check skipped: %s", type(e).__name__)
+        return None
+    head = (reply or "").strip().upper()
+    return True if head.startswith("YES") else False if head.startswith("NO") else None
+```
+
+- [ ] **Step 4: Change `assets.py`**
+
+Add imports: `from .image_brief import Subjects, text_relevant` and `from .verbatims import is_public_http`. Add a module flag `_serp_disabled = False` and the constants `ARTICLE_TIMEOUT_S = 10` and `MAX_VISION_CHECKS = 60`.
+
+`_serpapi`: before the request, `if _serp_disabled: return []`. After the request, add:
+
+```python
+        if r.status_code == 429:
+            global _serp_disabled
+            _serp_disabled = True
+            logger.warning("serpapi quota exhausted; image search falls back to DuckDuckGo and Pexels for this process")
+            return []
+```
+
+New sources:
+
+```python
+def _ddg_images(query: str) -> list[dict]:
+    try:
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            from duckduckgo_search import DDGS
+        with DDGS() as d:
+            found = list(d.images(query, safesearch="moderate", size="Large", max_results=15))
+        return [{"url": i.get("image"), "width": int(i.get("width") or 0), "title": i.get("title") or ""} for i in found]
+    except Exception as e:      # rate limits and network errors: the next source is tried
+        logger.warning("duckduckgo image search failed: %s", type(e).__name__)
+        return []
+
+
+_OG = re.compile(r'<meta[^>]+(?:property|name)=["\'](?:og:image|twitter:image)["\'][^>]+content=["\']([^"\']+)', re.I)
+
+
+def article_image(url: str) -> str | None:
+    """The lead image an article declares for sharing: on-topic by construction."""
+    if not is_public_http(url):
+        return None
+    try:
+        r = requests.get(url, timeout=ARTICLE_TIMEOUT_S, headers={"User-Agent": "Mozilla/5.0"})
+        if r.status_code != 200 or "html" not in r.headers.get("content-type", ""):
+            return None
+        m = _OG.search(r.text[:200000])
+        found = m.group(1) if m else None
+        return found if found and is_public_http(found) else None
+    except requests.RequestException:
+        return None
+```
+
+`Photo` gains `why: str = ""`. The new `find_photo` keeps the old positional parameters:
+
+```python
+def _accept(data: bytes, role: str, title: str, subjects: Subjects | None, judge) -> tuple[bool, str]:
+    try:
+        with Image.open(BytesIO(data)) as im:
+            if im.width < MIN_WIDTH[role]:
+                return False, "too small"
+    except Exception:
+        return False, "not an image"
+    if subjects is None:
+        return True, "no subject check"
+    verdict = judge(data) if judge else None
+    if verdict is not None:
+        return verdict, "vision: " + ("matches" if verdict else "off-topic")
+    ok = text_relevant(title, subjects)
+    return ok, "text: " + ("names the subject" if ok else "does not name the subject")
+
+
+def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image: Path | None = None, *,
+               subjects: Subjects | None = None, article_urls=(), judge=None) -> Photo:
+    slug = hashlib.sha1(f"{query}|{role}".encode()).hexdigest()[:12]
+    if brand_image and brand_image.exists() and str(brand_image) not in used:
+        with Image.open(brand_image) as im:
+            wide_enough = im.width >= MIN_WIDTH[role]
+        if wide_enough:
+            used.add(str(brand_image))
+            return Photo(crop_to(brand_image, role, folder / f"{slug}.jpg"), str(brand_image), "brand", "brand imagery")
+    from .image_brief import queries as brief_queries
+    plan = [("article", [{"url": u, "width": 10**6, "title": ""} for u in filter(None, map(article_image, article_urls[:4]))])]
+    for q in (brief_queries(subjects) if subjects else [query]):
+        plan += [("web", _ddg_images(q) if subjects and subjects.brands else []), ("licensed", _pexels(q)), ("web", _serpapi(q))]
+    rejected = 0
+    for licence, results in plan:
+        for cand in [c for c in results if c["url"] and c["url"] not in used][:MAX_TRIES]:
+            data = _download(cand["url"])
+            if not data:
+                continue
+            title = cand["title"] or (" ".join(subjects.brands + [subjects.category]) if subjects and licence == "article" else "")
+            ok, why = _accept(data, role, title, subjects, judge)
+            if not ok:
+                rejected += 1
+                continue
+            folder.mkdir(parents=True, exist_ok=True)
+            raw = folder / f"{slug}.src"
+            raw.write_bytes(data)
+            used.add(cand["url"])
+            return Photo(crop_to(raw, role, folder / f"{slug}.jpg"), cand["url"], licence, why)
+    return Photo(None, "", "none", f"no relevant photo ({rejected} candidates rejected)")
+```
+
+Under the text gate, article lead images count as relevant: the article was routed to the slide's question, so its title is replaced by the slide's subjects. Under vision, they are judged like any other candidate.
+
+- [ ] **Step 5: Pipeline and engine**
+
+1. In `planner.PlanInput`, add `products: list[str] = field(default_factory=list)` and `category: str = ""`.
+2. In `engine._plan_input`:
+   - `products`: names of `spec["validated_entities"]` whose `type` is in `("product", "sub_brand", "product_line")`. Read from `store.get_latest_spec(project_id)`.
+   - `category`: the project's category phrase. Use `spec.get("research_subject", {}).get("category")`, else the project title with "Category", "Analysis", "Media" and "Earned" removed, lower-cased (for example "baby skincare").
+3. In `pipeline.run_studio`, `assets` stage:
+   - One batched scene call. Ask the LLM, in a single JSON-mode `chat`, for `{slide_id: "concrete photo scene, max 8 words"}` covering every slide with an image, given the slide titles, brands, products and category.
+   - Keep a scene only if `text_relevant(scene, Subjects(brands, products, category, ""))` is true. Any error falls back to an empty scene, which means the deterministic topic.
+   - Per slide:
+     - `subjects = image_brief.subjects_for(s, plan_input.brands, plan_input.products, plan_input.category, scenes.get(s.id, ""))`.
+     - `article_urls` are the URLs of the slide's card citations. When there are none, use the first 4 `verbatims_by_rq` URLs of the slide's question; the question id is the prefix of `s.id`, upper-cased.
+     - `judge` is a closure that calls `vision.matches(llm, data, subjects, s.question or s.title or s.kicker)` while a run-level counter is below `assets.MAX_VISION_CHECKS`. After that it returns `None`, so the text gate applies.
+   - Replace the existing `find_photo` call with `assets.find_photo(" ".join(image_brief.queries(subjects)[:1]) or s.image["query"], role, deck_dir / "photos", used, brand_image if s.type == "cover" else None, subjects=subjects, article_urls=article_urls, judge=judge)`. Delete the Task 11 kicker retry; the tiered queries replace it.
+   - Log per slide: `Photo for {s.id}: {photo.licence} — {photo.why} — {photo.source_url[:90]}`, or `No relevant photo for {s.id} ({photo.why}); brand gradient kept`.
+   - Store `s.image["why"] = photo.why`.
+
+- [ ] **Step 6: Run the tests**
+
+Run: `$PY -m pytest agent/tests/test_deckstudio_image_relevance.py agent/tests/test_deckstudio_assets.py agent/tests/test_deckstudio_pipeline.py agent/tests/test_deliverable_engine.py -q -p no:cacheprovider`
+Expected: PASS (all). Existing `test_deckstudio_assets.py` cases call `find_photo` positionally without `subjects`, which keeps the old behaviour.
+
+- [ ] **Step 7: Live check on project 262**
+
+1. Regenerate project 262's deck from the Deliverables page.
+2. Run: `$PY -c "import json; s=json.load(open(r'agent/data/deliverables/project_262/run_<new>/deck/spec.json',encoding='utf-8')); [print(x['id'][:24].ljust(24), (x['image'].get('why') or '')[:70]) for x in s['slides'] if x.get('image')]"`
+3. Expected:
+   - Every photo's `why` reads `vision: matches` (Azure configured), or `brand imagery`, or the slide says `no relevant photo`.
+   - No photo was chosen by `text: does not name the subject`.
+4. Open the deck and look at the brand slides (brand share of voice, experts affiliated with brands). They should show those brands' products, or article lead images about them, never generic stock. Record what you see in the ledger.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add agent/app/domains/deckstudio/image_brief.py agent/app/domains/deckstudio/vision.py agent/app/domains/deckstudio/assets.py agent/app/domains/deckstudio/planner.py agent/app/domains/deckstudio/pipeline.py agent/app/domains/deliverable/engine.py
+git commit -m "fix(deckstudio): slide photos chosen for brand, product and slide subject, vision-checked; no photo rather than an off-topic one"
+```
+
 ---
 
 ## Phase 3: detection, fixer, tiered apply
@@ -5867,6 +6267,10 @@ def main() -> int:
             results.append(check(f"{pid} wall images present", all(c.get("image") for w in walls for c in w["cards"])))
             thumbs = sum(1 for s in slides for c in s["cards"] if c.get("thumb"))
             results.append(check(f"{pid} insight cards have thumbnails", thumbs > 0, str(thumbs)))
+            whys = [s["image"].get("why", "") for s in slides if s.get("image", {}).get("path")]
+            off = [w for w in whys if w.startswith("text: does not") or w.startswith("vision: off")]
+            results.append(check(f"{pid} every photo matches brand/product/slide", not off and bool(whys),
+                                 f"{len(whys)} photos, {len(off)} off-topic"))
         else:
             results.append(check(f"{pid} deck spec found", False, str(spec_path)))
         manual = [e for e in store.list_agent_events(pid, limit=500) if e["actor"] not in ("autopilot", "copilot")]
@@ -5928,5 +6332,6 @@ Spec coverage:
 | §6 acceptance | 14 Step 5, 19 Step 6, 23 |
 | CSV bug | 1 |
 | UI issues | 20, 21 |
+| Photos irrelevant to brand/products/slide (user, 2026-10-07) | 12A, 23 |
 
 Judgement calls are Rulings R1–R8 above. The executor copies them into the ledger at setup.
