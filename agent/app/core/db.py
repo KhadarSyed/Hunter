@@ -1345,6 +1345,19 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
         """CREATE TABLE IF NOT EXISTS intel_reference_decks (
             path TEXT PRIMARY KEY, text TEXT, embedding_json TEXT, indexed_at REAL NOT NULL)""",
     ]),
+    (20, "deck studio", [
+        """CREATE TABLE IF NOT EXISTS deck_reference_decks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL UNIQUE, hash TEXT NOT NULL,
+            family TEXT NOT NULL, n_slides INTEGER NOT NULL, indexed_at REAL NOT NULL)""",
+        """CREATE TABLE IF NOT EXISTS deck_reference_slides (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, deck_id INTEGER NOT NULL, n INTEGER NOT NULL,
+            type TEXT NOT NULL, features_json TEXT NOT NULL)""",
+        "CREATE INDEX IF NOT EXISTS idx_deck_ref_slides_type ON deck_reference_slides(type)",
+        "ALTER TABLE intel_deliverable_runs ADD COLUMN html_path TEXT",
+        "ALTER TABLE intel_deliverable_runs ADD COLUMN pdf_path TEXT",
+        "ALTER TABLE intel_deliverable_runs ADD COLUMN studio_pptx_path TEXT",
+        "ALTER TABLE intel_deliverable_runs ADD COLUMN deck_dir TEXT",
+    ]),
 ]
 
 

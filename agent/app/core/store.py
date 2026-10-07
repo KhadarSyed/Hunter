@@ -33,3 +33,4 @@ from ..domains.spec.repository import *  # noqa: F401,F403
 from ..domains.qc.repository import *  # noqa: F401,F403
 from ..domains.auth.repository import *  # noqa: F401,F403
 from ..domains.deliverable.repository import *  # noqa: F401,F403
+from ..domains.deckstudio.repository import *  # noqa: F401,F403

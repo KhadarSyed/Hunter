@@ -7,7 +7,8 @@ from typing import Any, Optional
 
 from ...core.db import _conn
 
-_RUN_FIELDS = {"status", "stage", "pptx_path", "docx_path", "thumbs_dir", "error", "finished_at"}
+_RUN_FIELDS = {"status", "stage", "pptx_path", "docx_path", "thumbs_dir", "error", "finished_at",
+               "html_path", "pdf_path", "studio_pptx_path", "deck_dir"}
 
 
 def create_deliverable_run(project_id: int) -> int:
