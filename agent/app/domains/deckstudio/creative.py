@@ -2,13 +2,14 @@
 ships only if every guard passes, otherwise the template version does."""
 from __future__ import annotations
 
+import json
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
 from html.parser import HTMLParser
 from pathlib import Path
 
-from . import guards
+from . import guards, repair
 from .renderer import render_deck
 from .spec import DeckSpec, DeckTokens, SlideSpec
 
@@ -96,12 +97,13 @@ def creative_slide(llm, slide_html: str, slide: SlideSpec, tokens: DeckTokens, r
     return m.group(0)
 
 
-def compose(spec: DeckSpec, out_dir: Path, llm, shingles: set, progress=None, workers: int = 4) -> tuple[Path, list[dict]]:
+def compose(spec: DeckSpec, out_dir: Path, llm, shingles: set, progress=None, workers: int = 4,
+            on_fix=None) -> tuple[Path, list[dict]]:
     template_path = render_deck(spec, out_dir)
     template_html = guards.slide_html_map(template_path.read_text(encoding="utf-8"))
     report = {s.id: {"slide_id": s.id, "source": "template", "reasons": [], "qc": []} for s in spec.slides}
     if llm is None or not getattr(llm, "is_reachable", lambda: False)():
-        return _final_check(template_path, spec, out_dir, {}, report)
+        return _finish(template_path, spec, out_dir, {}, report, on_fix)
     tokens = spec.tokens or DeckTokens()
     candidates: dict[str, str] = {}
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -132,7 +134,14 @@ def compose(spec: DeckSpec, out_dir: Path, llm, shingles: set, progress=None, wo
     for issue in guards.layout_issues(path):
         if candidates.pop(issue["slide_id"], None) is not None:
             report[issue["slide_id"]]["reasons"].append(f"layout: {issue['kind']} ({issue['detail']})")
-    return _final_check(render_deck(spec, out_dir, candidates), spec, out_dir, candidates, report)
+    return _finish(render_deck(spec, out_dir, candidates), spec, out_dir, candidates, report, on_fix)
+
+
+def _finish(path: Path, spec: DeckSpec, out_dir: Path, candidates: dict[str, str], report: dict, on_fix):
+    """Final check, keep the creative HTML for later single-slide edits, then repair what still fails QC."""
+    path, rows = _final_check(path, spec, out_dir, candidates, report)
+    (out_dir / "creative.json").write_text(json.dumps(candidates), encoding="utf-8")
+    return repair.repair_deck(spec, out_dir, candidates, rows, on_fix=on_fix, path=path)
 
 
 def _final_check(path: Path, spec: DeckSpec, out_dir: Path, candidates: dict[str, str], report: dict) -> tuple[Path, list[dict]]:

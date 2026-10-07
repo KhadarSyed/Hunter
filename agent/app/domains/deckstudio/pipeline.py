@@ -11,7 +11,7 @@ from .planner import PlanInput
 
 
 def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: list[str], brand_image: Path | None,
-               logos: dict[str, Path], out_dir: Path) -> dict:
+               logos: dict[str, Path], out_dir: Path, on_fix=None) -> dict:
     deck_dir = out_dir / "deck"
     run.stage("index", "running")
     summary = indexer.index_library(progress=lambda i, n, name: run.within("index", i / max(1, n),
@@ -44,6 +44,8 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
             role = "panel" if s.treatment == "C" else "background"
             photo = assets.find_photo(f"{s.image['query']} {mood}".strip(), role, deck_dir / "photos", used,
                                       brand_image if s.type == "cover" else None)
+            if not photo.path and s.kicker:
+                photo = assets.find_photo(s.kicker, role, deck_dir / "photos", used, None)
             s.image["path"] = str(photo.path) if photo.path else None
             found.append({"slide": s.id, "source": photo.source_url, "licence": photo.licence})
             if photo.path:
@@ -74,12 +76,15 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
 
     run.stage("compose", "running")
     html, report = creative.compose(spec, deck_dir, llm, indexer.reference_text_shingles(),
-                                    progress=lambda i, n, sid: run.within("compose", i / max(1, n), f"Designing slide {i} of {n}"))
+                                    progress=lambda i, n, sid: run.within("compose", i / max(1, n), f"Designing slide {i} of {n}"),
+                                    on_fix=on_fix)
     for r in report:
         if r["reasons"] and r["reasons"][0] != "no usable creative version":
             run.log(f"{r['slide_id']}: template version kept - {r['reasons'][0]}")
         for flag in r.get("qc", []):
             run.log(f"QC flag on {r['slide_id']}: {flag}")
+        if r.get("repaired"):
+            run.log(f"Repaired {r['slide_id']}: {', '.join(r['repaired'])}")
     renderer.inline_assets(html)
     run.stage("compose", "done", f"{sum(1 for r in report if r['source'] == 'creative')} slides restyled")
     (deck_dir / "spec.json").write_text(json.dumps(spec.to_dict(), default=str), encoding="utf-8")

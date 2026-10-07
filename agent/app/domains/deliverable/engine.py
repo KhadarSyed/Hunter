@@ -16,6 +16,7 @@ from . import (analytics, brand_kit, catalog, engine_insights, extract, factchec
 from . import rows as R
 from .citations import CitationRegistry, domain_of
 from .engine_types import Section
+from ..agent import memory as agent_memory
 from ..deckstudio import verbatims
 from ..deckstudio.pipeline import run_studio
 from ..deckstudio.planner import PlanInput
@@ -419,7 +420,9 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
                                 _plan_input(project, inp, rqs, overview, sections_by_rq, insights_by_rq, answers,
                                             takeaways, methodology, base, {q.id: plans[q.id]["title"] for q in rqs},
                                             _verbatims_by_rq(rqs, rows_by_rq, insights_by_rq, registry)),
-                                inp.brand_colors, inp.brand_image, inp.logos, out_dir)
+                                inp.brand_colors, inp.brand_image, inp.logos, out_dir,
+                                on_fix=lambda sid, action, kind: agent_memory.remember(
+                                    project_id, "fix", f"run{run_id}_{sid}", {"action": action, "flag": kind}))
             run.section({"id": "studio", "rq_id": None, "module": "studio", "title": "Deck",
                          "family": studio["family"], "family_reason": studio["family_reason"],
                          "checklist": studio["checklist"], "scorecard": studio["scorecard"],
