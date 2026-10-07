@@ -287,19 +287,16 @@ def _unit_records(records: list[dict], rq_ids: list[str]) -> list[dict]:
 
 def _apply_filters(records: list[dict], filters: list[str], platforms: list[str]) -> list[dict]:
     """Apply planner-defined filters to the dataset."""
-    filtered = records
-    if platforms:
-        plat_lower = {p.lower() for p in platforms}
-        filtered = [
-            r for r in filtered
-            if (r.get("source") or "").lower() in plat_lower
-            or (r.get("media_type") or "").lower() in plat_lower
-            or not r.get("source")
-        ]
-        if not filtered:
-            filtered = records
-
-    return filtered
+    if not platforms:
+        return records
+    # Planner platforms are usually categories ("Online news sites") rather than the outlet names or media
+    # types in the data, so filter only when rows actually carry one of those labels; otherwise keep all.
+    plat_lower = {p.lower() for p in platforms}
+    matched = [
+        r for r in records
+        if (r.get("source") or "").lower() in plat_lower or (r.get("media_type") or "").lower() in plat_lower
+    ]
+    return matched or records
 
 
 def _select_fields(records: list[dict], required_fields: list[str]) -> list[dict]:
