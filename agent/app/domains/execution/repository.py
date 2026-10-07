@@ -161,6 +161,7 @@ def get_execution_units(run_id: int) -> list[dict]:
         d = dict(row)
         if d.get("result_json"):
             d["result"] = json.loads(d["result_json"])
+        d["coverage_volume"] = (d.get("result") or {}).get("coverage_volume")
         result.append(d)
     return result
 
