@@ -13,11 +13,12 @@ from ...core.auth import SESSION_COOKIE_NAME
 
 logger = logging.getLogger(__name__)
 WALK = ("landing", "projects", "dashboard", "background-research", "search-strategy", "data-sources", "deliverables")
-FADE_SAMPLE_MS = 150
+FADE_SAMPLE_MS = 100
+FADE_WINDOW_MS = 1500
 FADED_BELOW = 0.6
 SETTLE_MS = 1500
 NAV_TIMEOUT_MS = 30000
-_EMPTY_ACTIVITY = ("no activity", "no recent")
+_EMPTY_ACTIVITY = ("no activity", "no recent", "activity will appear")
 
 
 @dataclass(frozen=True)
@@ -30,12 +31,15 @@ class Finding:
 
 GENERIC_CHECKS_JS = r"""() => {
   const out = [];
-  const lum = c => { const m = c.match(/[\d.]+/g); if (!m) return null; const [r, g, b] = m.slice(0, 3).map(Number)
-    .map(v => { v /= 255; return v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4); });
-    return [.2126 * r + .7152 * g + .0722 * b, m[3]]; };
+  const cv = Object.assign(document.createElement('canvas'), {width: 1, height: 1}).getContext('2d');
+  const rgba = c => { cv.clearRect(0, 0, 1, 1); cv.fillStyle = '#000'; cv.fillStyle = c; cv.fillRect(0, 0, 1, 1);
+    const d = cv.getImageData(0, 0, 1, 1).data; return [d[0], d[1], d[2], d[3] / 255]; };   // any CSS colour, oklch included
+  const lum = c => { const [r, g, b, a] = rgba(c).map((v, i) => i < 3 ? v / 255 : v)
+    .map((v, i) => i < 3 ? (v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4)) : v);
+    return [.2126 * r + .7152 * g + .0722 * b, a]; };
   const bgOf = el => { for (let e = el; e; e = e.parentElement) { const s = getComputedStyle(e);
-    if (s.backgroundImage !== 'none') return null; const m = s.backgroundColor.match(/[\d.]+/g);
-    if (m && (m.length < 4 || Number(m[3]) > .5)) return s.backgroundColor; } return 'rgb(255,255,255)'; };
+    if (s.backgroundImage !== 'none') return null;
+    if (rgba(s.backgroundColor)[3] > .5) return s.backgroundColor; } return 'rgb(255,255,255)'; };
   const root = document.getElementById('root') || document.body;
   const seen = new Set();
   for (const el of root.querySelectorAll('*')) {
@@ -60,9 +64,14 @@ GENERIC_CHECKS_JS = r"""() => {
     out.push({kind: 'overflow_x', detail: `${document.documentElement.scrollWidth}px wide in a ${innerWidth}px window`});
   return out;
 }"""
-FADE_JS = """() => { const r = document.getElementById('root') || document.body; let min = 1;
-  for (let e = r.firstElementChild || r; e; e = e.firstElementChild) {
-    min = Math.min(min, Number(getComputedStyle(e).opacity)); if (e.children.length !== 1) break; } return min; }"""
+FADE_JS = """() => { const r = document.getElementById('root') || document.body; const big = innerWidth * innerHeight / 4;
+  const all = [...r.querySelectorAll('*')]; const area = e => { const b = e.getBoundingClientRect(); return b.width * b.height; };
+  const largest = all.reduce((m, e) => area(e) > area(m || e) ? e : (m || e), null);
+  let min = 1;
+  for (const e of all) { if (e !== largest && area(e) < big) continue;
+    let o = 1; for (let a = e; a && a !== document.documentElement; a = a.parentElement) o *= Number(getComputedStyle(a).opacity);
+    min = Math.min(min, o); }
+  return min; }"""
 PILLS_JS = """() => { const ol = document.querySelector('[aria-label="Deliverable stages"]'); if (!ol) return null;
   return new Set([...ol.children].map(li => Math.round(li.getBoundingClientRect().top))).size; }"""
 DASHBOARD_JS = """async (pid) => {
@@ -82,17 +91,23 @@ def _zeroish(card_text: str) -> bool:
 
 
 def _activity_empty(panel_text: str) -> bool:
-    lines = [l.strip() for l in panel_text.splitlines() if l.strip() and l.strip() != "Recent Activity"]
+    lines = [l.strip() for l in panel_text.splitlines() if l.strip() and l.strip().lower() != "recent activity"]
     return not lines or any(l.lower().startswith(_EMPTY_ACTIVITY) for l in lines)
+
+
+def _is_probe(url: str) -> bool:
+    """Requests the QA agent itself makes from the page (its dashboard probe), not the app's own."""
+    return "/api/intel/agent/" in url or (url.rstrip("/").endswith("/latest") and "/deliverable/" in url)
 
 
 def check_page(page, name: str, project_id: int | None) -> list[Finding]:
     found: list[Finding] = []
-    page.wait_for_timeout(FADE_SAMPLE_MS)
-    opacity = page.evaluate(FADE_JS)
-    if opacity < FADED_BELOW:
-        found.append(Finding(name, "faded_on_load", f"page content opacity {opacity:.2f} {FADE_SAMPLE_MS}ms after load"))
-    page.wait_for_timeout(SETTLE_MS)
+    lowest = 1.0
+    for _ in range(FADE_WINDOW_MS // FADE_SAMPLE_MS):        # content often mounts after its data loads, then fades in
+        page.wait_for_timeout(FADE_SAMPLE_MS)
+        lowest = min(lowest, page.evaluate(FADE_JS))
+    if lowest < FADED_BELOW:
+        found.append(Finding(name, "faded_on_load", f"page content at {lowest:.2f} opacity while loading"))
     found += [Finding(name, f["kind"], f["detail"]) for f in page.evaluate(GENERIC_CHECKS_JS)]
     if name in ("deliverables", "any"):
         rows = page.evaluate(PILLS_JS)
@@ -141,7 +156,7 @@ def walk(base_url: str, user_id: int, project_id: int, out_dir: Path, pages=WALK
                 if name == "projects":
                     here += _check_project_switch(page, project_id)
                 here += [Finding(name, "failed_request" if e.startswith("HTTP") else "console_error", e[:200])
-                         for e in dict.fromkeys(errors)]
+                         for e in dict.fromkeys(errors) if not _is_probe(e.split(" ")[-1])]
                 if here:
                     shot = out_dir / f"{name}.png"
                     page.screenshot(path=str(shot), full_page=True)
