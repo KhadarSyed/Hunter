@@ -21,7 +21,7 @@ class ReviewInsightRequest(BaseModel):
 
 
 class RevisionRequest(BaseModel):
-    notes: str
+    notes: str = ""     # optional guidance
     reviewer: str = "analyst"
 
 

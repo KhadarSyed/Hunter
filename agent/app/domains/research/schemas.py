@@ -22,7 +22,7 @@ class ApproveRequest(BaseModel):
 
 
 class RevisionRequest(BaseModel):
-    notes: str
+    notes: str = ""     # optional guidance
 
 
 class NewsApprovalRequest(BaseModel):

@@ -878,7 +878,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
   };
 
   const handleSubmitRevision = async () => {
-    if (!briefResult || !revisionNotes.trim()) return;
+    if (!briefResult) return;     // notes are optional guidance
     setSubmittingRevision(true);
     try {
       await intelApi.rejectBrief(briefResult.brief_id, revisionNotes.trim());
@@ -1510,8 +1510,8 @@ export function BackgroundResearch({ onNavigate }: Props) {
             <div className="px-5 pt-5 pb-3 border-b border-slate-100">
               <h2 className="text-sm font-semibold text-slate-900">Request a revision</h2>
               <p className="text-xs text-slate-500 mt-1">
-                What should be improved? This restarts web research from scratch and regenerates
-                the brief with your feedback fed directly into the synthesis.
+                What should be improved? (Optional.) This restarts web research from scratch and
+                regenerates the brief, feeding any feedback you add directly into the synthesis.
               </p>
             </div>
             <div className="px-5 py-4">
@@ -1533,7 +1533,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
               </button>
               <button
                 onClick={handleSubmitRevision}
-                disabled={submittingRevision || !revisionNotes.trim()}
+                disabled={submittingRevision}
                 className="px-4 py-2 text-sm font-medium text-white rounded-lg shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ backgroundColor: "#5B2C9D" }}
               >

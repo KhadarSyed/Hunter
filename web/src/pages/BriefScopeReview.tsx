@@ -316,11 +316,13 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
    * interpretation against the (optionally edited/enhanced) brief text; locked/approved
    * sections are preserved by default (confirm_overwrite_locked stays false). */
   const handleReanalyze = async () => {
-    if (!spec || !reanalyzeText.trim()) return;
+    // Extra detail is optional: an empty box reanalyzes the original brief as it stands
+    const briefText = reanalyzeText.trim() || spec?.raw_brief_text || "";
+    if (!spec || !briefText) return;
     setReanalyzing(true);
     setJobLog([]);
     try {
-      const started = await intelApi.regenerateSpec(spec.id, reanalyzeText.trim(), true, false);
+      const started = await intelApi.regenerateSpec(spec.id, briefText, true, false);
       setActiveJob({ job_id: started.job_id, status: "pending", progress_pct: 0, progress_message: "Starting" });
       setReanalyzeOpen(false);
     } catch (err) {
@@ -1320,7 +1322,7 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
           <div className="px-5 pt-5 pb-3 border-b border-slate-100">
             <h2 className="text-sm font-semibold text-slate-900">Not happy with this briefing?</h2>
             <p className="text-xs text-slate-500 mt-1">
-              Edit or add details below to enhance the brief, then reanalyze. Approved or locked sections are kept.
+              Optionally edit or add details below, then reanalyze. Approved or locked sections are kept.
             </p>
           </div>
           <div className="px-5 py-4">
@@ -1342,7 +1344,7 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
             </button>
             <button
               onClick={handleReanalyze}
-              disabled={reanalyzing || !reanalyzeText.trim()}
+              disabled={reanalyzing}
               className="px-4 py-2 text-sm font-medium text-white rounded-lg shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ backgroundColor: "#5B2C9D" }}
             >

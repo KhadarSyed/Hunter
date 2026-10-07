@@ -104,7 +104,7 @@ function SectionHeader({ title, count }: { title: string; count?: number }) {
 
 function InsightDrawer({ detail, loading, busy, notesDraft, setNotesDraft, onSaveNotes, onClose, onReview, onRequestRevision, onRegenerate }: {
   detail: InsightDetail | null; loading: boolean; busy: boolean; notesDraft: string; setNotesDraft: (v: string) => void;
-  onSaveNotes: () => void; onClose: () => void; onReview: (status: string) => void; onRequestRevision: () => void; onRegenerate: () => void;
+  onSaveNotes: () => void; onClose: () => void; onReview: (status: string) => void; onRequestRevision: (notes: string) => void; onRegenerate: () => void;
 }) {
   const [revisionNotes, setRevisionNotes] = useState("");
   const [showRevisionInput, setShowRevisionInput] = useState(false);
@@ -303,9 +303,9 @@ function InsightDrawer({ detail, loading, busy, notesDraft, setNotesDraft, onSav
               </div>
               {showRevisionInput && (
                 <div className="mt-3">
-                  <textarea value={revisionNotes} onChange={(e) => setRevisionNotes(e.target.value)} placeholder="Describe what needs revision..." rows={2}
+                  <textarea value={revisionNotes} onChange={(e) => setRevisionNotes(e.target.value)} placeholder="What needs revision? (optional)" rows={2}
                     className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 resize-none" />
-                  <button onClick={() => { onRequestRevision(); setRevisionNotes(""); setShowRevisionInput(false); }} disabled={busy || !revisionNotes.trim()}
+                  <button onClick={() => { onRequestRevision(revisionNotes); setRevisionNotes(""); setShowRevisionInput(false); }} disabled={busy}
                     className="mt-2 px-3 py-1.5 text-[11px] font-semibold bg-amber-500 text-white rounded-lg hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
                     Submit Revision Request
                   </button>
@@ -482,11 +482,11 @@ export function InsightsPage({ onNavigate }: Props) {
     }
   };
 
-  const handleRequestRevision = async () => {
+  const handleRequestRevision = async (revisionNotes: string) => {
     if (!selectedDetail) return;
     setBusyAction(true);
     try {
-      await intelApi.requestRevision(selectedDetail.insight.id, notesDraft || "Revision requested");
+      await intelApi.requestRevision(selectedDetail.insight.id, revisionNotes.trim() || "Revision requested");
       await loadInsights();
       await loadSummary();
       const d = await intelApi.getInsightDetail(selectedDetail.insight.id);
