@@ -13,6 +13,7 @@ from .renderer import slide_text
 _YEAR = re.compile(r"\b(19|20)\d{2}\b")
 _SLIDE_COUNT = re.compile(r"\b\d+\s*/\s*\d+\b")
 _WORD = re.compile(r"[a-z0-9']+")
+_BOOLEAN = {"or", "and", "not", "near"}
 _SECTION = re.compile(r'(<section class="slide[^"]*" data-id="([^"]+)".*?</section>)', re.S)
 _LAYOUT_JS = """() => {
   const out = [];
@@ -40,10 +41,18 @@ def number_issues(text: str, facts_allowed: list[str]) -> list[str]:
     return sorted(_figures(_SLIDE_COUNT.sub(" ", _YEAR.sub(" ", text))) - allowed)
 
 
+def _is_wording(shingle: tuple[str, ...]) -> bool:
+    """Template wording, not shared data: number runs (slide counters) and Boolean query fragments (the
+    project's own search query can match a reference deck that used similar terms) do not count."""
+    digits = sum(w.isdigit() for w in shingle)
+    operators = sum(w in _BOOLEAN for w in shingle)
+    return digits <= len(shingle) // 2 and operators < 2
+
+
 def copied_text(text: str, shingles: set) -> list[str]:
     words = _WORD.findall(text.lower())
     return sorted({" ".join(words[i:i + SHINGLE]) for i in range(len(words) - SHINGLE + 1)
-                   if tuple(words[i:i + SHINGLE]) in shingles})
+                   if tuple(words[i:i + SHINGLE]) in shingles and _is_wording(tuple(words[i:i + SHINGLE]))})
 
 
 def layout_issues(html_path: Path) -> list[dict]:
