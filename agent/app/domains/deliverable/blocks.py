@@ -44,7 +44,7 @@ def _rect(slide, x, y, w, h, fill: str, line: str | None = None, shape=MSO_SHAPE
 
 
 def add_text(slide, x, y, w, h, text: str, size: float, bold=False, color=style.BODY,
-             align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP):
+             align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP, font=None):
     tb = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
     tf = tb.text_frame
     tf.word_wrap = True
@@ -54,15 +54,15 @@ def add_text(slide, x, y, w, h, text: str, size: float, bold=False, color=style.
         p.alignment = align
         r = p.add_run()
         r.text = line
-        r.font.name, r.font.size, r.font.bold = style.FONT, Pt(size), bold
+        r.font.name, r.font.size, r.font.bold = font or style.FONT, Pt(size), bold
         r.font.color.rgb = _rgb(color)
     return tb
 
 
-def add_header(slide, kicker: str, title: str, summary: str):
+def add_header(slide, kicker: str, title: str, summary: str, font=None, accent=None):
     _rect(slide, 0, 0, style.SLIDE_W, style.HEADER_H, style.HEADER_BAND)
-    add_text(slide, style.MARGIN, 0.15, 5.7, 0.35, kicker, style.KICKER_PT, True, style.VIOLET)
-    add_text(slide, style.MARGIN, 0.5, 5.7, 0.8, title, style.TITLE_PT, True, "1F1F1F")
+    add_text(slide, style.MARGIN, 0.15, 5.7, 0.35, kicker, style.KICKER_PT, True, accent or style.VIOLET, font=font)
+    add_text(slide, style.MARGIN, 0.5, 5.7, 0.8, title, style.TITLE_PT, True, "1F1F1F", font=font)
     add_text(slide, 6.35, 0.18, 6.55, 1.05, summary, style.SUMMARY_PT, True, style.BODY, anchor=MSO_ANCHOR.MIDDLE)
 
 
@@ -159,7 +159,7 @@ def _hide_point_label(point) -> None:
     SubElement(dlbl, qn("c:delete")).set("val", "1")
 
 
-def add_doughnut(slide, x, y, w, h, categories, values, number_format=PERCENT_FORMAT):
+def add_doughnut(slide, x, y, w, h, categories, values, number_format=PERCENT_FORMAT, colors=None):
     """Values also go in the legend; in-slice labels on slices under 5% are hidden so they never collide."""
     suffix = "%" if number_format == PERCENT_FORMAT else ""
     legend_cats = [f"{c} ({v:g}{suffix})" for c, v in zip(categories, values)]
@@ -172,7 +172,8 @@ def add_doughnut(slide, x, y, w, h, categories, values, number_format=PERCENT_FO
     total = sum(values) or 1
     for i, pt in enumerate(plot.series[0].points):
         pt.format.fill.solid()
-        pt.format.fill.fore_color.rgb = _rgb(style.PALETTE[i % len(style.PALETTE)])
+        palette = colors or style.PALETTE
+        pt.format.fill.fore_color.rgb = _rgb(palette[i % len(palette)])
         if values[i] / total < SMALL_SLICE_SHARE:
             _hide_point_label(pt)
     # touching a point label makes python-pptx add a series-level <c:dLbls> with showVal=0, which would
