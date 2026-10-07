@@ -3,7 +3,7 @@ overview, per-RQ chart slides with cited insight cards, tables, logos and icons,
 citation appendix - in the brand heading font, accent and chart tints."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from pptx import Presentation
@@ -19,6 +19,9 @@ CITES_PER_PAGE = 14
 CHART_TOP = 1.5
 FOOT_SOURCE = "SOURCE: MELTWATER"
 EMU_PER_IN = 914400
+COVER_IMAGE_TOP = 1.2
+COVER_IMAGE_W = 4.2
+COVER_IMAGE_MAX_H = 5.0
 
 
 @dataclass
@@ -45,6 +48,7 @@ class DeckInput:
     hero_credit: str
     brand_image: Path | None
     flag: Path | None
+    rq_titles: dict[str, str] = field(default_factory=dict)   # short slide titles from the analysis plan
 
 
 def _slide(prs, inp: DeckInput, kicker: str, title: str, summary: str = "", icon: Path | None = None):
@@ -90,9 +94,13 @@ def _cover(prs, inp: DeckInput):
     use_brand = bool(inp.brand_image and inp.brand_image.exists())
     image = inp.brand_image if use_brand else inp.hero
     if image and image.exists():
-        pic = cover.shapes.add_picture(str(image), Inches(style.SLIDE_W - 4.6), Inches(1.2), width=Inches(4.2))
+        pic = cover.shapes.add_picture(str(image), Inches(style.SLIDE_W - 4.6), Inches(COVER_IMAGE_TOP),
+                                       width=Inches(COVER_IMAGE_W))
+        if pic.height > Inches(COVER_IMAGE_MAX_H):          # tall images: fit the height, keep the aspect ratio
+            ratio = Inches(COVER_IMAGE_MAX_H) / pic.height
+            pic.height, pic.width = Inches(COVER_IMAGE_MAX_H), int(pic.width * ratio)
         if not use_brand and inp.hero_credit:
-            blocks.add_text(cover, style.SLIDE_W - 4.6, 1.2 + pic.height / EMU_PER_IN + 0.05, 4.2, 0.3,
+            blocks.add_text(cover, style.SLIDE_W - 4.6, COVER_IMAGE_TOP + pic.height / EMU_PER_IN + 0.05, 4.2, 0.3,
                             inp.hero_credit, 7)
     if inp.flag and inp.flag.exists():
         cover.shapes.add_picture(str(inp.flag), Inches(0.6), Inches(6.2), height=Inches(0.45))
@@ -126,7 +134,9 @@ def _rq_slides(prs, inp: DeckInput, rq: RQ, work: Path):
     kpi = next((x for x in sections if x.module == "share_kpi" and not x.skipped), None)
     insights = inp.insights_by_rq.get(rq.id, [])
     summary = kpi.facts[0].split(": ", 1)[-1] if kpi else "No articles for this question"
-    s = _slide(prs, inp, rq.id, rq.question[:90], summary, inp.icons.get("share_kpi"))
+    title = inp.rq_titles.get(rq.id) or rq.question[:60]
+    s = _slide(prs, inp, rq.id, title, summary, inp.icons.get("share_kpi"))
+    blocks.add_text(s, style.MARGIN, CHART_TOP - 0.12, style.SLIDE_W - 2 * style.MARGIN, 0.2, rq.question, 8)
     if not kpi:
         blocks.add_text(s, style.MARGIN, CHART_TOP + 0.4, 12, 0.6, "No articles for this question", 18, True,
                         inp.accent, font=inp.title_font)
@@ -199,4 +209,5 @@ def build_generic_deck(inp: DeckInput, template: Path, work_dir: Path, out_path:
     appendix = [n - 1 for n in appendix]  # ...so every appendix slide moves up by one
     out_path.parent.mkdir(parents=True, exist_ok=True)
     prs.save(str(out_path))
-    return out_path, appendix
+    # Not generated prose, so the fact check skips them: citation appendix, template cover and closing slide
+    return out_path, sorted(set(appendix) | {1, len(prs.slides)})

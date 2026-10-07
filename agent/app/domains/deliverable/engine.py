@@ -82,6 +82,14 @@ def _scope_text(project: dict) -> str:
                                   str(spec.get("raw_brief") or "")[:600]]))
 
 
+def _subtitle(title: str, project_name: str) -> str:
+    """The project name without the repeated title ("Baby Skincare Category - Earned Editorial" -> "Earned Editorial")."""
+    name = (project_name or "").strip()
+    if name.lower().startswith(title.lower()):
+        name = name[len(title):].lstrip(" -–—:|")
+    return name or "Media Analysis"
+
+
 def _methodology(summary: dict, rqs) -> list[str]:
     files, urls, stories, base = summary["files"], summary["unique_urls"], summary["stories"], summary["base_n"]
     return ([f"{files} approved files; {urls} unique article URLs; {stories} unique stories; "
@@ -109,7 +117,7 @@ def _extract_all(llm, rqs, plans, rows_by_rq) -> tuple[dict, set[str]]:
 
 
 def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_rq, answers, takeaways,
-                methodology, registry, base, out_dir: Path) -> generic_deck.DeckInput:
+                methodology, registry, base, out_dir: Path, rq_titles: dict[str, str]) -> generic_deck.DeckInput:
     spec = project.get("spec") or {}
     brand = (spec.get("commissioning_brand") or {}).get("name") or project.get("brand") or "Research"
     industry = (spec.get("industry") or {}).get("name") or ""
@@ -131,12 +139,12 @@ def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_
     period = f"{dates[0]:%b %Y} - {dates[-1]:%b %Y}" if dates else str(spec.get("time_period") or "")
     palette = kit.palette if kit.colors else visuals.palette_from_logo(kit.logo)
     return generic_deck.DeckInput(
-        title=brand, subtitle=project.get("project_name") or "Media Analysis", date_label=f"{date.today():%B %Y}",
+        title=brand, subtitle=_subtitle(brand, project.get("project_name") or ""), date_label=f"{date.today():%B %Y}",
         period_label=period, rqs=rqs, overview=overview, sections_by_rq=sections_by_rq,
         insights_by_rq=insights_by_rq, answers=answers, takeaways=takeaways, methodology=methodology,
         citations=registry.entries(), base_n=base, palette=palette, accent=kit.accent, title_font=kit.title_font,
         logos=logo_map, icons=icons, hero=hero, hero_credit=credit, brand_image=kit.banner,
-        flag=visuals.country_flag_png(country, out_dir / "icons"))
+        flag=visuals.country_flag_png(country, out_dir / "icons"), rq_titles=rq_titles)
 
 
 def run_engine(run_id: int, project_id: int, llm) -> None:
@@ -218,7 +226,7 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         out_dir = config.DELIVERABLE_DIR / f"project_{project_id}" / f"run_{run_id}"
         methodology = _methodology(summary, rqs)
         inp = _deck_input(project, rows, rqs, overview, sections_by_rq, insights_by_rq, answers, takeaways,
-                          methodology, registry, base, out_dir)
+                          methodology, registry, base, out_dir, {q.id: plans[q.id]["title"] for q in rqs})
         safe = "".join(ch for ch in inp.title if ch.isalnum() or ch in " -_").strip() or "Deliverable"
         pptx_path, appendix = generic_deck.build_generic_deck(inp, template, out_dir / "work",
                                                               out_dir / f"{safe} - Deliverable.pptx")
