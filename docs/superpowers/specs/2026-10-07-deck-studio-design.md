@@ -49,7 +49,7 @@ Objective & Scope slides list the client's questions in full. No reference deck 
 ## 5. Components (`agent/app/domains/deckstudio/`)
 
 ### 5.1 Indexer (`indexer.py`)
-- Scans `config.TEMPLATES_DIR` for `*.pptx` (skips `~$*`, files over a size cap such as the combined 200 MB+
+- Scans `config.TEMPLATES_DIR` for `*.pptx` (skips `~$*`, files over 50 MB such as the combined 200 MB+
   decks, unreadable files). A deck is re-indexed when its content hash changes; removed decks drop out.
 - Per slide: renders a PNG (PowerPoint COM; skipped gracefully when unavailable), extracts geometry, text
   roles (kicker, title, so-what, body, footer), chart types and counts, tables, picture coverage (full-bleed,
