@@ -313,3 +313,35 @@ def _report_issue(ctx, args):
 register(Tool("report_issue", "File a problem the user reports (a bug, an ugly slide, a wrong label, a faded page).",
               {"type": "object", "required": ["title"], "properties": {"title": _STR, "page": _STR, "detail": _STR}},
               _report_issue))
+
+
+def _deck_dir(ctx) -> Path:
+    run = store.get_latest_deliverable_run(ctx.project_id) or {}
+    if run.get("status") != "completed" or not run.get("deck_dir"):
+        raise ToolError("there is no finished deck to change yet")
+    return Path(run["deck_dir"])
+
+
+def _revise(ctx, args):
+    from ..deckstudio import revise
+    out = revise.revise_slide(_deck_dir(ctx), str(args["slide"]), args["instructions"], ctx.llm)
+    if out["applied"]:
+        memory.remember(ctx.project_id, "preference", f"slide_{out['slide_id']}", args["instructions"])
+    return out
+
+
+def _design(ctx, args):
+    from ..deckstudio import revise
+    out = revise.set_design(_deck_dir(ctx), args["changes"])
+    if out["applied"]:
+        memory.remember(ctx.project_id, "preference", "design_tokens", {k: args["changes"][k] for k in out["applied"]})
+    return out
+
+
+register(Tool("revise_slide", "Restyle one slide of the finished deck following the user's instructions "
+              "(slide = number or id). Numbers must stay those in the data.",
+              {"type": "object", "required": ["slide", "instructions"], "properties": {"slide": _STR, "instructions": _STR}},
+              _revise, costly=True))
+register(Tool("set_design", "Change the deck's colours (6-hex) or fonts and re-export it.",
+              {"type": "object", "required": ["changes"], "properties": {"changes": {"type": "object"}}},
+              _design, costly=True))

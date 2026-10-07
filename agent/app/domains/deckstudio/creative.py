@@ -84,10 +84,12 @@ def _same_charts(template_html: str, candidate_html: str) -> bool:
     return _SVG.findall(template_html) == _SVG.findall(candidate_html)
 
 
-def creative_slide(llm, slide_html: str, slide: SlideSpec, tokens: DeckTokens, reference: dict) -> str | None:
+def creative_slide(llm, slide_html: str, slide: SlideSpec, tokens: DeckTokens, reference: dict,
+                   instructions: str = "") -> str | None:
+    extra = f"\nUser instructions: {instructions}" if instructions else ""
     try:
         reply = llm.chat([{"role": "system", "content": _PROMPT},
-                          {"role": "user", "content": f"Reference layout: {reference or 'none'}\nSlide:\n{slide_html}"}])
+                          {"role": "user", "content": f"Reference layout: {reference or 'none'}{extra}\nSlide:\n{slide_html}"}])
     except Exception as e:      # the creative pass is optional
         logger.warning("creative pass skipped for %s: %s", slide.id, type(e).__name__)
         return None
