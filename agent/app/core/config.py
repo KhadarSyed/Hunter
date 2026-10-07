@@ -27,6 +27,9 @@ UPLOAD_DIR = DATA_DIR / "uploads"
 EXPORT_DIR = DATA_DIR / "exports"
 DELIVERABLE_DIR = DATA_DIR / "deliverables"
 DELIVERABLE_DIR.mkdir(parents=True, exist_ok=True)
+REPO_ROOT = AGENT_DIR.parent
+# Folders the agent may read client inputs (briefs, Meltwater exports) from; ';'-separated.
+AGENT_INPUT_ROOTS = [Path(p) for p in (os.getenv("HUNTER_AGENT_INPUT_ROOTS") or str(AGENT_DIR.parent)).split(";") if p]
 TEMPLATES_DIR = AGENT_DIR.parent / "PPT Templates"   # reference decks shipped with the repo
 
 SETTINGS_PATH = DATA_DIR / "settings.json"
