@@ -9,6 +9,7 @@ from pathlib import Path
 
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
+from pptx.oxml.ns import qn
 from pptx.util import Inches
 
 from . import blocks, style
@@ -244,12 +245,31 @@ def _citations(prs, inp: DeckInput) -> list[int]:
     return numbers
 
 
+_ICON_TYPES = (MSO_SHAPE_TYPE.PICTURE, MSO_SHAPE_TYPE.GROUP, MSO_SHAPE_TYPE.FREEFORM, MSO_SHAPE_TYPE.AUTO_SHAPE)
+
+
+def _drop_icons_below(shapes, band: int, to_slide=lambda y: y) -> None:
+    """Removes icon shapes whose slide-space top is in the band, looking inside groups (whose children use
+    their own coordinate space, mapped back through the group's offset and scale)."""
+    for sh in list(shapes):
+        if sh.shape_type not in _ICON_TYPES or (sh.has_text_frame and sh.text_frame.text.strip()):
+            continue
+        if to_slide(sh.top) >= band:
+            sh._element.getparent().remove(sh._element)
+        elif sh.shape_type == MSO_SHAPE_TYPE.GROUP:
+            xfrm = sh._element.grpSpPr.find(qn("a:xfrm"))
+            off, ext = xfrm.find(qn("a:off")), xfrm.find(qn("a:ext"))
+            ch_off, ch_ext = xfrm.find(qn("a:chOff")), xfrm.find(qn("a:chExt"))
+            if None in (off, ext, ch_off, ch_ext) or not int(ch_ext.get("cy")):
+                continue
+            scale = int(ext.get("cy")) / int(ch_ext.get("cy"))
+            top, ch_top = int(off.get("y")), int(ch_off.get("y"))
+            _drop_icons_below(sh.shapes, band, lambda y, f=to_slide: f(top + (y - ch_top) * scale))
+
+
 def _drop_contact_icons(slide) -> None:
     """The template's phone/mail/location icons label contact text we removed; alone they mean nothing."""
-    band = Inches(style.SLIDE_H * CONTACT_BAND)
-    for sh in list(slide.shapes):
-        if sh.shape_type in (MSO_SHAPE_TYPE.PICTURE, MSO_SHAPE_TYPE.GROUP) and sh.top >= band:
-            sh._element.getparent().remove(sh._element)
+    _drop_icons_below(slide.shapes, Inches(style.SLIDE_H * CONTACT_BAND))
 
 
 def _closing(prs, inp: DeckInput):
