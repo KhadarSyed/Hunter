@@ -1358,6 +1358,29 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
         "ALTER TABLE intel_deliverable_runs ADD COLUMN studio_pptx_path TEXT",
         "ALTER TABLE intel_deliverable_runs ADD COLUMN deck_dir TEXT",
     ]),
+    (21, "hunter agent", [
+        """CREATE TABLE IF NOT EXISTS agent_memory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, kind TEXT NOT NULL,
+            key TEXT NOT NULL, value_json TEXT NOT NULL, updated_at REAL NOT NULL,
+            UNIQUE(project_id, kind, key))""",
+        """CREATE TABLE IF NOT EXISTS agent_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, run_id INTEGER,
+            actor TEXT NOT NULL, action TEXT NOT NULL, detail_json TEXT, at REAL NOT NULL)""",
+        "CREATE INDEX IF NOT EXISTS idx_agent_events_project ON agent_events(project_id, id)",
+        """CREATE TABLE IF NOT EXISTS agent_autopilots (
+            project_id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, status TEXT NOT NULL,
+            note TEXT NOT NULL DEFAULT '', attempts INTEGER NOT NULL DEFAULT 0, updated_at REAL NOT NULL)""",
+        """CREATE TABLE IF NOT EXISTS agent_issues (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER, source TEXT NOT NULL, kind TEXT NOT NULL,
+            title TEXT NOT NULL, detail_json TEXT NOT NULL, fingerprint TEXT NOT NULL, status TEXT NOT NULL,
+            note TEXT NOT NULL DEFAULT '', seen INTEGER NOT NULL DEFAULT 1, created_at REAL NOT NULL,
+            updated_at REAL NOT NULL)""",
+        "CREATE INDEX IF NOT EXISTS idx_agent_issues_fp ON agent_issues(fingerprint, status)",
+        """CREATE TABLE IF NOT EXISTS agent_fixes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, issue_id INTEGER NOT NULL, branch TEXT NOT NULL,
+            tier TEXT NOT NULL, diff TEXT NOT NULL, tests_json TEXT NOT NULL, status TEXT NOT NULL,
+            note TEXT NOT NULL DEFAULT '', commit_sha TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL)""",
+    ]),
 ]
 
 
