@@ -500,11 +500,15 @@ def _run_execution(
 
         try:
             rq_ids = objective_rqs.get(unit.get("objective_id", unit_id), [])
-            subset = _deduplicate(_unit_records(all_records, rq_ids))
+            # Coverage volume counts every article, syndicated copies included (share-of-coverage questions);
+            # the methods analyse unique stories so one syndicated piece doesn't dominate the themes.
+            in_scope = _apply_filters(_unit_records(all_records, rq_ids), filters, platforms)
+            coverage_volume = len(in_scope)
+            subset = _deduplicate(in_scope)
             store.add_execution_log(
-                run_id, f"Unit {unit_id}: {len(subset)} records for {', '.join(rq_ids) or 'all questions'}",
+                run_id, f"Unit {unit_id}: {coverage_volume} articles for {', '.join(rq_ids) or 'all questions'}, "
+                        f"{len(subset)} unique stories after merging syndicated copies",
                 unit_id=unit_id)
-            subset = _apply_filters(subset, filters, platforms)
             subset = _select_fields(subset, required_fields + ["url", "headline"])
             store.add_execution_log(run_id, f"Unit {unit_id}: {len(subset)} records after filtering", unit_id=unit_id)
 
@@ -529,6 +533,7 @@ def _run_execution(
                 "evidence_target": unit.get("evidence_target", ""),
                 "brand_name": brand_name,
                 "category": category,
+                "coverage_volume": coverage_volume,
             }
 
             evidence_records = executor.execute(subset, context)
@@ -559,7 +564,8 @@ def _run_execution(
                 status="completed",
                 records_processed=len(subset),
                 evidence_count=unit_evidence,
-                result={"evidence_count": unit_evidence, "records_processed": len(subset)},
+                result={"evidence_count": unit_evidence, "records_processed": len(subset),
+                        "unique_stories": len(subset), "coverage_volume": coverage_volume},
                 finished_at=time.time(),
             )
             store.add_execution_log(

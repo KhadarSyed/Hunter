@@ -13,6 +13,8 @@ interface UnitRow {
   status: string;
   progress_pct: number;
   records_processed: number;
+  /** Every article for the unit, syndicated copies included; records_processed is unique stories. */
+  coverage_volume?: number | null;
   evidence_count: number;
   error: string | null;
 }
@@ -179,7 +181,8 @@ function UnitTable({
             <th className="pb-2 pr-3 font-semibold">Unit</th>
             <th className="pb-2 pr-3 font-semibold">Method</th>
             <th className="pb-2 pr-3 font-semibold">Status</th>
-            <th className="pb-2 pr-3 font-semibold text-right tabular-nums">Records</th>
+            <th className="pb-2 pr-3 font-semibold text-right tabular-nums" title="Every article, syndicated copies included">Volume</th>
+            <th className="pb-2 pr-3 font-semibold text-right tabular-nums" title="Syndicated copies merged; what the analysis reads">Unique stories</th>
             <th className="pb-2 pr-3 font-semibold text-right tabular-nums">Evidence</th>
             <th className="pb-2 font-semibold"></th>
           </tr>
@@ -202,6 +205,9 @@ function UnitTable({
                     {u.error}
                   </div>
                 )}
+              </td>
+              <td className="py-2.5 pr-3 text-right tabular-nums text-slate-600">
+                {u.coverage_volume ?? "--"}
               </td>
               <td className="py-2.5 pr-3 text-right tabular-nums text-slate-600">
                 {u.records_processed || "--"}

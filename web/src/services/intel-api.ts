@@ -949,6 +949,7 @@ export const intelApi = {
         status: string;
         progress_pct: number;
         records_processed: number;
+        coverage_volume?: number | null;
         evidence_count: number;
         error: string | null;
       }[];

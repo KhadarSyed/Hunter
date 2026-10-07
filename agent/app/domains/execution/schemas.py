@@ -33,6 +33,7 @@ class ExecutionUnitStatus(ApiModel):
     status: str | None = None
     progress_pct: int | None = None
     records_processed: int | None = None
+    coverage_volume: int | None = None
     evidence_count: int | None = None
     error: str | None = None
 
