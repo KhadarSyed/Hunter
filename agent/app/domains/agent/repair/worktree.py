@@ -92,4 +92,7 @@ def revert(sha: str, repo: Path | None = None) -> str:
 def remove(wt: Worktree, repo: Path | None = None) -> None:
     if (config.DATA_DIR / "autofix").resolve() not in wt.path.resolve().parents:
         raise RuntimeError(f"refusing to remove {wt.path}: not an autofix worktree")
-    _git(repo or config.REPO_ROOT, "worktree", "remove", "--force", str(wt.path))
+    repo = repo or config.REPO_ROOT
+    _git(repo, "worktree", "remove", "--force", str(wt.path))
+    if wt.branch.startswith("autofix/"):            # the fix's own throwaway branch; never any other branch
+        _git(repo, "branch", "-D", wt.branch)

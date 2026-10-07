@@ -18,13 +18,15 @@ logger = logging.getLogger(__name__)
 MAX_TURNS = 30
 READ_LIMIT = 60000
 SEARCH_HITS = 200
+OVERWRITE_MAX_LINES = 40          # existing files longer than this are changed with edit_file, never rewritten
+MASS_DELETION_LINES = 30
 SUITE = ["python", "-m", "pytest", "agent/tests", "-x", "-q", "-p", "no:cacheprovider",
          "--ignore=agent/tests/test_e2e_live_workflow.py"]
 _REFUSED = (".env*", "*/.env*", "agent/data/*", ".git/*")
 _SYSTEM = ("You fix one problem in the Hunter codebase (FastAPI backend in agent/app, React frontend in web/src). Work "
            "only through the tools. For a backend problem: FIRST write a pytest file at {test} that reproduces the "
            "problem and fails today; THEN change the code so it passes. For a UI problem: change web/src only. Keep "
-           "the change minimal and in the style of the surrounding code. Do not touch .env, auth, migrations or "
+           "the change minimal and in the style of the surrounding code. Change existing files with edit_file; write_file is only for new files. Do not touch .env, auth, migrations or "
            "dependencies. Stop calling tools when done.")
 
 
@@ -37,7 +39,10 @@ _S = {"type": "string"}
 _TOOLS = [_fn("read_file", "Read a repo file", ["path"], {"path": _S}),
           _fn("list_files", "List repo files matching a glob", ["glob"], {"glob": _S}),
           _fn("search", "Regex search in files matching a glob", ["pattern"], {"pattern": _S, "glob": _S}),
-          _fn("write_file", "Replace a repo file's full content", ["path", "content"], {"path": _S, "content": _S}),
+          _fn("write_file", "Create a new file (or replace a very short one) with this full content",
+              ["path", "content"], {"path": _S, "content": _S}),
+          _fn("edit_file", "Change an existing file: replace the exact text `old` (must occur once) with `new`",
+              ["path", "old", "new"], {"path": _S, "old": _S, "new": _S}),
           _fn("run_test", "Run one pytest file", ["path"], {"path": _S})]
 
 
@@ -51,13 +56,23 @@ def _inside(wt, rel: str) -> Path | None:
 
 
 def _tool(wt, name: str, args: dict) -> str:
-    if name in ("read_file", "write_file", "run_test"):
+    if name in ("read_file", "write_file", "edit_file", "run_test"):
         target = _inside(wt, str(args.get("path", "")))
         if target is None:
             return "refused: path is outside the worktree or protected"
         if name == "read_file":
             return redact(target.read_text(encoding="utf-8", errors="replace")[:READ_LIMIT]) if target.is_file() else "no such file"
+        if name == "edit_file":
+            if not target.is_file():
+                return "refused: no such file; use write_file to create it"
+            text = target.read_text(encoding="utf-8")
+            if text.count(args.get("old", "")) != 1 or not args.get("old"):
+                return "refused: `old` must match exactly one place in the file"
+            target.write_text(text.replace(args["old"], args.get("new", ""), 1), encoding="utf-8")
+            return "edited"
         if name == "write_file":
+            if target.is_file() and len(target.read_text(encoding="utf-8", errors="replace").splitlines()) > OVERWRITE_MAX_LINES:
+                return "refused: this file exists; change it with edit_file instead of rewriting it"
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(args.get("content", ""), encoding="utf-8")
             return "written"
@@ -76,6 +91,14 @@ def _tool(wt, name: str, args: dict) -> str:
                     hits.append(f"{p.relative_to(wt.path).as_posix()}:{n}: {line.strip()[:200]}")
         return redact("\n".join(hits[:SEARCH_HITS]))
     return f"unknown tool {name}"
+
+
+def _mass_deletion(diff: str) -> str:
+    """A fix that removes most of a file is a broken rewrite, not a fix."""
+    for f in tiers.parse(diff):
+        if len(f["removed"]) > MASS_DELETION_LINES and len(f["removed"]) > 2 * len(f["added"]):
+            return f"the change removes most of {f['path']} ({len(f['removed'])} lines removed, {len(f['added'])} added)"
+    return ""
 
 
 def _converse(wt, llm, issue: dict, test_rel: str, ask: str, stop_when=None) -> None:
@@ -155,6 +178,8 @@ def propose(issue_id: int, llm, repo: Path | None = None, create_wt=worktree.cre
         diff = worktree.diff(wt)
         if not diff.strip():
             return _discard(issue_id, wt, repo, "no change was made")
+        if broken := _mass_deletion(diff):
+            return _discard(issue_id, wt, repo, broken)
         tier, why = tiers.classify(diff, read_source=lambda p: (wt.path / p).read_text(encoding="utf-8", errors="replace")
                                    if (wt.path / p).is_file() else None)
         worktree.commit(wt, f"fix: {issue['title'][:60]} (autofix #{issue_id})")
