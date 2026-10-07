@@ -11,6 +11,7 @@ from io import BytesIO
 from pathlib import Path
 
 import requests
+from urllib.parse import urljoin
 from PIL import Image, ImageOps
 
 from ...core import serp_keys
@@ -24,6 +25,9 @@ SIZES = {"background": (1920, 1080), "panel": (672, 1080)}
 PEXELS_URL = "https://api.pexels.com/v1/search"
 SERP_URL = "https://serpapi.com/search.json"
 MAX_TRIES = 4
+MAX_REDIRECTS = 3
+MAX_DOWNLOAD_BYTES = 15 * 1024 * 1024
+CHUNK = 64 * 1024
 ARTICLE_TIMEOUT_S = 10
 MAX_ARTICLES = 4
 MAX_VISION_CHECKS = 150
@@ -89,30 +93,69 @@ _OG = re.compile(r"""<meta[^>]+(?:property|name)=["'](?:og:image|twitter:image)[
 
 def article_image(url: str) -> str | None:
     """The lead image an article declares for sharing: on-topic by construction."""
-    if not is_public_http(url):
-        return None
     try:
-        r = requests.get(url, timeout=ARTICLE_TIMEOUT_S, headers=UA)
-        if r.status_code != 200 or "html" not in r.headers.get("content-type", ""):
-            return None
-        m = _OG.search(r.text[:200000])
-        found = m.group(1) if m else None
-        return found if found and is_public_http(found) else None
+        for _ in range(MAX_REDIRECTS + 1):         # each hop is checked: a public page may redirect into the network
+            if not is_public_http(url):
+                return None
+            r = requests.get(url, timeout=ARTICLE_TIMEOUT_S, headers=UA, allow_redirects=False)
+            if 300 <= r.status_code < 400 and r.headers.get("location"):
+                url = urljoin(url, r.headers["location"])
+                continue
+            if r.status_code != 200 or "html" not in r.headers.get("content-type", ""):
+                return None
+            m = _OG.search(r.text[:200000])
+            found = m.group(1) if m else None
+            return found if found and is_public_http(found) else None
     except requests.RequestException:
         return None
+    return None
+
+
+def _read_capped(r) -> bytes | None:
+    data = bytearray()
+    for chunk in r.iter_content(CHUNK):
+        data.extend(chunk)
+        if len(data) > MAX_DOWNLOAD_BYTES:
+            return None
+    return bytes(data)
+
+
+class _TooBig(Exception):
+    pass
 
 
 def _download(url: str) -> bytes | None:
+    """An image from a public host only (every redirect hop re-checked), at most MAX_DOWNLOAD_BYTES."""
+    start = url
     try:
-        r = requests.get(url, headers=UA, timeout=TIMEOUT_S)
-        if r.ok and r.headers.get("content-type", "image/").startswith("image/"):
-            return r.content
+        for _ in range(MAX_REDIRECTS + 1):
+            if not is_public_http(url):
+                return None
+            r = requests.get(url, headers=UA, timeout=TIMEOUT_S, stream=True, allow_redirects=False)
+            try:
+                if 300 <= r.status_code < 400 and r.headers.get("location"):
+                    url = urljoin(url, r.headers["location"])
+                    continue
+                if r.status_code == 200 and r.headers.get("content-type", "image/").startswith("image/"):
+                    data = _read_capped(r)
+                    if data is None:
+                        raise _TooBig()
+                    return data
+                break
+            finally:
+                r.close()
+    except _TooBig:
+        return None
     except requests.RequestException:
         pass
+    if not is_public_http(start):
+        return None
     try:      # some sites refuse plain requests; Scrapling fetches like a browser
         from scrapling.fetchers import Fetcher
-        page = Fetcher.get(url, timeout=TIMEOUT_S)
-        return page.body if getattr(page, "status", 0) == 200 else None
+        page = Fetcher.get(start, timeout=TIMEOUT_S)
+        body = page.body if getattr(page, "status", 0) == 200 else None
+        final = str(getattr(page, "url", start) or start)
+        return body if body and len(body) <= MAX_DOWNLOAD_BYTES and is_public_http(final) else None
     except Exception as e:
         logger.warning("image download failed: %s", type(e).__name__)
         return None

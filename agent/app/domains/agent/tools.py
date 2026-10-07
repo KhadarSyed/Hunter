@@ -104,6 +104,9 @@ def _job(ctx: ToolContext, started: dict) -> dict:
 # ── inputs ────────────────────────────────────────────────────────────────────────────────────────────────────────
 def list_input_files(folder: str) -> list[str]:
     target = Path(folder).resolve()
+    data = config.DATA_DIR.resolve()
+    if target == data or data in target.parents:
+        raise ToolError("the app's own data folder is never an input folder")
     if not any(target == r.resolve() or r.resolve() in target.parents for r in config.AGENT_INPUT_ROOTS):
         raise ToolError(f"{folder} is outside the allowed input folders")
     if not target.is_dir():
@@ -183,9 +186,12 @@ def _approve_strategy(ctx, _args):
     return ctx.api.call("POST", f"/strategy/{strategy['id']}/approve", json={"reviewer": _reviewer(ctx)})
 
 
-def _list_inputs(ctx, args):
-    folder = args.get("folder") or next((m["value"] for m in store.list_memory(ctx.project_id, "fact")
-                                         if m["key"] == "input_folder"), "")
+def _list_inputs(ctx, _args):
+    """Only the folder set when the autopilot was started (an authenticated, project-scoped request): a chat message
+    can never point the tools at another client's folder."""
+    folder = next((m["value"] for m in store.list_memory(ctx.project_id, "fact") if m["key"] == "input_folder"), "")
+    if not folder:
+        raise ToolError("no input folder is set for this project; start the autopilot with one")
     return {"folder": folder, "files": list_input_files(folder)}
 
 
@@ -283,10 +289,10 @@ for _tool in (
          _generate_strategy, costly=True),
     Tool("approve_strategy", "Approve the latest search strategy.", _NO_ARGS, _approve_strategy),
     Tool("list_input_files", "List the client's input files (brief, Meltwater exports) in the project's input folder.",
-         {"type": "object", "properties": {"folder": _STR}}, _list_inputs),
+         _NO_ARGS, _list_inputs),
     Tool("upload_datasets", "Upload the input folder's dataset files, each to the research questions it serves. "
          "mapping: {file path: [question ids]}; omitted means match by file name.",
-         {"type": "object", "properties": {"folder": _STR, "mapping": {
+         {"type": "object", "properties": {"mapping": {
              "type": "object", "additionalProperties": {"type": "array", "items": _STR}}}}, _upload_datasets, costly=True),
     Tool("enrich_dataset", "Enrich a parsed dataset with the LLM (small datasets only).",
          {"type": "object", "properties": {"dataset_id": {"type": "integer"}}}, _enrich_dataset, costly=True),
@@ -306,7 +312,8 @@ for _tool in (
 def _report_issue(ctx, args):
     from .repair import issues
     issue_id, new = issues.file_issue("user", "user_report", args["title"],
-                                      {"page": args.get("page", ""), "detail": args.get("detail", "")}, ctx.project_id)
+                                      {"page": args.get("page", ""), "detail": args.get("detail", "")}, ctx.project_id,
+                                      status="triage")
     return {"issue_id": issue_id, "new": new}
 
 

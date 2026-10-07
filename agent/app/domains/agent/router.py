@@ -48,7 +48,7 @@ def admin_reject(fix_id: Annotated[int, Path(ge=1)], body: RejectBody, admin=Dep
     store.update_fix(fix_id, status="rejected", note=f"rejected by {admin['email']}: {body.reason}")
     store.set_issue_status(fix["issue_id"], "rejected", body.reason)
     memory.remember(0, "fix", f"fix_{fix_id}", {"outcome": "rejected", "why": body.reason})
-    path = config.DATA_DIR / "autofix" / fix["branch"].replace("/", "-")
+    path = config.AUTOFIX_DIR / fix["branch"].replace("/", "-")
     if path.exists():
         worktree.remove(worktree.Worktree(path=path, branch=fix["branch"], base=""))
     return {"ok": True}

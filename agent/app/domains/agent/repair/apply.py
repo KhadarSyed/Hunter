@@ -49,6 +49,11 @@ def _build_web() -> tuple[int, str]:
     return r.returncode, (r.stdout + r.stderr)[-4000:]
 
 
+def _running_work() -> int:
+    """Deliverable runs and background jobs a restart would kill."""
+    return store.count_running_work()
+
+
 def _refuse(reason: str) -> dict:
     return {"status": "refused", "reason": reason}
 
@@ -68,6 +73,9 @@ def _precheck(fix: dict | None, approved_by: str | None) -> str:
         return "another fix is being applied"
     if os.environ.get("HUNTER_SUPERVISED") != "1":
         return "the backend is not running under the supervisor, so it cannot restart itself"
+    busy = _running_work()
+    if busy:
+        return f"{busy} deliverable run(s) or job(s) are running; the restart would interrupt them"
     if not worktree.tree_clean():
         return "the main checkout has uncommitted changes"
     return ""
@@ -86,7 +94,7 @@ def apply_fix(fix_id: int, approved_by: str | None, restart=None, build_web=None
     except RuntimeError as e:
         store.update_fix(fix_id, status="proposed", note=f"merge failed: {e}"[:300])
         return _refuse(f"merge failed: {e}")
-    test_file = (config.DATA_DIR / "autofix" / fix["branch"].replace("/", "-") / "agent" / "tests"
+    test_file = (config.AUTOFIX_DIR / fix["branch"].replace("/", "-") / "agent" / "tests"
                  / f"test_autofix_{fix['issue_id']}.py")
     if test_file.exists():
         shutil.copy2(test_file, config.REPO_ROOT / "agent" / "tests" / test_file.name)
@@ -115,7 +123,10 @@ def _health() -> bool:
 
 
 def _qa_user() -> int:
-    return next(u["id"] for u in store.list_users() if u["role"] == "super_admin")
+    user = next((u["id"] for u in store.list_users() if u["role"] == "super_admin"), None)
+    if user is None:
+        raise RuntimeError("no super admin account for the browser check")
+    return user
 
 
 def _qa(fix: dict) -> list[str]:
@@ -148,8 +159,12 @@ def _rolled_back(fix: dict, why: str, setting: dict, build_web) -> None:
 def verify_pending(health=None, qa=None, restart=None, build_web=None) -> list[int]:
     done = []
     for fix in store.list_fixes("verifying"):
-        ok = (health or _health)()
-        still = (qa or _qa)(fix) if ok else ["health check failed"]
+        try:
+            ok = (health or _health)()
+            still = (qa or _qa)(fix) if ok else ["health check failed"]
+        except Exception as e:      # a check that cannot run is a failed check: roll back, never leave it "verifying"
+            logger.exception("verification of fix %s could not run", fix["id"])
+            ok, still = False, [f"verification could not run: {type(e).__name__}: {e}"]
         setting = _setting()
         if ok and not still:
             store.update_fix(fix["id"], status="applied")
@@ -161,6 +176,18 @@ def verify_pending(health=None, qa=None, restart=None, build_web=None) -> list[i
             (restart or _restart)()
         done.append(fix["id"])
     return done
+
+
+def rollback_verifying(why: str, build_web=None) -> list[int]:
+    """Called by the supervisor when the backend dies on startup with a fix still being verified: revert it."""
+    rolled = []
+    for fix in store.list_fixes("verifying"):
+        try:
+            _rolled_back(fix, why, _setting(), build_web)
+            rolled.append(fix["id"])
+        except Exception:
+            logger.exception("could not roll back fix %s", fix["id"])
+    return rolled
 
 
 def verify_pending_async() -> None:

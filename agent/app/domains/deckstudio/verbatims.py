@@ -10,6 +10,7 @@ import logging
 import re
 import socket
 from contextlib import contextmanager
+from functools import lru_cache
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -93,13 +94,35 @@ def is_public_http(url: str) -> bool:
     return bool(infos)
 
 
+@lru_cache(maxsize=2048)
+def _origin_public(scheme: str, host: str) -> bool:
+    return is_public_http(f"{scheme}://{host}/")
+
+
+def _public(url: str) -> bool:
+    if url.startswith(("data:", "blob:", "about:")):
+        return True
+    parsed = urlparse(url)
+    return bool(parsed.hostname) and _origin_public(parsed.scheme, parsed.hostname)
+
+
+def _guard_route(route, check=None) -> None:
+    """Every request the screenshot browser makes, redirects included, must go to a public host."""
+    if (check or _public)(route.request.url):
+        route.continue_()
+    else:
+        route.abort()
+
+
 @contextmanager
 def _browser_page():
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         browser = p.chromium.launch()
         try:
-            yield browser.new_page(viewport={"width": VIEW_W, "height": VIEW_H})
+            page = browser.new_page(viewport={"width": VIEW_W, "height": VIEW_H})
+            page.route("**/*", lambda route, _request: _guard_route(route))   # redirects and sub-requests too
+            yield page
         finally:
             browser.close()
 

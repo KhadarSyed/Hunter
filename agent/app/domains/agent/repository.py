@@ -7,7 +7,7 @@ from typing import Optional
 
 from ...core.db import _conn
 
-OPEN_ISSUE_STATES = ("open", "fixing", "proposed", "needs_llm")
+OPEN_ISSUE_STATES = ("open", "triage", "fixing", "proposed", "needs_llm")
 _FIX_FIELDS = {"status", "note", "commit_sha", "diff", "tier", "tests"}
 
 
@@ -92,7 +92,7 @@ def list_autopilots(status: str | None = None) -> list[dict]:
 
 
 def file_issue_row(fingerprint: str, source: str, kind: str, title: str, detail: dict,
-                   project_id: int | None) -> tuple[int, bool]:
+                   project_id: int | None, status: str = "open") -> tuple[int, bool]:
     conn = _conn()
     marks = ",".join("?" * len(OPEN_ISSUE_STATES))
     row = conn.execute(f"SELECT id FROM agent_issues WHERE fingerprint = ? AND status IN ({marks})",
@@ -104,12 +104,22 @@ def file_issue_row(fingerprint: str, source: str, kind: str, title: str, detail:
         conn.close()
         return row["id"], False
     issue_id = conn.execute("INSERT INTO agent_issues (project_id, source, kind, title, detail_json, fingerprint, "
-                            "status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?)",
-                            (project_id, source, kind, title, json.dumps(detail, default=str), fingerprint, now,
+                            "status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (project_id, source, kind, title, json.dumps(detail, default=str), fingerprint, status, now,
                              now)).lastrowid
     conn.commit()
     conn.close()
     return issue_id, True
+
+
+def count_running_work() -> int:
+    """Running deliverable runs plus pending/running jobs: what a supervised restart would interrupt.
+    (Reads two other domains' tables; it is the agent's own safety check before restarting the app.)"""
+    conn = _conn()
+    runs = conn.execute("SELECT COUNT(*) FROM intel_deliverable_runs WHERE status = 'running'").fetchone()[0]
+    jobs = conn.execute("SELECT COUNT(*) FROM intel_jobs WHERE status IN ('pending', 'running')").fetchone()[0]
+    conn.close()
+    return runs + jobs
 
 
 def get_issue(issue_id: int) -> Optional[dict]:

@@ -55,11 +55,14 @@ def _inside(wt, rel: str) -> Path | None:
     return None if any(fnmatch.fnmatch(relpath, p) for p in _REFUSED) else target
 
 
-def _tool(wt, name: str, args: dict) -> str:
+def _tool(wt, name: str, args: dict, test_rel: str | None = None) -> str:
     if name in ("read_file", "write_file", "edit_file", "run_test"):
         target = _inside(wt, str(args.get("path", "")))
         if target is None:
             return "refused: path is outside the worktree or protected"
+        rel = target.relative_to(wt.path.resolve()).as_posix()
+        if name in ("write_file", "edit_file") and rel.startswith("agent/tests/") and rel != test_rel:
+            return "refused: only the issue's own test file may be written; existing tests are the bar to pass"
         if name == "read_file":
             return redact(target.read_text(encoding="utf-8", errors="replace")[:READ_LIMIT]) if target.is_file() else "no such file"
         if name == "edit_file":
@@ -77,7 +80,7 @@ def _tool(wt, name: str, args: dict) -> str:
             target.write_text(args.get("content", ""), encoding="utf-8")
             return "written"
         code, out = worktree.run(wt, ["python", "-m", "pytest", str(args["path"]), "-q", "-p", "no:cacheprovider"])
-        return f"exit {code}\n{out[-3000:]}"
+        return redact(f"exit {code}\n{out[-3000:]}")
     if name == "list_files":
         return "\n".join(p.relative_to(wt.path).as_posix() for p in wt.path.glob(args.get("glob", "**/*"))
                          if p.is_file() and ".git" not in p.parts)[:READ_LIMIT]
@@ -113,7 +116,7 @@ def _converse(wt, llm, issue: dict, test_rel: str, ask: str, stop_when=None) -> 
         messages.append(out["message"])
         for call in out["tool_calls"]:
             messages.append({"role": "tool", "tool_call_id": call["id"],
-                             "content": _tool(wt, call["name"], call["arguments"])[:12000]})
+                             "content": _tool(wt, call["name"], call["arguments"], test_rel)[:12000]})
             if stop_when and stop_when():
                 return
 
@@ -122,7 +125,7 @@ OUTPUT_IN_NOTE = 800
 
 
 def _discard(issue_id: int, wt, repo: Path, reason: str, output: str = "") -> dict:
-    note = f"{reason}\n{output[-OUTPUT_IN_NOTE:]}" if output else reason
+    note = f"{reason}\n{redact(output)[-OUTPUT_IN_NOTE:]}" if output else reason
     store.set_issue_status(issue_id, "discarded", note.strip())
     worktree.remove(wt, repo)
     return {"status": "discarded", "fix_id": None, "reason": reason}
@@ -135,7 +138,8 @@ def _junction_node_modules(wt, repo: Path) -> None:
 
 
 def _pytest(wt, test_rel: str) -> tuple[int, str]:
-    return worktree.run(wt, ["python", "-m", "pytest", test_rel, "-q", "-p", "no:cacheprovider"])
+    code, out = worktree.run(wt, ["python", "-m", "pytest", test_rel, "-q", "-p", "no:cacheprovider"])
+    return code, redact(out)
 
 
 def propose(issue_id: int, llm, repo: Path | None = None, create_wt=worktree.create) -> dict:
@@ -164,14 +168,14 @@ def propose(issue_id: int, llm, repo: Path | None = None, create_wt=worktree.cre
             if code != 0:
                 return _discard(issue_id, wt, repo, "the fix does not make its test pass", tests["green"])
             code, out = worktree.run(wt, SUITE, timeout=3600)
-            tests["suite"] = out[-1500:]
+            tests["suite"] = redact(out)[-1500:]
             if code != 0:
                 return _discard(issue_id, wt, repo, "the full suite fails with the fix", out)
         else:
             _junction_node_modules(wt, repo)
             code, out = worktree.run(wt, ["cmd", "/c", "npx", "tsc", "--noEmit"], cwd_rel="web") \
                 if (wt.path / "web").is_dir() else (0, "no web/ folder")
-            tests["typecheck"] = out[-1500:]
+            tests["typecheck"] = redact(out)[-1500:]
             if code != 0:
                 return _discard(issue_id, wt, repo, "the frontend no longer type-checks")
             tests["red"] = f"browser QA finding: {issue['kind']} ({(issue.get('detail') or {}).get('detail', '')})"[:500]

@@ -65,8 +65,9 @@ export function FixesTab() {
             <li key={i.id} className="flex items-center justify-between gap-3 p-3 text-sm">
               <span className="text-slate-800">#{i.id} [{i.source}] {i.title}{i.seen > 1 ? ` ×${i.seen}` : ""}</span>
               <span className="flex shrink-0 items-center gap-2 text-xs text-slate-600">{i.status}
-                {["discarded", "rejected", "needs_llm"].includes(i.status) &&
-                  <button onClick={() => intelApi.adminRetryIssue(i.id).then(load)} className="rounded border px-1.5 py-0.5">Retry</button>}
+                {["triage", "discarded", "rejected", "needs_llm"].includes(i.status) &&
+                  <button onClick={() => intelApi.adminRetryIssue(i.id).then(load)} className="rounded border px-1.5 py-0.5">
+                    {i.status === "triage" ? "Send to fixer" : "Retry"}</button>}
               </span>
             </li>
           ))}

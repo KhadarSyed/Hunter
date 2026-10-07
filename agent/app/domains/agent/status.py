@@ -53,7 +53,10 @@ def project_status(project_id: int) -> dict:
     spec, research = store.get_latest_spec(project_id), store.get_latest_research(project_id)
     brief, strategy = store.get_latest_brief(project_id), store.get_latest_strategy(project_id)
     datasets, run = store.get_datasets_by_project(project_id), store.get_latest_deliverable_run(project_id)
-    research_done = bool(research)          # the row is written when research finishes; its status stays "draft"
+    # The row is written mid-job (web results first, LLM enrichment after) and its status stays "draft"; research is
+    # finished when the latest research job completed (older projects without job rows count by the row alone).
+    last_job = next((j for j in jobs if j.get("job_type") == _JOB_FOR["research"]), None)
+    research_done = bool(research) and (last_job is None or last_job.get("status") == "completed")
     states = {
         "scope": _state(spec, _job_running(jobs, "scope")),
         "research": "waiting" if _job_running(jobs, "research") else ("done" if research_done else "todo"),

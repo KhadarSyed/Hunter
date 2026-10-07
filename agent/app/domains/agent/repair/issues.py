@@ -27,9 +27,12 @@ def _clean(value):
     return value
 
 
-def file_issue(source: str, kind: str, title: str, detail: dict, project_id: int | None = None) -> tuple[int, bool]:
+def file_issue(source: str, kind: str, title: str, detail: dict, project_id: int | None = None,
+               status: str = "open") -> tuple[int, bool]:
+    """status "triage" holds an issue until a super admin sends it to the fixer (user reports: their text becomes the
+    fixer's instructions)."""
     title = redact(title)[:300]
-    return store.file_issue_row(fingerprint(source, kind, title), source, kind, title, _clean(detail), project_id)
+    return store.file_issue_row(fingerprint(source, kind, title), source, kind, title, _clean(detail), project_id, status)
 
 
 def from_exception(stage: str, exc: BaseException, project_id: int | None) -> int:

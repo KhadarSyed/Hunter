@@ -3,6 +3,7 @@ back as a pending action the user confirms; nothing destructive exists to call."
 from __future__ import annotations
 
 import json
+import threading
 import secrets
 import time
 
@@ -34,9 +35,25 @@ def _confirm(ctx: ToolContext, pending_id: str) -> dict:
     store.delete_memory(ctx.project_id, "pending", pending_id)
     if not item or time.time() - item["at"] > PENDING_TTL:
         return {"reply": "There is no pending action with that id (it may have expired).", "actions": [], "pending": None}
+    tool = TOOLS.get(item["tool"])
+    if tool is not None and tool.costly:       # minutes long: start it and answer now; progress streams to the page
+        _start_background(ctx.project_id, ctx.user_id, item["tool"], item["args"])
+        return {"reply": f"Started {item['tool'].replace('_', ' ')}. Progress shows in Recent Activity and the run log.",
+                "actions": [{"tool": item["tool"], "ok": True}], "pending": None}
     out = run_tool(ctx, item["tool"], item["args"])
     return {"reply": "Done." if out["ok"] else f"That failed: {out.get('error')}", "actions": [_action(item["tool"], out)],
             "pending": None}
+
+
+def _start_background(project_id: int, user_id: int, tool: str, args: dict) -> None:
+    def work() -> None:
+        from .autopilot import _llm
+        api = ApiClient(user_id)
+        try:
+            run_tool(ToolContext(project_id=project_id, user_id=user_id, actor="copilot", api=api, llm=_llm()), tool, args)
+        finally:
+            api.close()
+    threading.Thread(target=work, daemon=True, name=f"copilot-{tool}-{project_id}").start()
 
 
 def _no_llm(ctx: ToolContext) -> dict:
@@ -47,7 +64,17 @@ def _no_llm(ctx: ToolContext) -> dict:
 
 
 def reply(project_id: int, user_id: int, message: str, llm, confirm: str | None = None, api=None) -> dict:
+    own = api is None
     ctx = ToolContext(project_id=project_id, user_id=user_id, actor="copilot", api=api or ApiClient(user_id), llm=llm)
+    try:
+        return _reply(ctx, message, llm, confirm)
+    finally:
+        if own:                 # the session this call opened is closed with it
+            ctx.api.close()
+
+
+def _reply(ctx: ToolContext, message: str, llm, confirm: str | None) -> dict:
+    project_id = ctx.project_id
     if confirm:
         return _confirm(ctx, confirm)
     memory.record(project_id, "copilot", "copilot_message", {"chars": len(message)})

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import dataclasses
 from dataclasses import asdict, dataclass
 from functools import lru_cache
@@ -28,8 +29,17 @@ EXPORT_DIR = DATA_DIR / "exports"
 DELIVERABLE_DIR = DATA_DIR / "deliverables"
 DELIVERABLE_DIR.mkdir(parents=True, exist_ok=True)
 REPO_ROOT = AGENT_DIR.parent
-# Folders the agent may read client inputs (briefs, Meltwater exports) from; ';'-separated.
-AGENT_INPUT_ROOTS = [Path(p) for p in (os.getenv("HUNTER_AGENT_INPUT_ROOTS") or str(AGENT_DIR.parent)).split(";") if p]
+
+
+def input_roots() -> list[Path]:
+    """Folders the agent may read client inputs (briefs, Meltwater exports) from: HUNTER_AGENT_INPUT_ROOTS, ';'-separated.
+    None by default, so no folder is readable until an admin names one."""
+    return [Path(p.strip()) for p in (os.getenv("HUNTER_AGENT_INPUT_ROOTS") or "").split(";") if p.strip()]
+
+
+AGENT_INPUT_ROOTS = input_roots()
+# Fix worktrees live outside the repo, so a test there can never find the repo's .env by walking up.
+AUTOFIX_DIR = Path(os.getenv("HUNTER_AUTOFIX_DIR") or Path(tempfile.gettempdir()) / "hunter_autofix")
 TEMPLATES_DIR = AGENT_DIR.parent / "PPT Templates"   # reference decks shipped with the repo
 
 SETTINGS_PATH = DATA_DIR / "settings.json"
