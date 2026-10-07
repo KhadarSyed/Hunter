@@ -3863,6 +3863,292 @@ git add agent/app/core/serp_keys.py agent/app/domains/deckstudio/assets.py agent
 git commit -m "feat: rotate across several SerpAPI keys on quota errors"
 ```
 
+### Task 12C: Use the real frontend-slides skill (design systems, CSS and animations)
+
+The user reported (2026-10-07) that the frontend-slides skill (github.com/zarazhangrui/frontend-slides, MIT) is not being used.
+
+What I found:
+- **Not loaded.** Only an "inspired by" copy exists, nested in the everything-claude-code bundle (`~/.claude/skills/everything-claude-code/skills/frontend-slides`), so Claude Code never loads it.
+- **Not used.** Deck Studio borrowed only the fixed 1920×1080 stage idea. It uses none of the skill's assets:
+  - the **34-system bold template pack**: each `design.md` holds a type scale, palette, layout motifs and chrome, indexed in `selection-index.json` by mood, tone, formality, best_for, avoid_for and scheme;
+  - `STYLE_PRESETS.md`;
+  - `viewport-base.css`;
+  - `animation-patterns.md`.
+
+The fix vendors the skill at a pinned commit and lets the art director choose one design system from the brief. The design system supplies type scale, fonts, motifs and chrome. The brand supplies primary and accent, and the existing contrast guard still runs.
+
+**Files:**
+- Create `agent/app/domains/deckstudio/frontend_slides/`. It is a vendored copy of the repo at commit `9906a34` containing:
+  - `LICENSE`, `SKILL.md`, `STYLE_PRESETS.md`, `animation-patterns.md`, `viewport-base.css`;
+  - `bold-template-pack/selection-index.json` and `bold-template-pack/templates/*/design.md`;
+  - `SOURCE.md`, holding the repo URL and commit.
+  - `template.html` and preview files are not copied.
+- Create: `agent/app/domains/deckstudio/design_systems.py`
+- Modify:
+  - `agent/app/domains/deckstudio/spec.py`: `DeckTokens` gains `design_system: str = ""`, `type_scale: dict`, `chrome_font: str = ""`, `radius: int = 18`.
+  - `agent/app/domains/deckstudio/art_director.py`: `choose_tokens` starts from the chosen design system, lets brand colours override primary and accent, and keeps `_guard`.
+  - `agent/app/domains/deckstudio/pipeline.py`: the design stage picks the system and logs the choice and reason.
+  - `agent/app/domains/deckstudio/templates/deck.html.j2`:
+    - inline `viewport-base.css`;
+    - type sizes from `type_scale`;
+    - the chrome font for kickers, labels and footers;
+    - entrance animations from `animation-patterns.md` (reduced-motion and `body.export` already switch them off).
+  - `.claude/skills/deck-studio/SKILL.md`: say which frontend-slides assets are used and where they live.
+- Install for Claude Code: copy the repo's `plugins/frontend-slides/skills/frontend-slides/` to `~/.claude/skills/frontend-slides/`. This puts `/frontend-slides` in the user's skill list; it is the user's global folder, at the user's request.
+- Test: `agent/tests/test_deckstudio_design_systems.py`
+
+**Interfaces:**
+- Produces:
+  - `design_systems.INDEX_PATH` and `design_systems.ALLOWED_FORMALITY = ("medium", "medium-high", "high")`. Client research decks never use low-formality systems.
+  - `design_systems.shortlist(intent: str, brand_mood: list[str], k: int = 5) -> list[dict]`. It scores index entries by word overlap of the intent and mood with each entry's `mood`, `tone` and `best_for`, minus overlap with `avoid_for`. Only allowed formality is considered. The best score comes first.
+  - `design_systems.choose(llm, intent: str, brand_mood: list[str]) -> tuple[dict, str]`, returning `(entry, reason)`. The LLM picks from the shortlist; an invalid or missing reply falls back to `shortlist[0]`.
+  - `design_systems.load(slug: str) -> dict`: the YAML front matter of `design.md` (`colors`, `typography`, and anything else present). It raises `ValueError` for an unknown slug, so paths cannot escape the pack.
+  - `art_director.choose_tokens(llm, brand_colors, scope_text, rules, design: dict | None = None) -> tuple[DeckTokens, str]`. This adds the trailing `design` argument; existing callers keep working.
+  - Rule: the design system's name and slug never appear in visible slide text (no template names on slides, an existing Deck Studio requirement).
+
+- [ ] **Step 1: Vendor the skill**
+
+```bash
+SRC="C:/Users/KHADAR~1.SYE/AppData/Local/Temp/claude/d--HunterAgent/c7394f8a-c45f-40b1-b005-1d93c31d1dac/scratchpad/fs-repo"
+DST=agent/app/domains/deckstudio/frontend_slides
+mkdir -p "$DST/bold-template-pack/templates"
+cp "$SRC"/{LICENSE,SKILL.md,STYLE_PRESETS.md,animation-patterns.md,viewport-base.css} "$DST/"
+cp "$SRC/bold-template-pack/selection-index.json" "$DST/bold-template-pack/"
+for d in "$SRC"/bold-template-pack/templates/*/; do s=$(basename "$d"); mkdir -p "$DST/bold-template-pack/templates/$s"; cp "$d/design.md" "$DST/bold-template-pack/templates/$s/"; done
+printf "Vendored from https://github.com/zarazhangrui/frontend-slides at commit 9906a34 (MIT, see LICENSE).\n" > "$DST/SOURCE.md"
+ls "$DST/bold-template-pack/templates" | wc -l
+```
+
+Expected: `34`.
+
+If the scratchpad clone is gone, clone the repo again first with `git clone --depth 1 https://github.com/zarazhangrui/frontend-slides.git <scratchpad>/fs-repo`, then run `git -C <scratchpad>/fs-repo checkout 9906a34`.
+
+Then install for Claude Code (user's global folder):
+
+```bash
+cp -r "$SRC/plugins/frontend-slides/skills/frontend-slides" ~/.claude/skills/frontend-slides
+head -3 ~/.claude/skills/frontend-slides/SKILL.md
+```
+
+Expected: `name: frontend-slides`.
+
+- [ ] **Step 2: Write the failing tests**
+
+```python
+"""frontend-slides design systems: shortlist from the brief, load safely, shape the tokens, never named on slides."""
+from __future__ import annotations
+import os, tempfile
+os.environ.setdefault("HUNTER_AGENT_DATA_DIR", tempfile.mkdtemp())
+import pytest
+from agent.app.domains.deckstudio import art_director, design_systems as DS
+
+INTENT = "earned editorial media analysis of baby skincare coverage for a client: experts, deals, celebrities"
+
+
+def test_vendored_pack_present():
+    assert DS.INDEX_PATH.exists() and len(DS.index()) == 34
+
+
+def test_shortlist_respects_formality_and_fit():
+    picks = DS.shortlist(INTENT, ["gentle", "trusted"])
+    assert picks and all(p["formality"] in DS.ALLOWED_FORMALITY for p in picks)
+    assert len(picks) <= 5 and len({p["slug"] for p in picks}) == len(picks)
+
+
+def test_load_returns_type_scale_and_rejects_unknown():
+    entry = DS.shortlist(INTENT, [])[0]
+    d = DS.load(entry["slug"])
+    assert d["typography"] and d.get("colors")
+    with pytest.raises(ValueError):
+        DS.load("../../etc")
+
+
+def test_choose_falls_back_without_llm():
+    entry, why = DS.choose(None, INTENT, [])
+    assert entry["slug"] == DS.shortlist(INTENT, [])[0]["slug"] and why
+
+
+class LLM:
+    def __init__(self, reply): self.reply = reply
+    def is_reachable(self): return True
+    def chat(self, messages, **_): return self.reply
+
+
+def test_choose_rejects_slug_outside_shortlist():
+    entry, _ = DS.choose(LLM('{"slug": "8-bit-orbit", "why": "fun"}'), INTENT, [])
+    assert entry["slug"] in {p["slug"] for p in DS.shortlist(INTENT, [])}
+
+
+def test_tokens_take_design_type_and_brand_colours():
+    entry = DS.shortlist(INTENT, [])[0]
+    design = DS.load(entry["slug"])
+    tokens, _src = art_director.choose_tokens(None, ["5B2C9D", "E4572E"], INTENT, {}, design={**design, "slug": entry["slug"]})
+    assert tokens.design_system == entry["slug"] and tokens.type_scale and tokens.primary == "5B2C9D"
+
+
+def test_design_name_never_on_slides(tmp_path):
+    from agent.app.domains.deckstudio import renderer, guards
+    from agent.app.domains.deckstudio.spec import DeckSpec, SlideSpec
+    entry = DS.shortlist(INTENT, [])[0]
+    tokens, _ = art_director.choose_tokens(None, ["5B2C9D"], INTENT, {}, design={**DS.load(entry["slug"]), "slug": entry["slug"]})
+    spec = DeckSpec(1, "Deck", "Sub", "2026", 10, "topic_map", "", tokens,
+                    [SlideSpec(id="cover", type="cover", treatment="full", title="Deck")])
+    html = renderer.render_deck(spec, tmp_path).read_text("utf-8")
+    text = " ".join(guards.slide_visible_text(s) for s in guards.slide_html_map(html).values()).lower()
+    assert entry["slug"] not in text and entry["name"].lower() not in text
+```
+
+Run: `$PY -m pytest agent/tests/test_deckstudio_design_systems.py -q -p no:cacheprovider`
+Expected: FAIL with `ImportError: cannot import name 'design_systems'`.
+
+- [ ] **Step 3: Write `design_systems.py`**
+
+```python
+"""Design systems from the frontend-slides bold template pack (vendored, MIT): shortlist by the brief's intent, let
+the LLM pick one, and read only that system's design.md front matter."""
+from __future__ import annotations
+
+import json
+import logging
+import re
+from functools import lru_cache
+from pathlib import Path
+
+import yaml
+
+logger = logging.getLogger(__name__)
+PACK = Path(__file__).parent / "frontend_slides" / "bold-template-pack"
+INDEX_PATH = PACK / "selection-index.json"
+ALLOWED_FORMALITY = ("medium", "medium-high", "high")
+SHORTLIST = 5
+_WORD = re.compile(r"[a-z]{4,}")
+_FRONT = re.compile(r"^---\s*\n(.*?)\n---", re.S)
+_PROMPT = ("Pick the design system that best fits this client research deck. Reply as JSON "
+           '{"slug": "<one of the slugs>", "why": "<one sentence>"}.')
+
+
+@lru_cache(maxsize=1)
+def index() -> list[dict]:
+    return json.loads(INDEX_PATH.read_text(encoding="utf-8"))["templates"]
+
+
+def _words(*parts) -> set[str]:
+    return {w for p in parts for w in _WORD.findall((" ".join(p) if isinstance(p, list) else str(p or "")).lower())}
+
+
+def shortlist(intent: str, brand_mood: list[str], k: int = SHORTLIST) -> list[dict]:
+    want = _words(intent, brand_mood)
+    scored = []
+    for t in index():
+        if t["formality"] not in ALLOWED_FORMALITY:
+            continue
+        fit = len(want & _words(t["mood"], t["tone"], t["best_for"], t["tagline"]))
+        clash = len(want & _words(t["avoid_for"]))
+        scored.append((fit - 2 * clash, t["slug"], t))
+    return [t for _s, _slug, t in sorted(scored, key=lambda x: (-x[0], x[1]))[:k]]
+
+
+def load(slug: str) -> dict:
+    if slug not in {t["slug"] for t in index()}:
+        raise ValueError(f"unknown design system {slug!r}")
+    m = _FRONT.match((PACK / "templates" / slug / "design.md").read_text(encoding="utf-8"))
+    return yaml.safe_load(m.group(1)) if m else {}
+
+
+def choose(llm, intent: str, brand_mood: list[str]) -> tuple[dict, str]:
+    picks = shortlist(intent, brand_mood)
+    fallback = (picks[0], f"closest fit to the brief's tone ({', '.join(picks[0]['mood'][:3])})")
+    if llm is None or not getattr(llm, "is_reachable", lambda: False)():
+        return fallback
+    menu = "\n".join(f"- {t['slug']}: {t['tagline']} Best for: {t['best_for']}. Avoid for: {t['avoid_for']}." for t in picks)
+    try:
+        reply = json.loads(llm.chat([{"role": "system", "content": _PROMPT},
+                                     {"role": "user", "content": f"Brief: {intent}\nBrand mood: {', '.join(brand_mood)}\n{menu}"}],
+                                    format_json=True) or "{}")
+        chosen = next((t for t in picks if t["slug"] == reply.get("slug")), None)
+        if chosen:
+            return chosen, str(reply.get("why") or "model choice")[:200]
+    except Exception as e:      # the deterministic shortlist winner is a sound default
+        logger.warning("design system choice fell back: %s", type(e).__name__)
+    return fallback
+```
+
+Check that PyYAML is installed with `$PY -c "import yaml"`. It ships with the app's dependencies. If it is missing, record a ruling and parse only `colors:` and `typography:` with a small indentation reader. Do not add a dependency (Global Constraints).
+
+- [ ] **Step 4: Tokens from the design system** (`spec.py`, `art_director.py`)
+
+In `spec.py`, `DeckTokens` gains:
+
+```python
+    design_system: str = ""
+    type_scale: dict = field(default_factory=dict)
+    chrome_font: str = ""
+    radius: int = 18
+```
+
+In `art_director.py`, `choose_tokens(..., design: dict | None = None)`. When `design` is given:
+- The type scale comes from `design["typography"]`: `{name: {"size": v["fontSize"], "weight": v.get("fontWeight", 600), "line": v.get("lineHeight", 1.1)}}`.
+- `title_font` is the first family of the largest `display*` entry. `body_font` is the first family of a `body*` entry, else the existing choice.
+- `chrome_font` is the first family whose name contains "Mono" or that is used by a `label*`/`caption*` entry.
+- `surface` and `background` come from the design's light colours (`cream`, `paper`, `bg`, `background`, or the lightest colour), so the existing "light background" guard keeps holding.
+- `primary` and `accent` stay **brand-led**: `brand_colors[0]`, `brand_colors[1]`, else the design's two most saturated colours.
+- Set `design_system = design["slug"]`, then run the result through `_guard` as today.
+
+Fonts must still be from `GOOGLE_FONTS`. A design font that is not in that list keeps the previous token, and `fonts_href` stays unchanged.
+
+- [ ] **Step 5: Template and pipeline**
+
+In `deck.html.j2`:
+- Inline the vendored CSS at the top of `<style>`. Pass `frontend_css` from the renderer: `(Path(__file__).parent / "frontend_slides" / "viewport-base.css").read_text()`, loaded once at import.
+- Use type-scale sizes where present: `.title{font-size:{{ t.type_scale.get('headline',{}).get('size',50) }}px}`, and the same for `.question` (`headline-sm`) and `.kpi` (`display-hero`).
+- `.kicker`, `.footer` and `.nlabel` use `var(--chrome)`, which is defined as `'{{ t.chrome_font or t.body_font }}'`.
+- Cards use `border-radius:{{ t.radius }}px`.
+- Add the entrance animations from `animation-patterns.md`:
+  - "rise" for content;
+  - "fade-scale" for charts;
+  - "stagger" for cards, using a `--i` index style on each card.
+  - They apply only under `@media (prefers-reduced-motion:no-preference)` and `body:not(.export)`.
+
+In `pipeline.run_studio`, `design` stage, before `art_director.choose_tokens`:
+
+```python
+    entry, design_why = design_systems.choose(llm, plan_input.scope_text, [])
+    design = {**design_systems.load(entry["slug"]), "slug": entry["slug"]}
+    spec.tokens, source = art_director.choose_tokens(llm, brand_colors, plan_input.scope_text,
+                                                     indexer.design_rules(spec.family), design=design)
+    run.log(f"Design system: {entry['name']} - {design_why}")
+```
+
+The name goes in the run log, not on slides. Return `"design_system": entry["name"], "design_reason": design_why` in the studio result. The Deliverables card shows it next to the family reason (`StudioDeckCard.tsx`: one more `<p>`).
+
+Update `.claude/skills/deck-studio/SKILL.md` with a "frontend-slides assets" paragraph:
+- the vendored path;
+- pinned commit `9906a34`;
+- what is used: design systems, `viewport-base.css`, animation patterns;
+- what is not: template HTML, previews;
+- how to refresh: re-vendor at a new commit, then run this task's tests.
+
+- [ ] **Step 6: Run the tests**
+
+Run: `$PY -m pytest agent/tests/test_deckstudio_design_systems.py agent/tests/test_deckstudio_art.py agent/tests/test_deckstudio_render.py agent/tests/test_deckstudio_pipeline.py agent/tests/test_deckstudio_review_fixes.py -q -p no:cacheprovider`
+Expected: PASS (all). The existing contrast and low-contrast tests must still pass. If a design system's colours fail the guard, the guard wins.
+
+Visual check:
+1. Regenerate project 262's deck.
+2. Open it.
+3. Confirm the run log names a design system with a reason.
+4. Confirm titles use that system's type scale, and kickers and footers its chrome font.
+5. Confirm brand colours still lead and slides animate in the browser but not in the PDF.
+
+Record what you see in the ledger.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add agent/app/domains/deckstudio/frontend_slides agent/app/domains/deckstudio/design_systems.py agent/app/domains/deckstudio/spec.py agent/app/domains/deckstudio/art_director.py agent/app/domains/deckstudio/pipeline.py agent/app/domains/deckstudio/renderer.py agent/app/domains/deckstudio/templates/deck.html.j2 web/src/components/deliverable/StudioDeckCard.tsx .claude/skills/deck-studio/SKILL.md
+git commit -m "feat(deckstudio): use frontend-slides design systems, viewport CSS and animations (vendored, MIT)"
+```
+
 ---
 
 ## Phase 3: detection, fixer, tiered apply
@@ -6488,5 +6774,7 @@ Spec coverage:
 | CSV bug | 1 |
 | UI issues | 20, 21 |
 | Photos irrelevant to brand/products/slide (user, 2026-10-07) | 12A, 23 |
+| Several SerpAPI keys (user, 2026-10-07) | 12B |
+| frontend-slides skill not used (user, 2026-10-07) | 12C |
 
 Judgement calls are Rulings R1–R8 above. The executor copies them into the ledger at setup.
