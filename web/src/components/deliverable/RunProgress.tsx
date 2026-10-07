@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import type { DeliverableProgress } from "../../services/intel-api";
 
-const STAGES = ["gate", "ingest", "routing", "plan", "classify", "compute", "insights", "template", "render", "qc"];
+const STAGES = ["gate", "ingest", "routing", "plan", "classify", "compute", "insights", "template", "render", "qc",
+  "index", "design", "assets", "compose", "export"];
 const NAMES: Record<string, string> = {
   gate: "Checking approvals", ingest: "Ingesting datasets", routing: "Routing articles to questions",
   plan: "Planning analyses", classify: "Classifying entities", compute: "Computing charts and tables",
   insights: "Drafting cited insights", template: "Choosing a template", render: "Building slides",
-  qc: "Fact check and layout QC",
+  qc: "Fact check and layout QC", index: "Reading reference decks", design: "Designing the deck",
+  assets: "Finding photos & logos", compose: "Composing slides", export: "Exporting PPTX & PDF",
 };
 const MIN_PCT_FOR_ESTIMATE = 5;
 

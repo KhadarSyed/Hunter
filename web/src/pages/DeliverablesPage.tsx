@@ -5,6 +5,7 @@ import type {
   DeliverableCard, DeliverableCitation, DeliverableLogLine, DeliverablePayload, DeliverableProgress, DeliverableSection,
 } from "../services/intel-api";
 import { RunProgress } from "../components/deliverable/RunProgress";
+import { StudioDeckCard } from "../components/deliverable/StudioDeckCard";
 import { agentSocket } from "../services/ws";
 import { useActiveProjectId } from "../context/project-context";
 import { ChartRenderer } from "../components/deliverable/ChartRenderer";
@@ -274,14 +275,18 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
         </div>
       )}
 
+      {run?.status === "completed" && byId("studio") && (
+        <StudioDeckCard projectId={projectId} runId={run.id} studio={byId("studio")!} />
+      )}
+
       {run?.status === "completed" && (
         <div className="flex gap-3">
           <a href={intelApi.deliverableDownloadUrl(projectId, run.id, "pptx")}
             className="inline-flex items-center gap-2 rounded-lg bg-[#5B2C9D] px-4 py-2 text-sm font-medium text-white">
-            <Icon icon="lucide:presentation" width={16} /> Download .pptx</a>
+            <Icon icon="lucide:presentation" width={16} /> Classic deck (.pptx)</a>
           <a href={intelApi.deliverableDownloadUrl(projectId, run.id, "docx")}
             className="inline-flex items-center gap-2 rounded-lg border border-[#5B2C9D] px-4 py-2 text-sm font-medium text-[#5B2C9D]">
-            <Icon icon="lucide:file-text" width={16} /> Download .docx</a>
+            <Icon icon="lucide:file-text" width={16} /> Word brief (.docx)</a>
         </div>
       )}
 

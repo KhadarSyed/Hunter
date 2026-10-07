@@ -16,9 +16,12 @@ from . import (analytics, brand_kit, catalog, engine_insights, extract, factchec
 from . import rows as R
 from .citations import CitationRegistry, domain_of
 from .engine_types import Section
+from ..deckstudio.pipeline import run_studio
+from ..deckstudio.planner import PlanInput
 
 logger = logging.getLogger(__name__)
-STAGES = ("gate", "ingest", "routing", "plan", "classify", "compute", "insights", "template", "render", "qc")
+STAGES = ("gate", "ingest", "routing", "plan", "classify", "compute", "insights", "template", "render", "qc",
+          "index", "design", "assets", "compose", "export")
 MAX_LOGOS = 10
 _lock = threading.Lock()
 
@@ -48,12 +51,14 @@ _STAGE_LABELS = {"gate": "Checking approvals", "ingest": "Ingesting approved dat
                  "routing": "Routing articles to questions", "plan": "Planning analyses",
                  "classify": "Classifying entities", "compute": "Computing charts and tables",
                  "insights": "Drafting cited insights", "template": "Choosing a template",
-                 "render": "Building slides", "qc": "Fact check and layout QC"}
+                 "render": "Building slides", "qc": "Fact check and layout QC",
+                 "index": "Reading reference decks", "design": "Designing the deck",
+                 "assets": "Finding photos & logos", "compose": "Composing slides", "export": "Exporting PPTX & PDF"}
 
 
 # Share of a typical run's time spent in each stage: the overall % moves with the work, not the stage count
-STAGE_WEIGHTS = {"gate": 1, "ingest": 4, "routing": 2, "plan": 8, "classify": 40, "compute": 4, "insights": 20,
-                 "template": 3, "render": 13, "qc": 5}
+STAGE_WEIGHTS = {"gate": 1, "ingest": 3, "routing": 2, "plan": 5, "classify": 28, "compute": 3, "insights": 14,
+                 "template": 2, "render": 8, "qc": 4, "index": 4, "design": 3, "assets": 8, "compose": 10, "export": 5}
 
 
 def _stage_span(name: str) -> tuple[float, float]:
@@ -266,7 +271,18 @@ def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_
         citations=_deck_citations(registry.entries()), base_n=base, palette=palette, accent=kit.accent, title_font=kit.title_font,
         logos=logo_map, icons=icons, hero=hero, hero_credit=credit, brand_image=kit.banner,
         flag=visuals.country_flag_png(country, out_dir / "icons"), rq_titles=rq_titles,
-        citation_icons=_citation_icons(registry.entries(), out_dir / "favicons"))
+        citation_icons=_citation_icons(registry.entries(), out_dir / "favicons"), brand_colors=list(kit.colors))
+
+
+def _plan_input(project: dict, inp, rqs, overview, sections_by_rq, insights_by_rq, answers, takeaways, methodology,
+                base: int, rq_titles: dict[str, str]) -> PlanInput:
+    spec = project.get("spec") or {}
+    geography = (spec.get("included_scope") or {}).get("geography") or spec.get("geography") or ""
+    return PlanInput(title=inp.title, subtitle=inp.subtitle, period=inp.period_label, base_n=base, rqs=rqs,
+                     rq_titles=rq_titles, sections_by_rq=sections_by_rq, insights_by_rq=insights_by_rq,
+                     answers=answers, takeaways=takeaways, overview=overview, methodology=methodology,
+                     citations=inp.citations, scope_text=_scope_text(project), brands=list(inp.logos),
+                     geography=str(geography), sources="Meltwater")
 
 
 def run_engine(run_id: int, project_id: int, llm) -> None:
@@ -384,8 +400,21 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         n_facts, n_layout = len(report["facts"]), len(report["layout"])
         run.stage("qc", "done", "ready" if report["ready"] else f"{n_facts} fact / {n_layout} layout issues")
 
+        current = "index"
+        studio = run_studio(run, project_id, llm,
+                            _plan_input(project, inp, rqs, overview, sections_by_rq, insights_by_rq, answers, takeaways,
+                                        methodology, base, {q.id: plans[q.id]["title"] for q in rqs}),
+                            inp.brand_colors, inp.brand_image, inp.logos, out_dir)
+        run.section({"id": "studio", "rq_id": None, "module": "studio", "title": "Deck",
+                     "family": studio["family"], "family_reason": studio["family_reason"],
+                     "checklist": studio["checklist"], "scorecard": studio["scorecard"],
+                     "slides": [{"id": s.id, "type": s.type, "treatment": s.treatment, "reference": s.reference,
+                                 "source": next((r["source"] for r in studio["report"] if r["slide_id"] == s.id), "template")}
+                                for s in studio["spec"].slides]})
         store.update_deliverable_run(run_id, status="completed", pptx_path=str(pptx_path), docx_path=str(docx_path),
-                                     thumbs_dir=str(out_dir / "thumbs"), finished_at=time.time())
+                                     thumbs_dir=str(out_dir / "thumbs"), html_path=str(studio["html"]),
+                                     pdf_path=str(studio["pdf"]), studio_pptx_path=str(studio["pptx"]),
+                                     deck_dir=str(studio["deck_dir"]), finished_at=time.time())
         run.progress(100, "Deliverable ready")
         broadcast({"type": "deliverable_completed", "project_id": project_id, "run_id": run_id,
                    "ready": report["ready"]})

@@ -63,7 +63,8 @@ class DeckInput:
     brand_image: Path | None
     flag: Path | None
     rq_titles: dict[str, str] = field(default_factory=dict)   # short slide titles from the analysis plan
-    citation_icons: dict[int, Path] = field(default_factory=dict)   # citation number -> source domain favicon
+    citation_icons: dict[int, Path] = field(default_factory=dict)
+    brand_colors: list[str] = field(default_factory=list)      # Brandfetch colours, for the studio art director   # citation number -> source domain favicon
 
 
 def _title_too_wide(text: str) -> bool:

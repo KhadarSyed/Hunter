@@ -14,7 +14,9 @@ from .schemas import DeliverableRunPayload, DeliverableRunStarted
 
 router = APIRouter()
 _MEDIA = {"pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-          "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
+          "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "html": "text/html", "pdf": "application/pdf",
+          "studio_pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"}
 ProjectId = Annotated[int, PathParam(ge=1)]
 RunId = Annotated[int, PathParam(ge=1)]
 Access = Annotated[dict, Depends(require_project_access)]
@@ -54,6 +56,19 @@ def download(project_id: ProjectId, run_id: RunId, kind: str, _: Access):
     if not path or not Path(path).exists():
         raise HTTPException(404, "File not available")
     return FileResponse(path, media_type=_MEDIA[kind], filename=Path(path).name)
+
+
+@router.get("/deliverable/{project_id}/runs/{run_id}/deck/{asset_path:path}", response_class=FileResponse)
+def deck_asset(project_id: ProjectId, run_id: RunId, asset_path: str, _: Access):
+    """The studio HTML deck and its assets, only from inside this run's deck folder."""
+    run = _owned_run(project_id, run_id)
+    if not run.get("deck_dir"):
+        raise HTTPException(404, "File not available")
+    root = Path(run["deck_dir"]).resolve()
+    target = (root / asset_path).resolve()
+    if not target.is_file() or root not in target.parents:
+        raise HTTPException(404, "File not available")
+    return FileResponse(target)
 
 
 @router.get("/deliverable/{project_id}/runs/{run_id}/thumbnail/{n}", response_class=FileResponse)

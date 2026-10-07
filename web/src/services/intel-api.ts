@@ -1522,8 +1522,10 @@ export const intelApi = {
   // Deliverable engine: one run streams stages and sections over /ws and produces the PPTX + Word brief.
   deliverableRun: (projectId: number) => post<{ run_id: number }>(`/deliverable/${projectId}/run`, {}),
   deliverableLatest: (projectId: number) => get<DeliverablePayload>(`/deliverable/${projectId}/latest`),
-  deliverableDownloadUrl: (projectId: number, runId: number, kind: "pptx" | "docx") =>
+  deliverableDownloadUrl: (projectId: number, runId: number, kind: "pptx" | "docx" | "html" | "pdf" | "studio_pptx") =>
     `${API_BASE}/deliverable/${projectId}/runs/${runId}/download/${kind}`,
+  deliverableDeckUrl: (projectId: number, runId: number, path: string) =>
+    `${API_BASE}/deliverable/${projectId}/runs/${runId}/deck/${path}`,
   deliverableThumbUrl: (projectId: number, runId: number, n: number) =>
     `${API_BASE}/deliverable/${projectId}/runs/${runId}/thumbnail/${n}`,
 };
@@ -1551,6 +1553,9 @@ export interface DeliverableSection {
   brand?: string;
   lines?: DeliverableLogLine[];
   pct?: number; stage?: string; label?: string; started_at?: number;
+  family?: string; family_reason?: string;
+  checklist?: { ask: string; kind: string; status: "covered" | "partial" | "missing"; slides: number[]; note: string }[];
+  scorecard?: { covered: number; partial: number; missing: number };
 }
 export interface DeliverableProgress { pct: number; stage: string; label: string; started_at: number }
 export interface DeliverableLogLine { ts: number; message: string }

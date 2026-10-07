@@ -2,6 +2,7 @@
 density, the closest reference layout per slide (from any deck), scorecard and checklist."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from ...core import store
@@ -13,6 +14,8 @@ LIGHT_MAX_BARS = 6
 CHECKLIST_ROWS_PER_SLIDE = 9
 CITES_PER_SLIDE = 14
 DENSE_KINDS = {"line_peaks", "column", "treemap"}
+_CODE_PREFIX = re.compile(r"\bRQ\d+\s*:\s*")
+_CODE = re.compile(r"\bRQ(\d+)\b")
 TYPE_FOR_CHART = {"kpi": "kpi_dashboard", "doughnut": "sentiment_split", "gauge": "kpi_dashboard",
                   "line_peaks": "trend_with_peaks", "column": "trend_with_peaks", "bar": "bar_with_cards",
                   "treemap": "theme_cards"}
@@ -141,5 +144,18 @@ def build_deck_spec(inp: PlanInput) -> DeckSpec:
                                 notes="\n".join(c["url"] for c in page)))
     slides.append(SlideSpec(id="closing", type="closing", treatment="full", title="Thank you", so_what=inp.title,
                             image={"query": f"{inp.title} thank you", "role": "background"}, reference=pick_reference("closing", family)))
+    for s in slides:
+        _without_codes(s)
     return DeckSpec(version=SPEC_VERSION, title=inp.title, subtitle=inp.subtitle, period=inp.period, base_n=inp.base_n,
                     family=family, family_reason=why, tokens=None, slides=slides)
+
+
+def _plain(text: str) -> str:
+    """Slides speak in questions, not codes: 'RQ1: 227 of 778' -> '227 of 778', other 'RQ3' -> 'Question 3'."""
+    return _CODE.sub(lambda m: f"Question {m.group(1)}", _CODE_PREFIX.sub("", str(text)))
+
+
+def _without_codes(s: SlideSpec) -> None:
+    s.kicker, s.title, s.so_what = _plain(s.kicker), _plain(s.title), _plain(s.so_what)
+    s.cards = [{k: (_plain(v) if isinstance(v, str) else v) for k, v in c.items()} for c in s.cards]
+    s.tables = [{**t, "rows": [[_plain(cell) for cell in row] for row in t.get("rows", [])]} for t in s.tables]
