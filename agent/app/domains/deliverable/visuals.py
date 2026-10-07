@@ -73,15 +73,23 @@ def icon_png(icon_id: str, folder: Path, color: str = style.VIOLET) -> Path | No
     svg = _fetch_svg(icon_id, color)
     if not svg:
         return None
-    from playwright.sync_api import sync_playwright
     folder.mkdir(parents=True, exist_ok=True)
+    try:
+        _svg_to_png(svg, out)
+    except Exception as e:      # icons are decoration: a missing browser must not fail the run
+        logger.warning("icon %s not rendered: %s", icon_id, e)
+        return None
+    return out
+
+
+def _svg_to_png(svg: str, out: Path) -> None:
+    from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 96, "height": 96})
         page.set_content(_SVG_PAGE.format(svg=svg))
         page.locator("svg").screenshot(path=str(out), omit_background=True)
         browser.close()
-    return out
 
 
 FAVICON_API = "https://www.google.com/s2/favicons"

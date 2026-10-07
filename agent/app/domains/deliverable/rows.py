@@ -35,9 +35,14 @@ def _to_float(v) -> float:
         return 0.0
 
 
+_WEB_URL = re.compile(r"^https?://\S+$", re.IGNORECASE)
+
+
 def _row(rec: dict, rq: str | None, source_file: str, index: int) -> EngineRow | None:
     url = str(rec.get("url") or "").strip()
-    if not url:
+    if url.lower().startswith("www."):
+        url = "https://" + url
+    if not _WEB_URL.match(url):      # javascript:, data: and other schemes would become clickable citations
         return None
     title = str(rec.get("title") or rec.get("headline") or "").strip()
     article = Article(url=url, norm_url=normalize_url(url), title=title, date=parse_date(rec.get("date")),

@@ -53,6 +53,7 @@ async def lifespan(app: FastAPI):
     seed_super_admin_if_missing()
     store.cancel_stale_running_jobs()
     memory.mark_interrupted_runs()
+    store.fail_interrupted_deliverable_runs()
     ensure_dirs(load_settings())
     events.bind_loop(asyncio.get_running_loop())
     deck.start_watcher()

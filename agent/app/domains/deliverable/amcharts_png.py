@@ -15,6 +15,8 @@ def render_html_png(html: str, out_path: Path, width: int = 900, height: int = 5
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": width, "height": height})
         page.set_content(html, wait_until="networkidle", timeout=RENDER_TIMEOUT_MS)
+        # Raises when amCharts never drew (CDN unreachable) instead of saving a blank picture
+        page.wait_for_selector("body[data-ready='1']", state="attached", timeout=RENDER_TIMEOUT_MS)
         page.wait_for_timeout(SETTLE_MS)
         page.screenshot(path=str(out_path))
         browser.close()
@@ -34,8 +36,9 @@ const s = root.container.children.push(am5hierarchy.Treemap.new(root, {{
   nodePaddingOuter: 4, nodePaddingInner: 4}}));
 s.set("colors", am5.ColorSet.new(root, {{colors: {json.dumps(colors)}.map(c => am5.color(c))}}));
 s.labels.template.setAll({{fontSize: 16, fill: am5.color("#{style.BODY}"), text: "{{category}}: {{sum}}", oversizedBehavior: "wrap", textAlign: "center"}});
-s.data.setAll([{{name: "root", children: {json.dumps(data)}}}]);
+s.data.setAll([{{name: "root", children: {json.dumps(data).replace("</", "<\\/")}}}]);
 s.set("selectedDataItem", s.dataItems[0]);
+root.events.once("frameended", () => {{ document.body.dataset.ready = "1"; }});
 </script></body></html>"""
 
 

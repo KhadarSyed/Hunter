@@ -62,6 +62,13 @@ def _cosine(a, b) -> float:
 
 
 def choose_template(scope_text: str, llm=None) -> Path:
+    path = _choose(scope_text, llm)
+    if not Path(path).exists():
+        raise FileNotFoundError(f"No usable PowerPoint template: add a .pptx to {config.TEMPLATES_DIR}")
+    return path
+
+
+def _choose(scope_text: str, llm=None) -> Path:
     folder = str(Path(config.TEMPLATES_DIR))
 
     def current():

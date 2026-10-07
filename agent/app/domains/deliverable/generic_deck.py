@@ -4,6 +4,7 @@ citation appendix - in the brand heading font, accent and chart tints."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import logging
 import os
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from .engine_types import RQ, Section
 from .gauge import render_gauge_png
 from .qc import estimate_overflow
 
+logger = logging.getLogger(__name__)
 CITES_PER_PAGE = 14
 CHART_TOP = 1.5
 FOOT_SOURCE = "SOURCE: MELTWATER"
@@ -28,6 +30,7 @@ COVER_IMAGE_W = 4.2
 COVER_IMAGE_MAX_H = 5.0
 TITLE_BOX_W, TITLE_BOX_H = 5.7, 0.55     # blocks.add_header title box, one line at TITLE_PT
 MAX_TILES = 5
+KICKER_MAX_TOP = 0.4        # the header kicker sits at 0.15in
 CONTACT_BAND = 0.8          # template pictures below this share of the slide height are contact icons
 TITLE_FONT_FILE = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts" / "arialbd.ttf"
 TITLE_PAD_IN = 0.2          # text box insets
@@ -116,11 +119,20 @@ def _draw_chart(slide, sec: Section, inp: DeckInput, work: Path, x, y, w, h):
     elif kind == "doughnut":
         blocks.add_doughnut(slide, x, y, w, h, cats, vals, colors=inp.palette)
     elif kind == "gauge":
-        png = render_gauge_png(vals[0], cats[0] if cats else "", work / f"{sec.id}-gauge.png")
-        _picture(slide, png, x, y, w, min(h, w * 0.62))
+        try:
+            png = render_gauge_png(vals[0], cats[0] if cats else "", work / f"{sec.id}-gauge.png")
+            _picture(slide, png, x, y, w, min(h, w * 0.62))
+        except Exception as e:      # offline or no Chromium: the same figure as a native tile
+            logger.warning("gauge render failed for %s, using a tile: %s", sec.id, e)
+            blocks.add_kpi_tiles(slide, x, y, w, min(h, 2.2),
+                                 [{"value": f"{vals[0]}%", "label": cats[0] if cats else "", "note": ""}])
     elif kind == "treemap":
-        png = render_treemap_png(cats, vals, work / f"{sec.id}-treemap.png", palette=inp.palette)
-        _picture(slide, png, x, y, w, min(h, w * 0.62))
+        try:
+            png = render_treemap_png(cats, vals, work / f"{sec.id}-treemap.png", palette=inp.palette)
+            _picture(slide, png, x, y, w, min(h, w * 0.62))
+        except Exception as e:      # offline or no Chromium: the same figures as a native bar chart
+            logger.warning("treemap render failed for %s, using bars: %s", sec.id, e)
+            blocks.add_bar_chart(slide, x, y, w, h, cats, vals, color=inp.palette[0], number_format="0")
     elif kind == "kpi":
         note = sec.facts[0].split(": ", 1)[-1] if sec.facts else ""
         blocks.add_kpi_tiles(slide, x, y, w, min(h, 2.2),
@@ -282,6 +294,17 @@ def _closing(prs, inp: DeckInput):
     blocks.add_text(closing, 0.8, 3.7, 8.0, 0.5, f"{inp.title} – {inp.subtitle}", 18, False, style.BODY,
                     font=inp.title_font)
     blocks.add_text(closing, 0.8, 4.25, 8.0, 0.4, inp.date_label, 12)
+
+
+def rq_first_slides(pptx_path: Path, rq_ids: list[str]) -> dict[str, int]:
+    """1-based number of each RQ's first slide (the one whose kicker is the RQ id)."""
+    first: dict[str, int] = {}
+    for n, slide in enumerate(Presentation(str(pptx_path)).slides, start=1):
+        for sh in slide.shapes:
+            in_header = sh.top is not None and sh.top < Inches(KICKER_MAX_TOP)   # not the summary tiles
+            if in_header and sh.has_text_frame and sh.text_frame.text in rq_ids and sh.text_frame.text not in first:
+                first[sh.text_frame.text] = n
+    return first
 
 
 def _cite_icons(inp: DeckInput):

@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 
 _TOKEN = re.compile(r'"[^"]*"|\(|\)|NEAR/\d+|AND|OR|NOT|[^\s()"]+')
-_WORD = re.compile(r"[a-z0-9']+")
+_WORD = re.compile(r"[\w']+")     # Unicode letters and digits: L'Oréal, Ésika; "-" and "&" split words
 _RIGHT_QUOTE = "’"
 
 
@@ -19,15 +19,21 @@ def _words(text: str) -> list[str]:
 
 
 def _term_parts(term: str) -> list[str]:
-    if term.startswith('"'):
-        return [p for p in term.strip('"').lower().replace(_RIGHT_QUOTE, "'").split() if p]
-    return [term.lower().replace(_RIGHT_QUOTE, "'")]
+    """Tokenised exactly like the text, so skin-care, J&J and K-beauty become phrases that match it; a trailing
+    `*` stays on the last word as a wildcard."""
+    parts = []
+    for chunk in term.strip('"').split():
+        words = _words(chunk.rstrip("*"))
+        if chunk.endswith("*") and words:
+            words[-1] += "*"
+        parts += words
+    return parts
 
 
 def _hit(word: str, part: str) -> bool:
     if part.endswith("*"):
         return word.startswith(part[:-1])
-    return word == re.sub(r"[^a-z0-9']", "", part)
+    return word == part
 
 
 def _term_positions(term: str, words: list[str]) -> list[int]:

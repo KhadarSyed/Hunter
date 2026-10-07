@@ -20,7 +20,7 @@ type CiteMap = Record<number, DeliverableCitation>;
 /** A citation shows its source site icon (linked), never a bare number. */
 function CiteChip({ n, cites }: { n: number; cites: CiteMap }) {
   const c = cites[n];
-  if (!c) return null;
+  if (!c || !/^https?:\/\//i.test(c.url)) return null;
   return (
     <a href={c.url} target="_blank" rel="noopener noreferrer" title={`${c.outlet || c.domain}: ${c.title}`}
       className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white align-middle">
@@ -110,10 +110,9 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
         setPayload((p) => (p.run && p.run.id === msg.run_id
           ? { ...p, run: { ...p.run, stage: msg.stage, stages: { ...p.run.stages, [msg.stage]: msg.status } } } : p));
         if (msg.detail) setDetails((d) => ({ ...d, [msg.stage]: msg.detail }));
-      } else if (msg.type === "deliverable_section") {
-        setPayload((p) => (p.run && p.run.id === msg.run_id
-          ? { ...p, sections: [...p.sections.filter((s) => s.id !== msg.section.id), msg.section] } : p));
-      } else if (msg.type === "deliverable_completed" || msg.type === "deliverable_failed") {
+      } else if (msg.type === "deliverable_section" || msg.type === "deliverable_completed"
+                 || msg.type === "deliverable_failed") {
+        // The socket carries only ids; content comes through the access-checked REST route
         intelApi.deliverableLatest(projectId).then(setPayload).catch(() => undefined);
       }
     });

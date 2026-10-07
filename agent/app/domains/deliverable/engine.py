@@ -18,7 +18,6 @@ from .engine_types import Section
 logger = logging.getLogger(__name__)
 STAGES = ("gate", "ingest", "routing", "plan", "classify", "compute", "insights", "template", "render", "qc")
 MAX_LOGOS = 10
-RQ_SLIDE_PNG_OFFSET = 3     # cover, executive summary, overview come before the first RQ slide
 _lock = threading.Lock()
 
 
@@ -55,8 +54,9 @@ class _Run:
 
     def section(self, payload: dict) -> None:
         store.save_deliverable_section(self.run_id, payload)
+        # Ids only: /ws is unauthenticated, so the page fetches content through the access-checked REST route
         broadcast({"type": "deliverable_section", "project_id": self.project_id, "run_id": self.run_id,
-                   "section": payload})
+                   "section_id": payload["id"]})
 
 
 def start_run(project_id: int, *, llm=None, threaded: bool = True) -> int:
@@ -66,8 +66,14 @@ def start_run(project_id: int, *, llm=None, threaded: bool = True) -> int:
         run_id = store.create_deliverable_run(project_id)
     if threaded:
         if llm is None:
-            from ...core.anthropic_client import get_llm_client
-            llm = get_llm_client()
+            try:
+                from ...core.anthropic_client import get_llm_client
+                llm = get_llm_client()
+            except Exception as e:      # never leave a 'running' row behind: it would block Generate for good
+                logger.error("[deliverable:%s] LLM client unavailable: %s", run_id, e)
+                store.update_deliverable_run(run_id, status="failed", stage="gate", error=str(e),
+                                             finished_at=time.time())
+                return run_id
         threading.Thread(target=run_engine, args=(run_id, project_id, llm), daemon=True).start()
     else:
         run_engine(run_id, project_id, llm)
@@ -296,7 +302,8 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         facts = overview.facts + [f for secs in sections_by_rq.values() for s in secs for f in s.facts] + methodology
         report = factcheck.run_qc(pptx_path, facts, set(appendix), out_dir / "thumbs")
         pngs = [Path(p) for p in report["pngs"]]
-        rq_pngs = pngs[RQ_SLIDE_PNG_OFFSET:RQ_SLIDE_PNG_OFFSET + len(rqs)]
+        first = generic_deck.rq_first_slides(pptx_path, [q.id for q in rqs])
+        rq_pngs = [pngs[first[q.id] - 1] if q.id in first and first[q.id] <= len(pngs) else None for q in rqs]
         docx_path = word_brief.build_word_brief(inp, out_dir / f"{safe} - Brief.docx", rq_pngs)
         run.section({"id": "qc", "rq_id": None, "module": "qc", "title": "Quality check", "report": report})
         n_facts, n_layout = len(report["facts"]), len(report["layout"])

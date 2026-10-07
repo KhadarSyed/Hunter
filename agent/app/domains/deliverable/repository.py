@@ -60,6 +60,17 @@ def get_latest_deliverable_run(project_id: int) -> Optional[dict]:
     return _run(row)
 
 
+def fail_interrupted_deliverable_runs() -> int:
+    """Runs still 'running' at startup died with the previous process; without this they block Generate."""
+    conn = _conn()
+    cur = conn.execute("UPDATE intel_deliverable_runs SET status = 'failed', "
+                       "error = 'interrupted by a server restart', finished_at = ? WHERE status = 'running'",
+                       (time.time(),))
+    conn.commit()
+    conn.close()
+    return cur.rowcount
+
+
 def get_active_deliverable_run(project_id: int) -> Optional[dict]:
     conn = _conn()
     row = conn.execute("SELECT * FROM intel_deliverable_runs WHERE project_id = ? AND status = 'running' "
