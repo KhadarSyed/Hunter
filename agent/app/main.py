@@ -56,6 +56,8 @@ async def lifespan(app: FastAPI):
     store.fail_interrupted_deliverable_runs()
     ensure_dirs(load_settings())
     events.bind_loop(asyncio.get_running_loop())
+    from .domains.agent import autopilot
+    autopilot.resume_all()
     deck.start_watcher()
     logger.info("Hunter started (%s)", get_app_settings().environment)
     try:
@@ -118,6 +120,16 @@ def create_app() -> FastAPI:
     app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
     app.include_router(events.router)
     mount_uploads(app, UPLOAD_DIR)
+
+    @app.get("/api/health", include_in_schema=False)
+    def health():
+        conn = store._conn()
+        try:
+            conn.execute("SELECT 1")
+        finally:
+            conn.close()
+        return {"ok": True}
+
     _mount_spa(app)
     return app
 

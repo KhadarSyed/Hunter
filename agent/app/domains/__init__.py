@@ -17,6 +17,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from ..core.auth import get_current_user
+from .agent.router import router as agent_router
 from .brief.router import router as brief
 from .composer.router import router as composer
 from .datasources.router import router as datasources
@@ -46,7 +47,7 @@ router = APIRouter(
 for domain_router in (
     projects, research, brief, spec, strategy, plan, execution, library,
     insights, storyline, slides, composer, rendering, pipeline, publishing, qc,
-    datasources, deliverable,
+    datasources, deliverable, agent_router,
 ):
     router.include_router(domain_router)
 
