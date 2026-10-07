@@ -7,6 +7,8 @@ import time
 from datetime import date
 from pathlib import Path
 
+from pptx import Presentation
+
 from ...core import config, store
 from ...core.events import broadcast
 from . import (analytics, brand_kit, catalog, engine_insights, extract, factcheck, generic_deck, templates_index,
@@ -42,15 +44,35 @@ def _gate_reasons(project_id: int) -> list[str]:
     return reasons
 
 
+_STAGE_LABELS = {"gate": "Checking approvals", "ingest": "Ingesting approved datasets",
+                 "routing": "Routing articles to questions", "plan": "Planning analyses",
+                 "classify": "Classifying entities", "compute": "Computing charts and tables",
+                 "insights": "Drafting cited insights", "template": "Choosing a template",
+                 "render": "Building slides", "qc": "Fact check and layout QC"}
+
+
 class _Run:
     def __init__(self, run_id: int, project_id: int):
-        self.run_id, self.project_id, self.stages = run_id, project_id, {}
+        self.run_id, self.project_id, self.stages, self.lines = run_id, project_id, {}, []
+
+    def log(self, message: str) -> None:
+        """A progress line, streamed live and kept with the run. Step names and counts only, never article
+        content, because /ws is unauthenticated."""
+        line = {"ts": time.time(), "message": message}
+        self.lines.append(line)
+        store.replace_deliverable_section(self.run_id, {"id": "log", "rq_id": None, "module": "log",
+                                                        "title": "Run log", "lines": self.lines})
+        broadcast({"type": "deliverable_log", "project_id": self.project_id, "run_id": self.run_id, **line})
 
     def stage(self, name: str, status: str, detail: str = "") -> None:
         self.stages[name] = status
         store.update_deliverable_run(self.run_id, stage=name, stages_json=self.stages)
         broadcast({"type": "deliverable_stage", "project_id": self.project_id, "run_id": self.run_id,
                    "stage": name, "status": status, "detail": detail})
+        if status == "running":
+            self.log(f"{_STAGE_LABELS.get(name, name)} ({name})…")
+        elif status == "done":
+            self.log(f"Done: {name}" + (f" - {detail}" if detail else ""))
 
     def section(self, payload: dict) -> None:
         store.save_deliverable_section(self.run_id, payload)
@@ -224,6 +246,7 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         rqs = R.load_rqs(project_id)
         if not rqs:
             raise StageFailed("ingest", "The search strategy has no research questions")
+        run.log(f"{len(rqs)} research questions: " + ", ".join(q.id for q in rqs))
         rows = R.load_rows(project_id, rqs)
         if not rows:
             raise StageFailed("ingest", "The approved datasets have no usable rows")
@@ -237,11 +260,15 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         summary = R.ingest_summary(project_id, rows)
         run.section({"id": "data-collection", "rq_id": None, "module": "data_collection", "title": "Data collection",
                      "data": summary, "facts": [f"Base: {base} unique articles across all questions"]})
+        for q in rqs:
+            run.log(f"{q.id}: {len(rows_by_rq[q.id])} articles")
         run.stage("routing", "done", f"base N = {base}")
 
         current = "plan"
         run.stage("plan", "running")
         plans = {q.id: catalog.plan_rq(llm, q, rows_by_rq[q.id])[0] for q in rqs}
+        for q in rqs:
+            run.log(f"{q.id}: " + ", ".join(m["module"] for m in plans[q.id]["modules"]))
         counts = [f"{q.id}: {len(plans[q.id]['modules'])}" for q in rqs]
         run.stage("plan", "done", ", ".join(counts))
 
@@ -261,6 +288,8 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
                                     for m in plans[q.id]["modules"]]
             for s in sections_by_rq[q.id]:
                 run.section(s.to_dict())
+            drawn = [s for s in sections_by_rq[q.id] if not s.skipped]
+            run.log(f"{q.id}: {len(drawn)} of {len(sections_by_rq[q.id])} analyses ready")
         run.stage("compute", "done")
 
         current = "insights"
@@ -271,6 +300,7 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
             insights_by_rq[q.id] = engine_insights.rq_insights(q, sections_by_rq[q.id], rows_by_rq[q.id], registry, llm)
             run.section({"id": f"{q.id.lower()}-insights", "rq_id": q.id, "module": "insights", "title": "Insights",
                          "insights": insights_by_rq[q.id]})
+            run.log(f"{q.id}: {len(insights_by_rq[q.id])} insights drafted")
         answers = engine_insights.executive_answers(rqs, sections_by_rq, base)
         takeaways = [i for q in rqs for i in insights_by_rq[q.id][:1]]
         run.section({"id": "executive-summary", "rq_id": None, "module": "executive_summary",
@@ -295,6 +325,8 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         run.section({"id": "citations", "rq_id": None, "module": "citations", "title": "Citations",
                      "citations": _deck_citations(registry.entries())})
         run.section(_page_visuals(project, sections_by_rq, None))
+        run.log(f"Deck saved with {len(Presentation(str(pptx_path)).slides)} slides; "
+                f"{len(registry.entries())} sources cited")
         run.stage("render", "done", pptx_path.name)
 
         current = "qc"
@@ -305,6 +337,9 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         first = generic_deck.rq_first_slides(pptx_path, [q.id for q in rqs])
         rq_pngs = [pngs[first[q.id] - 1] if q.id in first and first[q.id] <= len(pngs) else None for q in rqs]
         docx_path = word_brief.build_word_brief(inp, out_dir / f"{safe} - Brief.docx", rq_pngs)
+        run.log(f"Fact check: {len(report['facts'])} issues; layout: {len(report['layout'])} issues; "
+                f"{report['fixed']} auto-fixed; {len(pngs)} thumbnails")
+        run.log("Word brief saved")
         run.section({"id": "qc", "rq_id": None, "module": "qc", "title": "Quality check", "report": report})
         n_facts, n_layout = len(report["facts"]), len(report["layout"])
         run.stage("qc", "done", "ready" if report["ready"] else f"{n_facts} fact / {n_layout} layout issues")
@@ -317,6 +352,10 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         stage = e.stage if isinstance(e, StageFailed) else current
         logger.error("[deliverable:%s] stage %s failed: %s", run_id, stage, e, exc_info=not isinstance(e, StageFailed))
         run.stages[stage] = "failed"
+        try:
+            run.log(f"Failed at {stage}: {e}")
+        except Exception:       # recording the line must never mask the original failure
+            logger.exception("[deliverable:%s] could not record the failure line", run_id)
         store.update_deliverable_run(run_id, status="failed", stage=stage, stages_json=run.stages, error=str(e),
                                      finished_at=time.time())
         broadcast({"type": "deliverable_failed", "project_id": project_id, "run_id": run_id, "stage": stage,

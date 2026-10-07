@@ -1,11 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "@iconify/react";
 import { intelApi } from "../services/intel-api";
-import type { DeliverableCard, DeliverableCitation, DeliverablePayload, DeliverableSection } from "../services/intel-api";
+import type {
+  DeliverableCard, DeliverableCitation, DeliverableLogLine, DeliverablePayload, DeliverableSection,
+} from "../services/intel-api";
 import { agentSocket } from "../services/ws";
 import { useActiveProjectId } from "../context/project-context";
 import { ChartRenderer } from "../components/deliverable/ChartRenderer";
 import { RunTimeline } from "../components/deliverable/RunTimeline";
+import { RunLog } from "../components/deliverable/RunLog";
 
 const MAX_TABLE_ROWS = 12;
 const MODULE_ICONS: Record<string, string> = {
@@ -100,20 +103,28 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
   const [payload, setPayload] = useState<DeliverablePayload>({ run: null, sections: [] });
   const [details, setDetails] = useState<Record<string, string>>({});
   const [startError, setStartError] = useState<string | null>(null);
+  const [liveLog, setLiveLog] = useState<Record<number, DeliverableLogLine[]>>({});
+  const runIdRef = useRef<number | null>(null);
+  runIdRef.current = payload.run?.id ?? null;
 
   useEffect(() => {
     agentSocket.connect();
     intelApi.deliverableLatest(projectId).then(setPayload).catch(() => undefined);
+    const refresh = () => intelApi.deliverableLatest(projectId).then(setPayload).catch(() => undefined);
     const off = agentSocket.onMessage((msg) => {
       if (msg.project_id !== projectId) return;
-      if (msg.type === "deliverable_stage") {
+      // Events can beat the POST response on Generate: a run id we have not seen yet means "reload the latest"
+      if (String(msg.type).startsWith("deliverable_") && msg.run_id !== runIdRef.current) refresh();
+      if (msg.type === "deliverable_log") {
+        setLiveLog((l) => ({ ...l, [msg.run_id]: [...(l[msg.run_id] ?? []), { ts: msg.ts, message: msg.message }] }));
+      } else if (msg.type === "deliverable_stage") {
         setPayload((p) => (p.run && p.run.id === msg.run_id
           ? { ...p, run: { ...p.run, stage: msg.stage, stages: { ...p.run.stages, [msg.stage]: msg.status } } } : p));
         if (msg.detail) setDetails((d) => ({ ...d, [msg.stage]: msg.detail }));
       } else if (msg.type === "deliverable_section" || msg.type === "deliverable_completed"
                  || msg.type === "deliverable_failed") {
         // The socket carries only ids; content comes through the access-checked REST route
-        intelApi.deliverableLatest(projectId).then(setPayload).catch(() => undefined);
+        refresh();
       }
     });
     return () => { off(); };
@@ -124,8 +135,9 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
     setDetails({});
     try {
       const { run_id } = await intelApi.deliverableRun(projectId);
-      setPayload({ run: { id: run_id, project_id: projectId, status: "running", stage: "gate", stages: {},
-        pptx_path: null, docx_path: null, error: null }, sections: [] });
+      runIdRef.current = run_id;
+      setPayload((p) => (p.run?.id === run_id ? p : { run: { id: run_id, project_id: projectId, status: "running",
+        stage: "gate", stages: {}, pptx_path: null, docx_path: null, error: null }, sections: [] }));
     } catch (e) {
       setStartError(e instanceof Error ? e.message : "Could not start the deliverable run");
     }
@@ -142,6 +154,10 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
   const logos = visuals?.logos ?? {};
   const cites: CiteMap = Object.fromEntries((byId("citations")?.citations ?? []).map((c) => [c.n, c]));
   const running = run?.status === "running";
+  // The stream and the stored log can each be ahead (reload mid-run vs. a line not yet refetched): show the longer
+  const stored = byId("log")?.lines ?? [];
+  const streamed = (run && liveLog[run.id]) || [];
+  const logLines = streamed.length > stored.length ? streamed : stored;
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-8 py-10">
@@ -171,6 +187,7 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
       )}
 
       {run && <RunTimeline stages={run.stages ?? {}} details={details} />}
+      {run && <RunLog lines={logLines} isLive={running} />}
 
       {collection && (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

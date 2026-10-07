@@ -91,6 +91,16 @@ def save_deliverable_section(run_id: int, section: dict) -> int:
     return cur.lastrowid
 
 
+def replace_deliverable_section(run_id: int, section: dict) -> int:
+    """One row per key (the run log is rewritten as it grows)."""
+    conn = _conn()
+    conn.execute("DELETE FROM intel_deliverable_sections WHERE run_id = ? AND section_key = ?",
+                 (run_id, section.get("id", "")))
+    conn.commit()
+    conn.close()
+    return save_deliverable_section(run_id, section)
+
+
 def list_deliverable_sections(run_id: int) -> list[dict]:
     conn = _conn()
     rows = conn.execute("SELECT payload_json FROM intel_deliverable_sections WHERE run_id = ? ORDER BY id",

@@ -1549,6 +1549,8 @@ export interface DeliverableSection {
   logos?: Record<string, string>;
   country?: string | null;
   brand?: string;
+  lines?: DeliverableLogLine[];
 }
+export interface DeliverableLogLine { ts: number; message: string }
 export interface DeliverableCitation { n: number; outlet: string; title: string; url: string; date: string; domain: string }
 export interface DeliverablePayload { run: DeliverableRun | null; sections: DeliverableSection[] }
