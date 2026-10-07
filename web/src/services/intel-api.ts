@@ -1533,6 +1533,7 @@ export const intelApi = {
   adminApplyFix: (id: number) => post<{ status: string; reason: string }>(`/agent/admin/fixes/${id}/apply`, {}),
   adminRejectFix: (id: number, reason: string) => post<{ ok: boolean }>(`/agent/admin/fixes/${id}/reject`, { reason }),
   adminRetryIssue: (id: number) => post<{ ok: boolean }>(`/agent/admin/issues/${id}/retry`, {}),
+  adminProposeFix: (id: number) => post<{ ok: boolean; status: string }>(`/agent/admin/issues/${id}/propose`, {}),
   agentEvents: (projectId: number, limit = 10) => get<AgentEvent[]>(`/agent/${projectId}/events?limit=${limit}`),
   deliverableDownloadUrl: (projectId: number, runId: number, kind: "pptx" | "docx" | "html" | "pdf" | "studio_pptx") =>
     `${API_BASE}/deliverable/${projectId}/runs/${runId}/download/${kind}`,

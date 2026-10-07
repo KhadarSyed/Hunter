@@ -54,6 +54,16 @@ def admin_reject(fix_id: Annotated[int, Path(ge=1)], body: RejectBody, admin=Dep
     return {"ok": True}
 
 
+@router.post("/agent/admin/issues/{issue_id}/propose")
+def admin_propose(issue_id: Annotated[int, Path(ge=1)], _a=Depends(_super_admin)):
+    from .repair import worker
+    if not store.get_issue(issue_id):
+        raise HTTPException(404, "No such issue")
+    if not worker.propose_in_background(issue_id):
+        raise HTTPException(409, "Another fix is being proposed or applied; try again when it finishes")
+    return {"ok": True, "status": "fixing"}
+
+
 @router.post("/agent/admin/issues/{issue_id}/retry")
 def admin_retry(issue_id: Annotated[int, Path(ge=1)], _a=Depends(_super_admin)):
     store.set_issue_status(issue_id, "open", "retry requested")
