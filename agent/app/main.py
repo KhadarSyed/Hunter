@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -60,6 +61,9 @@ async def lifespan(app: FastAPI):
     autopilot.resume_all()
     from .domains.agent.repair import apply as repair_apply
     repair_apply.verify_pending_async()
+    if os.environ.get("HUNTER_AUTOFIX", "1") == "1" and os.environ.get("HUNTER_SUPERVISED") == "1":
+        from .domains.agent.repair import worker
+        worker.start()
     deck.start_watcher()
     logger.info("Hunter started (%s)", get_app_settings().environment)
     try:

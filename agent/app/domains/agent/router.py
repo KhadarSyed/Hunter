@@ -5,15 +5,59 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
-from ...core import store
+from ...core import config, store
 from ...core.auth import get_current_user, require_project_access
 from . import autopilot, copilot
 from .api_client import ToolError
 from .schemas import AutopilotStart, CopilotMessage
 from .status import project_status
+from . import memory
+from .repair import apply as repair_apply, worktree
+from .schemas import RejectBody
 
 router = APIRouter()
 ProjectId = Annotated[int, Path(ge=1)]
+
+
+def _super_admin(user=Depends(get_current_user)) -> dict:
+    if user.get("role") != "super_admin":
+        raise HTTPException(403, "Only a super admin can manage fixes")
+    return user
+
+
+@router.get("/agent/admin/issues")
+def admin_issues(status: str | None = None, _a=Depends(_super_admin)):
+    return store.list_issues(status)
+
+
+@router.get("/agent/admin/fixes")
+def admin_fixes(status: str | None = None, _a=Depends(_super_admin)):
+    return store.list_fixes(status)
+
+
+@router.post("/agent/admin/fixes/{fix_id}/apply")
+def admin_apply(fix_id: Annotated[int, Path(ge=1)], admin=Depends(_super_admin)):
+    return repair_apply.apply_fix(fix_id, admin["email"])
+
+
+@router.post("/agent/admin/fixes/{fix_id}/reject")
+def admin_reject(fix_id: Annotated[int, Path(ge=1)], body: RejectBody, admin=Depends(_super_admin)):
+    fix = store.get_fix(fix_id)
+    if not fix or fix["status"] != "proposed":
+        raise HTTPException(409, "Only a proposed fix can be rejected")
+    store.update_fix(fix_id, status="rejected", note=f"rejected by {admin['email']}: {body.reason}")
+    store.set_issue_status(fix["issue_id"], "rejected", body.reason)
+    memory.remember(0, "fix", f"fix_{fix_id}", {"outcome": "rejected", "why": body.reason})
+    path = config.DATA_DIR / "autofix" / fix["branch"].replace("/", "-")
+    if path.exists():
+        worktree.remove(worktree.Worktree(path=path, branch=fix["branch"], base=""))
+    return {"ok": True}
+
+
+@router.post("/agent/admin/issues/{issue_id}/retry")
+def admin_retry(issue_id: Annotated[int, Path(ge=1)], _a=Depends(_super_admin)):
+    store.set_issue_status(issue_id, "open", "retry requested")
+    return {"ok": True}
 
 
 @router.get("/agent/{project_id}")
