@@ -285,6 +285,15 @@ def _unit_records(records: list[dict], rq_ids: list[str]) -> list[dict]:
     return subset or records
 
 
+def _prepare_unit_records(all_records: list[dict], rq_ids: list[str], filters: list[str],
+                          platforms: list[str]) -> tuple[list[dict], int]:
+    """(unique stories for the method, coverage volume). Coverage volume counts every in-scope article,
+    syndicated copies included (share-of-coverage questions); the method reads unique stories so one
+    syndicated piece doesn't dominate the themes."""
+    in_scope = _apply_filters(_unit_records(all_records, rq_ids), filters, platforms)
+    return _deduplicate(in_scope), len(in_scope)
+
+
 def _apply_filters(records: list[dict], filters: list[str], platforms: list[str]) -> list[dict]:
     """Apply planner-defined filters to the dataset."""
     if not platforms:
@@ -500,11 +509,7 @@ def _run_execution(
 
         try:
             rq_ids = objective_rqs.get(unit.get("objective_id", unit_id), [])
-            # Coverage volume counts every article, syndicated copies included (share-of-coverage questions);
-            # the methods analyse unique stories so one syndicated piece doesn't dominate the themes.
-            in_scope = _apply_filters(_unit_records(all_records, rq_ids), filters, platforms)
-            coverage_volume = len(in_scope)
-            subset = _deduplicate(in_scope)
+            subset, coverage_volume = _prepare_unit_records(all_records, rq_ids, filters, platforms)
             store.add_execution_log(
                 run_id, f"Unit {unit_id}: {coverage_volume} articles for {', '.join(rq_ids) or 'all questions'}, "
                         f"{len(subset)} unique stories after merging syndicated copies",
@@ -716,14 +721,20 @@ def retry_unit(project_id: int, run_id: int, unit_id: str, *, emit: Any = None) 
     if not unit_spec:
         return {"status": "error", "error": f"Unit {unit_id} not in plan"}
 
-    evaluation = store.get_latest_evaluation(project_id)
-    dataset_path = evaluation.get("file_path", "")
     project = store.get_project(project_id)
     spec = project["spec"]
     brand = spec.get("commissioning_brand", {})
 
-    all_records = _load_dataset(dataset_path)
-    all_records = _deduplicate(all_records)
+    approved_ds = [ds for ds in store.get_datasets_by_project(project_id)
+                   if ds.get("approval_status") == "approved" and (ds.get("processing_status") or "done") == "done"]
+    all_records = _collect_dataset_records(project_id, approved_ds) if approved_ds else []
+    if not all_records:
+        evaluation = store.get_latest_evaluation(project_id) or {}
+        all_records = _load_dataset(evaluation.get("file_path", "")) if evaluation.get("file_path") else []
+    if not all_records:
+        store.update_execution_unit(eu["id"], status="failed", error="No approved dataset records")
+        return {"status": "failed", "error": "No approved dataset records"}
+    rq_ids = _objective_rq_map(plan).get(unit_spec.get("objective_id", unit_id), [])
 
     method_name = unit_spec.get("recommended_method", "Theme Clustering")
     required_fields = unit_spec.get("required_fields", ["content"])
@@ -734,7 +745,7 @@ def retry_unit(project_id: int, run_id: int, unit_id: str, *, emit: Any = None) 
     store.add_execution_log(run_id, f"Retrying unit {unit_id}", unit_id=unit_id)
 
     try:
-        subset = _apply_filters(all_records, filters, platforms)
+        subset, coverage_volume = _prepare_unit_records(all_records, rq_ids, filters, platforms)
         subset = _select_fields(subset, required_fields + ["url", "headline"])
 
         executor = get_executor(method_name)
@@ -753,6 +764,7 @@ def retry_unit(project_id: int, run_id: int, unit_id: str, *, emit: Any = None) 
             "evidence_target": unit_spec.get("evidence_target", ""),
             "brand_name": brand.get("name", ""),
             "category": brand.get("category", ""),
+            "coverage_volume": coverage_volume,
         }
 
         evidence_records = executor.execute(subset, context)[:MAX_EVIDENCE_PER_UNIT]
@@ -777,7 +789,8 @@ def retry_unit(project_id: int, run_id: int, unit_id: str, *, emit: Any = None) 
             eu["id"], status="completed",
             records_processed=len(subset),
             evidence_count=len(evidence_records),
-            result={"evidence_count": len(evidence_records), "records_processed": len(subset)},
+            result={"evidence_count": len(evidence_records), "records_processed": len(subset),
+                    "unique_stories": len(subset), "coverage_volume": coverage_volume},
             finished_at=time.time(),
         )
         store.add_execution_log(run_id, f"Retry of {unit_id} succeeded: {len(evidence_records)} evidence", unit_id=unit_id)
@@ -837,6 +850,7 @@ def get_execution_status(project_id: int) -> dict | None:
                 "status": u["status"],
                 "progress_pct": u.get("progress_pct", 0),
                 "records_processed": u.get("records_processed", 0),
+                "coverage_volume": u.get("coverage_volume"),
                 "evidence_count": u.get("evidence_count", 0),
                 "error": u.get("error"),
             }
