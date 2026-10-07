@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 from .config import load_settings
 from .llm_provider import HybridLLMClient, build_llm_client
@@ -55,6 +56,35 @@ def _strip_preamble(text: str) -> str:
 
 
 _LLM_CALL_TIMEOUT = 120
+
+
+GROUNDING_RULE = (
+    " Use only the facts and figures in the findings you are given. Never invent campaigns, results, "
+    "channels, metrics, percentages or comparisons that are not stated in them."
+)
+_FIGURE = re.compile(r"\d[\d,]*(?:\.\d+)?%?")
+
+
+def _figures(text: str) -> set[str]:
+    """Percentages and multi-digit numbers (the figures a reader would take as facts)."""
+    out = set()
+    for raw in _FIGURE.findall(text or ""):
+        value = raw.replace(",", "")
+        if value.endswith("%") or len(value.rstrip("%").split(".")[0]) >= 2:
+            out.add(value)
+    return out
+
+
+def _grounded(text: str | None, source: str) -> str | None:
+    """`text` when every figure in it appears in `source`; None when it states a figure the findings don't
+    contain (an invented metric), so the caller falls back to its deterministic text."""
+    if not text:
+        return None
+    invented = _figures(text) - _figures(source)
+    if invented:
+        logger.warning("[llm_synthesis] Rejected text with figures not in the findings: %s", sorted(invented))
+        return None
+    return text
 
 
 def _llm_call(system: str, user: str, format_json: bool = False) -> str | None:
@@ -174,11 +204,13 @@ def build_narrative(
     insights_block = "\n".join(
         f"- {t}: {s[:300]}" for t, s in zip(insight_titles, insight_summaries)
     )
+    if not insights_block.strip():
+        return None
 
     system = (
         "You are a narrative strategist crafting a research presentation storyline. "
         "Write clear, flowing prose that connects insights into a compelling story. "
-        "Be concise — 3-4 sentences max. Professional consulting tone."
+        "Be concise — 3-4 sentences max. Professional consulting tone." + GROUNDING_RULE
     )
 
     user = f"""Write the narrative for a "{section_type.replace('_', ' ')}" section in a {pattern.replace('_', ' ')} presentation.
@@ -188,7 +220,7 @@ Insights for this section:
 
 Write 3-4 sentences that weave these insights into a cohesive narrative for this section. Do not use bullet points. Do not start with "This section"."""
 
-    return _llm_call(system, user)
+    return _grounded(_llm_call(system, user), insights_block)
 
 
 def build_executive_summary(
@@ -200,11 +232,13 @@ def build_executive_summary(
     insights_block = "\n".join(
         f"- {t}: {s[:200]}" for t, s in zip(insight_titles, insight_summaries)
     )
+    if not insights_block.strip():
+        return None
 
     system = (
         "You are a senior research director writing an executive briefing. "
         "Distill multiple findings into a sharp, actionable summary. "
-        "Lead with the most important finding. 3-4 sentences max."
+        "Lead with the most important finding. 3-4 sentences max." + GROUNDING_RULE
     )
 
     user = f"""Write an executive summary for a {pattern.replace('_', ' ')} covering these findings:
@@ -213,7 +247,7 @@ def build_executive_summary(
 
 Synthesize into 3-4 sentences. Lead with the headline finding. End with the strategic implication."""
 
-    return _llm_call(system, user)
+    return _grounded(_llm_call(system, user), insights_block)
 
 
 def build_transition(from_section: str, to_section: str) -> str | None:
@@ -238,7 +272,7 @@ def generate_key_message(
     system = (
         "You are a presentation designer. Write punchy key messages that "
         "capture the single most important takeaway from each slide. "
-        "One sentence, max 20 words."
+        "One sentence, max 20 words." + GROUNDING_RULE
     )
 
     user = f"""Slide: "{slide_title}"
@@ -246,7 +280,7 @@ Content: {content_summary[:500]}
 
 Write the key message — the one thing the audience should remember from this slide. One sentence."""
 
-    return _llm_call(system, user)
+    return _grounded(_llm_call(system, user), f"{slide_title} {content_summary}")
 
 
 def generate_speaker_notes(
@@ -258,7 +292,7 @@ def generate_speaker_notes(
     system = (
         "You are a presentation coach writing speaker notes. "
         "Include what to say, what to emphasize, and how to transition. "
-        "Conversational but professional. 3-5 sentences."
+        "Conversational but professional. 3-5 sentences." + GROUNDING_RULE
     )
 
     user = f"""Slide: "{slide_title}"
@@ -267,7 +301,7 @@ Content: {content_summary[:500]}
 
 Write speaker notes (3-5 sentences) telling the presenter what to say for this slide."""
 
-    return _llm_call(system, user)
+    return _grounded(_llm_call(system, user), f"{slide_title} {key_message} {content_summary}")
 
 
 def generate_recommendations(
@@ -282,7 +316,7 @@ def generate_recommendations(
     system = (
         "You are a strategy consultant. Generate specific, actionable recommendations. "
         "Each recommendation should be concrete and measurable. "
-        "Return as JSON array of strings."
+        "Return as JSON array of strings." + GROUNDING_RULE
     )
 
     user = f"""Based on these research findings:
@@ -297,12 +331,11 @@ Return as a JSON array of strings."""
         return None
     try:
         parsed = json.loads(raw)
-        if isinstance(parsed, list):
-            return [str(r) for r in parsed[:5]]
-        if isinstance(parsed, dict):
-            for v in parsed.values():
-                if isinstance(v, list):
-                    return [str(r) for r in v[:5]]
-        return None
+        items = parsed if isinstance(parsed, list) else next(
+            (v for v in parsed.values() if isinstance(v, list)), None) if isinstance(parsed, dict) else None
+        if items is None:
+            return None
+        kept = [str(r) for r in items[:5] if _grounded(str(r), insights_block)]
+        return kept or None
     except (json.JSONDecodeError, TypeError):
         return None
