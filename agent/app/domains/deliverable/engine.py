@@ -116,6 +116,16 @@ def _extract_all(llm, rqs, plans, rows_by_rq) -> tuple[dict, set[str]]:
     return extraction, skipped
 
 
+def _deck_citations(entries: list[dict]) -> list[dict]:
+    """One-line headlines, the source domain, and the domain standing in for a missing outlet name."""
+    out = []
+    for e in entries:
+        domain = domain_of(e["url"])
+        out.append({**e, "title": " ".join((e.get("title") or "").split()), "outlet": e.get("outlet") or domain,
+                    "domain": domain})
+    return out
+
+
 def _logo_urls(names: list[str]) -> dict[str, str]:
     """Brand logo URLs for the web page (the deck embeds downloaded PNGs instead)."""
     from ..research.brandfetch import resolve_logo
@@ -187,7 +197,7 @@ def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_
         title=brand, subtitle=_subtitle(brand, project.get("project_name") or ""), date_label=f"{date.today():%B %Y}",
         period_label=period, rqs=rqs, overview=overview, sections_by_rq=sections_by_rq,
         insights_by_rq=insights_by_rq, answers=answers, takeaways=takeaways, methodology=methodology,
-        citations=registry.entries(), base_n=base, palette=palette, accent=kit.accent, title_font=kit.title_font,
+        citations=_deck_citations(registry.entries()), base_n=base, palette=palette, accent=kit.accent, title_font=kit.title_font,
         logos=logo_map, icons=icons, hero=hero, hero_credit=credit, brand_image=kit.banner,
         flag=visuals.country_flag_png(country, out_dir / "icons"), rq_titles=rq_titles,
         citation_icons=_citation_icons(registry.entries(), out_dir / "favicons"))
@@ -277,7 +287,7 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         pptx_path, appendix = generic_deck.build_generic_deck(inp, template, out_dir / "work",
                                                               out_dir / f"{safe} - Deliverable.pptx")
         run.section({"id": "citations", "rq_id": None, "module": "citations", "title": "Citations",
-                     "citations": [{**e, "domain": domain_of(e["url"])} for e in registry.entries()]})
+                     "citations": _deck_citations(registry.entries())})
         run.section(_page_visuals(project, sections_by_rq, None))
         run.stage("render", "done", pptx_path.name)
 

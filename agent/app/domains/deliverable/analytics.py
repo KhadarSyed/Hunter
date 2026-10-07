@@ -7,6 +7,7 @@ from .engine_types import RQ, EngineRow, Section
 from .metrics import TOP_PEAKS, month_label
 
 TOP_N = 8
+_AFFILIATION_WORDS = ("affiliat", "sponsor", "paid", "brand")
 NO_ROWS = "No articles for this question"
 _NOT_A_NAME = {"unknown", "none", "n/a", "na", "not stated", "unnamed", ""}
 LABEL_CHARS = 30
@@ -197,8 +198,16 @@ def _entities(module, rq, rows, base_n, extraction):
             if not known:
                 chart = {"kind": "doughnut", "categories": cats, "values": vals, "unit": "percent", "peaks": [],
                          "series_label": "Affiliation"}
-        types = Counter(e.get("expert_type") for e in ranked)
-        facts += [f"{t.replace('_', ' ')} experts: {c}" for t, c in types.most_common() if t and t != "unknown"]
+        types = Counter(e.get("expert_type") for e in ranked if e.get("expert_type") not in (None, "", "unknown"))
+        facts += [f"{t.replace('_', ' ')} experts: {c}" for t, c in types.most_common()]
+        asks_affiliation = any(w in rq.question.lower() for w in _AFFILIATION_WORDS)
+        if not known and types and not asks_affiliation:
+            # An all-"Not stated" doughnut answers nothing about which experts are cited: chart the type mix
+            typed = sum(types.values())
+            mix = [(t.replace("_", " ").capitalize(), c) for t, c in types.most_common(TOP_N)]
+            facts += [f"{name}: {c} of {typed} experts ({_pct(c, typed)}%)" for name, c in mix]
+            chart = {"kind": "doughnut", "categories": [n for n, _ in mix], "values": [_pct(c, typed) for _, c in mix],
+                     "unit": "percent", "peaks": [], "series_label": "Expert type"}
     return _section(module, rq, chart=chart, table={"header": header, "rows": rows_out,
                                                      "col_widths": [3.2] + [2.2] * len(cols) + [1.2]},
                     facts=facts, candidate_urls=[e["urls"][0] for e in ranked[:6]])
