@@ -352,9 +352,12 @@ def generate_storyline(project_id: int, reviewer: str = "system") -> dict:
         purpose = _SECTION_PURPOSES.get(section_type, "")
         title = _SECTION_TITLES.get(section_type, section_type.replace("_", " ").title())
 
-        narrative = _build_node_narrative(
-            section_type, matching_insights, pattern,
-        )
+        if section_type == "executive_summary" and not matching_insights and exec_summary:
+            narrative = exec_summary  # already synthesised from every approved insight
+        else:
+            narrative = _build_node_narrative(
+                section_type, _narrative_insights(section_type, matching_insights, approved_insights), pattern,
+            )
 
         transition = _generate_transition(section_type, pos, sections)
 
@@ -508,6 +511,17 @@ def _build_executive_summary(insights: list[dict], pattern: str) -> str:
         f"spanning {type_str} dimensions. "
         f"Average confidence across findings: {avg_conf:.0%}."
     )
+
+
+_SUMMARY_SECTIONS = ("executive_summary", "recommendations", "conclusion")
+
+
+def _narrative_insights(section_type: str, matching: list[dict], all_insights: list[dict]) -> list[dict]:
+    """Insights a node's narrative is written from. Summary sections draw on every insight when none is
+    assigned to them, so they are never written from an empty list (which invited invented content)."""
+    if matching or section_type not in _SUMMARY_SECTIONS:
+        return matching
+    return all_insights
 
 
 def _build_node_narrative(
