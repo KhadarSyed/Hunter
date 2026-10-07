@@ -175,7 +175,7 @@ def _entities(module, rq, rows, base_n, extraction):
     facts = [f"{e['name']} named in {e['count']} articles" for e in ranked[:10]]
     cols = [k for k in ("expert_type", "affiliation", "brand", "role") if k in ranked[0]]
     header = ["Name"] + [c.replace("_", " ").title() for c in cols] + ["Articles"]
-    rows_out = [[e["name"]] + [str(e.get(c) or "") for c in cols] + [str(e["count"])] for e in ranked[:10]]
+    rows_out = [[e["name"]] + [_words(e.get(c)) for c in cols] + [str(e["count"])] for e in ranked[:10]]
     chart = {"kind": "bar", "categories": [_label(e["name"]) for e in ranked[:TOP_N]],
              "values": [e["count"] for e in ranked[:TOP_N]], "unit": "count", "peaks": [], "series_label": "Articles"}
     if kind == "experts":
@@ -211,6 +211,15 @@ def _entities(module, rq, rows, base_n, extraction):
     return _section(module, rq, chart=chart, table={"header": header, "rows": rows_out,
                                                      "col_widths": [3.2] + [2.2] * len(cols) + [1.2]},
                     facts=facts, candidate_urls=[e["urls"][0] for e in ranked[:6]])
+
+
+def _words(value) -> str:
+    """Extraction codes as table words: other_hcp -> Other HCP, unknown -> Not stated."""
+    text = str(value or "").strip()
+    if text.lower() == "unknown":
+        return "Not stated"
+    words = ["HCP" if w.lower() == "hcp" else w for w in text.replace("_", " ").split()]
+    return " ".join(words)[:1].upper() + " ".join(words)[1:] if words else ""
 
 
 _HANDLERS = {"share_kpi": _share_kpi, "volume_trend": _trend, "outlet_ranking": _outlets,
