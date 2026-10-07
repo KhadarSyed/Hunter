@@ -959,7 +959,7 @@ export const intelApi = {
         unit_id: string | null;
         created_at: number;
       }[];
-    }>(`/execution/${projectId}`),
+    } | null>(`/execution/${projectId}`),
 
   pauseExecution: (runId: number) =>
     post<{ ok: boolean }>(`/execution/${runId}/pause`),

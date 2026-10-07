@@ -329,7 +329,7 @@ export function ResearchExecution({
   const fetchStatus = useCallback(async () => {
     try {
       const data = await intelApi.getExecutionStatus(projectId);
-      setRun(data as RunStatus);
+      if (data) setRun(data as RunStatus);
       setError(null);
     } catch {
       // no execution yet
@@ -343,7 +343,13 @@ export function ResearchExecution({
   // Refresh execution status on a 2s interval while a run or job is active.
   const shouldPollRun = run?.status === "running" || run?.status === "paused" || !!jobId;
   const fetchRunStatus = useMemo(
-    () => (shouldPollRun ? () => intelApi.getExecutionStatus(projectId) : null),
+    () => (shouldPollRun
+      ? async () => {
+          const data = await intelApi.getExecutionStatus(projectId);
+          if (!data) throw new Error("No execution yet");     // same as the old 404: the poll keeps waiting
+          return data as RunStatus;
+        }
+      : null),
     [shouldPollRun, projectId],
   );
   const { status: polledRun } = useJobStatus<RunStatus>(fetchRunStatus, {

@@ -66,6 +66,7 @@ class ProjectResponse(ApiModel):
     project_type: str | None = None
     brand: str | None = None
     spec: dict | None = None
+    archived_at: float | None = None
 
 
 class ProjectListItem(ApiModel):

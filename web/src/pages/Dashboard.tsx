@@ -137,7 +137,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
 
       try {
         const execStatus = await intelApi.getExecutionStatus(activeProjectId);
-        s.executionCompleted = execStatus.status === "completed";
+        s.executionCompleted = execStatus?.status === "completed";
       } catch {}
 
       try {

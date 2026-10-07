@@ -139,14 +139,12 @@ def start_execution(req: ExecutionStartRequest):
     return {"job_id": job_id, "project_id": req.project_id}
 
 
-@router.get("/execution/{project_id}", response_model=ExecutionStatusResponse)
+@router.get("/execution/{project_id}", response_model=ExecutionStatusResponse | None)
 def get_execution_status(project_id: Annotated[int, Path(ge=1)],
                           _access: Annotated[dict, Depends(require_project_access)]):
-    """Get the current execution status for a project."""
-    status = executor_service.get_execution_status(project_id)
-    if not status:
-        raise HTTPException(404, "No execution found for this project")
-    return status
+    """The current execution status for a project; null when it has none (projects built by the deliverable
+    engine never start an execution run, so this is not an error)."""
+    return executor_service.get_execution_status(project_id)
 
 
 @router.post("/execution/{run_id}/pause", response_model=OkResponse)

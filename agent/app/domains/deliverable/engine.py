@@ -16,7 +16,7 @@ from . import (analytics, brand_kit, catalog, engine_insights, extract, factchec
                visuals, word_brief)
 from . import rows as R
 from .citations import CitationRegistry, domain_of
-from .engine_types import Section
+from .engine_types import RQ, Section
 from ..agent import memory as agent_memory
 from ..agent.repair import issues
 from ..deckstudio import verbatims
@@ -51,6 +51,14 @@ def _gate_reasons(project_id: int) -> list[str]:
     return reasons
 
 
+def _rq_label(q: RQ, limit: int = 90) -> str:
+    """The question itself next to its id: analyst-authored text, never article content."""
+    text = " ".join((q.question or "").split())
+    if not text:
+        return q.id
+    return f'{q.id} "{text[:limit - 1]}…"' if len(text) > limit else f'{q.id} "{text}"'
+
+
 _STAGE_LABELS = {"gate": "Checking approvals", "ingest": "Ingesting approved datasets",
                  "routing": "Routing articles to questions", "plan": "Planning analyses",
                  "classify": "Classifying entities", "compute": "Computing charts and tables",
@@ -61,8 +69,15 @@ _STAGE_LABELS = {"gate": "Checking approvals", "ingest": "Ingesting approved dat
 
 
 # Share of a typical run's time spent in each stage: the overall % moves with the work, not the stage count
-STAGE_WEIGHTS = {"gate": 1, "ingest": 3, "routing": 2, "plan": 5, "classify": 28, "compute": 3, "insights": 14,
-                 "template": 2, "render": 8, "qc": 4, "index": 4, "design": 3, "assets": 8, "compose": 10, "export": 5}
+# Measured on runs 14-17 (2026-10-07): assets and compose dominate, classification is cached after the first run
+STAGE_WEIGHTS = {"gate": 0, "ingest": 0, "routing": 1, "plan": 4, "classify": 2, "compute": 1, "insights": 10,
+                 "template": 1, "render": 17, "qc": 2, "index": 1, "design": 1, "assets": 22, "compose": 32, "export": 6}
+TYPICAL_RUNS = 5
+
+
+def _typical_seconds() -> float | None:
+    durations = sorted(store.recent_run_durations(TYPICAL_RUNS))
+    return durations[len(durations) // 2] if durations else None
 
 
 def _stage_span(name: str) -> tuple[float, float]:
@@ -79,11 +94,13 @@ class _Run:
         self.run_id, self.project_id, self.stages, self.lines = run_id, project_id, {}, []
         self.started_at, self.pct, self.current = time.time(), 0, "gate"
         self.timings: dict[str, list[float]] = {}
+        self.typical = _typical_seconds()
 
     def progress(self, pct: float, label: str) -> None:
         """Overall % (never goes back) and what is happening right now; kept with the run for page reloads."""
         self.pct = max(self.pct, min(100, int(round(pct))))
-        state = {"pct": self.pct, "stage": self.current, "label": label, "started_at": self.started_at}
+        state = {"pct": self.pct, "stage": self.current, "label": label, "started_at": self.started_at,
+                 "typical_seconds": self.typical}
         store.replace_deliverable_section(self.run_id, {"id": "progress", "rq_id": None, "module": "progress",
                                                         "title": "Progress", **state})
         broadcast({"type": "deliverable_progress", "project_id": self.project_id, "run_id": self.run_id, **state})
@@ -186,9 +203,9 @@ def _extract_all(llm, rqs, plans, rows_by_rq, run: "_Run | None" = None) -> tupl
         def report(done, _of, q=q, kind=kind, n=n, base=finished):
             if run:
                 run.within("classify", (base + done) / total,
-                           f"Classifying {kind} in {q.id}: {done} of {n} articles")
+                           f"Classifying {kind} in {_rq_label(q, 50)}: {done} of {n} articles")
         if run:
-            run.log(f"{q.id}: classifying {kind} in {n} articles")
+            run.log(f"{_rq_label(q, 50)}: classifying {kind} in {n} articles")
         try:
             extraction[(q.id, kind)] = extract.extract(llm, rows_by_rq[q.id], kind, progress=report)
         except extract.ExtractionUnavailable as e:
@@ -343,7 +360,7 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         rqs = R.load_rqs(project_id)
         if not rqs:
             raise StageFailed("ingest", "The search strategy has no research questions")
-        run.log(f"{len(rqs)} research questions: " + ", ".join(q.id for q in rqs))
+        run.log(f"{len(rqs)} research questions: " + "; ".join(_rq_label(q, 60) for q in rqs))
         rows = R.load_rows(project_id, rqs)
         if not rows:
             raise StageFailed("ingest", "The approved datasets have no usable rows")
@@ -358,15 +375,15 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         run.section({"id": "data-collection", "rq_id": None, "module": "data_collection", "title": "Data collection",
                      "data": summary, "facts": [f"Base: {base} unique articles across all questions"]})
         for q in rqs:
-            run.log(f"{q.id}: {len(rows_by_rq[q.id])} articles")
+            run.log(f"{_rq_label(q)}: {len(rows_by_rq[q.id])} articles")
         run.stage("routing", "done", f"base N = {base}")
 
         current = "plan"
         run.stage("plan", "running")
         plans = {q.id: catalog.plan_rq(llm, q, rows_by_rq[q.id])[0] for q in rqs}
         for q in rqs:
-            run.log(f"{q.id}: " + ", ".join(m["module"] for m in plans[q.id]["modules"]))
-        counts = [f"{q.id}: {len(plans[q.id]['modules'])}" for q in rqs]
+            run.log(f"{_rq_label(q)}: " + ", ".join(m["module"] for m in plans[q.id]["modules"]))
+        counts = [f"{_rq_label(q, 40)}: {len(plans[q.id]['modules'])}" for q in rqs]
         run.stage("plan", "done", ", ".join(counts))
 
         current = "classify"
@@ -386,7 +403,7 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
             for s in sections_by_rq[q.id]:
                 run.section(s.to_dict())
             drawn = [s for s in sections_by_rq[q.id] if not s.skipped]
-            run.log(f"{q.id}: {len(drawn)} of {len(sections_by_rq[q.id])} analyses ready")
+            run.log(f"{_rq_label(q)}: {len(drawn)} of {len(sections_by_rq[q.id])} analyses ready")
         run.stage("compute", "done")
 
         current = "insights"
@@ -394,11 +411,11 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         registry = CitationRegistry()
         insights_by_rq = {}
         for k, q in enumerate(rqs):
-            run.within("insights", k / len(rqs), f"Drafting cited insights for {q.id}")
+            run.within("insights", k / len(rqs), f"Drafting cited insights for {_rq_label(q, 60)}")
             insights_by_rq[q.id] = engine_insights.rq_insights(q, sections_by_rq[q.id], rows_by_rq[q.id], registry, llm)
             run.section({"id": f"{q.id.lower()}-insights", "rq_id": q.id, "module": "insights", "title": "Insights",
                          "insights": insights_by_rq[q.id]})
-            run.log(f"{q.id}: {len(insights_by_rq[q.id])} insights drafted")
+            run.log(f"{_rq_label(q)}: {len(insights_by_rq[q.id])} insights drafted")
         answers = engine_insights.executive_answers(rqs, sections_by_rq, base)
         takeaways = [i for q in rqs for i in insights_by_rq[q.id][:1]]
         run.section({"id": "executive-summary", "rq_id": None, "module": "executive_summary",

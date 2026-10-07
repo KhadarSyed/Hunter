@@ -53,6 +53,15 @@ def get_deliverable_run(run_id: int) -> Optional[dict]:
     return _run(row)
 
 
+def recent_run_durations(limit: int = 5) -> list[float]:
+    """Wall-clock seconds of the latest completed runs, newest first (the progress bar's typical duration)."""
+    conn = _conn()
+    rows = conn.execute("SELECT finished_at - created_at AS d FROM intel_deliverable_runs WHERE status = 'completed' "
+                        "AND finished_at IS NOT NULL ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    conn.close()
+    return [r["d"] for r in rows if r["d"] and r["d"] > 0]
+
+
 def get_latest_deliverable_run(project_id: int) -> Optional[dict]:
     conn = _conn()
     row = conn.execute("SELECT * FROM intel_deliverable_runs WHERE project_id = ? "
