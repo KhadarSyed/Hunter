@@ -42,6 +42,8 @@ def _datasets_state(datasets: list[dict]) -> str:
 def _run_state(run: dict | None) -> str:
     if not run:
         return "todo"
+    if run.get("status") == "completed" and not run.get("studio_pptx_path"):
+        return "failed"                 # the classic files shipped but the deck itself did not: not delivered
     return {"running": "waiting", "completed": "done", "failed": "failed"}.get(run.get("status"), "todo")
 
 
@@ -60,7 +62,8 @@ def project_status(project_id: int) -> dict:
         "datasets": _datasets_state(datasets),
         "deliverable": _run_state(run),
     }
-    details = {"deliverable": (run or {}).get("error") or (run or {}).get("stage") or "",
+    no_deck = bool(run) and run.get("status") == "completed" and not run.get("studio_pptx_path")
+    details = {"deliverable": "the deck step failed" if no_deck else (run or {}).get("error") or (run or {}).get("stage") or "",
                "datasets": f"{len(datasets)} uploaded"}
     status = {"project_id": project_id, "name": project.get("name") or project.get("project_name") or "",
               "steps": [{"key": k, "label": LABELS[k], "state": states[k], "detail": details.get(k, "")} for k in STEP_KEYS],
