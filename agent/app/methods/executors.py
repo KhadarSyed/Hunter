@@ -119,6 +119,31 @@ def _keyword_variants(concept: str) -> list[str]:
     return [w for w in _tokenize(concept) if len(w) > 2]
 
 
+def _copies(record: dict) -> int:
+    """Articles a record stands for: itself plus syndicated copies merged into it by deduplication."""
+    try:
+        return max(int(record.get("_copies") or 1), 1)
+    except (TypeError, ValueError):
+        return 1
+
+
+def _coverage(group: list[dict], records: list[dict]) -> dict:
+    """Share of coverage: like share_of_records, but counting syndicated copies (articles, not stories)."""
+    count = sum(_copies(r) for r in group)
+    total = sum(_copies(r) for r in records)
+    return {"coverage_count": count, "coverage_total": total,
+            "share_of_coverage": round(count / total, 4) if total else 0}
+
+
+def _coverage_note(group: list[dict], records: list[dict]) -> str:
+    """Rationale suffix when syndicated copies change the picture; empty when there are none."""
+    cov = _coverage(group, records)
+    if cov["coverage_total"] == len(records):
+        return ""
+    return (f" Counting syndicated copies: {cov['coverage_count']} of {cov['coverage_total']} articles "
+            f"({cov['share_of_coverage']:.0%}).")
+
+
 def _top_excerpts(records: list[dict], n: int = 3) -> list[dict]:
     """Return up to n records with the longest non-empty text (stable, deterministic)."""
     candidates = [r for r in records if _record_text(r)]
@@ -207,9 +232,11 @@ class ThemeClusteringExecutor(BaseMethodExecutor):
                         "theme": theme,
                         "mention_count": len(matched),
                         "share_of_records": round(share, 4),
+                        **_coverage(matched, records),
                     },
                     "confidence": confidence,
-                    "rationale": f"{len(matched)} of {total} records ({share:.0%}) reference the theme '{theme}'.",
+                    "rationale": f"{len(matched)} of {total} records ({share:.0%}) reference the theme '{theme}'."
+                                 + _coverage_note(matched, records),
                 })
         return evidence[:15]
 
@@ -244,9 +271,11 @@ class ConversationAnalysisExecutor(BaseMethodExecutor):
                 "source": source,
                 "date": reps[0].get("date") if reps else None,
                 "text_excerpt": self._truncate(_record_text(reps[0])) if reps else "",
-                "metrics": {"record_count": len(group), "share_of_records": round(share, 4)},
+                "metrics": {"record_count": len(group), "share_of_records": round(share, 4),
+                            **_coverage(group, records)},
                 "confidence": "high" if len(group) >= 5 else "medium",
-                "rationale": f"{len(group)} of {total} conversations originate from {source}.",
+                "rationale": f"{len(group)} of {total} conversations originate from {source}."
+                             + _coverage_note(group, records),
             })
 
         engagement_records = [
@@ -316,10 +345,12 @@ class SentimentAnalysisExecutor(BaseMethodExecutor):
                         "sentiment": label,
                         "count": len(group),
                         "share_of_records": round(share, 4),
+                        **_coverage(group, records),
                         "source_field": "labelled" if has_sentiment_field else "keyword_inferred",
                     },
                     "confidence": "high" if has_sentiment_field else "medium",
-                    "rationale": f"{len(group)} of {total} records ({share:.0%}) classified as {label}.",
+                    "rationale": f"{len(group)} of {total} records ({share:.0%}) classified as {label}."
+                                 + _coverage_note(group, records),
                 })
         return evidence[:15]
 
@@ -454,9 +485,11 @@ class ShareOfVoiceExecutor(BaseMethodExecutor):
                 "source": source,
                 "date": reps[0].get("date") if reps else None,
                 "text_excerpt": self._truncate(_record_text(reps[0])) if reps else "",
-                "metrics": {"mentions": len(group), "share_pct": round(share * 100, 2)},
+                "metrics": {"mentions": len(group), "share_pct": round(share * 100, 2),
+                            **_coverage(group, records)},
                 "confidence": "high" if len(group) >= 5 else "medium",
-                "rationale": f"{source} accounts for {share:.1%} of mentions ({len(group)} of {total}).",
+                "rationale": f"{source} accounts for {share:.1%} of mentions ({len(group)} of {total})."
+                             + _coverage_note(group, records),
             })
         return evidence
 
@@ -505,12 +538,14 @@ class AudienceSegmentationExecutor(BaseMethodExecutor):
                     "segment": author,
                     "record_count": len(group),
                     "share_of_records": round(share, 4),
+                    **_coverage(group, records),
                     "characteristic_terms": top_terms,
                 },
                 "confidence": "high" if len(group) >= 5 else "medium",
                 "rationale": (
                     f"{author} contributes {len(group)} records ({share:.0%}); "
                     f"commonly discusses: {', '.join(top_terms) if top_terms else 'n/a'}."
+                    + _coverage_note(group, records)
                 ),
             })
         return evidence[:15]
@@ -644,10 +679,12 @@ class CrisisDetectionExecutor(BaseMethodExecutor):
             "metrics": {
                 "flagged_record_count": len(flagged),
                 "share_of_records": round(share, 4),
+                **_coverage([r for r, _ in flagged], records),
                 "top_crisis_terms": [w for w, _ in top_terms.most_common(5)],
             },
             "confidence": "high" if share > 0.15 else "medium",
-            "rationale": f"{len(flagged)} of {total} records ({share:.0%}) contain crisis-related language or negative sentiment.",
+            "rationale": f"{len(flagged)} of {total} records ({share:.0%}) contain crisis-related language or negative sentiment."
+                         + _coverage_note([r for r, _ in flagged], records),
         }]
 
         for r, hits in flagged[:8]:
@@ -786,6 +823,7 @@ class CompetitiveBenchmarkingExecutor(BaseMethodExecutor):
                     "entity": brand or "brand",
                     "mentions": len(brand_group),
                     "share_of_records": round(len(brand_group) / total, 4) if total else 0,
+                    **_coverage(brand_group, records),
                     "positive": pos, "negative": neg, "neutral": neu,
                 },
                 "confidence": "high" if len(brand_group) >= 5 else "medium",
@@ -811,6 +849,7 @@ class CompetitiveBenchmarkingExecutor(BaseMethodExecutor):
                     "entity": competitor,
                     "mentions": len(group),
                     "share_of_records": round(len(group) / total, 4) if total else 0,
+                    **_coverage(group, records),
                     "positive": pos, "negative": neg, "neutral": neu,
                 },
                 "confidence": "high" if len(group) >= 5 else "medium",
@@ -866,9 +905,11 @@ class MediaFramingExecutor(BaseMethodExecutor):
                         "frame": frame,
                         "headline_count": len(group),
                         "share_of_headlines": round(share, 4),
+                        **_coverage(group, records),
                     },
                     "confidence": "high" if len(group) >= 5 else "medium",
-                    "rationale": f"{len(group)} of {total} headlines ({share:.0%}) carry a {frame} frame.",
+                    "rationale": f"{len(group)} of {total} headlines ({share:.0%}) carry a {frame} frame."
+                                 + _coverage_note(group, records),
                 })
 
         top_topics = [w for w, _ in topic_counter.most_common(5)]
