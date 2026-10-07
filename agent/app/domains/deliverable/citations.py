@@ -1,7 +1,15 @@
 """Global, stable citation numbering across the whole deck."""
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 from .ingest import Article
+
+
+def domain_of(url: str) -> str:
+    """forbes.com from https://www.forbes.com/... (citations show the source domain icon)."""
+    host = (urlparse(url or "").hostname or "").lower()
+    return host[4:] if host.startswith("www.") else host
 
 
 class CitationRegistry:

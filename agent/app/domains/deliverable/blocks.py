@@ -86,6 +86,22 @@ def _chart(slide, kind, x, y, w, h, categories, values, number_format):
     return chart
 
 
+MAX_AXIS_LABELS = 12
+
+
+def _skip_category_labels(chart, n: int) -> None:
+    """Show at most MAX_AXIS_LABELS category labels so long month axes never overlap."""
+    skip = -(-n // MAX_AXIS_LABELS)
+    if skip <= 1:
+        return
+    cat_ax = chart.category_axis._element
+    el = SubElement(cat_ax, qn("c:tickLblSkip"))
+    el.set("val", str(skip))
+    no_multi = cat_ax.find(qn("c:noMultiLvlLbl"))
+    if no_multi is not None:
+        no_multi.addprevious(el)
+
+
 def _style_axes(chart):
     chart.value_axis.visible = False
     chart.value_axis.has_major_gridlines = False
@@ -131,6 +147,7 @@ def add_bar_chart(slide, x, y, w, h, categories, values, color=style.LAVENDER, n
 def add_line_chart_with_peaks(slide, x, y, w, h, categories, values, peak_idx):
     chart = _chart(slide, XL_CHART_TYPE.LINE_MARKERS, x, y, w, h, categories, values, "0")
     _style_axes(chart)
+    _skip_category_labels(chart, len(categories))
     series = chart.plots[0].series[0]
     series.smooth = False      # smoothing overshoots below zero between low months
     series.format.line.color.rgb = _rgb(style.POWDER_BLUE)
@@ -209,8 +226,12 @@ def _card_body_height(ins: dict, width_in: float) -> float:
     return (lines * style.CARD_BODY_PT * 1.2 + 7) / 72 + CARD_BOTTOM_PAD + 0.1
 
 
-def add_insight_cards(slide, x, y, w, h, insights: list[dict], cols: int):
-    """Cards size to their text (uniform per row) and never exceed the given area."""
+CITE_ICON_IN = 0.2
+
+
+def add_insight_cards(slide, x, y, w, h, insights: list[dict], cols: int, cite_icons=None):
+    """Cards size to their text (uniform per row) and never exceed the given area. With `cite_icons`
+    (citation numbers -> icon paths) each card shows its sources as domain icons instead of [n] numbers."""
     if not insights:
         return
     gap = 0.15
@@ -230,8 +251,13 @@ def add_insight_cards(slide, x, y, w, h, insights: list[dict], cols: int):
         head_h = _headline_height(ins["headline"], cw - 0.3)
         add_text(slide, cx + 0.15, cy + 0.08, cw - 0.3, head_h, ins["headline"], style.CARD_HEAD_PT, True, style.VIOLET)
         body_top = 0.08 + head_h + 0.04
-        add_text(slide, cx + 0.15, cy + body_top, cw - 0.3, ch - body_top - 0.08,
-                 ins["text"] + citation_suffix(ins["citations"]), style.CARD_BODY_PT)
+        icons = [p for p in (cite_icons(ins["citations"]) if cite_icons else []) if p]
+        body = ins["text"] if icons else ins["text"] + citation_suffix(ins["citations"])
+        add_text(slide, cx + 0.15, cy + body_top, cw - 0.3, ch - body_top - 0.08 - (CITE_ICON_IN if icons else 0),
+                 body, style.CARD_BODY_PT)
+        for k, icon in enumerate(icons[:6]):
+            slide.shapes.add_picture(str(icon), Inches(cx + 0.15 + k * (CITE_ICON_IN + 0.06)),
+                                     Inches(cy + ch - CITE_ICON_IN - 0.08), height=Inches(CITE_ICON_IN))
 
 
 def add_kpi_tiles(slide, x, y, w, h, tiles: list[dict]):

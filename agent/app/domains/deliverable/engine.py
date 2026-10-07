@@ -12,7 +12,7 @@ from ...core.events import broadcast
 from . import (analytics, brand_kit, catalog, engine_insights, extract, factcheck, generic_deck, templates_index,
                visuals, word_brief)
 from . import rows as R
-from .citations import CitationRegistry
+from .citations import CitationRegistry, domain_of
 from .engine_types import Section
 
 logger = logging.getLogger(__name__)
@@ -116,6 +116,51 @@ def _extract_all(llm, rqs, plans, rows_by_rq) -> tuple[dict, set[str]]:
     return extraction, skipped
 
 
+def _logo_urls(names: list[str]) -> dict[str, str]:
+    """Brand logo URLs for the web page (the deck embeds downloaded PNGs instead)."""
+    from ..research.brandfetch import resolve_logo
+    from .cli import logo_png_url
+    out = {}
+    for name in names:
+        url = logo_png_url(resolve_logo(name))
+        if url:
+            out[name] = url
+    return out
+
+
+def _hero_info(query: str) -> dict:
+    from ..research.pexels import resolve_background_image
+    return resolve_background_image(query) or {}
+
+
+def _citation_icons(entries: list[dict], folder: Path) -> dict[int, Path]:
+    icons = {}
+    for e in entries:
+        icon = visuals.favicon_png(domain_of(e["url"]), folder)
+        if icon:
+            icons[e["n"]] = icon
+    return icons
+
+
+def _page_visuals(project: dict, sections_by_rq, kit_logo_url: str | None) -> dict:
+    spec = project.get("spec") or {}
+    brand = (spec.get("commissioning_brand") or {}).get("name") or project.get("brand") or ""
+    industry = (spec.get("industry") or {}).get("name") or ""
+    competitors = [e["name"] for e in spec.get("validated_entities") or [] if e.get("type") == "competitor"]
+    named = [c for secs in sections_by_rq.values() for s in secs
+             if s.module in ("brand_sov", "entities") and s.chart and s.id.endswith(("brand_sov", "brands"))
+             for c in s.chart["categories"]]
+    logos = _logo_urls(list(dict.fromkeys(competitors + named))[:MAX_LOGOS])
+    if kit_logo_url:
+        logos[brand] = kit_logo_url
+    hero = _hero_info(f"{brand} {industry}".strip())
+    photographer = hero.get("photographer") or "Pexels"
+    country = (spec.get("included_scope") or {}).get("geography") or spec.get("geography") or ""
+    return {"id": "visuals", "rq_id": None, "module": "visuals", "title": "Visuals",
+            "hero": {"url": hero.get("image_url"), "credit": f"Photo: {photographer} / Pexels"},
+            "logos": logos, "country": visuals.country_code(country), "brand": brand}
+
+
 def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_rq, answers, takeaways,
                 methodology, registry, base, out_dir: Path, rq_titles: dict[str, str]) -> generic_deck.DeckInput:
     spec = project.get("spec") or {}
@@ -144,7 +189,8 @@ def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_
         insights_by_rq=insights_by_rq, answers=answers, takeaways=takeaways, methodology=methodology,
         citations=registry.entries(), base_n=base, palette=palette, accent=kit.accent, title_font=kit.title_font,
         logos=logo_map, icons=icons, hero=hero, hero_credit=credit, brand_image=kit.banner,
-        flag=visuals.country_flag_png(country, out_dir / "icons"), rq_titles=rq_titles)
+        flag=visuals.country_flag_png(country, out_dir / "icons"), rq_titles=rq_titles,
+        citation_icons=_citation_icons(registry.entries(), out_dir / "favicons"))
 
 
 def run_engine(run_id: int, project_id: int, llm) -> None:
@@ -230,6 +276,9 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         safe = "".join(ch for ch in inp.title if ch.isalnum() or ch in " -_").strip() or "Deliverable"
         pptx_path, appendix = generic_deck.build_generic_deck(inp, template, out_dir / "work",
                                                               out_dir / f"{safe} - Deliverable.pptx")
+        run.section({"id": "citations", "rq_id": None, "module": "citations", "title": "Citations",
+                     "citations": [{**e, "domain": domain_of(e["url"])} for e in registry.entries()]})
+        run.section(_page_visuals(project, sections_by_rq, None))
         run.stage("render", "done", pptx_path.name)
 
         current = "qc"

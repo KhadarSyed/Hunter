@@ -7,11 +7,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from pptx import Presentation
+from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.util import Inches
 
 from . import blocks, style
 from .amcharts_png import render_treemap_png
-from .deck import _add_logo, _move_to_end, _set_cover, keep_cover_and_closing, paginate
+from .deck import _add_logo, _move_to_end, keep_cover_and_closing, paginate
 from .engine_types import RQ, Section
 from .gauge import render_gauge_png
 from .qc import estimate_overflow
@@ -53,6 +54,7 @@ class DeckInput:
     brand_image: Path | None
     flag: Path | None
     rq_titles: dict[str, str] = field(default_factory=dict)   # short slide titles from the analysis plan
+    citation_icons: dict[int, Path] = field(default_factory=dict)   # citation number -> source domain favicon
 
 
 def _fit_title(text: str) -> str:
@@ -110,9 +112,19 @@ def _draw_chart(slide, sec: Section, inp: DeckInput, work: Path, x, y, w, h):
                              [{"value": f"{vals[0]}%", "label": cats[0] if cats else "", "note": note}])
 
 
+def _strip_template_text(slide) -> None:
+    """Template slides lend their styling (background art, logos, imagery), never their words."""
+    for sh in list(slide.shapes):
+        if sh.has_text_frame and sh.shape_type != MSO_SHAPE_TYPE.PICTURE:
+            sh._element.getparent().remove(sh._element)
+
+
 def _cover(prs, inp: DeckInput):
     cover = prs.slides[0]
-    _set_cover(cover, inp.title, inp.subtitle, inp.date_label)
+    _strip_template_text(cover)
+    blocks.add_text(cover, 0.6, 5.0, 7.6, 0.8, inp.title, 36, True, inp.accent, font=inp.title_font)
+    blocks.add_text(cover, 0.6, 5.85, 7.6, 0.5, inp.subtitle, 20, False, style.BODY, font=inp.title_font)
+    blocks.add_text(cover, 0.6, 6.5, 4.0, 0.35, inp.date_label, 12)
     use_brand = bool(inp.brand_image and inp.brand_image.exists())
     image = inp.brand_image if use_brand else inp.hero
     if image and image.exists():
@@ -173,7 +185,7 @@ def _rq_slides(prs, inp: DeckInput, rq: RQ, work: Path):
             blocks.add_text(s, x, CHART_TOP + 3.0, width, 0.25, "; ".join(notes), 8)
     if insights:
         blocks.add_insight_cards(s, style.MARGIN, CHART_TOP + 3.35, style.SLIDE_W - 2 * style.MARGIN, 2.0,
-                                 insights[:3], cols=3)
+                                 insights[:3], cols=3, cite_icons=_cite_icons(inp))
     for sec in drawable[2:]:
         s2 = _slide(prs, inp, rq.id, sec.title, sec.facts[0] if sec.facts else "", inp.icons.get(sec.module))
         _draw_chart(s2, sec, inp, work, style.MARGIN, CHART_TOP, 7.6, 4.6)
@@ -194,7 +206,7 @@ def _rq_slides(prs, inp: DeckInput, rq: RQ, work: Path):
 def _takeaways(prs, inp: DeckInput):
     s = _slide(prs, inp, "KEY TAKEAWAYS", "What to do next", "", inp.icons.get("takeaway"))
     blocks.add_insight_cards(s, style.MARGIN, CHART_TOP, style.SLIDE_W - 2 * style.MARGIN, 4.8, inp.takeaways[:6],
-                             cols=3)
+                             cols=3, cite_icons=_cite_icons(inp))
 
 
 def _methodology(prs, inp: DeckInput):
@@ -207,11 +219,31 @@ def _citations(prs, inp: DeckInput) -> list[int]:
     numbers = []
     for i, page in enumerate(pages, start=1):
         s = _slide(prs, inp, "APPENDIX", f"Citations ({i}/{len(pages)})")
-        rows = [[str(c["n"]), c["outlet"], c["title"][:70], c["date"], c["url"][:60]] for c in page]
+        rows = [["", str(c["n"]), c["outlet"], c["title"][:70], c["date"], c["url"][:55]] for c in page]
         blocks.add_table(s, style.MARGIN, CHART_TOP, style.SLIDE_W - 2 * style.MARGIN, 0.3 * (len(rows) + 1),
-                         ["#", "Outlet", "Headline", "Date", "URL"], rows, [0.5, 2.0, 5.2, 1.2, 3.5])
+                         ["", "#", "Outlet", "Headline", "Date", "URL"], rows, [0.45, 0.45, 1.9, 5.0, 1.15, 3.45])
+        for r, c in enumerate(page, start=1):   # the source domain icon sits in the first column
+            icon = inp.citation_icons.get(c["n"])
+            if icon and icon.exists():
+                s.shapes.add_picture(str(icon), Inches(style.MARGIN + 0.12), Inches(CHART_TOP + 0.3 * r + 0.05),
+                                     height=Inches(0.2))
         numbers.append(len(prs.slides))
     return numbers
+
+
+def _closing(prs, inp: DeckInput):
+    closing = prs.slides[-1]
+    _strip_template_text(closing)
+    blocks.add_text(closing, 0.8, 2.6, 8.0, 1.0, "Thank you", 44, True, inp.accent, font=inp.title_font)
+    blocks.add_text(closing, 0.8, 3.7, 8.0, 0.5, f"{inp.title} – {inp.subtitle}", 18, False, style.BODY,
+                    font=inp.title_font)
+    blocks.add_text(closing, 0.8, 4.25, 8.0, 0.4, inp.date_label, 12)
+
+
+def _cite_icons(inp: DeckInput):
+    if not inp.citation_icons:
+        return None
+    return lambda cites: [inp.citation_icons.get(n) for n in cites]
 
 
 def build_generic_deck(inp: DeckInput, template: Path, work_dir: Path, out_path: Path) -> tuple[Path, list[int]]:
@@ -227,6 +259,7 @@ def build_generic_deck(inp: DeckInput, template: Path, work_dir: Path, out_path:
     _methodology(prs, inp)
     appendix = _citations(prs, inp)
     _move_to_end(prs, 1)                  # the template closing slide goes last...
+    _closing(prs, inp)
     appendix = [n - 1 for n in appendix]  # ...so every appendix slide moves up by one
     out_path.parent.mkdir(parents=True, exist_ok=True)
     prs.save(str(out_path))

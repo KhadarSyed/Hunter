@@ -84,8 +84,36 @@ def icon_png(icon_id: str, folder: Path, color: str = style.VIOLET) -> Path | No
     return out
 
 
+FAVICON_API = "https://www.google.com/s2/favicons"
+FAVICON_SIZE = 64
+
+
+def favicon_png(domain: str, folder: Path) -> Path | None:
+    """The site icon for a citation domain, cached on disk; None when the site has none."""
+    if not domain:
+        return None
+    out = folder / (re.sub(r"[^a-z0-9]+", "_", domain.lower()) + ".png")
+    if out.exists():
+        return out
+    try:
+        r = requests.get(FAVICON_API, params={"domain": domain, "sz": FAVICON_SIZE}, timeout=TIMEOUT_S)
+    except requests.RequestException as e:
+        logger.warning("favicon for %s unavailable: %s", domain, e)
+        return None
+    if not r.ok or not r.headers.get("content-type", "").startswith("image/"):
+        return None
+    folder.mkdir(parents=True, exist_ok=True)
+    from .cli import save_logo_png
+    return save_logo_png(r.content, out)
+
+
+def country_code(country: str) -> str | None:
+    """ISO 3166-1 alpha-2 (lowercase) for the circle-flags icon set."""
+    return _ISO.get((country or "").strip().lower())
+
+
 def country_flag_png(country: str, folder: Path) -> Path | None:
-    code = _ISO.get((country or "").strip().lower())
+    code = country_code(country)
     return icon_png(f"circle-flags:{code}", folder) if code else None
 
 

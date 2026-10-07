@@ -9,6 +9,23 @@ from .metrics import TOP_PEAKS, month_label
 TOP_N = 8
 NO_ROWS = "No articles for this question"
 _NOT_A_NAME = {"unknown", "none", "n/a", "na", "not stated", "unnamed", ""}
+LABEL_CHARS = 30
+PEAK_GAP = 2      # labelled peaks at least two periods apart so their labels never touch
+
+
+def _label(text: str) -> str:
+    text = str(text).strip()
+    return text if len(text) <= LABEL_CHARS else text[:LABEL_CHARS - 1].rstrip() + "…"
+
+
+def _spaced_peaks(values: list[int]) -> list[int]:
+    chosen: list[int] = []
+    for i in sorted(range(len(values)), key=lambda i: -values[i]):
+        if values[i] <= 0 or len(chosen) == TOP_PEAKS:
+            break
+        if all(abs(i - j) >= PEAK_GAP for j in chosen):
+            chosen.append(i)
+    return chosen
 
 
 def _pct(n: int, base: int) -> float:
@@ -46,7 +63,7 @@ def _trend(module, rq, rows, base_n, _):
     by_month = Counter(r.article.date.strftime("%Y-%m") for r in dated)
     series = _months(min(by_month), max(by_month))
     values = [by_month.get(k, 0) for k in series]
-    top = [i for i in sorted(range(len(values)), key=lambda i: -values[i])[:TOP_PEAKS] if values[i] > 0]
+    top = _spaced_peaks(values)
     facts, cands = [], []
     for rank, i in enumerate(top, start=1):
         drivers = [r for r in dated if r.article.date.strftime("%Y-%m") == series[i]]
@@ -66,8 +83,9 @@ def _outlets(module, rq, rows, base_n, _):
     top = Counter(r.article.outlet for r in rows if r.article.outlet).most_common(TOP_N)
     if not top:
         return _section(module, rq, skipped="No outlet names in the data")
-    return _section(module, rq, chart={"kind": "bar", "categories": [o for o, _ in top], "values": [c for _, c in top],
-                                       "unit": "count", "peaks": [], "series_label": "Articles"},
+    return _section(module, rq, chart={"kind": "bar", "categories": [_label(o) for o, _ in top],
+                                       "values": [c for _, c in top], "unit": "count", "peaks": [],
+                                       "series_label": "Articles"},
                     facts=[f"Top outlet for {rq.id}: {o} with {c} articles" for o, c in top],
                     candidate_urls=[next(r.article.norm_url for r in rows if r.article.outlet == o) for o, _ in top[:5]])
 
@@ -93,8 +111,9 @@ def _reach(module, rq, rows, base_n, _):
     if not by_outlet:
         return _section(module, rq, skipped="No reach in the data")
     top = by_outlet.most_common(TOP_N)
-    return _section(module, rq, chart={"kind": "bar", "categories": [o for o, _ in top], "values": [v for _, v in top],
-                                       "unit": "count", "peaks": [], "series_label": "Reach"},
+    return _section(module, rq, chart={"kind": "bar", "categories": [_label(o) for o, _ in top],
+                                       "values": [v for _, v in top], "unit": "count", "peaks": [],
+                                       "series_label": "Reach"},
                     facts=[f"{rq.id} total reach: {sum(by_outlet.values())}"] + [f"Reach for {o}: {v}" for o, v in top])
 
 
@@ -156,7 +175,7 @@ def _entities(module, rq, rows, base_n, extraction):
     cols = [k for k in ("expert_type", "affiliation", "brand", "role") if k in ranked[0]]
     header = ["Name"] + [c.replace("_", " ").title() for c in cols] + ["Articles"]
     rows_out = [[e["name"]] + [str(e.get(c) or "") for c in cols] + [str(e["count"])] for e in ranked[:10]]
-    chart = {"kind": "bar", "categories": [e["name"] for e in ranked[:TOP_N]],
+    chart = {"kind": "bar", "categories": [_label(e["name"]) for e in ranked[:TOP_N]],
              "values": [e["count"] for e in ranked[:TOP_N]], "unit": "count", "peaks": [], "series_label": "Articles"}
     if kind == "experts":
         known = [e for e in ranked if e.get("affiliation") in ("affiliated", "independent")]
