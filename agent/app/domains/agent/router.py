@@ -7,9 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from ...core import store
 from ...core.auth import get_current_user, require_project_access
-from . import autopilot
+from . import autopilot, copilot
 from .api_client import ToolError
-from .schemas import AutopilotStart
+from .schemas import AutopilotStart, CopilotMessage
 from .status import project_status
 
 router = APIRouter()
@@ -47,3 +47,9 @@ def agent_events(project_id: ProjectId, limit: Annotated[int, Query(ge=1, le=200
 @router.get("/agent/{project_id}/memory")
 def agent_memory(project_id: ProjectId, _u=Depends(require_project_access)):
     return [m for m in store.list_memory(project_id) if m["kind"] != "pending"]
+
+
+@router.post("/agent/{project_id}/copilot")
+def copilot_reply(project_id: ProjectId, body: CopilotMessage, user=Depends(get_current_user),
+                  _u=Depends(require_project_access)):
+    return copilot.reply(project_id, user["id"], body.message, autopilot._llm(), confirm=body.confirm)

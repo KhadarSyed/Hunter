@@ -301,3 +301,15 @@ for _tool in (
              "kind": {"type": "string", "enum": list(memory.MEMORY_KINDS)}, "key": _STR, "value": {}}}, _remember),
 ):
     register(_tool)
+
+
+def _report_issue(ctx, args):
+    key = f"user_report_{int(time.time())}"
+    memory.remember(ctx.project_id, "fix", key, {"title": args["title"], "page": args.get("page", ""),
+                                                "detail": args.get("detail", "")})
+    return {"reported": key}
+
+
+register(Tool("report_issue", "File a problem the user reports (a bug, an ugly slide, a wrong label, a faded page).",
+              {"type": "object", "required": ["title"], "properties": {"title": _STR, "page": _STR, "detail": _STR}},
+              _report_issue))
