@@ -35,14 +35,16 @@ def _to_float(v) -> float:
         return 0.0
 
 
-_WEB_URL = re.compile(r"^https?://\S+$", re.IGNORECASE)
+# Script-running schemes are never coverage. Other identifiers (e.g. Meltwater's moodys:publicid: broadcast clip
+# ids) are real articles: they count, and the page links only http(s) addresses.
+_EXECUTABLE_URL = re.compile(r"^\s*(javascript|data|vbscript):", re.IGNORECASE)
 
 
 def _row(rec: dict, rq: str | None, source_file: str, index: int) -> EngineRow | None:
     url = str(rec.get("url") or "").strip()
     if url.lower().startswith("www."):
         url = "https://" + url
-    if not _WEB_URL.match(url):      # javascript:, data: and other schemes would become clickable citations
+    if not url or _EXECUTABLE_URL.match(url):
         return None
     title = str(rec.get("title") or rec.get("headline") or "").strip()
     article = Article(url=url, norm_url=normalize_url(url), title=title, date=parse_date(rec.get("date")),

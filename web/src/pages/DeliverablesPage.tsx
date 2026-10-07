@@ -23,7 +23,15 @@ type CiteMap = Record<number, DeliverableCitation>;
 /** A citation shows its source site icon (linked), never a bare number. */
 function CiteChip({ n, cites }: { n: number; cites: CiteMap }) {
   const c = cites[n];
-  if (!c || !/^https?:\/\//i.test(c.url)) return null;
+  if (!c) return null;
+  if (!/^https?:\/\//i.test(c.url)) {      // broadcast clip ids and other non-web sources: shown, never linked
+    return (
+      <span title={`${c.outlet}: ${c.title}`}
+        className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white align-middle">
+        <Icon icon="lucide:tv" width={12} className="text-slate-500" />
+      </span>
+    );
+  }
   return (
     <a href={c.url} target="_blank" rel="noopener noreferrer" title={`${c.outlet || c.domain}: ${c.title}`}
       className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white align-middle">
