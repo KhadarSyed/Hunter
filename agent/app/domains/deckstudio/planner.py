@@ -13,6 +13,7 @@ from .spec import SPEC_VERSION, DeckSpec, SlideSpec
 LIGHT_MAX_BARS = 6
 CHECKLIST_ROWS_PER_SLIDE = 9
 CITES_PER_SLIDE = 14
+VERBATIM_TITLE = "Supporting verbatims"
 DENSE_KINDS = {"line_peaks", "column", "treemap"}
 _CODE_PREFIX = re.compile(r"\bRQ\d+\s*:\s*")
 _CODE = re.compile(r"\bRQ(\d+)\b")
@@ -41,6 +42,7 @@ class PlanInput:
     geography: str
     sources: str
     checklist: list[dict] = field(default_factory=list)
+    verbatims_by_rq: dict[str, list[dict]] = field(default_factory=dict)
 
 
 def treatment(slide_type: str, charts: list[dict], tables: list[dict]) -> str:
@@ -116,6 +118,13 @@ def build_deck_spec(inp: PlanInput) -> DeckSpec:
                                 so_what=answer.get("answer", ""), facts_allowed=_facts(sections) + [str(k), str(len(inp.rqs))],
                                 image={"query": kicker, "role": "background"}, reference=pick_reference("divider", family)))
         slides += _evidence(rq, kicker, sections, inp.insights_by_rq.get(rq.id, []), family)
+        items = inp.verbatims_by_rq.get(rq.id) or []
+        if items:
+            slides.append(SlideSpec(
+                id=f"{rq.id.lower()}-verbatims", type="verbatim_wall", treatment="plain", kicker=kicker,
+                title=VERBATIM_TITLE, question=rq.question,
+                cards=[{"headline": v["outlet"], "text": v["date"], "url": v["url"], "image": v.get("image")} for v in items],
+                facts_allowed=_facts(sections) + [v["date"] for v in items], notes="\n".join(v["url"] for v in items)))
     slides.append(SlideSpec(id="takeaways", type="takeaways", treatment="A", title="Key takeaways", cards=inp.takeaways[:6],
                             facts_allowed=all_facts, citations=[n for c in inp.takeaways for n in c.get("citations", [])],
                             image={"query": f"{inp.title} takeaways", "role": "background"},

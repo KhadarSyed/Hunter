@@ -40,6 +40,8 @@ def build_pptx(pngs: list[Path], spec: DeckSpec, out: Path) -> Path:
         slide.shapes.title.text = s.question or s.title or spec.title
         slide.shapes.add_picture(str(png), Emu(0), Emu(0), SLIDE_W, SLIDE_H)
         lines = [s.kicker, s.question or s.title, s.so_what] + [f"{c.get('headline', '')}: {c.get('text', '')}" for c in s.cards]
+        if s.type in ("verbatim_wall", "citations") and s.notes:
+            lines.append(s.notes)
         slide.notes_slide.notes_text_frame.text = "\n".join(x for x in lines if x)
     out.parent.mkdir(parents=True, exist_ok=True)
     prs.save(str(out))

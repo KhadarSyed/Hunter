@@ -16,6 +16,7 @@ from . import (analytics, brand_kit, catalog, engine_insights, extract, factchec
 from . import rows as R
 from .citations import CitationRegistry, domain_of
 from .engine_types import Section
+from ..deckstudio import verbatims
 from ..deckstudio.pipeline import run_studio
 from ..deckstudio.planner import PlanInput
 
@@ -276,14 +277,22 @@ def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_
 
 
 def _plan_input(project: dict, inp, rqs, overview, sections_by_rq, insights_by_rq, answers, takeaways, methodology,
-                base: int, rq_titles: dict[str, str]) -> PlanInput:
+                base: int, rq_titles: dict[str, str], verbatims_by_rq: dict | None = None) -> PlanInput:
     spec = project.get("spec") or {}
     geography = (spec.get("included_scope") or {}).get("geography") or spec.get("geography") or ""
     return PlanInput(title=inp.title, subtitle=inp.subtitle, period=inp.period_label, base_n=base, rqs=rqs,
                      rq_titles=rq_titles, sections_by_rq=sections_by_rq, insights_by_rq=insights_by_rq,
                      answers=answers, takeaways=takeaways, overview=overview, methodology=methodology,
                      citations=inp.citations, scope_text=_scope_text(project), brands=list(inp.logos),
-                     geography=str(geography), sources="Meltwater")
+                     geography=str(geography), sources="Meltwater", verbatims_by_rq=verbatims_by_rq or {})
+
+
+def _verbatims_by_rq(rqs, rows_by_rq, insights_by_rq, registry) -> dict[str, list[dict]]:
+    """The articles behind each question's verbatim slide: its insights' citations first, then the widest reach."""
+    cited = {c["n"]: c["url"] for c in registry.entries()}
+    return {q.id: verbatims.pick(rows_by_rq[q.id], [cited[n] for i in insights_by_rq[q.id]
+                                                    for n in i.get("citations", []) if n in cited])
+            for q in rqs}
 
 
 def run_engine(run_id: int, project_id: int, llm) -> None:
@@ -408,7 +417,8 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         try:
             studio = run_studio(run, project_id, llm,
                                 _plan_input(project, inp, rqs, overview, sections_by_rq, insights_by_rq, answers,
-                                            takeaways, methodology, base, {q.id: plans[q.id]["title"] for q in rqs}),
+                                            takeaways, methodology, base, {q.id: plans[q.id]["title"] for q in rqs},
+                                            _verbatims_by_rq(rqs, rows_by_rq, insights_by_rq, registry)),
                                 inp.brand_colors, inp.brand_image, inp.logos, out_dir)
             run.section({"id": "studio", "rq_id": None, "module": "studio", "title": "Deck",
                          "family": studio["family"], "family_reason": studio["family_reason"],

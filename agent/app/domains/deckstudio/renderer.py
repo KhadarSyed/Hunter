@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import shutil
+from dataclasses import replace
 from html import unescape
 from pathlib import Path
 
@@ -30,6 +31,9 @@ def _asset(path: str | None, out_dir: Path) -> str | None:
 
 def render_slide(slide: SlideSpec, tokens: DeckTokens, n: int, total: int, base_n: int, period: str, source: str,
                  out_dir: Path) -> str:
+    slide = replace(slide, cards=[{**c, **({"image": _asset(c["image"], out_dir)} if c.get("image") else {}),
+                                   **({"thumb": _asset(c["thumb"], out_dir)} if c.get("thumb") else {})}
+                                  for c in slide.cards])
     image = _asset(slide.image.get("path"), out_dir)
     logos = {name: rel for name, p in slide.logos.items() if (rel := _asset(p, out_dir))}
     w, h = CHART_SIZE.get(slide.treatment, (1000, 540))

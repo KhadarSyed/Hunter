@@ -21,12 +21,12 @@
     {% if charts %}<div style="height:580px">{{ charts[0] | safe }}</div>
     {% elif s.tables and s.type != 'scorecard' %}{% include "table.html.j2" %}
     {% else %}<div class="cards" style="grid-template-columns:repeat({{ [s.cards|length, 3]|min or 1 }},1fr)">
-      {% for c in s.cards[:6] %}<div class="card"><h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}{% if c.note %} — {{ c.note }}{% endif %}</p></div>{% endfor %}</div>
+      {% for c in s.cards[:6] %}<div class="card">{% if c.thumb %}<img class="thumb" src="{{ c.thumb }}" alt="">{% endif %}<h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}{% if c.note %} — {{ c.note }}{% endif %}</p></div>{% endfor %}</div>
       {% if s.type == 'scorecard' and s.tables and s.tables[0].rows %}<div style="margin-top:22px">{% include "table.html.j2" %}</div>{% endif %}
     {% endif %}
   </div>
   {% if charts and s.cards %}<div class="cards reveal" style="position:absolute;left:1190px;right:70px;top:320px;grid-template-columns:1fr">
-    {% for c in s.cards[:3] %}<div class="card" style="background:rgba(255,255,255,.94)"><h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}</p></div>{% endfor %}</div>{% endif %}
+    {% for c in s.cards[:3] %}<div class="card" style="background:rgba(255,255,255,.94)">{% if c.thumb %}<img class="thumb" src="{{ c.thumb }}" alt="">{% endif %}<h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}</p></div>{% endfor %}</div>{% endif %}
   {% if charts %}<div class="nlabel" style="position:absolute;right:80px;top:280px;color:var(--on-dark)">N = {{ base_n }}</div>{% endif %}
 {% elif s.treatment == "C" %}
   <div class="photo" style="left:0;top:0;bottom:0;width:672px;background-image:{{ bg }}"></div>
@@ -40,6 +40,15 @@
   <div class="nlabel" style="position:absolute;right:80px;top:290px">N = {{ base_n }}</div>
   <div class="reveal" style="position:absolute;left:740px;right:70px;top:330px;height:660px;overflow:hidden">
     {% if charts %}{{ charts[0] | safe }}{% elif s.tables %}{% include "table.html.j2" %}{% endif %}
+  </div>
+{% elif s.type == "verbatim_wall" %}
+  <div style="position:absolute;left:70px;right:70px;top:48px">
+    {% if s.kicker %}<div class="kicker">{{ s.kicker }}</div>{% endif %}
+    <div class="title clamp" style="margin-top:8px;font-size:40px">{{ s.title }}</div>
+  </div>
+  <div class="vwall reveal">
+    {% for c in s.cards[:9] %}<figure class="vcell">{% if c.image %}<img class="vshot" src="{{ c.image }}" alt="">{% endif %}
+      <figcaption><b>{{ c.headline }}</b> · {{ c.text }}</figcaption></figure>{% endfor %}
   </div>
 {% else %}
   <div style="position:absolute;left:70px;right:70px;top:56px">

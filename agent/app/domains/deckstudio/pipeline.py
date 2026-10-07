@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from . import art_director, assets, checklist, creative, exporter, indexer, planner, renderer
+from ...core import config
+from . import art_director, assets, checklist, creative, exporter, indexer, planner, renderer, verbatims
 from .planner import PlanInput
 
 
@@ -49,6 +50,26 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
                 run.log(f"Photo for {s.id}: {photo.licence} source {photo.source_url[:90]}")
         names = [c for ch in s.charts for c in ch.get("categories", [])]
         s.logos = {n: str(logos[n]) for n in names if n in logos}
+    walls = [s for s in spec.slides if s.type == "verbatim_wall"]
+    shots: dict[str, str] = {}
+    for k, s in enumerate(walls, start=1):
+        run.within("assets", 0.9 + 0.1 * k / len(walls), f"Capturing article screenshots for question {k} of {len(walls)}")
+        rq_id = s.id.rsplit("-verbatims", 1)[0].upper()
+        got = verbatims.collect(plan_input.verbatims_by_rq.get(rq_id, []), config.DATA_DIR / "verbatims")
+        s.cards = [{**c, "image": g["image"]} for c, g in zip(s.cards, got)]
+        shots.update({g["url"]: g["image"] for g in got})
+        run.log(f"Verbatims for {s.kicker or rq_id}: {sum(g['kind'] == 'screenshot' for g in got)} screenshots, "
+                f"{sum(g['kind'] == 'card' for g in got)} article cards")
+        for g in got:
+            run.log(f"Verbatim source: {g['url']}")
+    by_n = {c["n"]: c["url"] for c in plan_input.citations}
+    for s in spec.slides:
+        if s.type == "verbatim_wall":
+            continue
+        for c in s.cards:
+            first = next((by_n[n] for n in c.get("citations", []) if by_n.get(n) in shots), None)
+            if first:
+                c["thumb"] = shots[first]
     run.stage("assets", "done", f"{sum(1 for f in found if f['licence'] != 'none')} photos")
 
     run.stage("compose", "running")
