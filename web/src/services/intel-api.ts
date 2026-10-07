@@ -1519,4 +1519,30 @@ export const intelApi = {
 
   validateDataSource: (source: string) =>
     post<{ source: string; status: string; error: string | null }>(`/datasources/${source}/validate`),
+  // Deliverable engine: one run streams stages and sections over /ws and produces the PPTX + Word brief.
+  deliverableRun: (projectId: number) => post<{ run_id: number }>(`/deliverable/${projectId}/run`, {}),
+  deliverableLatest: (projectId: number) => get<DeliverablePayload>(`/deliverable/${projectId}/latest`),
+  deliverableDownloadUrl: (projectId: number, runId: number, kind: "pptx" | "docx") =>
+    `${API_BASE}/deliverable/${projectId}/runs/${runId}/download/${kind}`,
+  deliverableThumbUrl: (projectId: number, runId: number, n: number) =>
+    `${API_BASE}/deliverable/${projectId}/runs/${runId}/thumbnail/${n}`,
 };
+
+export interface DeliverableRun {
+  id: number; project_id: number; status: "running" | "completed" | "failed"; stage: string | null;
+  stages: Record<string, "running" | "done" | "failed">; pptx_path: string | null; docx_path: string | null;
+  error: string | null;
+}
+export interface DeliverableCard { headline: string; text: string; citations: number[] }
+export interface DeliverableSection {
+  id: string; rq_id: string | null; module: string; title: string;
+  chart?: import("../components/deliverable/ChartRenderer").ChartSpec | null;
+  table?: { header: string[]; rows: string[][] } | null;
+  facts?: string[]; notes?: string[]; skipped?: string | null;
+  insights?: DeliverableCard[];
+  answers?: { rq_id: string; question: string; value: string; answer: string }[];
+  takeaways?: DeliverableCard[];
+  data?: { files: number; unique_urls: number; stories: number; base_n: number; by_rq: Record<string, number> };
+  report?: { ready: boolean; facts: unknown[]; layout: unknown[]; pngs: string[]; fixed: number };
+}
+export interface DeliverablePayload { run: DeliverableRun | null; sections: DeliverableSection[] }
