@@ -157,11 +157,25 @@ def collect(items: list[dict], folder: Path, page_factory=None) -> list[dict]:
     if todo:
         with (page_factory or _browser_page)() as page:
             for idx, item, shot, card, meta in todo:
-                if _capture(page, item["url"], shot):
-                    found = {"image": str(shot), "kind": "screenshot"}
-                else:
-                    _card(page, item, card)
-                    found = {"image": str(card), "kind": "card"}
-                meta.write_text(json.dumps(found), encoding="utf-8")
+                found = _one(page, item, shot, card)
+                if found["image"]:
+                    meta.write_text(json.dumps(found), encoding="utf-8")
                 out[idx] = {**item, **found}
     return out
+
+
+def _one(page, item: dict, shot: Path, card: Path) -> dict:
+    """A screenshot, else an article card drawn on a clean tab (a visited site's CSP, e.g. Trusted Types, would block
+    it), else nothing: one difficult article never stops the others."""
+    try:
+        if _capture(page, item["url"], shot):
+            return {"image": str(shot), "kind": "screenshot"}
+        try:
+            page.goto("about:blank")
+        except Exception:       # the card is still attempted; a failure there is handled below
+            pass
+        _card(page, item, card)
+        return {"image": str(card), "kind": "card"}
+    except Exception as e:
+        logger.warning("verbatim skipped for %s: %s", urlparse(item["url"]).hostname, type(e).__name__)
+        return {"image": None, "kind": "none"}

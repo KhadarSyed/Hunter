@@ -95,9 +95,9 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
         rq_id = s.id.rsplit("-verbatims", 1)[0].upper()
         got = verbatims.collect(plan_input.verbatims_by_rq.get(rq_id, []), config.DATA_DIR / "verbatims")
         s.cards = [{**c, "image": g["image"]} for c, g in zip(s.cards, got)]
-        shots.update({g["url"]: g["image"] for g in got})
+        shots.update({g["url"]: g["image"] for g in got if g["image"]})
         run.log(f"Verbatims for {s.kicker or rq_id}: {sum(g['kind'] == 'screenshot' for g in got)} screenshots, "
-                f"{sum(g['kind'] == 'card' for g in got)} article cards")
+                f"{sum(g['kind'] == 'card' for g in got)} article cards, {sum(g['kind'] == 'none' for g in got)} skipped")
         for g in got:
             run.log(f"Verbatim source: {g['url']}")
     by_n = {c["n"]: c["url"] for c in plan_input.citations}
