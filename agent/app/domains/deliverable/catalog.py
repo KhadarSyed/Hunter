@@ -89,6 +89,16 @@ def plan_rq(llm, rq: RQ, rows: list[EngineRow]) -> tuple[dict, str]:
         plan = None
     if plan is None:
         return default_plan(rq, rows), "default"
-    if not any(r.article.date for r in rows):
-        plan["modules"] = [m for m in plan["modules"] if m["module"] != "volume_trend"]
-    return plan, "llm"
+    return _ensure_required(plan, rq, rows), "llm"
+
+
+def _ensure_required(plan: dict, rq: RQ, rows: list[EngineRow]) -> dict:
+    """Every RQ with dated articles gets a trend (spec: per-RQ trend with top-5 peaks), and a question about
+    experts / celebrities / retailers gets its entity module even when the LLM left it out."""
+    modules = [m for m in plan["modules"] if m["module"] != "volume_trend" or any(r.article.date for r in rows)]
+    if any(r.article.date for r in rows) and not any(m["module"] == "volume_trend" for m in modules):
+        modules.insert(1, {"module": "volume_trend", "title": "Coverage over time", "entity_kind": None})
+    kind = next((k for hint, k in _ENTITY_HINTS if hint in rq.question.lower()), None)
+    if kind and not any(m["module"] == "entities" and m["entity_kind"] == kind for m in modules):
+        modules.insert(2, {"module": "entities", "title": f"Named {kind}", "entity_kind": kind})
+    return {**plan, "modules": modules[:MAX_MODULES]}

@@ -33,8 +33,20 @@ def _slide_text(slide) -> str:
     return "\n".join(parts)
 
 
+def _with_rounding(figures: set[str]) -> set[str]:
+    """A fact like 60.4% may honestly appear as 60%; allow the half-up integer of every decimal figure."""
+    out = set(figures)
+    for f in figures:
+        pct = f.endswith("%")
+        num = f.rstrip("%")
+        if "." in num:
+            rounded = str(int(float(num) + 0.5))
+            out.add(rounded + ("%" if pct else ""))
+    return out
+
+
 def fact_check(pptx_path: Path, facts: list[str], skip_slides: set[int]) -> list[dict]:
-    allowed = _figures(" ".join(facts))
+    allowed = _with_rounding(_figures(" ".join(facts)))
     issues = []
     for n, slide in enumerate(Presentation(str(pptx_path)).slides, start=1):
         if n in skip_slides:

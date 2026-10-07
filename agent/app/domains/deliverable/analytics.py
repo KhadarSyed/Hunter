@@ -155,6 +155,18 @@ def _entities(module, rq, rows, base_n, extraction):
             facts.append(f"{len(aff)} of {len(known)} experts with a stated affiliation are brand-affiliated ({pct}%)")
             chart = {"kind": "gauge", "categories": ["Brand-affiliated experts"], "values": [pct], "unit": "percent",
                      "peaks": [], "series_label": "Affiliation"}
+        else:
+            # Coverage rarely states who pays an expert: say so instead of implying a share
+            facts.append(f"Brand affiliation not stated for {len(ranked)} of {len(ranked)} experts")
+        if len(known) < len(ranked):
+            split = Counter(e.get("affiliation") if e.get("affiliation") in ("affiliated", "independent") else "unknown"
+                            for e in ranked)
+            labels = {"affiliated": "Brand-affiliated", "independent": "Independent", "unknown": "Not stated"}
+            cats = [labels[k] for k in ("affiliated", "independent", "unknown") if split.get(k)]
+            vals = [_pct(split[k], len(ranked)) for k in ("affiliated", "independent", "unknown") if split.get(k)]
+            if not known:
+                chart = {"kind": "doughnut", "categories": cats, "values": vals, "unit": "percent", "peaks": [],
+                         "series_label": "Affiliation"}
         types = Counter(e.get("expert_type") for e in ranked)
         facts += [f"{t.replace('_', ' ')} experts: {c}" for t, c in types.most_common() if t and t != "unknown"]
     return _section(module, rq, chart=chart, table={"header": header, "rows": rows_out,
