@@ -215,7 +215,10 @@ def reactivate_organization(org_id: int) -> dict | None:
 def list_users(org_id: int | None = None) -> list[dict]:
     conn = _conn()
     if org_id is not None:
-        rows = conn.execute("SELECT * FROM users WHERE org_id = ? ORDER BY id", (org_id,)).fetchall()
+        # the org's own users and anyone linked to it as a member (e.g. a Super Admin listed under the org)
+        rows = conn.execute("SELECT * FROM users WHERE org_id = ? OR id IN "
+                            "(SELECT user_id FROM user_organizations WHERE org_id = ?) ORDER BY id",
+                            (org_id, org_id)).fetchall()
     else:
         rows = conn.execute("SELECT * FROM users ORDER BY id").fetchall()
     conn.close()
