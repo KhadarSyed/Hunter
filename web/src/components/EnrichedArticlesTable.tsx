@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { intelApi, type EnrichedRecord, type BrandSentiment, type QuestionDimension } from "../services/intel-api";
+import { intelApi, type EnrichedRecord, type BrandSentiment, type QuestionDimension, type DynamicTagDef, type TagSchemas } from "../services/intel-api";
+import { TagSchemaPanel } from "./TagSchemaPanel";
+import { QuestionDrillDown } from "./QuestionDrillDown";
 import { CountryFlag } from "./CountryFlag";
 
 const V = "#5B2C9D";
@@ -15,7 +17,8 @@ const SENTIMENT_STYLE: Record<string, { color: string; bg: string }> = {
 const APPROVAL_STYLE: Record<string, { color: string; bg: string; label: string }> = {
   approved: { color: "#059669", bg: "#ecfdf5", label: "Approved" },
   disapproved: { color: "#dc2626", bg: "#fef2f2", label: "Disapproved" },
-  pending: { color: "#94a3b8", bg: "#f8fafc", label: "Pending" },
+  auto_approved: { color: "#0f7b6c", bg: "#f0fdfa", label: "Auto-approved" },
+  pending: { color: "#b45309", bg: "#fffbeb", label: "Pending review" },
 };
 
 function publisherDomain(url: string): string {
@@ -194,7 +197,7 @@ function RecordDrawer({
     }
   };
 
-  const approval = APPROVAL_STYLE[record.approval_status || "pending"];
+  const approval = APPROVAL_STYLE[approvalOf(record, loadThreshold())];
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
@@ -215,6 +218,8 @@ function RecordDrawer({
           {record.author && <span>• {record.author}</span>}
           {record.url && <a href={record.url} target="_blank" rel="noopener noreferrer" className="hover:underline" style={{ color: V }}>Open original ↗</a>}
         </div>
+
+        <QuestionDrillDown record={record} />
 
         {/* Approval decision — the analyst's sign-off, separate from review_status (relevant/irrelevant) */}
         <div className="rounded-xl border border-slate-200 p-3 mb-4 bg-slate-50/60">
@@ -387,12 +392,18 @@ type ReviewQueue = "needs_review" | "auto_accepted" | "all";
 const DEFAULT_THRESHOLD = 70;
 const THRESHOLD_KEY = "hunter.review.confidenceThreshold";
 
-/** Low-confidence rows the analyst hasn't decided on go to the review queue; the rest are auto-accepted
- * (still relevant and counted in analysis, just hidden from the queue). An explicit approve/disapprove wins. */
+/** Low-confidence rows the analyst hasn't decided on are pending review; the rest are auto-approved (shown,
+ * labelled and counted in the analysis). An explicit approve/disapprove wins. */
 export function reviewQueueOf(r: EnrichedRecord, thresholdPct: number): "needs_review" | "auto_accepted" {
   const decided = r.approval_status === "approved" || r.approval_status === "disapproved";
   const confidencePct = Math.round((r.overall_sentiment_confidence ?? 0) * 100);
   return !decided && confidencePct < thresholdPct ? "needs_review" : "auto_accepted";
+}
+
+/** The approval a row shows: the analyst's decision, else auto-approved at or above the threshold, else pending. */
+export function approvalOf(r: EnrichedRecord, thresholdPct: number): "approved" | "disapproved" | "auto_approved" | "pending" {
+  if (r.approval_status === "approved" || r.approval_status === "disapproved") return r.approval_status;
+  return reviewQueueOf(r, thresholdPct) === "auto_accepted" ? "auto_approved" : "pending";
 }
 
 export function loadThreshold(): number {
@@ -418,16 +429,47 @@ type EnrichedArticlesTableProps = {
   records: EnrichedRecord[];
   loading: boolean;
   dimensions?: Record<string, QuestionDimension[]>;
+  tagSchemas?: TagSchemas;
 };
 
-export function EnrichedArticlesTable({ records, loading, dimensions }: EnrichedArticlesTableProps) {
+/** One Review column per dynamic tag across every question's schema (same tag name = same column). */
+function tagColumns(schemas: TagSchemas | undefined): DynamicTagDef[] {
+  const byName = new Map<string, DynamicTagDef>();
+  for (const s of Object.values(schemas || {})) {
+    for (const t of s.schema.required_tags) if (!byName.has(t.tag_name)) byName.set(t.tag_name, t);
+  }
+  return [...byName.values()];
+}
+
+const humanize = (name: string) => name.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+
+function DynamicTagCell({ record, tag }: { record: EnrichedRecord; tag: DynamicTagDef }) {
+  const raw = record.dynamic_tags?.[tag.tag_name];
+  const values = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  if (values.length === 0) return <span className="text-slate-300 text-xs">—</span>;
+  const evidence = record.tag_evidence?.[tag.tag_name];
+  const confidence = record.tag_confidence?.[tag.tag_name];
+  const tip = [evidence ? `Evidence: "${evidence}"` : "No quoted evidence",
+               confidence != null ? `Confidence ${Math.round(confidence * 100)}%` : ""].filter(Boolean).join(" · ");
+  const tone = (v: string) => v === "Yes" ? "bg-emerald-50 text-emerald-700" : v === "No" ? "bg-slate-100 text-slate-600"
+    : tag.tag_type === "entity" ? "bg-sky-50 text-sky-700" : "bg-indigo-50 text-indigo-700";
+  return (
+    <div className="flex flex-wrap gap-1 cursor-help" title={tip}>
+      {values.map((v) => <span key={v} className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${tone(v)}`}>{v}</span>)}
+      {confidence != null && <span className="text-[10px] text-slate-400">{Math.round(confidence * 100)}%</span>}
+    </div>
+  );
+}
+
+export function EnrichedArticlesTable({ records, loading, dimensions, tagSchemas }: EnrichedArticlesTableProps) {
   const dimColumns = useMemo(() => dimensionColumns(dimensions), [dimensions]);
+  const dynColumns = useMemo(() => tagColumns(tagSchemas), [tagSchemas]);
   const [localRecords, setLocalRecords] = useState<EnrichedRecord[]>(records);
   useEffect(() => { setLocalRecords(records); }, [records]);
 
   const [subTab, setSubTab] = useState<"social" | "traditional" | "irrelevant">("traditional");
   const [threshold, setThreshold] = useState<number>(loadThreshold);
-  const [queue, setQueue] = useState<ReviewQueue>("needs_review");
+  const [queue, setQueue] = useState<ReviewQueue>("all");
   useEffect(() => {
     try { window.localStorage.setItem(THRESHOLD_KEY, String(threshold)); } catch { /* storage unavailable */ }
   }, [threshold]);
@@ -581,9 +623,9 @@ export function EnrichedArticlesTable({ records, loading, dimensions }: Enriched
         </label>
         <div className="flex items-center gap-1" role="tablist" aria-label="Review queue">
           {([
-            { id: "needs_review", label: "Needs review" },
-            { id: "auto_accepted", label: "Auto-accepted" },
             { id: "all", label: "All" },
+            { id: "auto_accepted", label: "Auto-approved" },
+            { id: "needs_review", label: "Pending review" },
           ] as const).map((q) => (
             <button key={q.id} role="tab" aria-selected={queue === q.id} onClick={() => setQueue(q.id)}
               className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
@@ -595,9 +637,11 @@ export function EnrichedArticlesTable({ records, loading, dimensions }: Enriched
           ))}
         </div>
         <span className="text-[11px] text-slate-500">
-          Below {threshold}% confidence goes to review; the rest are auto-accepted and still count in the analysis.
+          Every enriched article is shown. At or above {threshold}% confidence it is auto-approved; below it stays pending review.
         </span>
       </div>
+
+      <TagSchemaPanel schemas={tagSchemas} />
 
       {/* Sub-tabs */}
       <div className="flex items-center gap-1 mb-4 border-b border-slate-200">
@@ -697,6 +741,12 @@ export function EnrichedArticlesTable({ records, loading, dimensions }: Enriched
                   {d.label}
                 </th>
               ))}
+              {dynColumns.map((t) => (
+                <th key={`dyn-${t.tag_name}`} className="px-3 py-2.5 w-32 bg-indigo-50/60 text-indigo-800"
+                  title={`${t.definition}${t.allowed_values.length ? ` (${t.allowed_values.join(" / ")})` : ""}`}>
+                  {humanize(t.tag_name)}
+                </th>
+              ))}
               <th className="px-3 py-2.5 w-24">Country</th>
               <th className="px-3 py-2.5 w-24">Overall</th>
               {brandColumns.map((b) => (
@@ -707,6 +757,9 @@ export function EnrichedArticlesTable({ records, loading, dimensions }: Enriched
               <th className="px-3 py-2.5 w-32">Tertiary Theme</th>
               <th className="px-3 py-2.5 w-32">Signals</th>
               <th className="px-3 py-2.5 w-40">Entities</th>
+              <th className="px-3 py-2.5 w-44 bg-indigo-50/60 text-indigo-800" title="What the article contributes to its research question: each question tag and its value (hover for the quoted evidence)">Question match</th>
+              <th className="px-3 py-2.5 w-36" title="The research question's search keywords this article contains">Keyword matches</th>
+              <th className="px-3 py-2.5 w-56" title="One sentence on what the article says about its research question">Question summary</th>
               <th className="px-3 py-2.5 w-56">Reason</th>
               <th className="px-3 py-2.5 w-24">Relevance</th>
               <th className="px-3 py-2.5 w-24">Approval</th>
@@ -718,7 +771,7 @@ export function EnrichedArticlesTable({ records, loading, dimensions }: Enriched
               const brandSentByName = new Map((r.brand_sentiments || []).map((bs) => [bs.brand, bs]));
               const entityCount = Object.values(r.entities || {}).reduce((n, arr) => n + (arr?.length || 0), 0);
               const isIrrelevant = r.review_status === "irrelevant";
-              const approval = APPROVAL_STYLE[r.approval_status || "pending"];
+              const approval = APPROVAL_STYLE[approvalOf(r, threshold)];
               const approvalTitle = r.reviewed_by
                 ? `Reviewed by ${r.reviewed_by}${r.reviewed_at ? ` on ${formatReviewedAt(r.reviewed_at)}` : ""}${r.disapproval_reason ? ` — ${r.disapproval_reason}` : ""}`
                 : undefined;
@@ -753,6 +806,9 @@ export function EnrichedArticlesTable({ records, loading, dimensions }: Enriched
                       </td>
                     );
                   })}
+                  {dynColumns.map((t) => (
+                    <td key={`dyn-${t.tag_name}`} className="px-3 py-2.5 bg-indigo-50/20"><DynamicTagCell record={r} tag={t} /></td>
+                  ))}
                   <td className="px-3 py-2.5">{r.country ? <CountryFlag country={r.country} size={14} showLabel className="text-xs text-slate-600" /> : <span className="text-slate-300">—</span>}</td>
                   <td className="px-3 py-2.5"><SentimentPill sentiment={r.overall_sentiment} confidence={r.overall_sentiment_confidence} /></td>
                   {brandColumns.map((b) => {
@@ -783,6 +839,24 @@ export function EnrichedArticlesTable({ records, loading, dimensions }: Enriched
                         ))
                       : <span className="text-slate-300">—</span>}
                   </td>
+                  <td className="px-3 py-2.5 text-[10px] text-slate-600 bg-indigo-50/20 cursor-pointer" onClick={() => setOpenRecord(r)}
+                    style={{ display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                    {Object.keys(r.dynamic_tags || {}).length > 0
+                      ? Object.entries(r.dynamic_tags || {}).map(([k, v]) => (
+                          <div key={k} className="truncate" title={r.tag_evidence?.[k] ? `"${r.tag_evidence[k]}"` : "No quoted evidence"}>
+                            <span className="text-slate-400">{k.replace(/_/g, " ")}:</span> {Array.isArray(v) ? v.join(", ") : v}
+                          </div>
+                        ))
+                      : <span className="text-slate-300">—</span>}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <div className="flex flex-wrap gap-1">
+                      {(r.keyword_matches || []).length > 0
+                        ? (r.keyword_matches || []).slice(0, 6).map((k) => <span key={k} className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-800">{k}</span>)
+                        : <span className="text-slate-300 text-xs">—</span>}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5"><ClampedCell text={r.question_summary || ""} onSeeMore={() => setOpenRecord(r)} /></td>
                   <td className="px-3 py-2.5"><ClampedCell text={r.reason || ""} onSeeMore={() => setOpenRecord(r)} /></td>
                   <td className="px-3 py-2.5">
                     <button onClick={() => toggleRelevance(r)} disabled={statusPending === key}

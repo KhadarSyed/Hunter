@@ -65,7 +65,7 @@ def _doughnut(c, t, w, h):
     cats, vals = c["categories"], [float(v) for v in c["values"]]
     total = sum(vals) or 1
     cx = cy = h / 2
-    r = h / 2 - 30
+    r = (h / 2 - 12) / 1.21          # the ring's stroke (0.42 r) reaches 1.21 r: keep the whole ring in the box
     out, a0 = [], -math.pi / 2
     for i, (cat, v) in enumerate(zip(cats, vals)):
         a1 = a0 + 2 * math.pi * v / total - 1e-4

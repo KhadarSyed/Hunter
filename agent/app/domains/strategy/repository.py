@@ -420,6 +420,27 @@ def get_question_dimensions(project_id: int) -> dict[str, dict]:
                          "source": r["source"]} for r in rows}
 
 
+def get_question_tag_schemas(project_id: int) -> dict[str, dict]:
+    """rq_id -> {signature, schema, source} for every question whose dynamic tag schema was derived."""
+    conn = _conn()
+    rows = conn.execute("SELECT rq_id, signature, schema_json, source FROM intel_question_tag_schemas "
+                        "WHERE project_id = ?", (project_id,)).fetchall()
+    conn.close()
+    return {r["rq_id"]: {"signature": r["signature"], "schema": json.loads(r["schema_json"]), "source": r["source"]}
+            for r in rows}
+
+
+def save_question_tag_schema(project_id: int, rq_id: str, signature: str, schema: dict, source: str) -> None:
+    conn = _conn()
+    conn.execute("INSERT INTO intel_question_tag_schemas (project_id, rq_id, signature, schema_json, source, "
+                 "updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, rq_id) DO UPDATE SET "
+                 "signature = excluded.signature, schema_json = excluded.schema_json, "
+                 "source = excluded.source, updated_at = excluded.updated_at",
+                 (project_id, rq_id, signature, json.dumps(schema), source, time.time()))
+    conn.commit()
+    conn.close()
+
+
 def save_question_dimensions(project_id: int, rq_id: str, signature: str, dimensions: list, source: str) -> None:
     conn = _conn()
     conn.execute("INSERT INTO intel_question_dimensions (project_id, rq_id, signature, dimensions_json, source, "

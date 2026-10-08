@@ -1387,6 +1387,12 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             dimensions_json TEXT NOT NULL, source TEXT NOT NULL, updated_at REAL NOT NULL,
             PRIMARY KEY (project_id, rq_id))""",
     ]),
+    (23, "question tag schemas", [
+        """CREATE TABLE IF NOT EXISTS intel_question_tag_schemas (
+            project_id INTEGER NOT NULL, rq_id TEXT NOT NULL, signature TEXT NOT NULL,
+            schema_json TEXT NOT NULL, source TEXT NOT NULL, updated_at REAL NOT NULL,
+            PRIMARY KEY (project_id, rq_id))""",
+    ]),
 ]
 
 

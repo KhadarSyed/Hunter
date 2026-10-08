@@ -51,15 +51,25 @@ def add_chart_logos(slide, logos: dict[str, Path]) -> None:
     """Logos beside chart labels, added to what the planner already put on the slide (e.g. source icons)."""
     names = [c for ch in slide.charts for c in ch.get("categories", [])] + \
             [str(row[0]) for t in slide.tables for row in t.get("rows", []) if row]
-    slide.logos = {**slide.logos, **{n: str(logos[n]) for n in names if n in logos}}
+    found = {n: _brand_logo(n, logos) for n in names}
+    slide.logos = {**slide.logos, **{n: str(p) for n, p in found.items() if p}}
 
 
-def attach_logos(spec, logos: dict[str, Path], client: str) -> None:
+def _brand_logo(name: str, logos: dict[str, Path]) -> Path | None:
+    """The brand's logo, else its master brand's ("Aveeno" for "Aveeno Baby")."""
+    if name in logos:
+        return logos[name]
+    words = name.split()
+    return next((logos[" ".join(words[:k])] for k in range(len(words) - 1, 0, -1) if " ".join(words[:k]) in logos), None)
+
+
+def attach_logos(spec, logos: dict[str, Path], client: str, brands: list[str] | None = None) -> None:
     """A client deck carries the client's logo on the cover and every footer, and the competitive set on the
-    cover (client first), not only beside chart labels."""
+    cover (client first) -- the brief's brands only, never the outlet icons or chart-label icons also in `logos`."""
     spec.brand_logo = str(logos[client]) if client in logos else ""
-    ordered = ([client] if client in logos else []) + [n for n in logos if n != client]
-    spec.logo_strip = {n: str(logos[n]) for n in ordered}
+    names = list(dict.fromkeys([client] + list(brands if brands is not None else logos)))
+    found = {n: _brand_logo(n, logos) for n in names}
+    spec.logo_strip = {n: str(p) for n, p in found.items() if p}
 
 
 def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: list[str], brand_image: Path | None,
@@ -76,10 +86,10 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     rows = checklist.build_checklist(plan_input.rqs, plan_input.sections_by_rq, checklist.brief_asks(project_id))
     plan_input.checklist = rows
     spec = planner.build_deck_spec(plan_input)
-    attach_logos(spec, logos, plan_input.title)
+    attach_logos(spec, logos, plan_input.title, plan_input.brands)
     rows = checklist.attach_slide_numbers(spec, rows)
     entry, design_why = design_systems.choose(llm, plan_input.scope_text, [])
-    design = {**design_systems.load(entry["slug"]), "slug": entry["slug"]}
+    design = {**(entry.get("design") or design_systems.load(entry["slug"])), "slug": entry["slug"]}
     spec.tokens, source = art_director.choose_tokens(llm, brand_colors, plan_input.scope_text,
                                                      indexer.design_rules(spec.family), design=design)
     run.log(f"Design system: {entry['name']} - {design_why}")
@@ -167,7 +177,9 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     run.stage("export", "done", f"{len(out['pngs'])} slides")
     counts = {k: sum(1 for r in rows if r["status"] == k) for k in ("covered", "partial", "missing")}
     checks = validate.validate_deck(spec, plan_input.rqs, rows, plan_input.brand_products,
-                                    has_competitors=len(plan_input.brands) > 1)
+                                    has_competitors=len(plan_input.brands) > 1,
+                                    citation_brands=plan_input.citation_brands or None, pptx=out["pptx"],
+                                    is_category=plan_input.is_category)
     for c in checks:
         if c["status"] != "pass":
             run.log(f"Validation {c['status']}: {c['check'][:80]} - {c['detail'][:120]}")

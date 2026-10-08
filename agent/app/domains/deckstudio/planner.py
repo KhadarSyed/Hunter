@@ -13,8 +13,9 @@ from .spec import SPEC_VERSION, DeckSpec, SlideSpec
 LIGHT_MAX_BARS = 6
 CHECKLIST_ROWS_PER_SLIDE = 9
 CITES_PER_SLIDE = 14
-VERBATIM_TITLE = "Supporting verbatims"
-COMPETITOR_VERBATIM_TITLE = "What people say about competitors"
+VERBATIM_TITLE = "{topic} (Verbatims)"
+COMPETITOR_VERBATIM_TITLE = "{topic}: competitors (Verbatims)"
+WALL_CELLS = 8                    # a 4 x 2 wall of whole posts
 BRAND_KEY = "BRAND"                       # sections_by_rq key of the brand vs competitors chapter
 BRAND_KICKER = "Brand vs competitors"
 DENSE_KINDS = {"line_peaks", "column", "treemap"}
@@ -48,6 +49,8 @@ class PlanInput:
     verbatims_by_rq: dict[str, list[dict]] = field(default_factory=dict)
     section_summaries: dict[str, list[dict]] = field(default_factory=dict)   # section id -> its cited summary
     brand_products: list[str] = field(default_factory=list)                  # the client's products, from the brief
+    citation_brands: dict[str, list[str]] = field(default_factory=dict)      # citation n -> brands it names literally
+    is_category: bool = False                                                # the client is a category, not a brand
     products: list[str] = field(default_factory=list)
     category: str = ""
 
@@ -137,15 +140,17 @@ def build_deck_spec(inp: PlanInput) -> DeckSpec:
         if items:
             slides.append(SlideSpec(
                 id=f"{rq.id.lower()}-verbatims", type="verbatim_wall", treatment="plain", kicker=kicker,
-                title=VERBATIM_TITLE, question=rq.question,
-                cards=[{"headline": v["outlet"], "text": v["date"], "url": v["url"], "image": v.get("image")} for v in items],
+                title=VERBATIM_TITLE.format(topic=kicker), question=rq.question,
+                cards=[{"headline": v["outlet"], "text": v["date"], "url": v["url"], "image": v.get("image")}
+                       for v in items[:WALL_CELLS]],
                 facts_allowed=_facts(sections) + [v["date"] for v in items], notes="\n".join(v["url"] for v in items)))
         rivals = inp.verbatims_by_rq.get(f"{rq.id}-COMPETITORS") or []
         if rivals:                    # competitors' voices on their own slide, never mixed with the brand's
             slides.append(SlideSpec(
                 id=f"{rq.id.lower()}-competitors-verbatims", type="verbatim_wall", treatment="plain", kicker=kicker,
-                title=COMPETITOR_VERBATIM_TITLE, question=rq.question,
-                cards=[{"headline": v["outlet"], "text": v["date"], "url": v["url"], "image": v.get("image")} for v in rivals],
+                title=COMPETITOR_VERBATIM_TITLE.format(topic=kicker), question=rq.question,
+                cards=[{"headline": v["outlet"], "text": v["date"], "url": v["url"], "image": v.get("image")}
+                       for v in rivals[:WALL_CELLS]],
                 facts_allowed=_facts(sections) + [v["date"] for v in rivals], notes="\n".join(v["url"] for v in rivals)))
     slides.append(SlideSpec(id="takeaways", type="takeaways", treatment="A", title="Key takeaways", cards=inp.takeaways[:6],
                             facts_allowed=all_facts, citations=[n for c in inp.takeaways for n in c.get("citations", [])],

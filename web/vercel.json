@@ -3,6 +3,7 @@
   "buildCommand": "npm run build -- --outDir dist --emptyOutDir",
   "outputDirectory": "dist",
   "rewrites": [
+    { "source": "/api/:path*", "destination": "https://hunter-intelligence-platform.onrender.com/api/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

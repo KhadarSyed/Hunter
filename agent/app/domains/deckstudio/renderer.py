@@ -18,6 +18,7 @@ _env = Environment(loader=FileSystemLoader(str(TEMPLATES)), autoescape=select_au
 _TAG = re.compile(r"<[^>]+>")
 FRONTEND_CSS = (Path(__file__).parent / "frontend_slides" / "viewport-base.css").read_text(encoding="utf-8")
 CHART_SIZE = {"A": (1000, 540), "C": (1100, 600), "plain": (1600, 600), "full": (900, 420)}
+CHART_SIZE_WITH_CARDS = {"C": (1100, 420)}          # the photo-panel slide's summary cards sit under the chart
 
 
 def _asset(path: str | None, out_dir: Path) -> str | None:
@@ -37,7 +38,7 @@ def render_slide(slide: SlideSpec, tokens: DeckTokens, n: int, total: int, base_
                                   for c in slide.cards])
     image = _asset(slide.image.get("path"), out_dir)
     logos = {name: rel for name, p in slide.logos.items() if (rel := _asset(p, out_dir))}
-    w, h = CHART_SIZE.get(slide.treatment, (1000, 540))
+    w, h = CHART_SIZE_WITH_CARDS["C"] if slide.treatment == "C" and slide.cards else CHART_SIZE.get(slide.treatment, (1000, 540))
     charts = [chart_svg(c, tokens, logos, w, h) for c in slide.charts]
     return _env.get_template("slide.html.j2").render(s=slide, t=tokens, n=n, total=total, base_n=base_n, period=period,
                                                      source=source, image=image, charts=charts, logos=logos,

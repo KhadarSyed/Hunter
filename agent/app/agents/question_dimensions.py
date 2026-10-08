@@ -262,6 +262,11 @@ def _pattern(term: str) -> re.Pattern:
     return re.compile(rf"(?<![\w-]){body}" + (r"[\w-]*" if wild else r"(?![\w-])"), re.IGNORECASE)
 
 
+def keyword_hits(text: str, terms: list[str]) -> list[str]:
+    """The search terms the text actually contains, in the query's order (a trailing * matches word endings)."""
+    return [t for t in dict.fromkeys(t for t in terms if t) if _pattern(t).search(text or "")]
+
+
 def tag_text(text: str, dims: list[Dimension]) -> dict[str, list[str]]:
     """The values each dimension's terms name in the text; a longer match wins over a shorter one it contains
     ("trail running" is Trail running, not also Running)."""

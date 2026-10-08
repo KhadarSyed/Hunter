@@ -535,7 +535,7 @@ function summarizeReview(records: EnrichedRecord[], threshold: number): ReviewSu
 }
 
 function reviewSummaryText(s: ReviewSummary): string {
-  return `${s.total} articles — ${s.approved} approved, ${s.autoAccepted} auto-accepted, ${s.needsReview} need review, ${s.excluded} excluded.`;
+  return `${s.total} articles — ${s.approved} approved, ${s.autoAccepted} auto-approved, ${s.needsReview} pending review, ${s.excluded} excluded.`;
 }
 
 export function DataSources({ onNavigate }: Props) {
@@ -560,7 +560,15 @@ export function DataSources({ onNavigate }: Props) {
   const [reviewRecords, setReviewRecords] = useState<import("../services/intel-api").EnrichedRecord[]>([]);
   const [reviewDimensions, setReviewDimensions] = useState<Record<string, import("../services/intel-api").QuestionDimension[]>>({});
   const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewTagSchemas, setReviewTagSchemas] = useState<import("../services/intel-api").TagSchemas>({});
   const [showProceedConfirm, setShowProceedConfirm] = useState(false);
+  const [sampleRun, setSampleRun] = useState<{ running: boolean; message: string }>({ running: false, message: "" });
+  // A deliverable already generated: the bottom button opens it instead of starting another
+  const [hasDeliverable, setHasDeliverable] = useState(false);
+  useEffect(() => {
+    if (!projectId) return;
+    intelApi.deliverableLatest(projectId).then((p) => setHasDeliverable(!!p?.run)).catch(() => setHasDeliverable(false));
+  }, [projectId]);
   const [proceedBlockedMsg, setProceedBlockedMsg] = useState<string | null>(null);
 
   const hasAnyEnriched = Object.values(datasets).some((list) => list.some((d) => d.enrichment_status === "done"));
@@ -584,7 +592,7 @@ export function DataSources({ onNavigate }: Props) {
     const freshSummary = summarizeReview(records, loadThreshold());
     if (hasAnyEnriched && freshSummary.approved + freshSummary.autoAccepted === 0) {
       setProceedBlockedMsg(
-        "At least 1 article must be approved or auto-accepted (at or above the confidence threshold) in the Review tab before you can proceed to Research Execution."
+        "At least 1 article must be approved or auto-approved (at or above the confidence threshold) in the Review tab before you can proceed to Research Execution."
       );
       return;
     }
@@ -708,12 +716,50 @@ export function DataSources({ onNavigate }: Props) {
       const res = await intelApi.getProjectEnriched(projectId);
       setReviewRecords(res.records);
       setReviewDimensions(res.dimensions ?? {});
+      setReviewTagSchemas(res.tag_schemas ?? {});
       return res.records;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load enriched articles");
       return null;
     } finally {
       setReviewLoading(false);
+    }
+  };
+
+  const handleEnrichSample = async () => {
+    if (!projectId) return;
+    setSampleRun({ running: true, message: "Starting sample enrichment..." });
+    setError(null);
+    try {
+      const { job_id } = await intelApi.enrichSample(projectId);
+      let misses = 0;
+      for (let i = 0; i < 900; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        let status: JobStatus;
+        try {
+          status = await intelApi.getJob(job_id);
+          misses = 0;
+        } catch (e) {
+          if (++misses >= 5) throw e;            // a few failed polls are a blip; the job keeps running server-side
+          continue;
+        }
+        if (status.progress_message) setSampleRun({ running: true, message: status.progress_message });
+        if (status.status === "completed") {
+          setSampleRun({ running: false, message: status.progress_message || "Sample enrichment complete" });
+          await loadData();
+          await loadReview();
+          return;
+        }
+        if (status.status === "failed") {
+          setSampleRun({ running: false, message: "" });
+          setError(status.error || "Sample enrichment failed");
+          return;
+        }
+      }
+      setSampleRun({ running: false, message: "Sample enrichment is still running on the server — reload this page later to see its tags." });
+    } catch (e) {
+      setSampleRun({ running: false, message: "" });
+      setError(e instanceof Error ? e.message : "Sample enrichment failed");
     }
   };
 
@@ -907,7 +953,8 @@ export function DataSources({ onNavigate }: Props) {
 
       {mainTab === "review" ? (
         <div className="flex-1 min-h-0 overflow-y-auto">
-          <EnrichedArticlesTable records={reviewRecords} loading={reviewLoading} dimensions={reviewDimensions} />
+          <EnrichedArticlesTable records={reviewRecords} loading={reviewLoading} dimensions={reviewDimensions}
+            tagSchemas={reviewTagSchemas} />
         </div>
       ) : (
       <>
@@ -974,19 +1021,33 @@ export function DataSources({ onNavigate }: Props) {
                   Approve All ({uploadedCount - approvedCount})
                 </button>
               )}
+              {approvedCount > 0 && (
+                <button onClick={handleEnrichSample} disabled={sampleRun.running}
+                  title="Tags at most 500 articles and posts across every research question (at least 100 per question)"
+                  className="px-4 py-2 text-sm font-medium rounded-lg border transition-all disabled:opacity-60"
+                  style={{ borderColor: V, color: V }}>
+                  {sampleRun.running ? "Enriching sample..." : "Enrich sample (max 500)"}
+                </button>
+              )}
               {allApproved && (
                 <span className="text-xs font-medium text-emerald-600 flex items-center gap-1 mr-2">
                   <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 6L9 17l-5-5" /></svg>
                   All datasets approved
                 </span>
               )}
-              <button onClick={handleRequestProceed}
+              <button onClick={hasDeliverable ? () => onNavigate("deliverables") : handleRequestProceed}
                 className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-700 transition-colors">
-                Generate Deliverable
+                {hasDeliverable ? "Go to Deliverable" : "Generate Deliverable"}
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {sampleRun.message && (
+        <div className="shrink-0 px-8 pb-3 bg-white">
+          <p className="max-w-3xl mx-auto text-xs text-slate-500" role="status">{sampleRun.message}</p>
         </div>
       )}
 
@@ -1017,8 +1078,8 @@ export function DataSources({ onNavigate }: Props) {
             <h3 className="text-sm font-semibold text-slate-800 mb-3">Generate the deliverable?</h3>
             <p className="text-xs text-slate-500 mb-4">
               {reviewSummary.total} articles — <span className="text-emerald-600 font-medium">{reviewSummary.approved + reviewSummary.autoAccepted} included</span>{" "}
-              ({reviewSummary.approved} approved, {reviewSummary.autoAccepted} auto-accepted),{" "}
-              <span className="text-amber-600 font-medium">{reviewSummary.needsReview} need review</span>,{" "}
+              ({reviewSummary.approved} approved, {reviewSummary.autoAccepted} auto-approved),{" "}
+              <span className="text-amber-600 font-medium">{reviewSummary.needsReview} pending review</span>,{" "}
               <span className="text-red-600 font-medium">{reviewSummary.excluded} excluded</span>.
             </p>
             <div className="flex justify-end gap-2">

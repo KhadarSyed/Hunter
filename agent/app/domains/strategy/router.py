@@ -28,6 +28,7 @@ from ...agents.dataset_enrichment import enrich_dataset
 from ...agents.meltwater_query_builder import run as run_mqb
 from ...agents.meltwater_query_builder import validate_boolean_syntax
 from ...agents.query_evaluator import evaluate_sample
+from ...agents.question_dimensions import keyword_hits as qd_keyword_hits, query_groups as qd_query_groups
 from ...agents.question_dimensions import to_json as qd_to_json
 from ...core import store
 from ...core.anthropic_client import get_llm_client
@@ -38,6 +39,8 @@ from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from ...core.tabular import decode_text, sniff_delimiter
 from ..research.schemas import ApproveRequest
+from . import sample_enrichment, tag_schemas
+from ...agents import question_tag_schema as tag_schema
 from .dimensions import dimensions_for_dataset, project_dimensions
 from .schemas import (
     DatasetRecord,
@@ -1184,7 +1187,7 @@ def enrich_dataset_route(dataset_id: IdPath, _access: Annotated[dict, Depends(re
             # fixed sentiment/theme/entity schema
             dimensions = dimensions_for_dataset(dataset, llm_client)
             result = enrich_dataset(to_tag, brand_name, competitors, llm_client=llm_client, emit=on_event,
-                                    dimensions=dimensions)
+                                    dimensions=dimensions, tag_schema=tag_schemas.schema_for_dataset(dataset, llm_client))
             tagged_by_id = {str(r["id"]): r for r in result["records"]}
             merged = [preserved_by_id.get(str(r["id"])) or tagged_by_id[str(r["id"])] for r in records]
 
@@ -1200,6 +1203,52 @@ def enrich_dataset_route(dataset_id: IdPath, _access: Annotated[dict, Depends(re
 
     submit(worker, name="strategy:dataset-enrich")
     return {"job_id": job_id, "dataset_id": dataset_id}
+
+
+@router.post("/dataset/enrich-sample/{project_id}")
+def enrich_sample_route(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)],
+                        total: int = sample_enrichment.TOTAL):
+    """Tag a bounded sample across every research question (never more than 500 records, at least 100 per
+    question) instead of every row of every file."""
+    total = max(1, min(total, sample_enrichment.TOTAL))
+    if not any(d.get("approval_status") == "approved" for d in store.get_datasets_by_project(project_id)):
+        raise HTTPException(400, "Approve at least one dataset before enriching")
+    if any(str(j.get("id", "")).startswith("enrich_sample_") and j.get("status") in ("queued", "running")
+           for j in store.list_jobs(project_id)):      # two runs would overwrite each other's tags
+        raise HTTPException(409, "A sample enrichment is already running for this project")
+    job_id = f"enrich_sample_{uuid.uuid4().hex[:12]}"
+    store.create_job(job_id, project_id, "dataset_enrichment")
+
+    def worker():
+        done = {"n": 0}
+
+        def on_event(event_type: str, payload: dict):
+            if event_type == "enrichment_batch":
+                done["n"] += 1
+                message = f"Sample enrichment: batch {done['n']} done ({payload.get('tagged_count', 0)} tagged in this file)"
+                store.update_job(job_id, status="running", progress_pct=min(95, 5 + done["n"]), progress_message=message)
+                _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running", "message": message})
+
+        try:
+            llm_client = get_llm_client()
+            if not llm_client or not llm_client.is_reachable():
+                raise RuntimeError("No LLM reachable — dataset enrichment requires Azure OpenAI")
+            store.update_job(job_id, status="running", progress_pct=5,
+                             progress_message=f"Enriching up to {total} records across every research question")
+            out = sample_enrichment.run_sample(project_id, llm_client, total=total, per_rq=sample_enrichment.PER_RQ,
+                                               emit=on_event)
+            store.update_job(job_id, status="completed", progress_pct=100,
+                             progress_message=f"Sample enrichment complete — {out['total']} records tagged"
+                             + (f", {out['retagged']} re-tagged with the question schema" if out.get("retagged") else ""),
+                             result=out)
+            _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "completed"})
+        except Exception as e:
+            logger.error("[enrich-sample:%s] Failed: %s", job_id, type(e).__name__)
+            store.update_job(job_id, status="failed", error=str(e)[:300])
+            _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "failed"})
+
+    submit(worker, name="strategy:dataset-enrich-sample")
+    return {"job_id": job_id, "project_id": project_id}
 
 
 @router.get("/dataset/{dataset_id}/enriched")
@@ -1219,8 +1268,19 @@ def get_dataset_enriched(dataset_id: IdPath, _access: Annotated[dict, Depends(re
 @router.get("/dataset/enriched/{project_id}")
 def get_project_enriched(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)]):
     dims = project_dimensions(project_id, None)   # stored copy only: a GET never calls the LLM
-    return {"records": store.get_enriched_records_by_project(project_id),
-            "dimensions": {rq: qd_to_json(d) for rq, d in dims.items()}}
+    schemas = {rq: tag_schema.from_json(row["schema"]) for rq, row in store.get_question_tag_schemas(project_id).items()}
+    records = store.get_enriched_records_by_project(project_id)
+    questions = ((store.get_latest_strategy(project_id) or {}).get("strategy") or {}).get("research_question_queries") or []
+    terms = {q.get("question_id") or f"RQ{i}": [t for g in qd_query_groups(q.get("query") or "", []) for t in g]
+             + [t for d in dims.get(q.get("question_id") or f"RQ{i}", []) for v in d.values for t in v.terms]
+             for i, q in enumerate(questions, start=1)}
+    for r in records:              # which of its question's search keywords the article actually contains
+        r["keyword_matches"] = qd_keyword_hits(f"{r.get('title') or ''}\n{r.get('content') or ''}",
+                                               terms.get(r.get("research_question_id") or "", []))
+    return {"records": records,
+            "dimensions": {rq: qd_to_json(d) for rq, d in dims.items()},
+            "tag_schemas": {rq: {"schema": tag_schema.to_json(s), "review_mapping": tag_schema.review_mapping(s)}
+                            for rq, s in schemas.items()}}
 
 
 # Fields that constitute an analyst edit to a record's tagging (as opposed to

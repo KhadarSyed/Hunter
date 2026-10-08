@@ -45,3 +45,14 @@ agent/tests/
 agent/output/test_*.pptx
 .playwright-mcp/
 .tours/
+
+# Client briefs, datasets and reference decks stay on the workstation (never pushed)
+Baby-Skincare_Category/
+Band-Aid/
+Planet-Fitness/
+PPT Templates/
+ui-*.png
+agent/data/deliverables/
+agent/data/qa/
+agent/data/verbatims/
+agent/data/autofix/

@@ -7,6 +7,7 @@ from ...agents import question_dimensions as qd
 from .citations import CitationRegistry
 from .engine_types import RQ, EngineRow, Section
 from .insights import draft_section
+from .tag_insights import tag_answer
 
 N_INSIGHTS = 3
 CANDIDATES = 12
@@ -38,6 +39,10 @@ def rq_insights(rq: RQ, sections: list[Section], rows: list[EngineRow], registry
 def executive_answers(rqs: list[RQ], sections_by_rq: dict[str, list[Section]], base_n: int) -> list[dict]:
     answers = []
     for rq in rqs:
+        tagged = next((s for s in sections_by_rq.get(rq.id, []) if s.module == "tag_share" and not s.skipped), None)
+        if tagged is not None:              # the question's own tags answer it: the tagged share and what leads it
+            answers.append(tag_answer(rq, tagged))
+            continue
         kpi = next((s for s in sections_by_rq.get(rq.id, []) if s.module == "share_kpi" and not s.skipped), None)
         if kpi is None:
             answers.append({"rq_id": rq.id, "question": rq.question, "value": "n/a",

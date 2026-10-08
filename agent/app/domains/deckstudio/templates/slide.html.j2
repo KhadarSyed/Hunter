@@ -41,18 +41,20 @@
     {% if s.question and s.title %}<div class="kicker" style="margin-top:14px;color:var(--muted)">{{ s.title }}</div>{% endif %}
   </div>
   <div class="nlabel" style="position:absolute;right:80px;top:290px">N = {{ base_n }}</div>
-  <div class="reveal" style="position:absolute;left:740px;right:70px;top:330px;height:660px;overflow:hidden">
+  <div class="reveal" style="position:absolute;left:740px;right:70px;top:330px;height:{{ 430 if s.cards else 660 }}px;overflow:hidden">
     {% if charts %}{{ charts[0] | safe }}{% elif s.tables %}{% include "table.html.j2" %}{% endif %}
   </div>
+  {% if s.cards %}<div class="cards reveal" style="position:absolute;left:740px;right:70px;top:780px;grid-template-columns:repeat({{ [s.cards|length, 3]|min }},1fr)">
+    {% for c in s.cards[:3] %}<div class="card build"><h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}</p>{% if c.citations and marks.cites %}<div class="cites">{% for n in c.citations[:3] %}{% set m = marks.cites.get(n|string) %}{% if m %}<span class="cite">{% if m.icon %}<img src="{{ m.icon }}" alt="">{% endif %}{{ m.outlet }}</span>{% endif %}{% endfor %}</div>{% endif %}</div>{% endfor %}</div>{% endif %}
 {% elif s.type == "verbatim_wall" %}
-  <div style="position:absolute;left:70px;right:70px;top:48px">
-    {% if s.kicker %}<div class="kicker">{{ s.kicker }}</div>{% endif %}
-    <div class="title clamp" style="margin-top:8px;font-size:40px">{{ s.title }}</div>
+  <div class="vband">
+    {% if s.question %}<div class="vkicker">{{ s.question }}</div>{% endif %}
+    <div class="vtitle clamp">{{ s.title }}</div>
   </div>
   <div class="vwall reveal">
-    {% for c in s.cards[:9] %}<figure class="vcell build">{% if c.image %}<img class="vshot" src="{{ c.image }}" alt="">{% endif %}
-      <figcaption><b>{{ c.headline }}</b> · {{ c.text }}</figcaption></figure>{% endfor %}
+    {% for c in s.cards[:8] %}<figure class="vcell build">{% if c.image %}<img class="vshot" src="{{ c.image }}" alt="{{ c.headline }} · {{ c.text }}">{% endif %}</figure>{% endfor %}
   </div>
+  <div class="vnote">The above insights are based on analysis of a representative sample of data.</div>
 {% else %}
   <div style="position:absolute;left:70px;right:70px;top:56px">
     {% if s.kicker %}<div class="kicker">{{ s.kicker }}</div>{% endif %}

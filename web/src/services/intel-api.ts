@@ -287,6 +287,37 @@ export interface QuestionDimension {
   values: { name: string; terms: string[] }[];
 }
 
+/** One tag a research question needs, derived from the question itself (no fixed taxonomy). */
+export interface DynamicTagDef {
+  tag_name: string;
+  tag_type: "classification" | "multi_classification" | "entity";
+  definition: string;
+  allowed_values: string[];
+  extraction_rule: string;
+  review_column: string | null;
+}
+
+export interface QuestionTagSchema {
+  question_id: string;
+  question: string;
+  question_intent: string;
+  required_tags: DynamicTagDef[];
+  review_columns: { key: string; label: string }[];
+}
+
+/** A tag against the Review table: points and weights are read there, never generated. */
+export interface ReviewMapping {
+  question_id: string;
+  tag_name: string;
+  review_column: string | null;
+  review_criterion: string | null;
+  mapping_status: "MAPPED" | "UNMAPPED_REVIEW_CRITERION";
+  points: string;
+  weight: string;
+}
+
+export type TagSchemas = Record<string, { schema: QuestionTagSchema; review_mapping: ReviewMapping[] }>;
+
 export interface EnrichedRecord {
   id: string;
   title: string;
@@ -321,6 +352,15 @@ export interface EnrichedRecord {
   /** Research-question dimension key -> values the LLM tagged (e.g. sport: ["Soccer"]). */
   question_tags?: Record<string, string[]>;
   author_type?: string;
+  /** The question's dynamic tags for this article, with the quote that supports each and a 0-1 confidence. */
+  dynamic_tags?: Record<string, string | string[]>;
+  tag_evidence?: Record<string, string>;
+  tag_confidence?: Record<string, number>;
+  tag_schema_question?: string;
+  /** One sentence on what the article says about its research question. */
+  question_summary?: string;
+  /** The research question's search keywords the article actually contains. */
+  keyword_matches?: string[];
 }
 
 export interface PlanResult {
@@ -881,11 +921,15 @@ export const intelApi = {
   enrichDataset: (datasetId: number) =>
     post<{ job_id: string; dataset_id: number }>(`/dataset/${datasetId}/enrich`, {}),
 
+  /** Tag a bounded sample across every research question (at most 500 records, at least 100 per question). */
+  enrichSample: (projectId: number) =>
+    post<{ job_id: string; project_id: number }>(`/dataset/enrich-sample/${projectId}`, {}),
+
   getDatasetEnriched: (datasetId: number) =>
     get<{ dataset_id: number; status: string | null; error: string | null; records: EnrichedRecord[] }>(`/dataset/${datasetId}/enriched`),
 
   getProjectEnriched: (projectId: number) =>
-    get<{ records: EnrichedRecord[]; dimensions?: Record<string, QuestionDimension[]> }>(`/dataset/enriched/${projectId}`),
+    get<{ records: EnrichedRecord[]; dimensions?: Record<string, QuestionDimension[]>; tag_schemas?: TagSchemas }>(`/dataset/enriched/${projectId}`),
 
   updateEnrichedRecord: (datasetId: number, recordId: string, updates: Partial<EnrichedRecord>) =>
     patch<EnrichedRecord>(`/dataset/${datasetId}/enriched/${recordId}`, updates),

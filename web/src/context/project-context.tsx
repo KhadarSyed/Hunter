@@ -85,7 +85,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     intelApi
       .getProject(stored.id)
       .then((p) => {
-        if (p.project_name !== stored.name) {
+        if (p.project_name !== stored.name || p.archived_at) {   // deleted (archived) projects are not reopened
           clearProject();
         } else if ((p.brand ?? null) !== (stored.brand ?? null)) {
           // Refresh the brand of a project persisted before brands existed (no version bump).

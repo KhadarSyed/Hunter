@@ -14,9 +14,11 @@ from ...core import config, store
 from ...core.events import broadcast
 from . import (analytics, brand_kit, catalog, engine_insights, extract, factcheck, generic_deck, templates_index,
                visuals, word_brief)
-from . import brand_analytics, evidence
+from . import brand_analytics, evidence, tag_insights
+from ...agents import question_tag_schema
 from . import rows as R
 from .citations import CitationRegistry, domain_of
+from .ingest import normalize_url
 from .engine_types import RQ, Section
 from ..agent import memory as agent_memory
 from ..agent.repair import issues
@@ -311,6 +313,11 @@ def _label_icons(sections_by_rq, rows, folder: Path, color: str) -> dict[str, Pa
     return out
 
 
+def _logo_judge(llm, category: str):
+    """A vision check that a logo is the brand's own -- the one in this project's category, not a namesake."""
+    return lambda data, name: vision.is_logo_of(llm, data, name, category=category)
+
+
 def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_rq, answers, takeaways,
                 methodology, registry, base, out_dir: Path, rq_titles: dict[str, str],
                 llm=None) -> generic_deck.DeckInput:
@@ -318,7 +325,7 @@ def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_
     brand = (spec.get("commissioning_brand") or {}).get("name") or project.get("brand") or "Research"
     industry = (spec.get("industry") or {}).get("name") or ""
     country = (spec.get("included_scope") or {}).get("geography") or spec.get("geography") or ""
-    judge = (lambda data, name: vision.is_logo_of(llm, data, name)) if llm is not None else None
+    judge = _logo_judge(llm, _category(project, brand)) if llm is not None else None
     kit = brand_kit.fetch_kit(brand, out_dir / "brand", judge=judge)
     competitors = [e["name"] for e in spec.get("validated_entities") or [] if e.get("type") == "competitor"]
     # every brand or retailer drawn in a chart gets its logo looked up, not only the share-of-voice chart
@@ -328,6 +335,8 @@ def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_
     logo_map = {**_label_icons(sections_by_rq, rows, out_dir, kit.accent), **logo_map}   # brand logos win
     if kit.logo:
         logo_map[brand] = kit.logo
+    elif (mark := visuals.wordmark_png(brand, _category(project, brand), out_dir / "brand", kit.accent)):
+        logo_map[brand] = mark                # a category client (no brand logo) still opens on its own mark
     icons = {}
     for key, icon_id in visuals.ICONS.items():
         png = visuals.icon_png(icon_id, out_dir / "icons", kit.accent)
@@ -360,6 +369,7 @@ def _plan_input(project: dict, inp, rqs, overview, sections_by_rq, insights_by_r
                      geography=str(geography), sources="Meltwater", verbatims_by_rq=verbatims_by_rq or {},
                      products=_products(project), category=_category(project, inp.title),
                      section_summaries=section_summaries or {},
+                     is_category="category" in str(spec.get("research_type") or "").lower(),
                      brand_products=[e["name"] for e in (spec.get("validated_entities") or [])
                                      if isinstance(e, dict) and e.get("type") == "product" and e.get("name")])
 
@@ -383,6 +393,17 @@ def _category(project: dict, title: str) -> str:
     industry = ((project.get("spec") or {}).get("industry") or {}).get("name") or ""
     named = industry.split("/")[-1].strip()
     return (named or " ".join(_TITLE_NOISE.sub(" ", title).split())).lower()
+
+
+def _citation_brands(registry, rows, brands) -> dict[str, list[str]]:
+    """Each citation's literally named brands (the deck validator fails a source that names none); every row, since
+    the brand chapter cites articles that sit under no question."""
+    by_url = {r.article.norm_url: r for r in rows}
+    out = {}
+    for c in registry.entries():
+        row = by_url.get(normalize_url(c["url"]))
+        out[str(c["n"])] = evidence.row_brands(row, brands) if row else evidence.mentions(c.get("title") or "", brands)
+    return out
 
 
 def _verbatims_by_rq(rqs, rows_by_rq, insights_by_rq, registry, brands, dims_by_rq) -> dict[str, list[dict]]:
@@ -477,10 +498,15 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         for s in brand_secs:
             run.section(s.to_dict())
         sections_by_rq: dict[str, list[Section]] = {}
+        tag_schemas = {rq: question_tag_schema.from_json(row["schema"])          # stored copy: no LLM here
+                       for rq, row in store.get_question_tag_schemas(project_id).items()}
         for q in rqs:
             sections_by_rq[q.id] = [analytics.compute_module(m, q, rows_by_rq[q.id], base,
                                                              extraction.get((q.id, m.get("entity_kind"))))
                                     for m in plans[q.id]["modules"]]
+            tagged = tag_insights.tag_section(q, rows_by_rq[q.id], tag_schemas.get(q.id))
+            if tagged:               # the question answered from its own tags leads its chapter
+                sections_by_rq[q.id].insert(0, tagged)
             for s in sections_by_rq[q.id]:
                 run.section(s.to_dict())
             drawn = [s for s in sections_by_rq[q.id] if not s.skipped]
@@ -554,12 +580,13 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
                                      thumbs_dir=str(out_dir / "thumbs"))
         studio_paths = {}
         try:
-            studio = run_studio(run, project_id, llm,
-                                _plan_input(project, inp, rqs, overview, {**sections_by_rq, BRAND_KEY: brand_secs},
-                                            insights_by_rq, answers,
-                                            takeaways, methodology, base, {q.id: plans[q.id]["title"] for q in rqs},
-                                            _verbatims_by_rq(rqs, rows_by_rq, insights_by_rq, registry, brands,
-                                                             dims_by_rq), summaries_by_section),
+            plan_input = _plan_input(project, inp, rqs, overview, {**sections_by_rq, BRAND_KEY: brand_secs},
+                                     insights_by_rq, answers,
+                                     takeaways, methodology, base, {q.id: plans[q.id]["title"] for q in rqs},
+                                     _verbatims_by_rq(rqs, rows_by_rq, insights_by_rq, registry, brands,
+                                                      dims_by_rq), summaries_by_section)
+            plan_input.citation_brands = _citation_brands(registry, rows, brands)
+            studio = run_studio(run, project_id, llm, plan_input,
                                 inp.brand_colors, inp.brand_image, inp.logos, out_dir,
                                 on_fix=lambda sid, action, kind: agent_memory.remember(
                                     project_id, "fix", f"run{run_id}_{sid}", {"action": action, "flag": kind}),

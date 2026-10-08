@@ -76,7 +76,8 @@ def validate_executor_prerequisites(project_id: int) -> dict:
 # ─── Dataset loading ───────────────────────────────────────────────────────
 
 MELTWATER_COLUMN_MAP = {
-    "headline": ["headline", "title", "hit headline", "hit_headline"],
+    # "Article" is the headline column of a bare link-list export (Article / Link / Date)
+    "headline": ["headline", "title", "hit headline", "hit_headline", "article title", "article"],
     "url": ["url", "hit url", "hit_url", "link"],
     "source": ["source_name", "source name", "source", "outlet", "media_outlet", "media outlet"],
     "date": ["date", "hit date", "hit_date", "publish date", "publish_date", "publication_date"],

@@ -1,0 +1,33 @@
+# Secrets, VCS and local tooling never enter the image
+.env
+.env.*
+.git
+.github
+.claude
+.playwright-mcp
+.tours
+.superpowers
+**/__pycache__
+**/*.pyc
+*.log
+
+# Client data, reference decks and run output stay on the workstation
+Baby-Skincare_Category/
+Band-Aid/
+Planet-Fitness/
+PPT Templates/
+ui-*.png
+agent/tests/
+agent/output/
+agent/static/
+docs/
+handover/
+
+# Runtime data: the image ships only the deck templates under agent/data
+agent/data/*
+!agent/data/hunter_template.pptx
+!agent/data/hunter_template_skeleton.pptx
+
+# Frontend dependencies and builds are reinstalled inside the image
+web/node_modules/
+web/dist/

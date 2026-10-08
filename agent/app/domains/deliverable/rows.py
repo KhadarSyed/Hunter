@@ -56,7 +56,9 @@ def _row(rec: dict, rq: str | None, source_file: str, index: int) -> EngineRow |
                      themes=_theme_labels(rec.get("themes")), entities=rec.get("entities") or {},
                      tags=rec.get("question_tags") if isinstance(rec.get("question_tags"), dict) else {},
                      author_type=str(rec.get("author_type") or ""),
-                     brand_mention=str(rec.get("brand_mention") or ""))
+                     brand_mention=str(rec.get("brand_mention") or ""),
+                     dynamic_tags=rec.get("dynamic_tags") if isinstance(rec.get("dynamic_tags"), dict) else {},
+                     tag_evidence=rec.get("tag_evidence") if isinstance(rec.get("tag_evidence"), dict) else {})
 
 
 def load_rows(project_id: int, rqs: list[RQ]) -> list[EngineRow]:
@@ -70,6 +72,9 @@ def load_rows(project_id: int, rqs: list[RQ]) -> list[EngineRow]:
         existing = merged.get(row.article.norm_url)
         if existing:
             existing.rq_ids |= row.rq_ids
+            # one article under several questions keeps every question's own tags (their names differ)
+            existing.dynamic_tags = {**row.dynamic_tags, **existing.dynamic_tags}
+            existing.tag_evidence = {**row.tag_evidence, **existing.tag_evidence}
         else:
             merged[row.article.norm_url] = row
 

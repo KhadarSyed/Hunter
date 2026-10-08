@@ -18,6 +18,8 @@ class EngineRow:
     tags: dict = field(default_factory=dict)          # question dimension key -> values the LLM tagged
     author_type: str = ""
     brand_mention: str = ""                           # enrichment's literal / figurative / none
+    dynamic_tags: dict = field(default_factory=dict)  # question-driven tags (deal_sale_led: Yes, ...)
+    tag_evidence: dict = field(default_factory=dict)  # tag -> the article's own quote supporting it
 
 
 @dataclass

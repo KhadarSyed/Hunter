@@ -292,9 +292,13 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
         </div>
       )}
 
-      <div>
-        <button onClick={() => onNavigate("analysis")} className="text-sm font-medium text-slate-500 hover:text-slate-700">
-          Back to Analysis
+      <div className="flex items-center justify-between">
+        <button onClick={() => onNavigate("data-sources")} className="text-sm font-medium text-slate-500 hover:text-slate-700">
+          Back to Data Sources
+        </button>
+        <button onClick={generate} disabled={running}
+          className="rounded-lg bg-[#5B2C9D] px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+          {running ? "Generating..." : run ? "Regenerate" : "Generate Deliverable"}
         </button>
       </div>
     </div>

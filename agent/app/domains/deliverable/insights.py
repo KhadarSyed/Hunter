@@ -172,7 +172,10 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
     arts = [{"id": i, "outlet": a.outlet, "date": a.date.isoformat() if a.date else "", "title": a.title,
              "excerpt": a.text[:400]} for i, a in local.items()]
     messages = [
-        {"role": "system", "content": "You write insights for a media-research deck. Use ONLY numbers that appear "
+        {"role": "system", "content": "You write insights for a media-research deck, the way a senior media analyst "
+         "does: lead with the finding (the answer and its share), then the drivers behind it -- the outlets, brands, "
+         "themes, timing and examples the FACTS and ARTICLES name -- then the so-what for the client. Each insight is "
+         "a complete thought, never a bare 'X of Y articles'. Use ONLY numbers that appear "
          "in FACTS, with the same unit. Every insight must cite 1-3 article ids from ARTICLES: for a claim about "
          "specific coverage, cite the articles that state it; for a statistic from FACTS, cite articles that are "
          "examples of what is being counted. never leave citations empty. Comparisons ('more than', 'fewer than', "
@@ -183,7 +186,8 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
          "count equals an overall share. Return JSON only."},
         {"role": "user", "content": f"Section: {section}\nFACTS:\n" + "\n".join(f"- {f}" for f in facts) +
          f"\nARTICLES:\n{json.dumps(arts, ensure_ascii=False)}\nWrite {n_insights} insights as "
-         '{"insights":[{"headline":"<=8 words","text":"<=45 words","citations":[ids]}]}'},
+         '{"insights":[{"headline":"<=12 words: the takeaway","text":"<=70 words: the finding, its drivers '
+         'and the so-what","citations":[ids]}]}'},
     ]
     try:
         reply = llm.chat(messages, format_json=True)

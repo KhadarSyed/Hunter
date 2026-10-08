@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import colorsys
+import html
 import logging
 import re
 from pathlib import Path
@@ -96,6 +97,49 @@ def _svg_to_png(svg: str, out: Path) -> None:
         browser.close()
 
 
+DEFAULT_MARK_ICON = "mdi:star-four-points"
+_WORDMARK = """<html><body style="margin:0;background:transparent"><div id="wm" style="display:inline-flex;align-items:center;
+gap:20px;padding:12px 8px;font:800 56px/1 Arial,Helvetica,sans-serif;color:#{color};white-space:nowrap">
+<span style="display:inline-block;width:76px;height:76px">{svg}</span><span>{name}</span></div></body></html>"""
+
+
+def _search_icon(query: str) -> str | None:
+    """The first Material Design icon Iconify finds for a word (e.g. "baby" -> mdi:baby-face-outline)."""
+    try:
+        r = requests.get(f"{ICON_API}/search", params={"query": query, "prefix": "mdi", "limit": 5}, timeout=TIMEOUT_S)
+        icons = r.json().get("icons") if r.ok else None
+        return icons[0] if icons else None
+    except (requests.RequestException, ValueError) as e:
+        logger.warning("icon search for %r unavailable: %s", query, type(e).__name__)
+        return None
+
+
+def _html_to_png(html_text: str, out: Path) -> None:
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 1600, "height": 200})
+        page.set_content(html_text)
+        page.locator("#wm").screenshot(path=str(out), omit_background=True)
+        browser.close()
+
+
+def wordmark_png(name: str, category: str, folder: Path, color: str = style.VIOLET) -> Path | None:
+    """A logo for a client that has none: its name set beside an icon for its category."""
+    stop = {"category", "the", "and", "for", "brand", "group", "company", "inc"}
+    words = [w for w in dict.fromkeys(re.findall(r"[a-z]{3,}", f"{category} {name}".lower())) if w not in stop]
+    icon_id = next((i for q in [category, *words] if q and (i := _search_icon(q))), None) or DEFAULT_MARK_ICON
+    svg = _fetch_svg(icon_id, color) or ""
+    out = folder / (re.sub(r"[^a-z0-9]+", "_", f"wordmark_{name}".lower()) + ".png")
+    folder.mkdir(parents=True, exist_ok=True)
+    try:
+        _html_to_png(_WORDMARK.format(svg=svg, name=html.escape(name), color=color), out)
+    except Exception as e:      # the cover keeps its title without a mark
+        logger.warning("wordmark for %s not rendered: %s", name, type(e).__name__)
+        return None
+    return out if out.exists() else None
+
+
 FAVICON_API = "https://www.google.com/s2/favicons"
 FAVICON_SIZE = 64
 
@@ -167,14 +211,19 @@ VALUE_ICONS = (
     (("gym", "fitness", "weight", "crossfit"), "mdi:dumbbell"),
     (("yoga",), "mdi:yoga"),
     (("ski", "snowboard"), "mdi:ski"),
-    (("skate",), "mdi:skateboard"),
+    (("skate", "skating"), "mdi:skateboard"),
     (("cut", "scrape", "scratch", "blister", "graze", "wound", "burn", "injur"), "mdi:bandage"),
 )
+
+
+# A keyword matches itself and its inflections (cuts, runners, swimming, injuries), not any longer word
+# that happens to start with it ("ski" is not "skin care", "cut" is not "cuticle").
+_INFLECTION = r"(?:s|es|er|ers|ing|ed|y|ies|[bdgmnpt](?:ing|er|ers|ed))?"
 
 
 def value_icon(label: str) -> str | None:
     words = re.findall(r"[a-z0-9-]+", (label or "").lower())
     for keys, icon in VALUE_ICONS:
-        if any(w == k or w.startswith(k) for w in words for k in keys):
+        if any(re.fullmatch(re.escape(k) + _INFLECTION, w) for w in words for k in keys):
             return icon
     return None

@@ -297,9 +297,11 @@ def _crosstab(module, rq, rows, base_n, _):
     row_names = sorted((v.name for v in row_dim.values if totals.get(v.name)), key=lambda n: -totals[n])[:TOP_N]
     col_totals = Counter(c for rv, cv in per_row if rv for c in cv)
     cols = sorted((v.name for v in col_dim.values if col_totals.get(v.name)), key=lambda n: -col_totals[n])[:CROSSTAB_COLUMNS]
-    cols = cols or [v.name for v in col_dim.values][:CROSSTAB_COLUMNS]
     if not row_names:
         return _section(module, rq, skipped=f"No articles name a {row_dim.label.lower()}")
+    if not cols:                      # a table of 0.0% says nothing: no article carries both dimensions
+        return _section(module, rq, skipped=f"No article names both a {row_dim.label.lower()} and a "
+                                            f"{col_dim.label.lower()}")
     table_rows, facts = [], []
     for name in row_names:
         within = [cv for rv, cv in per_row if name in rv]

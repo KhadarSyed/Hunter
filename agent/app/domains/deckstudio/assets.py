@@ -67,8 +67,8 @@ def _serpapi(query: str) -> list[dict]:
             return []
         r.raise_for_status()
         results = r.json().get("images_results") or []
-        return [{"url": i.get("original"), "width": i.get("original_width") or 0, "title": i.get("title") or ""}
-                for i in results if i.get("original")]
+        return [{"url": i.get("original"), "width": i.get("original_width") or 0, "title": i.get("title") or "",
+                 "page": i.get("link") or ""} for i in results if i.get("original")]
     except (requests.RequestException, ValueError, AttributeError, TypeError) as e:
         logger.warning("serpapi image search failed: %s", type(e).__name__)
         return []
@@ -240,4 +240,35 @@ def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image:
             raw.write_bytes(data)
             used.add(cand["url"])
             return Photo(crop_to(raw, role, folder / f"{slug}.jpg"), cand["url"], licence, why)
-    return Photo(None, "", "none", f"no relevant photo ({rejected} candidates rejected)")
+    found = _fallback(query, role, folder, used, subjects, judge, slug)
+    return found or Photo(None, "", "none", f"no relevant photo ({rejected} candidates rejected)")
+
+
+FALLBACK_TRIES = 8
+
+
+def _fallback(query: str, role: str, folder: Path, used: set[str], subjects: Subjects | None, judge,
+              slug: str) -> Photo | None:
+    """Every candidate failed: a wider Google Images search at the category's level (not the slide's brands), taking
+    each result's image or, when it cannot be downloaded (hot-link blocked), the lead image its page declares."""
+    loose = Subjects([], [], subjects.category, subjects.scene) if subjects else None
+    terms = [f"{subjects.category} {subjects.scene}".strip(), subjects.category] if subjects else [query]
+    for q in dict.fromkeys(t for t in terms if t):
+        for cand in _serpapi(q)[:FALLBACK_TRIES]:
+            for url in (cand["url"], "page"):
+                if url == "page":
+                    url = article_image(cand["page"]) if cand.get("page") else None
+                if not url or url in used:
+                    continue
+                data = _download(url)
+                if not data:
+                    continue
+                ok, why = _accept(data, role, cand["title"], loose, judge)
+                if not ok:
+                    continue
+                folder.mkdir(parents=True, exist_ok=True)
+                raw = folder / f"{slug}.src"
+                raw.write_bytes(data)
+                used.add(url)
+                return Photo(crop_to(raw, role, folder / f"{slug}.jpg"), url, "web", f"wider search: {why}")
+    return None
