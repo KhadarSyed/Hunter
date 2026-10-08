@@ -38,7 +38,9 @@ _CARD = """<html><body style="margin:0;width:{w}px;height:{h}px;font-family:Aria
 <div style="font:400 30px/1.45 Arial;color:#222;margin-top:36px">{lead}</div></div></body></html>"""
 
 
-def pick(rows, cited_urls: list[str], limit: int = GRID) -> list[dict]:
+def pick(rows, cited_urls: list[str], limit: int = GRID, ordered: bool = False) -> list[dict]:
+    """Cited articles first, then distinct outlets, then the rest; by reach, or in the given order when the rows
+    are already ranked by relevance (`ordered`)."""
     by_url = {r.article.url: r for r in rows}
     chosen, seen, outlets = [], set(), set()
 
@@ -54,7 +56,7 @@ def pick(rows, cited_urls: list[str], limit: int = GRID) -> list[dict]:
     for url in cited_urls:
         if url in by_url:
             take(by_url[url])
-    ranked = sorted(rows, key=lambda r: -r.article.reach)
+    ranked = list(rows) if ordered else sorted(rows, key=lambda r: -r.article.reach)
     for row in ranked:                        # distinct outlets first
         if row.article.outlet not in outlets:
             take(row)

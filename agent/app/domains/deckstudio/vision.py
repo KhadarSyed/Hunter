@@ -38,3 +38,23 @@ def matches(llm, image_bytes: bytes, s, slide_label: str) -> bool | None:
         return None
     head = (reply or "").strip().upper()
     return True if head.startswith("YES") else False if head.startswith("NO") else None
+
+
+_LOGO_PROMPT = ("Answer YES or NO first. Is this image the logo (wordmark or symbol) of the brand \"{brand}\" itself? "
+                "Say NO if it shows a different brand, even one from the same company.")
+
+
+def is_logo_of(llm, image_bytes: bytes, brand: str) -> bool | None:
+    """Whether a candidate logo is the brand's own (Brandfetch records can carry a sister brand's wordmark).
+    None = could not judge."""
+    if llm is None or not getattr(llm, "is_reachable", lambda: False)():
+        return None
+    try:
+        reply = llm.chat([{"role": "user", "content": [
+            {"type": "text", "text": _LOGO_PROMPT.format(brand=brand)},
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{_thumb(image_bytes)}"}}]}])
+    except Exception as e:      # an unjudged logo is kept, as before
+        logger.warning("logo check skipped: %s", type(e).__name__)
+        return None
+    head = (reply or "").strip().upper()
+    return True if head.startswith("YES") else False if head.startswith("NO") else None

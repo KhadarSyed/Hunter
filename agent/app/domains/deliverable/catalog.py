@@ -107,6 +107,16 @@ def _ensure_required(plan: dict, rq: RQ, rows: list[EngineRow]) -> dict:
 
 
 BREAKDOWN_MODULES = ("question_breakdown", "dimension_crosstab")
+_MEDIA_ASK = re.compile(r"social|editorial|source split|media type|channel", re.IGNORECASE)
+
+
+def with_brief_asks(plan: dict, asks: list[str]) -> dict:
+    """Analyses the brief asks for across the whole project (e.g. a social vs editorial split) appear for every
+    question, so the checklist can point at them."""
+    if not any(_MEDIA_ASK.search(a or "") for a in asks) or any(m["module"] == "media_split" for m in plan["modules"]):
+        return plan
+    split = {"module": "media_split", "title": "Social vs editorial", "entity_kind": None}
+    return {**plan, "modules": plan["modules"] + [split]}
 MAX_BREAKDOWNS = 2
 
 

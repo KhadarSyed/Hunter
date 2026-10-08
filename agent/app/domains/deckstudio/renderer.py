@@ -41,7 +41,7 @@ def render_slide(slide: SlideSpec, tokens: DeckTokens, n: int, total: int, base_
     charts = [chart_svg(c, tokens, logos, w, h) for c in slide.charts]
     return _env.get_template("slide.html.j2").render(s=slide, t=tokens, n=n, total=total, base_n=base_n, period=period,
                                                      source=source, image=image, charts=charts, logos=logos,
-                                                     marks=marks or {"brand": None, "name": "", "strip": []})
+                                                     marks=marks or {"brand": None, "name": "", "strip": [], "cites": {}})
 
 
 MAX_STRIP_LOGOS = 6
@@ -50,7 +50,10 @@ MAX_STRIP_LOGOS = 6
 def _marks(spec: DeckSpec, out_dir: Path) -> dict:
     """The client's logo (cover and footers) and the competitive set (cover), copied into assets/."""
     strip = [(name, rel) for name, p in list(spec.logo_strip.items())[:MAX_STRIP_LOGOS] if (rel := _asset(p, out_dir))]
-    return {"brand": _asset(spec.brand_logo, out_dir), "name": spec.title, "strip": strip}
+    cites = {n: {"outlet": m.get("outlet") or "", "icon": _asset(m.get("icon"), out_dir)}
+             for n, m in (spec.citation_meta or {}).items()}
+    return {"brand": _asset(spec.brand_logo, out_dir), "name": spec.title, "strip": strip, "cites": cites,
+            "product": _asset(spec.product_image, out_dir), "product_name": spec.product_name}
 
 
 def render_deck(spec: DeckSpec, out_dir: Path, slide_html: dict[str, str] | None = None, source: str = "Meltwater") -> Path:

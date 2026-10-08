@@ -17,6 +17,7 @@ class EngineRow:
     entities: dict = field(default_factory=dict)
     tags: dict = field(default_factory=dict)          # question dimension key -> values the LLM tagged
     author_type: str = ""
+    brand_mention: str = ""                           # enrichment's literal / figurative / none
 
 
 @dataclass

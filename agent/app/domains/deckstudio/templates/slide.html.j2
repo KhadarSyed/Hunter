@@ -10,6 +10,7 @@
     {% if s.type == 'cover' and s.notes %}<div class="kicker" style="margin-top:26px;color:var(--on-dark);opacity:.8">{{ s.notes }}</div>{% endif %}
   </div>
   {% if s.type == 'cover' and marks.brand %}<div class="logo-chip" style="position:absolute;left:110px;top:90px"><img class="brand-logo" src="{{ marks.brand }}" alt="{{ marks.name }}" style="height:84px;max-width:320px;object-fit:contain"></div>{% endif %}
+  {% if s.type == 'cover' and marks.product %}<div class="product-card" style="position:absolute;right:110px;top:90px;width:420px"><img class="product-shot" src="{{ marks.product }}" alt="{{ marks.product_name }}"><div class="kicker" style="margin-top:12px">{{ marks.product_name }}</div></div>{% endif %}
   {% if s.type == 'cover' and marks.strip %}<div style="position:absolute;left:110px;right:110px;bottom:64px;display:flex;align-items:center;gap:16px;flex-wrap:wrap"><span class="kicker" style="color:var(--on-dark);opacity:.85;margin-right:6px">Brand and competitive set</span>{% for name, rel in marks.strip %}<span class="logo-chip"><img src="{{ rel }}" alt="{{ name }}" style="height:40px;max-width:150px;object-fit:contain"></span>{% endfor %}</div>{% endif %}
 {% elif s.treatment == "A" %}
   <div class="photo" style="inset:0;background-image:{{ bg }}"></div><div class="overlay"></div>
@@ -23,12 +24,12 @@
     {% if charts %}<div style="height:580px">{{ charts[0] | safe }}</div>
     {% elif s.tables and s.type != 'scorecard' %}{% include "table.html.j2" %}
     {% else %}<div class="cards" style="grid-template-columns:repeat({{ [s.cards|length, 3]|min or 1 }},1fr)">
-      {% for c in s.cards[:6] %}<div class="card">{% if c.thumb %}<img class="thumb" src="{{ c.thumb }}" alt="">{% endif %}<h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}{% if c.note %} — {{ c.note }}{% endif %}</p></div>{% endfor %}</div>
+      {% for c in s.cards[:6] %}<div class="card build">{% if c.thumb %}<img class="thumb" src="{{ c.thumb }}" alt="">{% endif %}<h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}{% if c.note %} — {{ c.note }}{% endif %}</p>{% if c.citations and marks.cites %}<div class="cites">{% for n in c.citations[:3] %}{% set m = marks.cites.get(n|string) %}{% if m %}<span class="cite">{% if m.icon %}<img src="{{ m.icon }}" alt="">{% endif %}{{ m.outlet }}</span>{% endif %}{% endfor %}</div>{% endif %}</div>{% endfor %}</div>
       {% if s.type == 'scorecard' and s.tables and s.tables[0].rows %}<div style="margin-top:22px">{% include "table.html.j2" %}</div>{% endif %}
     {% endif %}
   </div>
   {% if charts and s.cards %}<div class="cards reveal" style="position:absolute;left:1190px;right:70px;top:320px;grid-template-columns:1fr">
-    {% for c in s.cards[:3] %}<div class="card" style="background:rgba(255,255,255,.94)">{% if c.thumb %}<img class="thumb" src="{{ c.thumb }}" alt="">{% endif %}<h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}</p></div>{% endfor %}</div>{% endif %}
+    {% for c in s.cards[:3] %}<div class="card build" style="background:rgba(255,255,255,.94)">{% if c.thumb %}<img class="thumb" src="{{ c.thumb }}" alt="">{% endif %}<h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}</p>{% if c.citations and marks.cites %}<div class="cites">{% for n in c.citations[:3] %}{% set m = marks.cites.get(n|string) %}{% if m %}<span class="cite">{% if m.icon %}<img src="{{ m.icon }}" alt="">{% endif %}{{ m.outlet }}</span>{% endif %}{% endfor %}</div>{% endif %}</div>{% endfor %}</div>{% endif %}
   {% if charts %}<div class="nlabel" style="position:absolute;right:80px;top:280px;color:var(--on-dark)">N = {{ base_n }}</div>{% endif %}
 {% elif s.treatment == "C" %}
   <div class="photo" style="left:0;top:0;bottom:0;width:672px;background-image:{{ bg }}"></div>
@@ -49,7 +50,7 @@
     <div class="title clamp" style="margin-top:8px;font-size:40px">{{ s.title }}</div>
   </div>
   <div class="vwall reveal">
-    {% for c in s.cards[:9] %}<figure class="vcell">{% if c.image %}<img class="vshot" src="{{ c.image }}" alt="">{% endif %}
+    {% for c in s.cards[:9] %}<figure class="vcell build">{% if c.image %}<img class="vshot" src="{{ c.image }}" alt="">{% endif %}
       <figcaption><b>{{ c.headline }}</b> · {{ c.text }}</figcaption></figure>{% endfor %}
   </div>
 {% else %}

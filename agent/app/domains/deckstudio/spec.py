@@ -60,6 +60,9 @@ class DeckSpec:
     slides: list[SlideSpec]
     brand_logo: str = ""                                          # the client's logo: cover and every footer
     logo_strip: dict[str, str] = field(default_factory=dict)      # competitive set shown on the cover
+    citation_meta: dict[str, dict] = field(default_factory=dict)  # "n" -> {outlet, icon}: cards cite by name + icon
+    product_image: str = ""                                       # the client's product, shown on the cover
+    product_name: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)

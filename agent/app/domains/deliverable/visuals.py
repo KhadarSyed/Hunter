@@ -20,7 +20,7 @@ ICONS = {
     "share_kpi": "lucide:pie-chart", "volume_trend": "lucide:trending-up", "sentiment_split": "lucide:smile",
     "outlet_ranking": "lucide:newspaper", "reach": "lucide:radio-tower", "theme_clusters": "lucide:layout-grid",
     "entities": "lucide:users", "brand_sov": "lucide:award", "top_articles": "lucide:file-text",
-    "question_breakdown": "lucide:bar-chart-horizontal", "dimension_crosstab": "lucide:table-2",
+    "media_split": "lucide:share-2", "question_breakdown": "lucide:bar-chart-horizontal", "dimension_crosstab": "lucide:table-2",
     "takeaway": "lucide:lightbulb", "methodology": "lucide:database", "overview": "lucide:bar-chart-3",
 }
 _ISO = {"united states": "us", "usa": "us", "us": "us", "united kingdom": "gb", "uk": "gb", "canada": "ca",
@@ -49,11 +49,14 @@ def palette_from_logo(path: Path | None) -> list[str]:
     return out
 
 
-def logos(names: list[str], folder: Path) -> dict[str, Path]:
+def logos(names: list[str], folder: Path, judge=None) -> dict[str, Path]:
+    """Downloaded logos by brand; one the judge says belongs to another brand is left out (no logo beats a
+    wrong one: a name lookup can land on a different company's site)."""
     from .cli import _download_logos
     folder.mkdir(parents=True, exist_ok=True)
     got = _download_logos([{"brand": n} for n in names if n], folder)
-    return {name: path for name, path in got.items() if path}
+    return {name: path for name, path in got.items()
+            if path and (judge is None or judge(path.read_bytes(), name) is not False)}
 
 
 def _fetch_svg(icon_id: str, color: str) -> str | None:
@@ -144,3 +147,34 @@ def hero_image(query: str, folder: Path) -> tuple[Path | None, str]:
     out.write_bytes(r.content)
     photographer = info.get("photographer") or "Pexels"
     return out, f"Photo: {photographer} / Pexels"
+
+
+# Words in a chart label -> an Iconify icon (Material Design Icons). First match wins; labels with no match get none.
+VALUE_ICONS = (
+    (("soccer", "football", "futsal", "5-a-side", "five-a-side"), "mdi:soccer"),
+    (("trail", "hiking", "hike"), "mdi:run"),
+    (("running", "jogging", "run", "marathon", "track", "athletics", "sprint"), "mdi:run"),
+    (("tennis",), "mdi:tennis"),
+    (("pickleball", "padel", "badminton", "squash", "racquet"), "mdi:badminton"),
+    (("basketball", "netball"), "mdi:basketball"),
+    (("volleyball",), "mdi:volleyball"),
+    (("hockey", "lacrosse"), "mdi:hockey-sticks"),
+    (("rugby",), "mdi:rugby"),
+    (("baseball", "softball"), "mdi:baseball"),
+    (("golf",), "mdi:golf"),
+    (("cycling", "bike", "biking"), "mdi:bike"),
+    (("swim",), "mdi:swim"),
+    (("gym", "fitness", "weight", "crossfit"), "mdi:dumbbell"),
+    (("yoga",), "mdi:yoga"),
+    (("ski", "snowboard"), "mdi:ski"),
+    (("skate",), "mdi:skateboard"),
+    (("cut", "scrape", "scratch", "blister", "graze", "wound", "burn", "injur"), "mdi:bandage"),
+)
+
+
+def value_icon(label: str) -> str | None:
+    words = re.findall(r"[a-z0-9-]+", (label or "").lower())
+    for keys, icon in VALUE_ICONS:
+        if any(w == k or w.startswith(k) for w in words for k in keys):
+            return icon
+    return None

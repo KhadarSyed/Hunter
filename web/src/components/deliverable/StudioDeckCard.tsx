@@ -7,12 +7,19 @@ const STATUS_STYLE: Record<string, string> = {
   partial: "bg-amber-50 text-amber-700 border-amber-200",
   missing: "bg-red-50 text-red-700 border-red-200",
 };
+const CHECK_STYLE: Record<string, string> = {
+  pass: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  warn: "bg-amber-50 text-amber-700 border-amber-200",
+  fail: "bg-red-50 text-red-700 border-red-200",
+};
 
 /** The brand-led presentation: live preview, why this design, how well it answers the brief, downloads. */
 export function StudioDeckCard({ projectId, runId, studio }: { projectId: number; runId: number; studio: DeliverableSection }) {
   const deckUrl = intelApi.deliverableDeckUrl(projectId, runId, "deck.html");
   const score = studio.scorecard ?? { covered: 0, partial: 0, missing: 0 };
   const gaps = (studio.checklist ?? []).filter((r) => r.status !== "covered");
+  const checks = studio.validation ?? [];
+  const openChecks = checks.filter((c) => c.status !== "pass");
   return (
     <section className="space-y-4 rounded-2xl border border-violet-100 bg-white p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -57,6 +64,30 @@ export function StudioDeckCard({ projectId, runId, studio }: { projectId: number
           </ul>
         )}
       </div>
+      {checks.length > 0 && (
+        <div>
+          <p className="mb-2 text-sm font-semibold text-slate-800">Deck checks</p>
+          <div className="flex flex-wrap gap-2">
+            {(["pass", "warn", "fail"] as const).map((k) => (
+              <span key={k} className={`rounded-full border px-3 py-1 text-xs font-semibold ${CHECK_STYLE[k]}`}>
+                {checks.filter((c) => c.status === k).length} {k === "pass" ? "passed" : k === "warn" ? "warnings" : "failed"}
+              </span>
+            ))}
+          </div>
+          {openChecks.length > 0 && (
+            <ul className="mt-3 space-y-1 text-xs text-slate-600">
+              {openChecks.map((c) => (
+                <li key={c.check}>
+                  <span className={`mr-1 font-semibold ${c.status === "fail" ? "text-red-700" : "text-amber-700"}`}>
+                    {c.status === "fail" ? "Failed" : "Warning"}:
+                  </span>
+                  {c.check} — {c.detail}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </section>
   );
 }

@@ -105,7 +105,8 @@ def _first_src(entries: list[dict], types: tuple[str, ...]) -> str | None:
     return None
 
 
-def fetch_kit(brand_name: str, folder: Path) -> BrandKit:
+def fetch_kit(brand_name: str, folder: Path, judge=None) -> BrandKit:
+    """`judge(image_bytes, brand) -> True/False/None` checks each logo candidate (see vision.is_logo_of)."""
     kit = BrandKit(name=brand_name)
     try:
         domain = resolve_brand_domain(brand_name)
@@ -131,7 +132,33 @@ def fetch_kit(brand_name: str, folder: Path) -> BrandKit:
     banner = _first_src(data.get("images") or [], ("banner", "other"))
     if banner:
         kit.banner = _download_image(banner, folder / f"{slug}_banner.png")
-    logo = _first_src(data.get("logos") or [], ("logo", "symbol", "icon"))
-    if logo:
-        kit.logo = _download_image(logo, folder / f"{slug}_logo.png")
+    kit.logo = _verified_logo(data.get("logos") or [], brand_name, folder, slug, judge)
     return kit
+
+
+def _logo_srcs(entries: list[dict]) -> list[str]:
+    """Every logo Brandfetch lists, logos before symbols before icons, raster formats first."""
+    out = []
+    for wanted in ("logo", "symbol", "icon"):
+        for e in entries:
+            if e.get("type") == wanted:
+                fmts = sorted(e.get("formats") or [], key=lambda f: f.get("format") not in ("png", "jpeg", "jpg"))
+                if fmts and fmts[0].get("src") and fmts[0]["src"] not in out:
+                    out.append(fmts[0]["src"])
+    return out
+
+
+def _verified_logo(entries: list[dict], brand_name: str, folder: Path, slug: str, judge) -> Path | None:
+    """The first logo the vision check confirms is this brand's: Brandfetch records can carry a sister brand's
+    wordmark (band-aid.com lists Neosporin as its "logo"). No judge, or none it can judge: the first one."""
+    unjudged = None
+    for i, src in enumerate(_logo_srcs(entries)):
+        path = _download_image(src, folder / f"{slug}_logo{'' if i == 0 else f'_{i}'}.png")
+        if path is None:
+            continue
+        verdict = judge(path.read_bytes(), brand_name) if judge else None
+        if verdict is True:
+            return path
+        if verdict is None and unjudged is None:
+            unjudged = path
+    return unjudged

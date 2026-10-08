@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from ...core import config
+from . import validate
 from . import (art_director, assets, checklist, creative, design_systems, exporter, image_brief, indexer, planner, renderer, verbatims,
                vision)
 from .planner import PlanInput
@@ -32,6 +33,25 @@ def _judge(llm, subjects, label: str, checks: dict):
         mine["n"] += 1
         return vision.matches(llm, data, subjects, label)
     return judge
+
+
+MAX_PRODUCT_TRIES = 3
+
+
+def attach_product(spec, products: list[str], find) -> None:
+    """The client's product beside its logo on the cover: the first brief product `find` returns a photo for."""
+    for name in products[:MAX_PRODUCT_TRIES]:
+        path = find(name)
+        if path:
+            spec.product_image, spec.product_name = str(path), name
+            return
+
+
+def add_chart_logos(slide, logos: dict[str, Path]) -> None:
+    """Logos beside chart labels, added to what the planner already put on the slide (e.g. source icons)."""
+    names = [c for ch in slide.charts for c in ch.get("categories", [])] + \
+            [str(row[0]) for t in slide.tables for row in t.get("rows", []) if row]
+    slide.logos = {**slide.logos, **{n: str(logos[n]) for n in names if n in logos}}
 
 
 def attach_logos(spec, logos: dict[str, Path], client: str) -> None:
@@ -78,8 +98,7 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     checks = {"n": 0}
     for k, s in enumerate(spec.slides, start=1):
         run.within("assets", 0.9 * k / len(spec.slides), f"Finding photos and logos for slide {k} of {len(spec.slides)}")
-        names = [c for ch in s.charts for c in ch.get("categories", [])]
-        s.logos = {n: str(logos[n]) for n in names if n in logos}
+        add_chart_logos(s, logos)
         if s not in photo_slides:
             continue
         role = "panel" if s.treatment == "C" else "background"
@@ -97,6 +116,13 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
             run.log(f"Photo for {s.id}: {photo.licence} - {photo.why} - {photo.source_url[:90]}")
         else:
             run.log(f"No relevant photo for {s.id} ({photo.why}); brand gradient kept")
+    def product_photo(name: str):
+        subjects = image_brief.Subjects([plan_input.title], [name], plan_input.category, f"{name} product packshot")
+        return assets.find_photo(f"{plan_input.title} {name}", "panel", deck_dir / "photos", used, subjects=subjects,
+                                 judge=_judge(llm, subjects, f"{name} by {plan_input.title}", checks)).path
+    attach_product(spec, plan_input.brand_products, product_photo)
+    if spec.product_image:
+        run.log(f"Cover product: {spec.product_name}")
     walls = [s for s in spec.slides if s.type == "verbatim_wall"]
     shots: dict[str, str] = {}
     for k, s in enumerate(walls, start=1):
@@ -140,7 +166,13 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     out = exporter.export_all(html, spec, deck_dir, spec.title)
     run.stage("export", "done", f"{len(out['pngs'])} slides")
     counts = {k: sum(1 for r in rows if r["status"] == k) for k in ("covered", "partial", "missing")}
-    return {"html": html, "pptx": out["pptx"], "pdf": out["pdf"], "family": spec.family,
+    checks = validate.validate_deck(spec, plan_input.rqs, rows, plan_input.brand_products,
+                                    has_competitors=len(plan_input.brands) > 1)
+    for c in checks:
+        if c["status"] != "pass":
+            run.log(f"Validation {c['status']}: {c['check'][:80]} - {c['detail'][:120]}")
+    run.log(f"Validation: {sum(c['status'] == 'pass' for c in checks)} of {len(checks)} checks pass")
+    return {"validation": checks, "html": html, "pptx": out["pptx"], "pdf": out["pdf"], "family": spec.family,
             "family_reason": spec.family_reason,
             "design_system": entry["name"], "design_reason": design_why, "checklist": rows, "scorecard": counts, "report": report,
             "assets": found, "spec": spec, "deck_dir": deck_dir}

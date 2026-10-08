@@ -87,7 +87,8 @@ MELTWATER_COLUMN_MAP = {
     "sentiment": ["sentiment", "tone", "polarity"],
     "language": ["language", "lang"],
     "country": ["country", "geography", "region", "location"],
-    "media_type": ["media_type", "media type", "type", "medium", "document_type"],
+    # Meltwater exports say news/social in "Information Type"; "Source Type" (online news, twitter...) is next best
+    "media_type": ["media_type", "media type", "type", "medium", "document_type", "information type", "source type"],
 }
 
 
@@ -160,11 +161,14 @@ def _normalize_columns(records: list[dict]) -> list[dict]:
 
     raw_columns = [c for c in records[0].keys() if isinstance(c, str)]
     col_map = {}
+    # Every column that could fill a field, in file order: Meltwater leaves "Opening Text" blank on many rows
+    # while "Hit Sentence" holds the text, so an empty first match falls through to the next one
+    candidates: dict[str, list[str]] = {}
     for standard, variants in MELTWATER_COLUMN_MAP.items():
-        for col in raw_columns:
-            if col.lower().strip() in variants:
-                col_map[col] = standard
-                break
+        matching = [col for col in raw_columns if col.lower().strip() in variants]
+        if matching:
+            col_map[matching[0]] = standard
+            candidates[standard] = matching
 
     normalized = []
     for r in records:
@@ -174,6 +178,9 @@ def _normalize_columns(records: list[dict]) -> list[dict]:
                 continue
             mapped = col_map.get(raw_col, raw_col.lower().strip().replace(" ", "_"))
             row[mapped] = value
+        for standard, cols in candidates.items():
+            if row.get(standard) in (None, ""):
+                row[standard] = next((r[c] for c in cols if r.get(c) not in (None, "")), row.get(standard))
         normalized.append(row)
     return normalized
 

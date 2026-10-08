@@ -11,9 +11,10 @@ from .spec import DeckSpec
 ASK_MODULES = [
     (r"theme|topic", {"theme_clusters"}), (r"expert", {"entities:experts"}), (r"affiliat", {"entities:experts"}),
     (r"celebrit", {"entities:celebrities"}), (r"brand|share of voice|competitor", {"brand_sov", "entities:brands"}),
-    (r"sentiment|tone", {"sentiment_split"}), (r"outlet|publication", {"outlet_ranking"}),
+    (r"sentiment|tone", {"sentiment_split", "brand_sentiment"}), (r"outlet|publication", {"outlet_ranking"}),
     (r"trend|over time|month|volume", {"volume_trend"}), (r"reach|audience", {"reach"}),
     (r"retailer", {"entities:retailers"}),
+    (r"social|editorial|source split|media type", {"media_split"}),
     (r"\bby (sport|activit|injur|type|categor|product|occasion)|which (sport|activit|injur|product)",
      {"question_breakdown", "dimension_crosstab"}),
 ]

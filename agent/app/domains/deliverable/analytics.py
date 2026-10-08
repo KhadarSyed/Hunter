@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections import Counter
 
 from ...agents import question_dimensions as qd
+from . import extract as extract_mod
 from .engine_types import RQ, EngineRow, Section
 from .metrics import TOP_PEAKS, month_label
 
@@ -163,7 +164,7 @@ def _top_articles(module, rq, rows, base_n, _):
 def _entities(module, rq, rows, base_n, extraction):
     kind = module["entity_kind"]
     if extraction is None:
-        return _section(module, rq, skipped="Entity extraction unavailable (Azure OpenAI not reachable)")
+        return _section(module, rq, skipped="Entity extraction unavailable (Azure OpenAI unreachable or refused it)")
     people: dict[str, dict] = {}
     for r in rows:
         for item in extraction.get(r.article.norm_url, []):
@@ -211,9 +212,11 @@ def _entities(module, rq, rows, base_n, extraction):
             facts += [f"{name}: {c} of {typed} experts ({_pct(c, typed)}%)" for name, c in mix]
             chart = {"kind": "doughnut", "categories": [n for n, _ in mix], "values": [_pct(c, typed) for _, c in mix],
                      "unit": "percent", "peaks": [], "series_label": "Expert type"}
+    sampled = min(len(rows), extract_mod.EXTRACT_SAMPLE)
+    notes = [f"Named in the {sampled} most-read of {len(rows)} articles"] if len(rows) > sampled else []
     return _section(module, rq, chart=chart, table={"header": header, "rows": rows_out,
                                                      "col_widths": [3.2] + [2.2] * len(cols) + [1.2]},
-                    facts=facts, candidate_urls=[e["urls"][0] for e in ranked[:6]])
+                    facts=facts + notes, candidate_urls=[e["urls"][0] for e in ranked[:6]], notes=notes)
 
 
 def _words(value) -> str:
@@ -223,6 +226,37 @@ def _words(value) -> str:
         return "Not stated"
     words = ["HCP" if w.lower() == "hcp" else w for w in text.replace("_", " ").split()]
     return " ".join(words)[:1].upper() + " ".join(words)[1:] if words else ""
+
+
+_SOCIAL_TYPES = ("social", "twitter", "facebook", "instagram", "tiktok", "reddit", "youtube", "forum", "x ")
+_SOCIAL_HOSTS = ("x.com", "twitter.com", "facebook.com", "instagram.com", "tiktok.com", "reddit.com", "youtube.com",
+                 "threads.net", "pinterest.com", "linkedin.com")
+
+
+def _channel(row: EngineRow) -> str:
+    """Social or Editorial from the export's source type; a row without one is judged by its address."""
+    media = (row.media_type or "").strip().lower()
+    if media:
+        return "Social" if any(t in f"{media} " for t in _SOCIAL_TYPES) else "Editorial"
+    host = row.article.url.split("//", 1)[-1].split("/", 1)[0].lower().removeprefix("www.")
+    if any(host == h or host.endswith("." + h) for h in _SOCIAL_HOSTS):
+        return "Social"
+    return ""
+
+
+def _media_split(module, rq, rows, base_n, _):
+    counts = Counter(c for c in (_channel(r) for r in rows) if c)
+    known = sum(counts.values())
+    if not known:
+        return _section(module, rq, skipped="No source type in the data")
+    cats = [k for k in ("Social", "Editorial") if counts.get(k)]
+    unknown = len(rows) - known
+    notes = [f"{unknown} of {len(rows)} articles have no source type"] if unknown else []
+    return _section(module, rq, chart={"kind": "doughnut", "categories": cats,
+                                       "values": [_pct(counts[k], known) for k in cats], "unit": "percent",
+                                       "peaks": [], "series_label": "Source"},
+                    facts=[f"{rq.id}: {counts[k]} of {known} articles are {k.lower()} ({_pct(counts[k], known)}%)"
+                           for k in cats] + notes, notes=notes)
 
 
 def _values_of(row: EngineRow, dim: qd.Dimension) -> list[str]:
@@ -281,7 +315,7 @@ def _crosstab(module, rq, rows, base_n, _):
 _HANDLERS = {"share_kpi": _share_kpi, "volume_trend": _trend, "outlet_ranking": _outlets,
              "sentiment_split": _sentiment, "reach": _reach, "theme_clusters": _themes, "brand_sov": _brand_sov,
              "top_articles": _top_articles, "entities": _entities, "question_breakdown": _breakdown,
-             "dimension_crosstab": _crosstab}
+             "dimension_crosstab": _crosstab, "media_split": _media_split}
 
 
 def compute_module(module: dict, rq: RQ, rows: list[EngineRow], base_n: int,

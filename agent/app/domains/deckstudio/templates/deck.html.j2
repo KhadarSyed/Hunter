@@ -28,6 +28,11 @@ body.export .slide{position:relative;left:0;top:0;transform:none!important;displ
 .card p{font:400 19px/1.45 var(--body);-webkit-line-clamp:6}
 .footer{position:absolute;left:0;right:0;bottom:0;height:44px;padding:12px 60px;font:600 14px var(--chrome);letter-spacing:.12em;
 text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
+.cites{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.cite{display:inline-flex;align-items:center;gap:6px;font:600 13px var(--chrome);color:var(--muted);background:rgba(0,0,0,.05);border-radius:999px;padding:4px 10px 4px 6px}
+.cite img{width:18px;height:18px;border-radius:4px;object-fit:contain;background:#fff}
+.product-card{background:#fff;border-radius:18px;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,.25);color:#1f1f1f;text-align:center}
+.product-shot{width:100%;height:300px;object-fit:contain;display:block}
 .logo-chip{display:inline-flex;align-items:center;background:#fff;border-radius:12px;padding:8px 14px;box-shadow:0 4px 18px rgba(0,0,0,.18)}
 .logo-chip.mark{padding:2px 8px;border-radius:6px;box-shadow:none;border:1px solid rgba(0,0,0,.08)}
 .nlabel{font:700 20px var(--chrome);color:var(--primary)}
@@ -52,6 +57,13 @@ body:not(.export) .slide.active .cards .card:nth-child(2){animation-delay:.08s}
 body:not(.export) .slide.active .cards .card:nth-child(3){animation-delay:.16s}
 body:not(.export) .slide.active .cards .card:nth-child(n+4){animation-delay:.24s}
 body:not(.export) .slide.active svg.chart{animation:fadescale .7s ease both}}
+@media (prefers-reduced-motion:no-preference){body:not(.export) .slide.active .build{animation:rise .55s ease both}
+body:not(.export) .slide.active .build:nth-child(2){animation-delay:.35s}
+body:not(.export) .slide.active .build:nth-child(3){animation-delay:.7s}
+body:not(.export) .slide.active .build:nth-child(4){animation-delay:1.05s}
+body:not(.export) .slide.active .build:nth-child(5){animation-delay:1.4s}
+body:not(.export) .slide.active .build:nth-child(6){animation-delay:1.75s}
+body:not(.export) .slide.active .build:nth-child(n+7){animation-delay:2.1s}}
 @keyframes rise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
 @keyframes fadescale{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
 </style></head>

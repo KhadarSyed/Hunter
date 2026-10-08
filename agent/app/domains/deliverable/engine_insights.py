@@ -12,7 +12,11 @@ N_INSIGHTS = 3
 CANDIDATES = 12
 
 
-def _candidates(sections: list[Section], rows: list[EngineRow]):
+def _candidates(sections: list[Section], rows: list[EngineRow], evidence: list[EngineRow] | None = None):
+    """Articles an insight may cite. With `evidence` (brand-relevant articles, best first), only those: a chart's
+    top article that never names the brand is not a source for a brand deck."""
+    if evidence is not None:
+        rows = evidence
     by_url = {r.article.norm_url: r.article for r in rows}
     ordered = [u for s in sections for u in s.candidate_urls if u in by_url] + [r.article.norm_url for r in rows]
     seen, out = set(), []
@@ -23,11 +27,12 @@ def _candidates(sections: list[Section], rows: list[EngineRow]):
     return out[:CANDIDATES]
 
 
-def rq_insights(rq: RQ, sections: list[Section], rows: list[EngineRow], registry: CitationRegistry, llm) -> list[dict]:
+def rq_insights(rq: RQ, sections: list[Section], rows: list[EngineRow], registry: CitationRegistry, llm,
+                evidence: list[EngineRow] | None = None) -> list[dict]:
     facts = [f for s in sections if not s.skipped for f in s.facts]
     if not facts or not rows:
         return []
-    return draft_section(rq.question or rq.id, facts, _candidates(sections, rows), registry, llm, N_INSIGHTS)
+    return draft_section(rq.question or rq.id, facts, _candidates(sections, rows, evidence), registry, llm, N_INSIGHTS)
 
 
 def executive_answers(rqs: list[RQ], sections_by_rq: dict[str, list[Section]], base_n: int) -> list[dict]:
@@ -57,3 +62,17 @@ def _breakdown_answer(rq: RQ, sections: list[Section]) -> dict | None:
     rest = ", ".join(f"{c} ({v})" for c, v in zip(cats[1:4], vals[1:4]))
     text = f"{cats[0]} leads with {vals[0]} of {n} articles{share}" + (f", then {rest}" if rest else "")
     return {"rq_id": rq.id, "question": rq.question, "value": f"{pct}%", "answer": text}
+
+
+def section_summaries(rq: RQ, sections: list[Section], rows: list[EngineRow], registry: CitationRegistry, llm,
+                      evidence: list[EngineRow] | None = None) -> dict[str, list[dict]]:
+    """One cited summary per drawn chart or table (not the KPI tile), so no evidence slide goes without its
+    answer and its sources."""
+    out = {}
+    for s in sections:
+        if s.skipped or not (s.chart or s.table) or (s.chart or {}).get("kind") == "kpi" or not s.facts:
+            continue
+        summary = draft_section(f"{rq.question} - {s.title}", s.facts, _candidates([s], rows, evidence), registry, llm, 1)
+        if summary:
+            out[s.id] = summary[:1]
+    return out

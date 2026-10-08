@@ -55,7 +55,8 @@ def _row(rec: dict, rq: str | None, source_file: str, index: int) -> EngineRow |
     return EngineRow(article=article, rq_ids={rq} if rq else set(), media_type=str(rec.get("media_type") or ""),
                      themes=_theme_labels(rec.get("themes")), entities=rec.get("entities") or {},
                      tags=rec.get("question_tags") if isinstance(rec.get("question_tags"), dict) else {},
-                     author_type=str(rec.get("author_type") or ""))
+                     author_type=str(rec.get("author_type") or ""),
+                     brand_mention=str(rec.get("brand_mention") or ""))
 
 
 def load_rows(project_id: int, rqs: list[RQ]) -> list[EngineRow]:

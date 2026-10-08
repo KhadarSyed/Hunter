@@ -10,6 +10,7 @@ from .engine_types import EngineRow
 
 logger = logging.getLogger(__name__)
 BATCH = 8
+EXTRACT_SAMPLE = 400     # articles classified per question: the most-read ones, so cost is bounded on 40k+ rows
 EXTRACT_WORKERS = 4      # concurrent model calls; one batch at a time made big questions take minutes
 MAX_TEXT = 3000
 
@@ -64,6 +65,29 @@ def _classify_batch(llm, batch: list[EngineRow], kind: str, example: str) -> dic
     return {r.get("id"): r.get("items") or [] for r in parsed.get("results") or [] if isinstance(r, dict)}
 
 
+def most_read(rows: list[EngineRow], n: int = EXTRACT_SAMPLE) -> list[EngineRow]:
+    return sorted(rows, key=lambda r: (-r.article.reach, -r.copies, r.article.norm_url))[:n]
+
+
+def _classify_resilient(llm, batch: list[EngineRow], kind: str, example: str) -> dict:
+    """A refused batch (Azure's content filter, a malformed reply) is retried one article at a time, so only the
+    article that trips it is left out. Raises only when every article fails."""
+    try:
+        return _classify_batch(llm, batch, kind, example)
+    except ExtractionUnavailable:
+        if len(batch) == 1:
+            raise
+    out: dict = {}
+    for i, row in enumerate(batch):
+        try:
+            out[i] = _classify_batch(llm, [row], kind, example).get(0, [])
+        except ExtractionUnavailable as e:
+            logger.warning("extraction skipped one article for %s: %s", kind, str(e)[:80])
+    if not out:
+        raise ExtractionUnavailable("every article in the batch was refused")
+    return out
+
+
 def extract(llm, rows: list[EngineRow], kind: str, progress=None) -> dict[str, list[dict]]:
     """`progress(done, total)` is called as articles are classified (cached ones count as done at once)."""
     schema = FIELDS[kind]
@@ -86,19 +110,25 @@ def extract(llm, rows: list[EngineRow], kind: str, progress=None) -> dict[str, l
     example = json.dumps({k: (v[0] if v else "") for k, v in schema.items()})
     batches = [todo[start:start + BATCH] for start in range(0, len(todo), BATCH)]
     with ThreadPoolExecutor(max_workers=EXTRACT_WORKERS) as pool:
-        futures = {pool.submit(_classify_batch, llm, batch, kind, example): batch for batch in batches}
-        try:
-            for fut in as_completed(futures):
-                batch, by_id = futures[fut], fut.result()
-                for i, row in enumerate(batch):     # results are saved here, on one thread
-                    items = [c for c in (_clean(it, schema) for it in by_id.get(i, [])) if c]
-                    store.save_cached_classification(row.article.norm_url, kind, items, model)
-                    out[row.article.norm_url] = items
-                done += len(batch)
-                if progress:
-                    progress(done, len(rows))
-        except ExtractionUnavailable:
-            for f in futures:
-                f.cancel()
-            raise
+        futures = {pool.submit(_classify_resilient, llm, batch, kind, example): batch for batch in batches}
+        failed = 0
+        for fut in as_completed(futures):
+            batch = futures[fut]
+            try:
+                by_id = fut.result()
+            except ExtractionUnavailable as e:
+                failed += 1
+                logger.warning("extraction batch for %s failed: %s", kind, str(e)[:80])
+                by_id = {}
+            for i, row in enumerate(batch):     # results are saved here, on one thread; refused ones retry later
+                if i not in by_id:
+                    continue
+                items = [c for c in (_clean(it, schema) for it in by_id[i]) if c]
+                store.save_cached_classification(row.article.norm_url, kind, items, model)
+                out[row.article.norm_url] = items
+            done += len(batch)
+            if progress:
+                progress(done, len(rows))
+    if failed == len(batches):
+        raise ExtractionUnavailable("Azure OpenAI refused every batch")
     return out

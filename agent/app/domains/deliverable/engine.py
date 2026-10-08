@@ -14,20 +14,23 @@ from ...core import config, store
 from ...core.events import broadcast
 from . import (analytics, brand_kit, catalog, engine_insights, extract, factcheck, generic_deck, templates_index,
                visuals, word_brief)
+from . import brand_analytics, evidence
 from . import rows as R
 from .citations import CitationRegistry, domain_of
 from .engine_types import RQ, Section
 from ..agent import memory as agent_memory
 from ..agent.repair import issues
-from ..deckstudio import verbatims
+from ..deckstudio import verbatims, vision
 from ..deckstudio.pipeline import run_studio
-from ..deckstudio.planner import PlanInput
+from ..deckstudio.checklist import brief_asks
+from ..deckstudio.planner import BRAND_KEY, PlanInput
 from ..strategy.dimensions import project_dimensions as question_dimensions
 
 logger = logging.getLogger(__name__)
 STAGES = ("gate", "ingest", "routing", "plan", "classify", "compute", "insights", "template", "render", "qc",
           "index", "design", "assets", "compose", "export")
 MAX_LOGOS = 24
+CITE_POOL = 12          # brand / competitor articles offered to the brand chapter's summaries
 _lock = threading.Lock()
 
 
@@ -207,19 +210,19 @@ def _extract_all(llm, rqs, plans, rows_by_rq, run: "_Run | None" = None) -> tupl
     extraction: dict[tuple[str, str], dict | None] = {}
     skipped: set[str] = set()
     jobs = [(q, m["entity_kind"]) for q in rqs for m in plans[q.id]["modules"] if m["module"] == "entities"]
-    total = sum(len(rows_by_rq[q.id]) for q, _ in jobs) or 1
+    total = sum(min(len(rows_by_rq[q.id]), extract.EXTRACT_SAMPLE) for q, _ in jobs) or 1
     finished = 0
     for q, kind in jobs:
-        n = len(rows_by_rq[q.id])
+        n = min(len(rows_by_rq[q.id]), extract.EXTRACT_SAMPLE)
 
         def report(done, _of, q=q, kind=kind, n=n, base=finished):
             if run:
                 run.within("classify", (base + done) / total,
                            f"Classifying {kind} in {_rq_label(q, 50)}: {done} of {n} articles")
         if run:
-            run.log(f"{_rq_label(q, 50)}: classifying {kind} in {n} articles")
+            run.log(f"{_rq_label(q, 50)}: classifying {kind} in the {n} most-read articles")
         try:
-            extraction[(q.id, kind)] = extract.extract(llm, rows_by_rq[q.id], kind, progress=report)
+            extraction[(q.id, kind)] = extract.extract(llm, extract.most_read(rows_by_rq[q.id]), kind, progress=report)
         except extract.ExtractionUnavailable as e:
             extraction[(q.id, kind)] = None
             skipped.add(kind)
@@ -283,18 +286,46 @@ def _page_visuals(project: dict, sections_by_rq, kit_logo_url: str | None) -> di
             "logos": logos, "country": visuals.country_code(country), "brand": brand}
 
 
+_OUTLET_MODULES = ("outlet_ranking", "reach")
+
+
+def _label_icons(sections_by_rq, rows, folder: Path, color: str) -> dict[str, Path]:
+    """An icon beside every chart label that has one: a sport's or an injury's symbol, an outlet's site icon."""
+    domain_by_outlet: dict[str, str] = {}
+    for r in rows:
+        if r.article.outlet and r.article.outlet not in domain_by_outlet:
+            domain_by_outlet[r.article.outlet] = domain_of(r.article.url)
+    out: dict[str, Path] = {}
+    for secs in sections_by_rq.values():
+        for s in secs:
+            for label in (s.chart or {}).get("categories") or []:
+                if label in out:
+                    continue
+                if s.module in _OUTLET_MODULES:
+                    icon = visuals.favicon_png(domain_by_outlet.get(label, ""), folder / "favicons")
+                else:
+                    icon_id = visuals.value_icon(label)
+                    icon = visuals.icon_png(icon_id, folder / "icons", color) if icon_id else None
+                if icon:
+                    out[label] = icon
+    return out
+
+
 def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_rq, answers, takeaways,
-                methodology, registry, base, out_dir: Path, rq_titles: dict[str, str]) -> generic_deck.DeckInput:
+                methodology, registry, base, out_dir: Path, rq_titles: dict[str, str],
+                llm=None) -> generic_deck.DeckInput:
     spec = project.get("spec") or {}
     brand = (spec.get("commissioning_brand") or {}).get("name") or project.get("brand") or "Research"
     industry = (spec.get("industry") or {}).get("name") or ""
     country = (spec.get("included_scope") or {}).get("geography") or spec.get("geography") or ""
-    kit = brand_kit.fetch_kit(brand, out_dir / "brand")
+    judge = (lambda data, name: vision.is_logo_of(llm, data, name)) if llm is not None else None
+    kit = brand_kit.fetch_kit(brand, out_dir / "brand", judge=judge)
     competitors = [e["name"] for e in spec.get("validated_entities") or [] if e.get("type") == "competitor"]
     # every brand or retailer drawn in a chart gets its logo looked up, not only the share-of-voice chart
     sov_brands = [c for secs in sections_by_rq.values() for s in secs if s.chart and not s.skipped
                   and (s.module == "brand_sov" or s.id.endswith(("-brands", "-retailers"))) for c in s.chart["categories"]]
-    logo_map = visuals.logos(list(dict.fromkeys(competitors + sov_brands))[:MAX_LOGOS], out_dir / "logos")
+    logo_map = visuals.logos(list(dict.fromkeys(competitors + sov_brands))[:MAX_LOGOS], out_dir / "logos", judge=judge)
+    logo_map = {**_label_icons(sections_by_rq, rows, out_dir, kit.accent), **logo_map}   # brand logos win
     if kit.logo:
         logo_map[brand] = kit.logo
     icons = {}
@@ -317,16 +348,20 @@ def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_
 
 
 def _plan_input(project: dict, inp, rqs, overview, sections_by_rq, insights_by_rq, answers, takeaways, methodology,
-                base: int, rq_titles: dict[str, str], verbatims_by_rq: dict | None = None) -> PlanInput:
+                base: int, rq_titles: dict[str, str], verbatims_by_rq: dict | None = None,
+                section_summaries: dict | None = None) -> PlanInput:
     spec = project.get("spec") or {}
     geography = (spec.get("included_scope") or {}).get("geography") or spec.get("geography") or ""
     return PlanInput(title=inp.title, subtitle=inp.subtitle, period=inp.period_label, base_n=base, rqs=rqs,
                      rq_titles=rq_titles, sections_by_rq=sections_by_rq, insights_by_rq=insights_by_rq,
                      answers=answers, takeaways=takeaways, overview=overview, methodology=methodology,
                      citations=[{**c, "icon": str(inp.citation_icons.get(c["n"]) or "")} for c in inp.citations],
-                     scope_text=_scope_text(project), brands=list(inp.logos),
+                     scope_text=_scope_text(project), brands=[b.name for b in _brands(project, rqs)],
                      geography=str(geography), sources="Meltwater", verbatims_by_rq=verbatims_by_rq or {},
-                     products=_products(project), category=_category(project, inp.title))
+                     products=_products(project), category=_category(project, inp.title),
+                     section_summaries=section_summaries or {},
+                     brand_products=[e["name"] for e in (spec.get("validated_entities") or [])
+                                     if isinstance(e, dict) and e.get("type") == "product" and e.get("name")])
 
 
 MAX_PRODUCT_HINTS = 6
@@ -350,12 +385,30 @@ def _category(project: dict, title: str) -> str:
     return (named or " ".join(_TITLE_NOISE.sub(" ", title).split())).lower()
 
 
-def _verbatims_by_rq(rqs, rows_by_rq, insights_by_rq, registry) -> dict[str, list[dict]]:
-    """The articles behind each question's verbatim slide: its insights' citations first, then the widest reach."""
+def _verbatims_by_rq(rqs, rows_by_rq, insights_by_rq, registry, brands, dims_by_rq) -> dict[str, list[dict]]:
+    """Each question's verbatim wall: articles that name the brand and carry the question's intent (its
+    insights' citations first); competitors' on a wall of their own, keyed "<RQ>-COMPETITORS"."""
     cited = {c["n"]: c["url"] for c in registry.entries()}
-    return {q.id: verbatims.pick(rows_by_rq[q.id], [cited[n] for i in insights_by_rq[q.id]
-                                                    for n in i.get("citations", []) if n in cited])
-            for q in rqs}
+    out: dict[str, list[dict]] = {}
+    for q in rqs:
+        dims = dims_by_rq.get(q.id, [])
+        primary = evidence.for_question(rows_by_rq[q.id], brands, dims)
+        urls = {r.article.url for r in primary}
+        out[q.id] = verbatims.pick(primary, [cited[n] for i in insights_by_rq[q.id] for n in i.get("citations", [])
+                                             if n in cited and cited[n] in urls], ordered=True)
+        competitors = evidence.rank(rows_by_rq[q.id], brands, dims, "competitor")
+        if competitors:
+            out[f"{q.id}-COMPETITORS"] = verbatims.pick(competitors, [], ordered=True)
+    return out
+
+
+def _brands(project: dict, rqs) -> list:
+    """The primary brand (its spellings and products) and its competitors, from the brief and the queries."""
+    spec = project.get("spec") or {}
+    entities = [e for e in spec.get("validated_entities") or [] if isinstance(e, dict) and e.get("name")]
+    primary = (spec.get("commissioning_brand") or {}).get("name") or project.get("brand") or project.get("name") or ""
+    return evidence.brand_set(primary, [e["name"] for e in entities if e.get("type") == "competitor"],
+                              [q.query for q in rqs], [e["name"] for e in entities if e.get("type") == "product"])
 
 
 def run_engine(run_id: int, project_id: int, llm) -> None:
@@ -396,7 +449,15 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         # Each question's own dimensions (sport, injury type, ...) answer it first: a "which sport" question gets
         # a by-sport chart, not only brand volume
         dims_by_rq = question_dimensions(project_id, llm)
-        plans = {q.id: catalog.with_breakdowns(catalog.plan_rq(llm, q, rows_by_rq[q.id])[0], q, dims_by_rq.get(q.id, []))
+        project = store.get_project(project_id) or {}
+        brands = _brands(project, rqs)
+        evidence_by_rq = {q.id: evidence.for_question(rows_by_rq[q.id], brands, dims_by_rq.get(q.id, []))
+                          for q in rqs}
+        for q in rqs:
+            run.log(f"{q.id}: {len(evidence_by_rq[q.id])} articles name the brand and can be cited")
+        asks = [text for _, text in brief_asks(project_id)]
+        plans = {q.id: catalog.with_brief_asks(
+                     catalog.with_breakdowns(catalog.plan_rq(llm, q, rows_by_rq[q.id])[0], q, dims_by_rq.get(q.id, [])), asks)
                  for q in rqs}
         for q in rqs:
             run.log(f"{_rq_label(q)}: " + ", ".join(m["module"] for m in plans[q.id]["modules"]))
@@ -412,6 +473,9 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         run.stage("compute", "running")
         overview = analytics.overview_section(rqs, rows_by_rq, base)
         run.section(overview.to_dict())
+        brand_secs = brand_analytics.brand_sections(rows, brands)       # client vs competitors, all questions
+        for s in brand_secs:
+            run.section(s.to_dict())
         sections_by_rq: dict[str, list[Section]] = {}
         for q in rqs:
             sections_by_rq[q.id] = [analytics.compute_module(m, q, rows_by_rq[q.id], base,
@@ -427,12 +491,21 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         run.stage("insights", "running")
         registry = CitationRegistry()
         insights_by_rq = {}
+        summaries_by_section: dict[str, list[dict]] = {}
         for k, q in enumerate(rqs):
             run.within("insights", k / len(rqs), f"Drafting cited insights for {_rq_label(q, 60)}")
-            insights_by_rq[q.id] = engine_insights.rq_insights(q, sections_by_rq[q.id], rows_by_rq[q.id], registry, llm)
+            insights_by_rq[q.id] = engine_insights.rq_insights(q, sections_by_rq[q.id], rows_by_rq[q.id], registry, llm,
+                                                               evidence=evidence_by_rq[q.id])
             run.section({"id": f"{q.id.lower()}-insights", "rq_id": q.id, "module": "insights", "title": "Insights",
                          "insights": insights_by_rq[q.id]})
+            summaries_by_section.update(engine_insights.section_summaries(
+                q, sections_by_rq[q.id], rows_by_rq[q.id], registry, llm, evidence=evidence_by_rq[q.id]))
             run.log(f"{_rq_label(q)}: {len(insights_by_rq[q.id])} insights drafted")
+        brand_evidence = (evidence.rank(rows, brands, [], "primary")[:CITE_POOL]
+                          + evidence.rank(rows, brands, [], "competitor")[:CITE_POOL])
+        summaries_by_section.update(engine_insights.section_summaries(
+            RQ(BRAND_KEY, f"How does {brands[0].name if brands else 'the brand'} compare with its competitors?"),
+            brand_secs, rows, registry, llm, evidence=brand_evidence))
         answers = engine_insights.executive_answers(rqs, sections_by_rq, base)
         takeaways = [i for q in rqs for i in insights_by_rq[q.id][:1]]
         run.section({"id": "executive-summary", "rq_id": None, "module": "executive_summary",
@@ -441,7 +514,6 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
 
         current = "template"
         run.stage("template", "running")
-        project = store.get_project(project_id) or {}
         template, why = templates_index.choose_template_explained(_scope_text(project), llm)
         run.log(f"Template: {template.stem} - {why}")
         run.stage("template", "done", template.stem)
@@ -451,7 +523,7 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         out_dir = config.DELIVERABLE_DIR / f"project_{project_id}" / f"run_{run_id}"
         methodology = _methodology(summary, rqs)
         inp = _deck_input(project, rows, rqs, overview, sections_by_rq, insights_by_rq, answers, takeaways,
-                          methodology, registry, base, out_dir, {q.id: plans[q.id]["title"] for q in rqs})
+                          methodology, registry, base, out_dir, {q.id: plans[q.id]["title"] for q in rqs}, llm=llm)
         safe = "".join(ch for ch in inp.title if ch.isalnum() or ch in " -_").strip() or "Deliverable"
         pptx_path, appendix = generic_deck.build_generic_deck(inp, template, out_dir / "work",
                                                               out_dir / f"{safe} - Deliverable.pptx")
@@ -483,9 +555,11 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         studio_paths = {}
         try:
             studio = run_studio(run, project_id, llm,
-                                _plan_input(project, inp, rqs, overview, sections_by_rq, insights_by_rq, answers,
+                                _plan_input(project, inp, rqs, overview, {**sections_by_rq, BRAND_KEY: brand_secs},
+                                            insights_by_rq, answers,
                                             takeaways, methodology, base, {q.id: plans[q.id]["title"] for q in rqs},
-                                            _verbatims_by_rq(rqs, rows_by_rq, insights_by_rq, registry)),
+                                            _verbatims_by_rq(rqs, rows_by_rq, insights_by_rq, registry, brands,
+                                                             dims_by_rq), summaries_by_section),
                                 inp.brand_colors, inp.brand_image, inp.logos, out_dir,
                                 on_fix=lambda sid, action, kind: agent_memory.remember(
                                     project_id, "fix", f"run{run_id}_{sid}", {"action": action, "flag": kind}),
@@ -496,10 +570,15 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
                          "family": studio["family"], "family_reason": studio["family_reason"],
                          "design_system": studio["design_system"], "design_reason": studio["design_reason"],
                          "checklist": studio["checklist"], "scorecard": studio["scorecard"],
+                         "validation": studio.get("validation", []),
                          "slides": [{"id": s.id, "type": s.type, "treatment": s.treatment, "reference": s.reference,
                                      "source": next((r["source"] for r in studio["report"] if r["slide_id"] == s.id), "template"),
                                      "qc": next((r.get("qc", []) for r in studio["report"] if r["slide_id"] == s.id), [])}
                                     for s in studio["spec"].slides]})
+            for c in studio.get("validation", []):
+                if c["status"] == "fail":       # a person decides: missing content is not a code defect
+                    issues.file_issue("deck_validation", "missing", f"Deck check failed: {c['check'][:80]}",
+                                      {"run_id": run_id, "detail": c["detail"]}, project_id)
             studio_paths = {"html_path": str(studio["html"]), "pdf_path": str(studio["pdf"]),
                             "studio_pptx_path": str(studio["pptx"]), "deck_dir": str(studio["deck_dir"])}
         except Exception as e:      # e.g. no Chromium: the classic deliverable still ships

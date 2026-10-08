@@ -16,7 +16,7 @@ POLL_SECONDS = 60
 
 
 MIN_REPORT_WORDS = 6
-_NOTICE_SOURCES = ("repair",)      # status notices about the fixer itself, not code defects
+_NOTICE_SOURCES = ("repair", "deck_validation")    # notices and missing content, not code defects
 
 
 def _vague(issue: dict) -> str:

@@ -1582,6 +1582,8 @@ export interface DeliverableSection {
   slides?: unknown[];
   checklist?: { ask: string; kind: string; status: "covered" | "partial" | "missing"; slides: number[]; note: string }[];
   scorecard?: { covered: number; partial: number; missing: number };
+  /** The deck validator's checks: cover logo, brand vs competitors, each question's answer/chart/cited summary... */
+  validation?: { check: string; status: "pass" | "warn" | "fail"; detail: string }[];
 }
 export interface DeliverableProgress { pct: number; stage: string; label: string; started_at: number; typical_seconds?: number | null }
 export type AgentStep = { key: string; label: string; state: "done" | "ready" | "waiting" | "failed" | "todo"; detail: string };

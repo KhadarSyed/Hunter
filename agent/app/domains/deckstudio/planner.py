@@ -14,6 +14,9 @@ LIGHT_MAX_BARS = 6
 CHECKLIST_ROWS_PER_SLIDE = 9
 CITES_PER_SLIDE = 14
 VERBATIM_TITLE = "Supporting verbatims"
+COMPETITOR_VERBATIM_TITLE = "What people say about competitors"
+BRAND_KEY = "BRAND"                       # sections_by_rq key of the brand vs competitors chapter
+BRAND_KICKER = "Brand vs competitors"
 DENSE_KINDS = {"line_peaks", "column", "treemap"}
 _CODE_PREFIX = re.compile(r"\bRQ\d+\s*:\s*")
 _CODE = re.compile(r"\bRQ(\d+)\b")
@@ -43,6 +46,8 @@ class PlanInput:
     sources: str
     checklist: list[dict] = field(default_factory=list)
     verbatims_by_rq: dict[str, list[dict]] = field(default_factory=dict)
+    section_summaries: dict[str, list[dict]] = field(default_factory=dict)   # section id -> its cited summary
+    brand_products: list[str] = field(default_factory=list)                  # the client's products, from the brief
     products: list[str] = field(default_factory=list)
     category: str = ""
 
@@ -78,14 +83,16 @@ def _facts(sections: list[Section]) -> list[str]:
     return [f for s in sections for f in s.facts]
 
 
-def _evidence(rq: RQ, kicker: str, sections: list[Section], insights: list[dict], family: str) -> list[SlideSpec]:
+def _evidence(rq: RQ, kicker: str, sections: list[Section], insights: list[dict], family: str,
+              summaries: dict[str, list[dict]] | None = None) -> list[SlideSpec]:
     out = []
     drawn = [s for s in sections if not s.skipped and (s.chart or s.table) and (s.chart or {}).get("kind") != "kpi"]
     for i, sec in enumerate(drawn):
         charts = [sec.chart] if sec.chart else []
         tables = [sec.table] if sec.table else []
         slide_type = TYPE_FOR_CHART.get((sec.chart or {}).get("kind", ""), "comparison_table")
-        cards = insights[:3] if i == 0 else []
+        own = (summaries or {}).get(sec.id, [])[:1]          # every chart slide says what its chart shows
+        cards = ((insights[:2] if own else insights[:3]) if i == 0 else []) + own
         out.append(SlideSpec(
             id=f"{sec.id}-{i}", type=slide_type, treatment=treatment("evidence", charts, tables), kicker=kicker,
             title=sec.title, question=rq.question, so_what=sec.facts[0].split(": ", 1)[-1] if sec.facts else "",
@@ -108,9 +115,15 @@ def build_deck_spec(inp: PlanInput) -> DeckSpec:
                   reference=pick_reference("objectives", family)),
         SlideSpec(id="executive-summary", type="executive_summary", treatment="A", title="What the coverage says",
                   so_what=f"Base: {inp.base_n} unique articles across {len(inp.rqs)} questions",
-                  cards=[{"headline": a["value"], "text": a["question"], "note": a["answer"]} for a in inp.answers],
+                  cards=[{"headline": a["value"], "text": a["question"], "note": a["answer"],
+                          "citations": (next(iter(inp.insights_by_rq.get(a["rq_id"]) or []), {}) or {}).get("citations", [])}
+                         for a in inp.answers],
                   facts_allowed=all_facts + [str(len(inp.rqs))], image={"query": f"{inp.title} overview", "role": "background"},
                   reference=pick_reference("kpi_dashboard", family))]
+    brand_sections = inp.sections_by_rq.get(BRAND_KEY) or []
+    if brand_sections:                    # the client against its competitors, before the question chapters
+        brand_rq = RQ(BRAND_KEY, f"How does {inp.title} compare with its competitors?")
+        slides += _evidence(brand_rq, BRAND_KICKER, brand_sections, [], family, inp.section_summaries)
     for k, rq in enumerate(inp.rqs, start=1):
         kicker = inp.rq_titles.get(rq.id) or f"Question {k}"
         answer = next((a for a in inp.answers if a["rq_id"] == rq.id), {})
@@ -119,7 +132,7 @@ def build_deck_spec(inp: PlanInput) -> DeckSpec:
                                 kicker=f"Question {k} of {len(inp.rqs)}", question=rq.question,
                                 so_what=answer.get("answer", ""), facts_allowed=_facts(sections) + [str(k), str(len(inp.rqs))],
                                 image={"query": kicker, "role": "background"}, reference=pick_reference("divider", family)))
-        slides += _evidence(rq, kicker, sections, inp.insights_by_rq.get(rq.id, []), family)
+        slides += _evidence(rq, kicker, sections, inp.insights_by_rq.get(rq.id, []), family, inp.section_summaries)
         items = inp.verbatims_by_rq.get(rq.id) or []
         if items:
             slides.append(SlideSpec(
@@ -127,6 +140,13 @@ def build_deck_spec(inp: PlanInput) -> DeckSpec:
                 title=VERBATIM_TITLE, question=rq.question,
                 cards=[{"headline": v["outlet"], "text": v["date"], "url": v["url"], "image": v.get("image")} for v in items],
                 facts_allowed=_facts(sections) + [v["date"] for v in items], notes="\n".join(v["url"] for v in items)))
+        rivals = inp.verbatims_by_rq.get(f"{rq.id}-COMPETITORS") or []
+        if rivals:                    # competitors' voices on their own slide, never mixed with the brand's
+            slides.append(SlideSpec(
+                id=f"{rq.id.lower()}-competitors-verbatims", type="verbatim_wall", treatment="plain", kicker=kicker,
+                title=COMPETITOR_VERBATIM_TITLE, question=rq.question,
+                cards=[{"headline": v["outlet"], "text": v["date"], "url": v["url"], "image": v.get("image")} for v in rivals],
+                facts_allowed=_facts(sections) + [v["date"] for v in rivals], notes="\n".join(v["url"] for v in rivals)))
     slides.append(SlideSpec(id="takeaways", type="takeaways", treatment="A", title="Key takeaways", cards=inp.takeaways[:6],
                             facts_allowed=all_facts, citations=[n for c in inp.takeaways for n in c.get("citations", [])],
                             image={"query": f"{inp.title} takeaways", "role": "background"},
@@ -159,7 +179,9 @@ def build_deck_spec(inp: PlanInput) -> DeckSpec:
     for s in slides:
         _without_codes(s)
     return DeckSpec(version=SPEC_VERSION, title=inp.title, subtitle=inp.subtitle, period=inp.period, base_n=inp.base_n,
-                    family=family, family_reason=why, tokens=None, slides=slides)
+                    family=family, family_reason=why, tokens=None, slides=slides,
+                    citation_meta={str(c["n"]): {"outlet": c.get("outlet") or c.get("domain", ""), "icon": c.get("icon") or ""}
+                                   for c in inp.citations})
 
 
 def _plain(text: str) -> str:

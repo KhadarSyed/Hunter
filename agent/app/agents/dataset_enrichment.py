@@ -32,6 +32,7 @@ BATCH_SIZE = 8
 MAX_ROUNDS = 3
 
 SENTIMENTS = ["Positive", "Neutral", "Negative"]
+BRAND_MENTIONS = ("literal", "figurative", "none")
 AUTHOR_TYPES = ["Consumer", "Parent", "Athlete", "Coach", "Healthcare professional", "Journalist / media",
                 "Influencer / creator", "Brand / company", "Retailer", "Organisation", "Unknown"]
 
@@ -69,6 +70,9 @@ For EVERY article/post supplied, return ALL of these fields:
 - author_type: who wrote or posted it, one of: Consumer, Parent, Athlete,
   Coach, Healthcare professional, Journalist / media, Influencer / creator,
   Brand / company, Retailer, Organisation, Unknown.
+- brand_mention: how the text uses the brand of interest's name: "literal"
+  (the product or company itself), "figurative" (a figure of speech, e.g.
+  "a band-aid solution", "they need a band-aid, and quickly") or "none".
 - question_tags: only when QUESTION DIMENSIONS are supplied -- an object with
   one key per dimension key, each an array of that dimension's value names
   the text actually talks about (exact names from the list; [] if none).
@@ -192,7 +196,8 @@ def _question_tags(record: dict, llm_tags, dimensions: list[qd.Dimension]) -> di
 def _finish(record: dict, tag: dict, dimensions: list[qd.Dimension] | None) -> dict:
     author = tag.get("author_type")
     merged = {**record, **{k: v for k, v in tag.items() if k != "id"},
-              "author_type": author if author in AUTHOR_TYPES else "Unknown"}
+              "author_type": author if author in AUTHOR_TYPES else "Unknown",
+              "brand_mention": tag.get("brand_mention") if tag.get("brand_mention") in BRAND_MENTIONS else ""}
     if dimensions:
         merged["question_tags"] = _question_tags(record, tag.get("question_tags"), dimensions)
     else:
