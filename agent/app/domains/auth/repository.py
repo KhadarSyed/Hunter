@@ -114,6 +114,18 @@ def reset_user_password(user_id: int, password_hash: str) -> None:
     conn.close()
 
 
+def create_organization_for_member(name: str, user_id: int) -> dict:
+    """An organization whose first member is an existing user (their role and account are unchanged)."""
+    conn = _conn()
+    now = time.time()
+    org_id = conn.execute("INSERT INTO organizations (name, created_at) VALUES (?, ?)", (name, now)).lastrowid
+    conn.execute("INSERT INTO user_organizations (user_id, org_id, added_at) VALUES (?, ?, ?) "
+                 "ON CONFLICT(user_id, org_id) DO NOTHING", (user_id, org_id, now))
+    conn.commit()
+    conn.close()
+    return {"id": org_id, "name": name, "archived_at": None}
+
+
 def create_organization(name: str, admin_email: str, admin_display_name: str,
                           admin_temp_password_hash: str) -> dict:
     conn = _conn()

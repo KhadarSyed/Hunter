@@ -100,7 +100,11 @@ def create_organization_route(
     if len(req.admin_temp_password) < service.MIN_PASSWORD_LENGTH:
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
                              f"Password must be at least {service.MIN_PASSWORD_LENGTH} characters")
-    if store.get_user_by_email(req.admin_email):
+    existing = store.get_user_by_email(req.admin_email)
+    if existing and existing["role"] == "super_admin":     # linked to the new org; account and role unchanged
+        org = store.create_organization_for_member(req.name, existing["id"])
+        return {**org, "admin_name": existing.get("display_name"), "admin_email": existing["email"]}
+    if existing:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Email already in use")
     org = store.create_organization(
         req.name, req.admin_email, req.admin_display_name,
@@ -171,6 +175,8 @@ def create_user_route(req: CreateUserRequest, user: Annotated[dict, Depends(get_
                              f"Password must be at least {service.MIN_PASSWORD_LENGTH} characters")
     new_id = store.create_user(target_org_id, req.email, service.hash_password(temp_password),
                                 req.display_name, req.role)
+    if req.role == "super_admin" and req.org_id is not None:     # org-less by design, but listed under that org
+        store.add_user_to_org(new_id, req.org_id)
     created = store.get_user_by_id(new_id)
     return {**created, "temp_password": temp_password}
 

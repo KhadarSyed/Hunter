@@ -35,7 +35,7 @@ export function ManageUsersTab() {
   const [orgs, setOrgs] = useState<AuthOrganizationRow[]>([]);
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [role, setRole] = useState<"analyser" | "admin">("analyser");
+  const [role, setRole] = useState<"analyser" | "admin" | "super_admin">("analyser");
   const [orgId, setOrgId] = useState<number | "">("");
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -132,13 +132,18 @@ export function ManageUsersTab() {
                        onChange={() => setRole("admin")} className="accent-[#5B2C9D]" />
                 Admin
               </label>
+              <label className="flex items-center gap-1.5 text-sm text-slate-700 cursor-pointer">
+                <input type="radio" name="new-user-role" checked={role === "super_admin"}
+                       onChange={() => setRole("super_admin")} className="accent-[#5B2C9D]" />
+                Super Admin
+              </label>
             </div>
           </div>
         )}
         <button type="submit" disabled={createDisabled}
                 title={createDisabled ? "Fill in all required fields first" : undefined}
                 className="rounded-lg bg-[#5B2C9D] text-white font-semibold px-4 py-2 text-sm disabled:opacity-40 disabled:cursor-not-allowed">
-          {creating ? "Adding..." : isSuperAdmin ? `Add ${role === "admin" ? "Admin" : "Analyser"}` : "Add Analyser"}
+          {creating ? "Adding..." : isSuperAdmin ? `Add ${role === "super_admin" ? "Super Admin" : role === "admin" ? "Admin" : "Analyser"}` : "Add Analyser"}
         </button>
         <span className="text-xs text-slate-400 pb-2.5">A temp password is generated automatically.</span>
       </form>
