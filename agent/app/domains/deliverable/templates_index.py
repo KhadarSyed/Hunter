@@ -68,6 +68,9 @@ def choose_template(scope_text: str, llm=None) -> Path:
 def choose_template_explained(scope_text: str, llm=None) -> tuple[Path, str]:
     """The template deck and a one-line reason a person can read in the run log."""
     path, score, count = _choose_scored(scope_text, llm)
+    if not Path(path).exists() and is_usable(config.TEMPLATE_PATH):
+        # a deployed server ships without the reference decks (client work); the house template travels in the image
+        return Path(config.TEMPLATE_PATH), "no reference decks on this server, so the house template is used"
     if not Path(path).exists():
         raise FileNotFoundError(f"No usable PowerPoint template: add a .pptx to {config.TEMPLATES_DIR}")
     if score <= 0:
