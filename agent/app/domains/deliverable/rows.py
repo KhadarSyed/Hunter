@@ -8,7 +8,7 @@ from ...core import store
 from ..execution.service import _is_excluded, _load_dataset
 from .boolean_query import matches
 from .engine_types import RQ, EngineRow
-from .ingest import Article, normalize_url, parse_date
+from .ingest import Article, infer_date_order, normalize_url, parse_date
 
 
 def load_rqs(project_id: int) -> list[RQ]:
@@ -40,14 +40,14 @@ def _to_float(v) -> float:
 _EXECUTABLE_URL = re.compile(r"^\s*(javascript|data|vbscript):", re.IGNORECASE)
 
 
-def _row(rec: dict, rq: str | None, source_file: str, index: int) -> EngineRow | None:
+def _row(rec: dict, rq: str | None, source_file: str, index: int, date_order: str = "ymd") -> EngineRow | None:
     url = str(rec.get("url") or "").strip()
     if url.lower().startswith("www."):
         url = "https://" + url
     if not url or _EXECUTABLE_URL.match(url):
         return None
     title = str(rec.get("title") or rec.get("headline") or "").strip()
-    article = Article(url=url, norm_url=normalize_url(url), title=title, date=parse_date(rec.get("date")),
+    article = Article(url=url, norm_url=normalize_url(url), title=title, date=parse_date(rec.get("date"), date_order),
                       outlet=str(rec.get("source_name") or rec.get("source") or ""),
                       text=str(rec.get("content") or title),
                       sentiment=rec.get("overall_sentiment") or rec.get("sentiment") or None,
@@ -80,20 +80,23 @@ def load_rows(project_id: int, rqs: list[RQ]) -> list[EngineRow]:
 
     # Enriched records come first (their tags win); every row of every file is then read too, because enrichment
     # may cover only a sample (or be empty, left by a misparsed file). An analyst's exclusion drops the URL.
+    enriched = [r for r in store.get_enriched_records_by_project(project_id) if r.get("dataset_id") in approved]
+    file_records = {ds["id"]: _load_dataset(ds["file_path"]) for ds in datasets
+                    if ds.get("file_path") and Path(ds["file_path"]).exists()}
+    # each export's own dates say whether its 05-11-2026 is 5 November or 11 May
+    orders = {did: infer_date_order([r.get("date") for r in file_records.get(did, [])] +
+                                    [r.get("date") for r in enriched if r.get("dataset_id") == did])
+              for did in approved}
     excluded: set[str] = set()
-    for i, rec in enumerate(store.get_enriched_records_by_project(project_id)):
-        if rec.get("dataset_id") not in approved:
-            continue
+    for i, rec in enumerate(enriched):
         if _is_excluded(rec):
             excluded.add(normalize_url(str(rec.get("url") or "")))
         else:
-            add(_row(rec, rec.get("research_question_id"), rec.get("dataset_file_name") or "", i))
+            add(_row(rec, rec.get("research_question_id"), rec.get("dataset_file_name") or "", i,
+                     orders.get(rec.get("dataset_id"), "ymd")))
     for ds in datasets:
-        fp = ds.get("file_path") or ""
-        if not fp or not Path(fp).exists():
-            continue
-        for i, rec in enumerate(_load_dataset(fp)):
-            row = _row(rec, ds.get("research_question_id"), ds.get("file_name") or "", i)
+        for i, rec in enumerate(file_records.get(ds["id"], [])):
+            row = _row(rec, ds.get("research_question_id"), ds.get("file_name") or "", i, orders[ds["id"]])
             if row is not None and row.article.norm_url not in excluded:
                 add(row)
     return list(merged.values())

@@ -18,7 +18,7 @@ _env = Environment(loader=FileSystemLoader(str(TEMPLATES)), autoescape=select_au
 _TAG = re.compile(r"<[^>]+>")
 FRONTEND_CSS = (Path(__file__).parent / "frontend_slides" / "viewport-base.css").read_text(encoding="utf-8")
 CHART_SIZE = {"A": (1000, 540), "C": (1100, 600), "plain": (1600, 600), "full": (900, 420)}
-CHART_SIZE_WITH_CARDS = {"C": (1100, 420)}          # the photo-panel slide's summary cards sit under the chart
+CHART_SIZE_WITH_CARDS = {"C": (1100, 370)}          # the photo-panel slide's summary cards sit under the chart
 
 
 def _asset(path: str | None, out_dir: Path) -> str | None:
@@ -51,7 +51,7 @@ MAX_STRIP_LOGOS = 6
 def _marks(spec: DeckSpec, out_dir: Path) -> dict:
     """The client's logo (cover and footers) and the competitive set (cover), copied into assets/."""
     strip = [(name, rel) for name, p in list(spec.logo_strip.items())[:MAX_STRIP_LOGOS] if (rel := _asset(p, out_dir))]
-    cites = {n: {"outlet": m.get("outlet") or "", "icon": _asset(m.get("icon"), out_dir)}
+    cites = {n: {"outlet": m.get("outlet") or "", "icon": _asset(m.get("icon"), out_dir), "url": m.get("url") or ""}
              for n, m in (spec.citation_meta or {}).items()}
     return {"brand": _asset(spec.brand_logo, out_dir), "name": spec.title, "strip": strip, "cites": cites,
             "product": _asset(spec.product_image, out_dir), "product_name": spec.product_name}

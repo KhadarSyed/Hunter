@@ -7,6 +7,7 @@ number in an insight still has to come from them -- and the quoted articles are 
 """
 from __future__ import annotations
 
+import re
 from collections import Counter
 
 from ...agents.question_tag_schema import TagDef, TagSchema
@@ -25,10 +26,26 @@ def _label(name: str) -> str:
     return name.replace("_", " ").capitalize()
 
 
-def _lead(schema: TagSchema) -> TagDef | None:
-    """The tag that answers the question: a Yes/No classification first, else the first classification."""
+def _stems(text: str) -> set[str]:
+    return {w[:6] for w in re.findall(r"[a-z]+", text.lower()) if len(w) > 2}
+
+
+def _lead(schema: TagSchema, question: str = "") -> TagDef | None:
+    """The tag that answers the question: the Yes/No classification whose name shares the most words with the
+    question ('expert_brand_affiliated' for 'what percentage are affiliated with a brand?', not 'expert_cited'),
+    else the first classification."""
     classes = [t for t in schema.tags if t.tag_type in ("classification", "multi_classification")]
-    return next((t for t in classes if any(v in POSITIVE for v in t.allowed_values)), classes[0] if classes else None)
+    yes_no = [t for t in classes if any(v in POSITIVE for v in t.allowed_values)]
+    if not yes_no:
+        return classes[0] if classes else None
+    words = _stems(question)
+    return max(yes_no, key=lambda t: (len(_stems(t.tag_name.replace("_", " ")) & words), -yes_no.index(t)))
+
+
+def lead_tag(schema: TagSchema | None, question: str = "") -> str:
+    """The dynamic tag that answers the question ("" when it has none)."""
+    lead = _lead(schema, question) if schema else None
+    return lead.tag_name if lead else ""
 
 
 def _values(row: EngineRow, tag: str) -> list[str]:
@@ -70,7 +87,7 @@ def _driver_facts(rq: RQ, label: str, hits: list[EngineRow], schema: TagSchema, 
 
 
 def tag_section(rq: RQ, rows: list[EngineRow], schema: TagSchema | None) -> Section | None:
-    lead = _lead(schema) if schema else None
+    lead = _lead(schema, rq.question) if schema else None
     if lead is None:
         return None
     tagged = [r for r in rows if _values(r, lead.tag_name)]

@@ -34,6 +34,19 @@ def normalize_url(url: str) -> str:
     return str(url or "").strip().rstrip("/").lower()
 
 
+_DASH_DATE = re.compile(r"(\d{1,2})-(\d{1,2})-(\d{4})")
+
+
+def infer_date_order(values) -> str:
+    """A file's dash dates are day-first ('dmy') when any of them starts with a number over 12 (25-09-2026);
+    otherwise the month-first default. Decided per file, so 12-09-2026 in a day-first export reads 12 September."""
+    for v in values:
+        m = _DASH_DATE.fullmatch(str(v or "").strip())
+        if m and int(m.group(1)) > 12:
+            return "dmy"
+    return "ymd"
+
+
 def parse_date(value, order: str = "ymd") -> date | None:
     if value is None:
         return None

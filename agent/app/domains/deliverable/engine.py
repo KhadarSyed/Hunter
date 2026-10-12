@@ -5,6 +5,7 @@ import logging
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 from pathlib import Path
 
@@ -33,6 +34,7 @@ STAGES = ("gate", "ingest", "routing", "plan", "classify", "compute", "insights"
           "index", "design", "assets", "compose", "export")
 MAX_LOGOS = 24
 CITE_POOL = 12          # brand / competitor articles offered to the brand chapter's summaries
+INSIGHT_WORKERS = 4     # questions drafting insights at once (each makes several chat calls)
 _lock = threading.Lock()
 
 
@@ -370,8 +372,20 @@ def _plan_input(project: dict, inp, rqs, overview, sections_by_rq, insights_by_r
                      products=_products(project), category=_category(project, inp.title),
                      section_summaries=section_summaries or {},
                      is_category="category" in str(spec.get("research_type") or "").lower(),
+                     objective=str(spec.get("research_objective") or ""), media=_media(spec),
+                     time_period=str(spec.get("time_period") or ""),
                      brand_products=[e["name"] for e in (spec.get("validated_entities") or [])
                                      if isinstance(e, dict) and e.get("type") == "product" and e.get("name")])
+
+
+_MEDIA_WORDS = (("social", "Social media"), ("editorial", "Earned editorial"), ("broadcast", "Broadcast"),
+                ("podcast", "Podcasts"))
+
+
+def _media(spec: dict) -> str:
+    """The scope slide's 'Media' line, from the brief's research type and subject; empty when the brief doesn't say."""
+    text = f"{spec.get('research_type') or ''} {(spec.get('research_subject') or {}).get('description') or ''}".lower()
+    return ", ".join(label for word, label in _MEDIA_WORDS if word in text)
 
 
 MAX_PRODUCT_HINTS = 6
@@ -406,20 +420,26 @@ def _citation_brands(registry, rows, brands) -> dict[str, list[str]]:
     return out
 
 
-def _verbatims_by_rq(rqs, rows_by_rq, insights_by_rq, registry, brands, dims_by_rq) -> dict[str, list[dict]]:
+def _verbatims_by_rq(rqs, rows_by_rq, insights_by_rq, registry, brands, dims_by_rq,
+                     answer_tags: dict[str, str] | None = None) -> dict[str, list[dict]]:
     """Each question's verbatim wall: articles that name the brand and carry the question's intent (its
     insights' citations first); competitors' on a wall of their own, keyed "<RQ>-COMPETITORS"."""
     cited = {c["n"]: c["url"] for c in registry.entries()}
     out: dict[str, list[dict]] = {}
     for q in rqs:
         dims = dims_by_rq.get(q.id, [])
-        primary = evidence.for_question(rows_by_rq[q.id], brands, dims)
-        urls = {r.article.url for r in primary}
-        out[q.id] = verbatims.pick(primary, [cited[n] for i in insights_by_rq[q.id] for n in i.get("citations", [])
-                                             if n in cited and cited[n] in urls], ordered=True)
+        answer = (answer_tags or {}).get(q.id, "")
+        primary = evidence.for_question(rows_by_rq[q.id], brands, dims, answer)
+        quoted = {cited[n] for i in insights_by_rq[q.id] for n in i.get("citations", []) if n in cited}
+        # articles that answer the question (tagged yes) lead the wall, then the insights' sources, in rank order
+        first = [r.article.url for r in primary if answer and evidence.affirmative((r.dynamic_tags or {}).get(answer))]
+        first += [r.article.url for r in primary if r.article.url in quoted]
+        out[q.id] = verbatims.pick(primary, list(dict.fromkeys(first)), ordered=True)
         competitors = evidence.rank(rows_by_rq[q.id], brands, dims, "competitor")
-        if competitors:
-            out[f"{q.id}-COMPETITORS"] = verbatims.pick(competitors, [], ordered=True)
+        if competitors:                    # their articles that answer the question lead their wall too
+            answering = [r.article.url for r in competitors
+                         if answer and evidence.affirmative((r.dynamic_tags or {}).get(answer))]
+            out[f"{q.id}-COMPETITORS"] = verbatims.pick(competitors, answering, ordered=True)
     return out
 
 
@@ -472,7 +492,11 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         dims_by_rq = question_dimensions(project_id, llm)
         project = store.get_project(project_id) or {}
         brands = _brands(project, rqs)
-        evidence_by_rq = {q.id: evidence.for_question(rows_by_rq[q.id], brands, dims_by_rq.get(q.id, []))
+        tag_schemas = {rq: question_tag_schema.from_json(row["schema"])          # stored copy: no LLM here
+                       for rq, row in store.get_question_tag_schemas(project_id).items()}
+        answer_tags = {q.id: tag_insights.lead_tag(tag_schemas.get(q.id), q.question) for q in rqs}
+        evidence_by_rq = {q.id: evidence.for_question(rows_by_rq[q.id], brands, dims_by_rq.get(q.id, []),
+                                                      answer_tags[q.id])
                           for q in rqs}
         for q in rqs:
             run.log(f"{q.id}: {len(evidence_by_rq[q.id])} articles name the brand and can be cited")
@@ -498,8 +522,6 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         for s in brand_secs:
             run.section(s.to_dict())
         sections_by_rq: dict[str, list[Section]] = {}
-        tag_schemas = {rq: question_tag_schema.from_json(row["schema"])          # stored copy: no LLM here
-                       for rq, row in store.get_question_tag_schemas(project_id).items()}
         for q in rqs:
             sections_by_rq[q.id] = [analytics.compute_module(m, q, rows_by_rq[q.id], base,
                                                              extraction.get((q.id, m.get("entity_kind"))))
@@ -518,15 +540,26 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         registry = CitationRegistry()
         insights_by_rq = {}
         summaries_by_section: dict[str, list[dict]] = {}
-        for k, q in enumerate(rqs):
-            run.within("insights", k / len(rqs), f"Drafting cited insights for {_rq_label(q, 60)}")
-            insights_by_rq[q.id] = engine_insights.rq_insights(q, sections_by_rq[q.id], rows_by_rq[q.id], registry, llm,
-                                                               evidence=evidence_by_rq[q.id])
-            run.section({"id": f"{q.id.lower()}-insights", "rq_id": q.id, "module": "insights", "title": "Insights",
-                         "insights": insights_by_rq[q.id]})
-            summaries_by_section.update(engine_insights.section_summaries(
-                q, sections_by_rq[q.id], rows_by_rq[q.id], registry, llm, evidence=evidence_by_rq[q.id]))
-            run.log(f"{_rq_label(q)}: {len(insights_by_rq[q.id])} insights drafted")
+
+        def draft_question(q):
+            # a question's chart and theme summaries follow its insights (each is told what was already said);
+            # questions are independent, so they draft side by side
+            found = engine_insights.rq_insights(q, sections_by_rq[q.id], rows_by_rq[q.id], registry, llm,
+                                                evidence=evidence_by_rq[q.id])
+            summaries = engine_insights.section_summaries(q, sections_by_rq[q.id], rows_by_rq[q.id], registry, llm,
+                                                          evidence=evidence_by_rq[q.id], avoid=found)
+            return found, summaries
+
+        with ThreadPoolExecutor(max_workers=INSIGHT_WORKERS) as pool:
+            futures = {pool.submit(draft_question, q): q for q in rqs}
+            for k, done in enumerate(as_completed(futures), start=1):
+                q = futures[done]
+                insights_by_rq[q.id], summaries = done.result()
+                summaries_by_section.update(summaries)
+                run.within("insights", k / len(rqs), f"Drafted cited insights for {k} of {len(rqs)} questions")
+                run.section({"id": f"{q.id.lower()}-insights", "rq_id": q.id, "module": "insights",
+                             "title": "Insights", "insights": insights_by_rq[q.id]})
+                run.log(f"{_rq_label(q)}: {len(insights_by_rq[q.id])} insights drafted")
         brand_evidence = (evidence.rank(rows, brands, [], "primary")[:CITE_POOL]
                           + evidence.rank(rows, brands, [], "competitor")[:CITE_POOL])
         summaries_by_section.update(engine_insights.section_summaries(
@@ -584,7 +617,7 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
                                      insights_by_rq, answers,
                                      takeaways, methodology, base, {q.id: plans[q.id]["title"] for q in rqs},
                                      _verbatims_by_rq(rqs, rows_by_rq, insights_by_rq, registry, brands,
-                                                      dims_by_rq), summaries_by_section)
+                                                      dims_by_rq, answer_tags), summaries_by_section)
             plan_input.citation_brands = _citation_brands(registry, rows, brands)
             studio = run_studio(run, project_id, llm, plan_input,
                                 inp.brand_colors, inp.brand_image, inp.logos, out_dir,

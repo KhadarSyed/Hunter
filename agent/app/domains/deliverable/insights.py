@@ -130,11 +130,12 @@ def _lead_value(fact: str) -> set[str]:
 
 
 def _backfill(kept: list[dict], facts: list[str], candidates: list[Article], registry: CitationRegistry,
-              n: int) -> list[dict]:
+              n: int, skip: set[str] | None = None) -> list[dict]:
     """Top a section up to n insights with deterministic fact cards (true by construction), skipping facts whose
-    value an accepted insight already states and facts with no article that illustrates them."""
+    value an accepted insight already states (or the chart already shows, `skip`) and facts with no article that
+    illustrates them."""
     out = list(kept)
-    stated = set(_NUM.findall(_digits(" ".join(k["text"] for k in kept))))
+    stated = set(_NUM.findall(_digits(" ".join(k["text"] for k in kept)))) | set(skip or ())
     for fact in facts:
         if len(out) >= n:
             break
@@ -161,7 +162,8 @@ def _entity_mismatch(text: str, cites: list[int], local: dict[int, Article], ent
 
 
 def draft_section(section: str, facts: list[str], candidates: list[Article], registry: CitationRegistry,
-                  llm, n_insights: int = 3, entities: list[str] | None = None) -> list[dict]:
+                  llm, n_insights: int = 3, entities: list[str] | None = None,
+                  avoid: list[str] | None = None) -> list[dict]:
     """Candidates get local ids 1..k in the prompt; only articles an accepted insight actually cites are
     registered, so the appendix lists cited articles only."""
     if llm is None:
@@ -173,9 +175,15 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
              "excerpt": a.text[:400]} for i, a in local.items()]
     messages = [
         {"role": "system", "content": "You write insights for a media-research deck, the way a senior media analyst "
-         "does: lead with the finding (the answer and its share), then the drivers behind it -- the outlets, brands, "
-         "themes, timing and examples the FACTS and ARTICLES name -- then the so-what for the client. Each insight is "
-         "a complete thought, never a bare 'X of Y articles'. Use ONLY numbers that appear "
+         "does. The chart beside each insight already shows the shares and counts, so an insight never restates the "
+         "headline figure; it explains WHY the pattern exists -- its drivers. Name the specific outlets, brands, products, people, "
+         "events and months from the ARTICLES that drive it (e.g. 'The December peak came from holiday gift-guide "
+         "round-ups in USA Today and Living Rich With Coupons, featuring Aveeno Baby and Tom's of Maine'), then end "
+         "with the so-what for the client: the opportunity, risk or action it points to. Each insight covers a "
+         "different driver; never repeat a point or a figure another insight makes. Never mention article ids in the "
+         "text (no '(article 2)'); name the outlet instead -- the citations list carries the ids. Use at most one number per "
+         "insight, and only as evidence for a driver. Each insight is a complete thought, never a bare 'X of Y "
+         "articles'. Use ONLY numbers that appear "
          "in FACTS, with the same unit. Every insight must cite 1-3 article ids from ARTICLES: for a claim about "
          "specific coverage, cite the articles that state it; for a statistic from FACTS, cite articles that are "
          "examples of what is being counted. never leave citations empty. Comparisons ('more than', 'fewer than', "
@@ -185,13 +193,17 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
          "(late/early, 'summer'); a month is just the month. Keep one figure per clause and never imply a monthly "
          "count equals an overall share. Return JSON only."},
         {"role": "user", "content": f"Section: {section}\nFACTS:\n" + "\n".join(f"- {f}" for f in facts) +
-         f"\nARTICLES:\n{json.dumps(arts, ensure_ascii=False)}\nWrite {n_insights} insights as "
-         '{"insights":[{"headline":"<=12 words: the takeaway","text":"<=70 words: the finding, its drivers '
-         'and the so-what","citations":[ids]}]}'},
+         f"\nARTICLES:\n{json.dumps(arts, ensure_ascii=False)}\n" +
+         ("ALREADY SAID on this question (the reader has seen these; make a different point, do not restate "
+          "them):\n" + "\n".join(f"- {a}" for a in avoid) + "\n" if avoid else "") +
+         f"Write {n_insights} insights as "
+         '{"insights":[{"headline":"<=10 words: the takeaway, not the headline figure","text":"<=35 words: '
+         'the named drivers behind the finding, then the so-what for the client","citations":[ids]}]}'},
     ]
+    headline_figs = _headline_figures(facts)
     try:
         reply = llm.chat(messages, format_json=True)
-        valid, rejected = _screen(section, json.loads(reply), allowed, pairs, local, entities or [])
+        valid, rejected = _screen(section, json.loads(reply), allowed, pairs, local, entities or [], headline_figs)
     except (json.JSONDecodeError, RuntimeError) as e:
         logger.warning("insight drafting for %s failed (%s); using fallback", section, e)
         return _fallback(facts, candidates, registry)
@@ -204,33 +216,107 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
                               "format and rules."}]
         try:
             more, _ = _screen(section, json.loads(llm.chat(repair, format_json=True)), allowed, pairs, local,
-                              entities or [])
+                              entities or [], headline_figs, {f for h, t, _ in valid for f in _figures(f"{h} {t}")})
             seen = {t for _, t, _ in valid}
             valid += [v for v in more if v[1] not in seen]          # the model may repeat an accepted insight
         except (json.JSONDecodeError, RuntimeError) as e:
             logger.warning("insight repair for %s failed (%s)", section, e)
     supported = _verify_claims(section, valid, facts, local, llm)
     shown = [v for i, v in enumerate(valid) if i in supported][:n_insights]   # cap before citing anything
+    if len(shown) < n_insights:
+        shown += _rescue(section, facts, arts, local, llm, n_insights - len(shown), (avoid or []) +
+                         [f"{h}: {t}" for h, t, _ in shown], entities or [], allowed, pairs, headline_figs)
     kept = [{"headline": h, "text": t, "citations": sorted({registry.cite(local[c]) for c in cs})}
             for h, t, cs in shown]
-    return _backfill(kept, facts, candidates, registry, n_insights)
+    out = _backfill(kept, facts, candidates, registry, n_insights, skip=headline_figs)
+    return out or _backfill(kept, facts, candidates, registry, n_insights)    # never an empty panel
+
+
+_RESCUE_SYSTEM = (
+    "You explain a media-research finding for a client, without numbers: the chart already shows them. Write no "
+    "digits and no number words (say 'January', not 'Jan-26'). Explain WHY the pattern in FACTS exists -- name the "
+    "outlets, brands, products, people, events and topics from ARTICLES that drive it -- then the so-what for the "
+    "client. Every insight cites 1-3 article ids from ARTICLES; never mention ids in the text. Claim only what the "
+    "ARTICLES show. Return JSON only.")
+
+
+def _rescue(section: str, facts: list[str], arts: list[dict], local: dict[int, Article], llm, k: int,
+            said: list[str], entities: list[str], allowed: set[str], pairs: set, shown_figs: set[str]) -> list[tuple]:
+    """A last, number-free attempt before a fact card stands in: what drove the pattern, and the so-what."""
+    messages = [
+        {"role": "system", "content": _RESCUE_SYSTEM},
+        {"role": "user", "content": f"Section: {section}\nFACTS:\n" + "\n".join(f"- {f}" for f in facts) +
+         f"\nARTICLES:\n{json.dumps(arts, ensure_ascii=False)}\n" +
+         ("ALREADY SAID (make a different point):\n" + "\n".join(f"- {s}" for s in said) + "\n" if said else "") +
+         f'Write {k} insights as {{"insights":[{{"headline":"<=10 words","text":"<=35 words: the named drivers, '
+         'then the so-what","citations":[ids]}]}'},
+    ]
+    try:                       # optional: any failure here leaves the fact card in place, never breaks the deck
+        found, _ = _screen(section, json.loads(llm.chat(messages, format_json=True)), allowed, pairs, local,
+                           entities, shown_figs)
+        found = [v for v in found if not _NUM.search(_digits(_without_names(f"{v[0]} {v[1]}", local)))]
+        supported = _verify_claims(section, found, facts, local, llm)
+    except Exception as e:
+        logger.warning("number-free rescue for %s failed (%s: %s)", section, type(e).__name__, e)
+        return []
+    return [v for i, v in enumerate(found) if i in supported][:k]
+
+
+def _without_names(text: str, local: dict[int, Article]) -> str:
+    """The text with candidate outlets' names taken out, so the digits of 'Law360' or '9to5Mac' are not read as a
+    statistic the facts don't state."""
+    for name in {a.outlet for a in local.values() if a.outlet and any(ch.isdigit() for ch in a.outlet)}:
+        text = re.sub(re.escape(name), " ", text, flags=re.IGNORECASE)
+    return text
+
+
+_TRIVIAL = {"0", "1"}
+# The prompt's local article ids ("(articles 2 and 3)") mean nothing to a client; citations carry the sources
+_ID_REF = re.compile(r"\s*\((?:e\.g\.,?\s*)?(?:articles?|ids?)\s*#?\d+(?:\s*(?:,|and|&)\s*#?\d+)*\)", re.I)
+
+
+def _figures(text: str) -> set[str]:
+    return {n for n in _NUM.findall(_digits(text)) if n not in _YEARS and n not in _TRIVIAL}
+
+
+def _headline_figures(facts: list[str]) -> set[str]:
+    """The figures the chart and the slide's answer already show (the section's first fact), rounded forms too.
+    Off-limits only when the other facts give the insight something else to say."""
+    figs = _figures(facts[0]) if facts else set()
+    if not figs or not any(_figures(f) - figs for f in facts[1:]):
+        return set()
+    return figs | {_half_up(n) for n in figs if "." in n}
+
+
+def _repeats(text: str, shown: set[str], taken: set[str]) -> str | None:
+    figs = _figures(text)
+    if figs & shown:
+        return "restates the headline figure the chart already shows; explain what drives it instead"
+    if figs & taken:
+        return f"repeats a figure another insight already states: {sorted(figs & taken)}"
+    return None
 
 
 def _screen(section: str, parsed: dict, allowed: set[str], pairs: set, local: dict[int, Article],
-            entities: list[str]) -> tuple[list[tuple], list[tuple[str, str]]]:
+            entities: list[str], shown: set[str] | None = None,
+            taken: set[str] | None = None) -> tuple[list[tuple], list[tuple[str, str]]]:
     """Split drafted insights into valid (headline, text, local cites) and rejected (text, reason)."""
     valid, rejected = [], []
+    taken = set(taken or ())
     for ins in parsed.get("insights", []):
-        headline, text = str(ins.get("headline", "")).strip(), str(ins.get("text", "")).strip()
+        headline, text = str(ins.get("headline", "")).strip(), _ID_REF.sub("", str(ins.get("text", ""))).strip()
         raw = [int(c) for c in ins.get("citations", []) if str(c).isdigit()]
         cites = [c for c in dict.fromkeys(raw) if c in local][:MAX_CITES]   # drop unknown ids, cap
-        reason = (validate_insight(f"{headline} {text}", cites, allowed, set(local), pairs)
-                  or _entity_mismatch(f"{headline} {text}", cites, local, entities))
+        checked = _without_names(f"{headline} {text}", local)
+        reason = (validate_insight(checked, cites, allowed, set(local), pairs)
+                  or _entity_mismatch(f"{headline} {text}", cites, local, entities)
+                  or _repeats(checked, shown or set(), taken))
         if reason:
             logger.info("dropped insight in %s: %s", section, reason)
             rejected.append((text, reason))
         else:
             valid.append((headline, text, cites))
+            taken |= _figures(f"{headline} {text}")
     return valid, rejected
 
 

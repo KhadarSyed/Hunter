@@ -13,6 +13,9 @@ from pathlib import Path
 from lxml import etree
 from PIL import Image
 from pptx import Presentation
+from pptx.dml.color import RGBColor
+from pptx.enum.shapes import MSO_SHAPE
+from pptx.oxml.ns import qn
 from pptx.util import Emu, Inches
 
 from .spec import DeckSpec
@@ -31,11 +34,31 @@ class Shot:
     full: Path
     base: Path | None = None                          # the slide with its builds hidden
     builds: list[tuple[Path, tuple[float, float, float, float]]] = field(default_factory=list)   # (png, x, y, w, h px)
+    links: list[tuple[str, tuple[float, float, float, float]]] = field(default_factory=list)     # (url, x, y, w, h px)
+
+
+MIN_LINK_PX = 4
+_LINKS_JS = """s => { const o = s.getBoundingClientRect();
+  return [...s.querySelectorAll('a[href]')].map(a => { const r = a.getBoundingClientRect();
+    return {href: a.href, x: r.x - o.x, y: r.y - o.y, w: r.width, h: r.height}; }); }"""
+
+
+def _links(el) -> list[tuple[str, tuple[float, float, float, float]]]:
+    """Every article link on the slide (verbatim posts, source chips) and where it sits, clipped to the slide."""
+    out = []
+    for link in el.evaluate(_LINKS_JS) or []:
+        href = str(link.get("href") or "")
+        x, y = max(0.0, link["x"]), max(0.0, link["y"])
+        w, h = min(link["w"], PX_W - x), min(link["h"], PX_H - y)
+        if href.lower().startswith(("https://", "http://")) and w >= MIN_LINK_PX and h >= MIN_LINK_PX:
+            out.append((href, (x, y, w, h)))
+    return out
 
 
 def _capture(el, slide_dir: Path, k: int) -> Shot:
     shot = Shot(full=slide_dir / f"slide_{k:02d}.png")
     el.screenshot(path=str(shot.full))
+    shot.links = _links(el)
     origin = el.bounding_box()
     builds = el.query_selector_all(BUILD_SELECTOR)[:MAX_BUILDS]
     if not builds or not origin:
@@ -138,6 +161,24 @@ def _animate(slide, shape_ids: list[int]) -> None:
         sld.insert(at + 1, _click_fades(shape_ids))
 
 
+def _hotspot(slide, href: str, box: tuple[float, float, float, float]) -> None:
+    """An invisible, clickable rectangle over a link in the slide picture. A no-fill shape lets clicks fall through
+    in a slide show, so it gets a fully transparent fill instead; its theme style (outline, shadow) is dropped."""
+    x, y, w, h = box
+    shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, _emu(x, PX_W, SLIDE_W), _emu(y, PX_H, SLIDE_H),
+                                   _emu(w, PX_W, SLIDE_W), _emu(h, PX_H, SLIDE_H))
+    style = shape._element.find(qn("p:style"))
+    if style is not None:
+        shape._element.remove(style)
+    shape.fill.solid()
+    shape.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+    etree.SubElement(shape._element.spPr.find(qn("a:solidFill")).find(qn("a:srgbClr")), qn("a:alpha")).set("val", "0")
+    shape.line.fill.background()
+    shape.name = "Source link"
+    shape._element.nvSpPr.cNvPr.set("descr", f"Open the original source: {href}")
+    shape.click_action.hyperlink.address = href
+
+
 def build_pptx(pngs: list[Path], spec: DeckSpec, out: Path, builds: list[Shot] | None = None) -> Path:
     prs = Presentation()
     prs.slide_width, prs.slide_height = SLIDE_W, SLIDE_H
@@ -152,6 +193,8 @@ def build_pptx(pngs: list[Path], spec: DeckSpec, out: Path, builds: list[Shot] |
             pic = slide.shapes.add_picture(str(path), _emu(x, PX_W, SLIDE_W), _emu(y, PX_H, SLIDE_H),
                                            _emu(w, PX_W, SLIDE_W), _emu(h, PX_H, SLIDE_H))
             ids.append(pic.shape_id)
+        for href, box in (shot.links if shot else []):
+            _hotspot(slide, href, box)
         _animate(slide, ids)
         lines = [s.kicker, s.question or s.title, s.so_what] + [f"{c.get('headline', '')}: {c.get('text', '')}" for c in s.cards]
         if s.type in ("verbatim_wall", "citations") and s.notes:

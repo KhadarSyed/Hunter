@@ -6,6 +6,7 @@ import json
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
+from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -18,7 +19,7 @@ _SECTION = re.compile(r"<section\b.*?</section>", re.S | re.I)
 _SVG = re.compile(r"<svg\b.*?</svg>", re.S | re.I)
 # Creative HTML is untrusted: only these tags and attributes may appear, links only to the deck's own assets/
 ALLOWED_TAGS = {"section", "div", "span", "p", "h1", "h2", "h3", "h4", "strong", "em", "b", "i", "br", "ul", "ol", "li",
-                "figure", "figcaption",
+                "figure", "figcaption", "a",
                 "img", "table", "thead", "tbody", "tr", "th", "td", "svg", "g", "rect", "path", "text", "tspan", "line",
                 "polyline", "circle", "image"}
 ALLOWED_ATTRS = {"class", "style", "data-id", "data-type", "data-treatment", "src", "href", "alt", "x", "y", "x1", "y1",
@@ -54,10 +55,18 @@ _PROMPT = ("You are a presentation designer. Improve this one slide's HTML (a 19
            "nothing outside the slide. Return only the <section>...</section>.")
 
 
+_HREF = re.compile(r"""<a\b[^>]*?\bhref\s*=\s*(["'])(https?://[^"']+)\1""", re.I)
+
+
+def source_links(html: str) -> set[str]:
+    """The article links a slide carries (verbatims, source chips); unescaped as the parser reports them."""
+    return {unescape(m.group(2)) for m in _HREF.finditer(html or "")}
+
+
 class _Allowlist(HTMLParser):
-    def __init__(self):
+    def __init__(self, links: frozenset[str] = frozenset()):
         super().__init__(convert_charrefs=True)
-        self.ok, self.sections = True, 0
+        self.ok, self.sections, self.links = True, 0, links
 
     def handle_starttag(self, tag, attrs):
         tag = tag.lower()
@@ -69,6 +78,9 @@ class _Allowlist(HTMLParser):
             name, value = name.lower(), (value or "")
             if name not in ALLOWED_ATTRS:
                 self.ok = False
+            elif tag == "a" and name == "href":
+                if value not in self.links:          # only the template's own article links, never a new URL
+                    self.ok = False
             elif name in ("src", "href") and not value.startswith("assets/"):
                 self.ok = False
             elif name == "style" and _BAD_STYLE.search(_ASSET_URL.sub("", value)):
@@ -87,11 +99,15 @@ class _Allowlist(HTMLParser):
         self.ok = False
 
 
-def _safe(html: str) -> bool:
-    """Exactly one slide section built only from allowed tags/attributes; anything else ships the template."""
+def _safe(html: str, template_html: str = "") -> bool:
+    """Exactly one slide section built only from allowed tags/attributes, keeping every article link the template
+    has and adding none; anything else ships the template."""
     if html.lower().count("<section") != 1 or html.lower().count("</section>") != 1:
         return False
-    parser = _Allowlist()
+    links = source_links(template_html)
+    if source_links(html) != links:
+        return False
+    parser = _Allowlist(frozenset(links))
     try:
         parser.feed(html)
         parser.close()
@@ -140,7 +156,7 @@ def compose(spec: DeckSpec, out_dir: Path, llm, shingles: set, progress=None, wo
             if not html:
                 report[s.id]["reasons"].append("no usable creative version")
                 continue
-            if not _safe(html):
+            if not _safe(html, template_html.get(s.id, "")):
                 report[s.id]["reasons"].append("unsafe or malformed html")
                 continue
             html = _restore(html, stashed[s.id][1])

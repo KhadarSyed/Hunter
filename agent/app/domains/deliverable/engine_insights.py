@@ -70,14 +70,17 @@ def _breakdown_answer(rq: RQ, sections: list[Section]) -> dict | None:
 
 
 def section_summaries(rq: RQ, sections: list[Section], rows: list[EngineRow], registry: CitationRegistry, llm,
-                      evidence: list[EngineRow] | None = None) -> dict[str, list[dict]]:
+                      evidence: list[EngineRow] | None = None, avoid: list[dict] | None = None) -> dict[str, list[dict]]:
     """One cited summary per drawn chart or table (not the KPI tile), so no evidence slide goes without its
-    answer and its sources."""
+    answer and its sources. Each is told what the question's insights and earlier summaries already said."""
     out = {}
+    said = [f"{c.get('headline', '')}: {c.get('text', '')}" for c in avoid or []]
     for s in sections:
         if s.skipped or not (s.chart or s.table) or (s.chart or {}).get("kind") == "kpi" or not s.facts:
             continue
-        summary = draft_section(f"{rq.question} - {s.title}", s.facts, _candidates([s], rows, evidence), registry, llm, 1)
+        summary = draft_section(f"{rq.question} - {s.title}", s.facts, _candidates([s], rows, evidence), registry, llm, 1,
+                                avoid=said)
         if summary:
             out[s.id] = summary[:1]
+            said.append(f"{summary[0].get('headline', '')}: {summary[0].get('text', '')}")
     return out

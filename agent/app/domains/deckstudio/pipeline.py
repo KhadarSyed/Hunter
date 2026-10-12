@@ -3,6 +3,8 @@ tokens), find assets, compose (render + creative pass), export."""
 from __future__ import annotations
 
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from ...core import config
@@ -10,6 +12,13 @@ from . import validate
 from . import (art_director, assets, checklist, creative, design_systems, exporter, image_brief, indexer, planner, renderer, verbatims,
                vision)
 from .planner import PlanInput
+
+_BUDGET = threading.Lock()
+PHOTO_WORKERS = 4     # concurrent photo searches; more risks the photo API's and the vision model's rate limits
+WALL_WORKERS = 3       # concurrent verbatim walls, one headless browser each
+# The automatic per-slide restyle is off: on review its versions looked worse than the template, most failed the
+# safety or layout checks anyway, and it took ~5 minutes a run. Single-slide edits on request (revise.py) remain.
+CREATIVE_RESTYLE = False
 
 
 def _article_urls(slide, plan_input: PlanInput) -> list[str]:
@@ -27,10 +36,11 @@ def _judge(llm, subjects, label: str, checks: dict):
     mine = {"n": 0}
 
     def judge(data: bytes):
-        if checks["n"] >= assets.MAX_VISION_CHECKS or mine["n"] >= assets.VISION_PER_SLIDE:
-            return None
-        checks["n"] += 1
-        mine["n"] += 1
+        with _BUDGET:                      # photo searches run in parallel; the run's budget is shared
+            if checks["n"] >= assets.MAX_VISION_CHECKS or mine["n"] >= assets.VISION_PER_SLIDE:
+                return None
+            checks["n"] += 1
+            mine["n"] += 1
         return vision.matches(llm, data, subjects, label)
     return judge
 
@@ -106,19 +116,34 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     photo_slides = [s for s in spec.slides if s.treatment in ("A", "C", "full") and s.image.get("query")]
     scene_by_id = image_brief.scenes(llm, photo_slides, plan_input.brands, plan_input.products, plan_input.category)
     checks = {"n": 0}
-    for k, s in enumerate(spec.slides, start=1):
-        run.within("assets", 0.9 * k / len(spec.slides), f"Finding photos and logos for slide {k} of {len(spec.slides)}")
+    for s in spec.slides:
         add_chart_logos(s, logos)
-        if s not in photo_slides:
-            continue
+
+    def photo_for(s):
         role = "panel" if s.treatment == "C" else "background"
         subjects = image_brief.subjects_for(s, plan_input.brands, plan_input.products, plan_input.category,
                                             scene_by_id.get(s.id, ""))
         label = s.question or s.title or s.kicker
-        photo = assets.find_photo(" ".join(image_brief.queries(subjects)[:1]) or s.image["query"], role,
-                                  deck_dir / "photos", used, brand_image if s.type == "cover" else None,
-                                  subjects=subjects, article_urls=_article_urls(s, plan_input),
-                                  judge=_judge(llm, subjects, label, checks))
+        return assets.find_photo(" ".join(image_brief.queries(subjects)[:1]) or s.image["query"], role,
+                                 deck_dir / "photos", used, brand_image if s.type == "cover" else None,
+                                 subjects=subjects, article_urls=_article_urls(s, plan_input),
+                                 judge=_judge(llm, subjects, label, checks))
+
+    # Each slide's photo search is independent (30-75s of search and vision checks), so several run at once;
+    # threads only search, the run log is written here
+    photos = {}
+    with ThreadPoolExecutor(max_workers=PHOTO_WORKERS) as pool:
+        futures = {pool.submit(photo_for, s): s for s in photo_slides}
+        for k, done in enumerate(as_completed(futures), start=1):
+            run.within("assets", 0.8 * k / max(1, len(photo_slides)), f"Finding photos: {k} of {len(photo_slides)}")
+            photos[futures[done].id] = done.result()
+    taken: set[str] = set()
+    for s in photo_slides:                 # two slides searched at once may have picked the same photo
+        photo = photos[s.id]
+        if photo.path and photo.source_url in taken:
+            photo = photo_for(s)           # `used` now holds every photo chosen above
+        if photo.path:
+            taken.add(photo.source_url)
         s.image["path"] = str(photo.path) if photo.path else None
         s.image["why"] = photo.why
         found.append({"slide": s.id, "source": photo.source_url, "licence": photo.licence, "why": photo.why})
@@ -135,10 +160,16 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
         run.log(f"Cover product: {spec.product_name}")
     walls = [s for s in spec.slides if s.type == "verbatim_wall"]
     shots: dict[str, str] = {}
-    for k, s in enumerate(walls, start=1):
+
+    def wall_shots(s):                     # each wall opens its own browser, so walls capture side by side
+        rq_id = s.id.rsplit("-verbatims", 1)[0].upper()
+        return verbatims.collect(plan_input.verbatims_by_rq.get(rq_id, []), config.DATA_DIR / "verbatims")
+
+    with ThreadPoolExecutor(max_workers=WALL_WORKERS) as pool:
+        captured = list(pool.map(wall_shots, walls))
+    for k, (s, got) in enumerate(zip(walls, captured), start=1):
         run.within("assets", 0.9 + 0.1 * k / len(walls), f"Capturing article screenshots for question {k} of {len(walls)}")
         rq_id = s.id.rsplit("-verbatims", 1)[0].upper()
-        got = verbatims.collect(plan_input.verbatims_by_rq.get(rq_id, []), config.DATA_DIR / "verbatims")
         s.cards = [{**c, "image": g["image"]} for c, g in zip(s.cards, got)]
         shots.update({g["url"]: g["image"] for g in got if g["image"]})
         run.log(f"Verbatims for {s.kicker or rq_id}: {sum(g['kind'] == 'screenshot' for g in got)} screenshots, "
@@ -156,7 +187,8 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     run.stage("assets", "done", f"{sum(1 for f in found if f['licence'] != 'none')} photos")
 
     run.stage("compose", "running")
-    html, report = creative.compose(spec, deck_dir, llm, indexer.reference_text_shingles(),
+    html, report = creative.compose(spec, deck_dir, llm if CREATIVE_RESTYLE else None,
+                                    indexer.reference_text_shingles(),
                                     progress=lambda i, n, sid: run.within("compose", i / max(1, n), f"Designing slide {i} of {n}"),
                                     on_fix=on_fix)
     for r in report:

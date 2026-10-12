@@ -50,6 +50,16 @@ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .vcell{margin:0;background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:16px;box-shadow:0 2px 10px rgba(0,0,0,.05);
 overflow:hidden;display:flex;align-items:center;justify-content:center;padding:14px}
 .vshot{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain}
+.vlink{display:flex;align-items:center;justify-content:center;width:100%;height:100%}
+.obj{position:absolute;left:70px;top:46px;right:680px;bottom:70px;display:flex;flex-direction:column;overflow:hidden}
+.obj-label{font:700 26px/1.2 var(--title);color:var(--primary);margin-top:28px}
+.obj-lead{font:400 21px/1.45 var(--body);color:var(--text);margin-top:12px}
+.obj-list{margin:14px 0 0 30px;padding:0;font:400 20px/1.38 var(--body);color:var(--text)}
+.obj-list li{margin-bottom:9px;padding-left:8px}
+.obj.dense .obj-lead{font-size:18px}.obj.dense .obj-list{font-size:17px}.obj.dense .obj-list li{margin-bottom:6px}
+.obj-scope{margin-top:auto;padding-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:10px 36px;font:400 19px/1.35 var(--body);color:var(--text)}
+.obj-scope strong{color:var(--primary);font-weight:700}
+a.cite,a.vlink{text-decoration:none;cursor:pointer}
 .vnote{position:absolute;right:60px;bottom:52px;font:italic 400 17px var(--body);color:var(--primary)}
 .thumb{float:right;width:48px;height:48px;object-fit:cover;object-position:top;border-radius:8px;margin:0 0 6px 10px}
 {% if t.type_scale %}.slide[data-type=cover] .title{font-size:{{ t.type_scale.hero }}px!important;font-weight:{{ t.type_scale.weight }}}

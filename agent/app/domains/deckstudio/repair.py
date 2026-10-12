@@ -2,6 +2,7 @@
 split a long table onto continuation slides. Up to MAX_ATTEMPTS re-renders; every fix is reported."""
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from .renderer import render_deck
 MAX_ATTEMPTS = 2
 SO_WHAT_MAX = 140
 CARD_TEXT_MAX = 160
-CARDS_MAX = 3
+CARDS_MAX = 2
 TABLE_ROWS_PER_SLIDE = 8
 _ACTIONS = {"low_contrast": "drop_photo"}
 _TABLE_KINDS = ("overflow", "off_slide")
@@ -22,7 +23,16 @@ def action_for(kind: str) -> str:
 
 
 def _cut(text: str, limit: int) -> str:
-    return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0].rstrip(",;:") + "…"
+    """Whole sentences that fit; a mid-sentence cut (with …) only when not even the first sentence fits."""
+    if len(text) <= limit:
+        return text
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    kept = ""
+    for s in sentences:
+        if len(f"{kept} {s}".strip()) > limit:
+            break
+        kept = f"{kept} {s}".strip()
+    return kept or text[:limit].rsplit(" ", 1)[0].rstrip(",;:") + "…"
 
 
 def _shorten(slide) -> None:

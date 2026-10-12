@@ -107,13 +107,27 @@ def rank(rows: list[EngineRow], brands: list[Brand], dims: list[qd.Dimension], w
     return [row for _, _, row in keep]
 
 
-def for_question(rows: list[EngineRow], brands: list[Brand], dims: list[qd.Dimension]) -> list[EngineRow]:
+_NOT_AN_ANSWER = {"", "no", "none", "unknown", "false", "n/a"}
+
+
+def affirmative(value) -> bool:
+    return any(str(v).strip().lower() not in _NOT_AN_ANSWER
+               for v in (value if isinstance(value, list) else [value]) if v is not None)
+
+
+def for_question(rows: list[EngineRow], brands: list[Brand], dims: list[qd.Dimension],
+                 answer_tag: str = "") -> list[EngineRow]:
     """What a question's insights and verbatims may use: the brand's own evidence when the data has any; for a
-    category study (or a brand the coverage never names) the articles that best carry the question's intent."""
+    category study (or a brand the coverage never names) the articles that answer the question -- tagged yes on
+    its answer tag first, then those naming a brand of the set, then the ones carrying more of its dimensions
+    (judged ones by their tags), then reach."""
     primary = rank(rows, brands, dims, "primary")
     if primary:
         return primary
-    scored = [(sum(1 for d in dims if not d.judged and _values_of(r, d)), r.article.reach, r) for r in rows
-              if getattr(r, "brand_mention", "") != "figurative"]
-    scored.sort(key=lambda k: (-k[0], -k[1]))
-    return [r for _, _, r in scored]
+
+    def score(r: EngineRow) -> tuple:
+        answered = bool(answer_tag) and affirmative((r.dynamic_tags or {}).get(answer_tag))
+        matched = sum(1 for d in dims if affirmative(_values_of(r, d)))
+        return answered, bool(row_brands(r, brands)), matched, r.article.reach
+
+    return sorted((r for r in rows if getattr(r, "brand_mention", "") != "figurative"), key=score, reverse=True)

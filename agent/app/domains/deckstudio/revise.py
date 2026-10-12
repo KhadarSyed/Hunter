@@ -43,7 +43,7 @@ def _slide(spec: DeckSpec, ref: str):
 def _rejection(html: str | None, template: str, slide, spec: DeckSpec) -> str:
     if not html:
         return "the model returned no usable slide"
-    if not creative._safe(html):
+    if not creative._safe(html, template):
         return "unsafe or malformed html"
     if not creative._same_charts(template, html):
         return "the chart changed"
