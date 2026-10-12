@@ -97,9 +97,6 @@ def create_organization_route(
     req: CreateOrganizationRequest, user: Annotated[dict, Depends(get_current_user)],
 ):
     _require_role(user, "super_admin")
-    if len(req.admin_temp_password) < service.MIN_PASSWORD_LENGTH:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST,
-                             f"Password must be at least {service.MIN_PASSWORD_LENGTH} characters")
     existing = store.get_user_by_email(req.admin_email)
     if existing and existing["role"] == "super_admin":     # linked to the new org; account and role unchanged
         org = store.create_organization_for_member(req.name, existing["id"])
@@ -108,7 +105,7 @@ def create_organization_route(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Email already in use")
     org = store.create_organization(
         req.name, req.admin_email, req.admin_display_name,
-        service.hash_password(req.admin_temp_password))
+        service.hash_password(service.DEFAULT_PASSWORD))
     return {**org, "admin_name": req.admin_display_name, "admin_email": req.admin_email}
 
 
@@ -169,10 +166,7 @@ def create_user_route(req: CreateUserRequest, user: Annotated[dict, Depends(get_
         store.add_user_to_org(existing["id"], target_org_id)
         return {**existing, "temp_password": None}
 
-    temp_password = req.temp_password or service.generate_temp_password()
-    if len(temp_password) < service.MIN_PASSWORD_LENGTH:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST,
-                             f"Password must be at least {service.MIN_PASSWORD_LENGTH} characters")
+    temp_password = service.DEFAULT_PASSWORD
     new_id = store.create_user(target_org_id, req.email, service.hash_password(temp_password),
                                 req.display_name, req.role)
     if req.role == "super_admin" and req.org_id is not None:     # org-less by design, but listed under that org
@@ -214,14 +208,14 @@ def delete_organization_route(org_id: int, user: Annotated[dict, Depends(get_cur
 
 @router.post("/users/{user_id}/reset-password", response_model=ResetPasswordResponse)
 def reset_user_password_route(user_id: int, user: Annotated[dict, Depends(get_current_user)]):
-    """Admin/Super Admin sets a fresh auto-generated temp password for any user they manage
-    (Admins: their own org's Analysers only, via _require_same_org_analyser; Super Admin: anyone)
-    — shown once in the response so it can be handed to the user."""
+    """Admin/Super Admin resets any user they manage to the default password, which the user must
+    change at next login (Admins: their own org's Analysers only, via _require_same_org_analyser;
+    Super Admin: anyone)."""
     _require_role(user, "admin", "super_admin")
     _require_same_org_analyser(user, user_id)
     if not store.get_user_by_id(user_id):
         raise HTTPException(404, "User not found")
-    temp_password = service.generate_temp_password()
+    temp_password = service.DEFAULT_PASSWORD
     store.reset_user_password(user_id, service.hash_password(temp_password))
     return ResetPasswordResponse(temp_password=temp_password)
 

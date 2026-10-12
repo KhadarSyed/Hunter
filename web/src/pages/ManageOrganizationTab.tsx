@@ -6,7 +6,6 @@ export function ManageOrganizationTab() {
   const [name, setName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminName, setAdminName] = useState("");
-  const [adminTempPassword, setAdminTempPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const load = () => intelApi.listOrganizations().then(setOrgs);
@@ -16,8 +15,8 @@ export function ManageOrganizationTab() {
     e.preventDefault();
     setError(null);
     try {
-      await intelApi.createOrganization(name, adminEmail, adminName, adminTempPassword);
-      setName(""); setAdminEmail(""); setAdminName(""); setAdminTempPassword("");
+      await intelApi.createOrganization(name, adminEmail, adminName);
+      setName(""); setAdminEmail(""); setAdminName("");
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create organization");
@@ -42,11 +41,7 @@ export function ManageOrganizationTab() {
           <input value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} required
                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
         </div>
-        <div>
-          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Temp password</label>
-          <input value={adminTempPassword} onChange={(e) => setAdminTempPassword(e.target.value)} required minLength={8}
-                 className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-        </div>
+        <span className="text-xs text-slate-400 pb-2.5">The admin signs in with Admin@123 and must change it.</span>
         <button type="submit" className="rounded-lg bg-[#5B2C9D] text-white font-semibold px-4 py-2 text-sm">
           Create Org
         </button>

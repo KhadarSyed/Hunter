@@ -145,7 +145,7 @@ export function ManageUsersTab() {
                 className="rounded-lg bg-[#5B2C9D] text-white font-semibold px-4 py-2 text-sm disabled:opacity-40 disabled:cursor-not-allowed">
           {creating ? "Adding..." : isSuperAdmin ? `Add ${role === "super_admin" ? "Super Admin" : role === "admin" ? "Admin" : "Analyser"}` : "Add Analyser"}
         </button>
-        <span className="text-xs text-slate-400 pb-2.5">A temp password is generated automatically.</span>
+        <span className="text-xs text-slate-400 pb-2.5">New users sign in with Admin@123 and must change it.</span>
       </form>
       {error && <div className="text-sm text-red-600">{error}</div>}
 

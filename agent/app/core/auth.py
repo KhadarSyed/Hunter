@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 SESSION_COOKIE_NAME = "session_token"
 SEED_SUPER_ADMIN_EMAIL = "khadar.syed@infovision.com"
-SEED_SUPER_ADMIN_TEMP_PASSWORD = "ChangeMe#2026"
+SEED_SUPER_ADMIN_TEMP_PASSWORD = "Admin@123"   # same as domains.auth.service.DEFAULT_PASSWORD
 
 
 def seed_super_admin_if_missing() -> None:

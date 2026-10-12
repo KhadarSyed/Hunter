@@ -630,10 +630,9 @@ export const intelApi = {
   reactivateUser: (userId: number) => authPost<{ ok: boolean }>(`/users/${userId}/reactivate`),
   reassignProjects: (userId: number, toUserId: number) =>
     authPost<{ ok: boolean; reassigned: number }>(`/users/${userId}/reassign-projects`, { to_user_id: toUserId }),
-  createOrganization: (name: string, adminEmail: string, adminDisplayName: string, adminTempPassword: string) =>
+  createOrganization: (name: string, adminEmail: string, adminDisplayName: string) =>
     authPost<AuthOrganizationRow>("/organizations", {
       name, admin_email: adminEmail, admin_display_name: adminDisplayName,
-      admin_temp_password: adminTempPassword,
     }),
   listOrganizations: () => authGet<AuthOrganizationRow[]>("/organizations"),
   archiveOrganization: (orgId: number) => authPost<{ ok: boolean }>(`/organizations/${orgId}/archive`),

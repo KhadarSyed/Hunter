@@ -33,7 +33,6 @@ class CreateOrganizationRequest(ApiModel):
     name: str
     admin_email: str
     admin_display_name: str
-    admin_temp_password: str
 
 
 class OrganizationResponse(ApiModel):
@@ -48,7 +47,6 @@ class CreateUserRequest(ApiModel):
     email: str
     display_name: str
     role: str  # 'admin' | 'analyser' | 'super_admin' — router enforces who may pick which
-    temp_password: str | None = None  # None = auto-generate (see service.generate_temp_password)
     org_id: int | None = None  # Super Admin only: which org a new admin/analyser joins
 
 
