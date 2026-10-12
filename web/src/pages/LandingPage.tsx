@@ -96,7 +96,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
             <h1 className="mb-3" style={{ fontSize: 38, fontWeight: 700, letterSpacing: "-0.02em", lineHeight: 1.15, color: "#1e1833" }}>
               Choose how you want to work
             </h1>
-            <p className="mx-auto leading-relaxed" style={{ color: "#7c7a8a", fontSize: 15, maxWidth: 480 }}>
+            <p className="mx-auto leading-relaxed" style={{ color: "#43386b", fontSize: 15, maxWidth: 480 }}>
               Start a research project or validate a monitoring report before delivery.
             </p>
           </header>
