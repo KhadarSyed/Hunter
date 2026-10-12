@@ -70,6 +70,17 @@ IdPath = Annotated[int, PathParam(ge=1)]
 router = APIRouter()
 
 
+
+def _date_range(values: list[str]) -> dict:
+    """Earliest and latest as real dates (ISO), so day-first exports (25-09-2026) are not compared as text; values
+    that no format parses fall back to their text order."""
+    from ..deliverable.ingest import infer_date_order, parse_date
+    order = infer_date_order(values)
+    dates = sorted(d for d in (parse_date(v, order) for v in values) if d)
+    if dates:
+        return {"earliest": dates[0].isoformat(), "latest": dates[-1].isoformat(), "count": len(values)}
+    return {"earliest": min(values), "latest": max(values), "count": len(values)}
+
 def _extract_competitors_from_text(text: str, brand_name: str) -> list[str]:
     """Extract competitor names from natural-language brief text."""
     competitors = []
@@ -793,9 +804,7 @@ def _parse_and_analyze(file_path: str) -> tuple[list[str], list[dict], int, dict
     geos: dict[str, int] = {}
     sources: dict[str, int] = {}
     langs: dict[str, int] = {}
-    date_min: str | None = None
-    date_max: str | None = None
-    date_count = 0
+    date_values: list[str] = []
     reach_total = 0.0
     reach_max = 0.0
     reach_count = 0
@@ -824,7 +833,7 @@ def _parse_and_analyze(file_path: str) -> tuple[list[str], list[dict], int, dict
 
     def _update_stats(row_dict: dict, sheet_name: str | None = None):
         nonlocal total_count, sent_pos, sent_neg, sent_neu, sent_other
-        nonlocal date_min, date_max, date_count, reach_total, reach_max, reach_count
+        nonlocal reach_total, reach_max, reach_count
         total_count += 1
         if len(preview) < 20:
             preview.append({k: str(v or "") for k, v in row_dict.items()})
@@ -850,9 +859,7 @@ def _parse_and_analyze(file_path: str) -> tuple[list[str], list[dict], int, dict
         if date_col:
             d = str(row_dict.get(date_col, "")).strip()
             if d:
-                date_count += 1
-                if date_min is None or d < date_min: date_min = d
-                if date_max is None or d > date_max: date_max = d
+                date_values.append(d)
         if reach_col:
             try:
                 rv = float(str(row_dict.get(reach_col, "0")).replace(",", ""))
@@ -936,8 +943,8 @@ def _parse_and_analyze(file_path: str) -> tuple[list[str], list[dict], int, dict
     if sources:
         stats["top_sources"] = dict(sorted(sources.items(), key=lambda x: -x[1])[:10])
         stats["unique_source_count"] = len(sources)
-    if date_min and date_max:
-        stats["date_range"] = {"earliest": date_min, "latest": date_max, "count": date_count}
+    if date_values:
+        stats["date_range"] = _date_range(date_values)
     if reach_count:
         stats["reach"] = {"total": reach_total, "avg": round(reach_total / reach_count), "max": reach_max}
     if langs:
