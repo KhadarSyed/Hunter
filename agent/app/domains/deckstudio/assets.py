@@ -174,7 +174,10 @@ def _scrapling_download(url: str) -> bytes | None:
 
 
 def crop_to(path: Path, role: str, out: Path) -> Path:
-    img = ImageOps.fit(Image.open(path).convert("RGB"), SIZES[role], method=Image.LANCZOS, centering=(0.5, 0.45))
+    with Image.open(path) as src:
+        w, h = SIZES[role]
+        src.draft("RGB", (w * 2, h * 2))     # a JPEG decodes at reduced scale: a 24 MP photo no longer takes ~70 MB
+        img = ImageOps.fit(src.convert("RGB"), SIZES[role], method=Image.LANCZOS, centering=(0.5, 0.45))
     out.parent.mkdir(parents=True, exist_ok=True)
     img.save(out, "JPEG", quality=86)
     return out

@@ -1,11 +1,15 @@
 export type WsMessage = { type: string; [key: string]: any };
 type Listener = (msg: WsMessage) => void;
 
+const RETRY_BASE_MS = 2000;
+const RETRY_MAX_MS = 30000;
+
 class AgentSocket {
   private ws: WebSocket | null = null;
   private listeners = new Set<Listener>();
   private statusListeners = new Set<(connected: boolean) => void>();
   private retryTimer: number | null = null;
+  private retries = 0;
 
   connect() {
     if (this.ws) return;
@@ -25,11 +29,16 @@ class AgentSocket {
       wsUrl = `${proto}://${location.host}/ws`;
     }
     this.ws = new WebSocket(wsUrl);
-    this.ws.onopen = () => this.statusListeners.forEach((fn) => fn(true));
+    this.ws.onopen = () => {
+      this.retries = 0;
+      this.statusListeners.forEach((fn) => fn(true));
+    };
     this.ws.onclose = () => {
       this.ws = null;
       this.statusListeners.forEach((fn) => fn(false));
-      this.retryTimer = window.setTimeout(() => this.connect(), 2000);
+      // back off while the server is down or restarting: a fixed 2s retry gets the browser rate-limited (429)
+      const delay = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** this.retries++);
+      this.retryTimer = window.setTimeout(() => this.connect(), delay);
     };
     this.ws.onerror = () => this.ws?.close();
     this.ws.onmessage = (ev) => {

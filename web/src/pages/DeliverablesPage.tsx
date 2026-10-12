@@ -108,6 +108,8 @@ function SectionView({ section, logos }: { section: DeliverableSection; logos: R
   );
 }
 
+const RUN_POLL_MS = 30000;
+
 export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) => void }) {
   const projectId = useActiveProjectId() ?? 1;
   const [payload, setPayload] = useState<DeliverablePayload>({ run: null, sections: [] });
@@ -141,8 +143,20 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
         refresh();
       }
     });
-    return () => { off(); };
+    // A reconnect means events may have been missed (a server restart can end the run while the socket is down)
+    const offStatus = agentSocket.onStatus((connected) => { if (connected) refresh(); });
+    return () => { off(); offStatus(); };
   }, [projectId]);
+
+  // Safety net while a run is in progress: the stored state, re-read now and then, catches a run that ended unseen
+  const isRunning = payload.run?.status === "running";
+  useEffect(() => {
+    if (!isRunning) return;
+    const timer = window.setInterval(() => {
+      intelApi.deliverableLatest(projectId).then(setPayload).catch(() => undefined);
+    }, RUN_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [isRunning, projectId]);
 
   const generate = async () => {
     setStartError(null);

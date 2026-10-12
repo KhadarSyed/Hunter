@@ -14,8 +14,10 @@ from . import (art_director, assets, checklist, creative, design_systems, export
 from .planner import PlanInput
 
 _BUDGET = threading.Lock()
-PHOTO_WORKERS = 4     # concurrent photo searches; more risks the photo API's and the vision model's rate limits
-WALL_WORKERS = 3       # concurrent verbatim walls, one headless browser each
+# concurrent photo searches (more risks the photo API's and the vision model's rate limits) and verbatim walls (one
+# headless browser each); a small container gets fewer, or it runs out of memory mid-run
+PHOTO_WORKERS = 2 if config.low_memory() else 4
+WALL_WORKERS = 1 if config.low_memory() else 3
 # The automatic per-slide restyle is off: on review its versions looked worse than the template, most failed the
 # safety or layout checks anyway, and it took ~5 minutes a run. Single-slide edits on request (revise.py) remain.
 CREATIVE_RESTYLE = False

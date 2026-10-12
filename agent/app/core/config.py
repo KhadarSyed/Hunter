@@ -122,3 +122,24 @@ def get_app_settings() -> AppSettings:
     if settings.is_production and not settings.api_key:
         raise RuntimeError("API_KEY must be set when ENVIRONMENT=production")
     return settings
+
+
+LOW_MEMORY_BYTES = 1536 * 1024 * 1024
+_CGROUP_LIMITS = ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes")
+
+
+@lru_cache(maxsize=1)
+def low_memory() -> bool:
+    """True inside a container capped under ~1.5 GB (Render's free plan gives 512 MB), where parallel photo decoding
+    and several headless browsers at once get the process killed. HUNTER_LOW_MEMORY=1/0 overrides the detection."""
+    forced = os.environ.get("HUNTER_LOW_MEMORY", "").strip()
+    if forced in ("0", "1"):
+        return forced == "1"
+    for path in _CGROUP_LIMITS:
+        try:
+            raw = Path(path).read_text().strip()
+        except OSError:
+            continue
+        if raw.isdigit():
+            return int(raw) < LOW_MEMORY_BYTES
+    return False
