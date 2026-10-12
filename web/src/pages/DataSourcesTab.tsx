@@ -57,7 +57,7 @@ export function DataSourcesTab() {
     }
   };
 
-  if (!sources) return <p className="text-sm text-slate-400">Loading…</p>;
+  if (!sources) return <p className="text-sm text-slate-600">Loading…</p>;
 
   return (
     <div className="space-y-6">
