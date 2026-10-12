@@ -9,7 +9,7 @@ import json
 import time
 from typing import Optional
 
-from ...core.db import _conn
+from ...core.db import _conn, declared_foreign_keys, table_columns, table_names
 
 # ─── Projects ────────────────────────────────────────────────────────────────
 
@@ -261,14 +261,12 @@ def _child_links(conn) -> dict[str, list[tuple[str, str]]]:
     """parent table -> [(child table, child column)]: the schema's declared FKs, every
     table with a project_id column, and _UNDECLARED_LINKS."""
     links: dict[str, set[tuple[str, str]]] = {}
-    tables = [r[0] for r in conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+    tables = table_names(conn)
+    for child, col, parent in declared_foreign_keys():   # from the schema, so Postgres (no FKs) gets them too
+        if child in tables and parent != child:            # skip self-references (e.g. library canonical_id)
+            links.setdefault(parent, set()).add((child, col))
     for t in tables:
-        for fk in conn.execute(f"PRAGMA foreign_key_list('{t}')"):
-            parent, col = fk[2], fk[3]
-            if parent != t:  # skip self-references (e.g. library canonical_id)
-                links.setdefault(parent, set()).add((t, col))
-        if t != _ROOT and any(c[1] == "project_id" for c in conn.execute(f"PRAGMA table_info('{t}')")):
+        if t != _ROOT and "project_id" in table_columns(conn, t):
             links.setdefault(_ROOT, set()).add((t, "project_id"))
     for child, col, parent in _UNDECLARED_LINKS:
         if child in tables:

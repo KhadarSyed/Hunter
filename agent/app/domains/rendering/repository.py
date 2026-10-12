@@ -200,17 +200,20 @@ def get_render_metrics(job_id: str) -> list[dict]:
     return result
 
 
+_THEME_COLS = ("id", "name", "description", "primary_color", "secondary_color", "accent_color",
+               "background_color", "text_color", "font_heading", "font_body",
+               "font_size_title", "font_size_body", "font_size_caption",
+               "logo_position", "footer_style", "color_palette_json",
+               "is_default", "is_active", "created_at", "updated_at")
+
+
 def create_theme(theme_id: str, name: str, **kw) -> str:
     conn = _conn()
     now = time.time()
     conn.execute(
-        "INSERT OR REPLACE INTO intel_themes "
-        "(id, name, description, primary_color, secondary_color, accent_color, "
-        "background_color, text_color, font_heading, font_body, "
-        "font_size_title, font_size_body, font_size_caption, "
-        "logo_position, footer_style, color_palette_json, "
-        "is_default, is_active, created_at, updated_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        f"INSERT INTO intel_themes ({', '.join(_THEME_COLS)}) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+        "ON CONFLICT (id) DO UPDATE SET " + ", ".join(f"{c} = excluded.{c}" for c in _THEME_COLS[1:]),
         (theme_id, name, kw.get("description"),
          kw.get("primary_color", "#5B2C9D"),
          kw.get("secondary_color", "#5E35B1"),

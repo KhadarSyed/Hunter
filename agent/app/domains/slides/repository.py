@@ -576,8 +576,9 @@ def save_si_embedding(slide_id: int, embedding_blob: bytes, model_name: str = "n
     conn = _conn()
     now = time.time()
     conn.execute(
-        "INSERT OR REPLACE INTO intel_si_embeddings (slide_id, embedding_blob, model_name, created_at) "
-        "VALUES (?, ?, ?, ?)",
+        "INSERT INTO intel_si_embeddings (slide_id, embedding_blob, model_name, created_at) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT (slide_id) DO UPDATE SET embedding_blob = excluded.embedding_blob, "
+        "model_name = excluded.model_name, created_at = excluded.created_at",
         (slide_id, embedding_blob, model_name, now),
     )
     conn.commit()

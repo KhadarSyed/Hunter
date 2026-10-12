@@ -129,7 +129,9 @@ def get_cached_classification(norm_url: str, field: str) -> Optional[list]:
 
 def save_cached_classification(norm_url: str, field: str, value: list, model: str) -> None:
     conn = _conn()
-    conn.execute("INSERT OR REPLACE INTO intel_article_classifications VALUES (?, ?, ?, ?, ?)",
+    conn.execute("INSERT INTO intel_article_classifications (norm_url, field, value_json, model, created_at) "
+                 "VALUES (?, ?, ?, ?, ?) ON CONFLICT (norm_url, field) DO UPDATE SET value_json = excluded.value_json, "
+                 "model = excluded.model, created_at = excluded.created_at",
                  (norm_url, field, json.dumps(value, ensure_ascii=False), model, time.time()))
     conn.commit()
     conn.close()
@@ -137,7 +139,9 @@ def save_cached_classification(norm_url: str, field: str, value: list, model: st
 
 def save_reference_deck(path: str, text: str, embedding: Optional[list[float]]) -> None:
     conn = _conn()
-    conn.execute("INSERT OR REPLACE INTO intel_reference_decks VALUES (?, ?, ?, ?)",
+    conn.execute("INSERT INTO intel_reference_decks (path, text, embedding_json, indexed_at) VALUES (?, ?, ?, ?) "
+                 "ON CONFLICT (path) DO UPDATE SET text = excluded.text, embedding_json = excluded.embedding_json, "
+                 "indexed_at = excluded.indexed_at",
                  (path, text, json.dumps(embedding) if embedding is not None else None, time.time()))
     conn.commit()
     conn.close()

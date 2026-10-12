@@ -5,12 +5,15 @@ Every domains/<name>/repository.py opens connections through _conn() here.
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import os
+import re
 import sqlite3
 import time
 from typing import Optional
 
-from . import config
+from . import config, pg
 
 logger = logging.getLogger(__name__)
 
@@ -1476,9 +1479,19 @@ CREATE TABLE IF NOT EXISTS qc_exports (
 """
 
 
+def using_postgres() -> bool:
+    """DATABASE_URL set means Postgres (core/pg.py); otherwise the SQLite file under DATA_DIR."""
+    return bool(os.environ.get("DATABASE_URL", "").strip())
+
+
 def _conn() -> sqlite3.Connection:
-    """Open a connection. Cheap (SQLite is in-process), so repositories open one per call;
-    WAL mode is persistent and set once in init_intelligence_db()."""
+    """Open a connection. Cheap (SQLite is in-process; Postgres connections are pooled), so repositories open
+    one per call; WAL mode is persistent and set once in init_intelligence_db()."""
+    if using_postgres():
+        conn = pg.connect(os.environ["DATABASE_URL"].strip())
+        if os.environ.get("HUNTER_PG_SCHEMA_PER_DB"):        # tests: each throwaway DB path is its own schema
+            conn.use_schema("t_" + hashlib.sha1(str(config.MEMORY_DB_PATH).encode()).hexdigest()[:16])
+        return conn
     conn = sqlite3.connect(str(config.MEMORY_DB_PATH), check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout=30000")
@@ -1487,6 +1500,41 @@ def _conn() -> sqlite3.Connection:
     # tests) insert child rows before/without their parents. Deleting a project cleans
     # up its children explicitly (projects/repository.delete_project) instead.
     return conn
+
+
+def table_names(conn) -> list[str]:
+    """The database's tables, on either SQLite or Postgres."""
+    if using_postgres():
+        sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()"
+    else:
+        sql = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+    return [r[0] for r in conn.execute(sql)]
+
+
+def table_columns(conn, table: str) -> list[str]:
+    if using_postgres():
+        return [r[0] for r in conn.execute("SELECT column_name FROM information_schema.columns "
+                                           "WHERE table_schema = current_schema() AND table_name = ?", (table,))]
+    return [r[1] for r in conn.execute(f"PRAGMA table_info('{table}')")]
+
+
+_FK_INLINE = re.compile(r"^\s*(\w+)\s+\w+[^,\n]*?\bREFERENCES\s+(\w+)\s*\(", re.I | re.M)
+_FK_TABLE = re.compile(r"FOREIGN\s+KEY\s*\(\s*(\w+)\s*\)\s*REFERENCES\s+(\w+)\s*\(", re.I)
+_CREATE = re.compile(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s*\((.*?)\n\s*\)", re.I | re.S)
+_ALTER_FK = re.compile(r"ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)\s+[^;]*?\bREFERENCES\s+(\w+)", re.I)
+
+
+def declared_foreign_keys() -> list[tuple[str, str, str]]:
+    """(child table, column, parent table) for every FK the schema declares, read from the schema itself so it
+    holds on Postgres too (where the translated schema leaves FKs out, matching SQLite's unenforced ones)."""
+    out = set()
+    scripts = [INTELLIGENCE_SCHEMA, QC_SCHEMA] + [s for _, _, ss in MIGRATIONS for s in ss]
+    for script in scripts:
+        for table, body in _CREATE.findall(script):
+            out |= {(table, col, parent) for col, parent in _FK_INLINE.findall(body) if col.upper() != "FOREIGN"}
+            out |= {(table, col, parent) for col, parent in _FK_TABLE.findall(body)}
+        out |= set(_ALTER_FK.findall(script))
+    return sorted(out)
 
 
 def _apply_migrations(conn: sqlite3.Connection) -> list[int]:
@@ -1503,7 +1551,7 @@ def _apply_migrations(conn: sqlite3.Connection) -> list[int]:
             for sql in statements:
                 try:
                     conn.execute(sql)
-                except sqlite3.OperationalError as e:
+                except sqlite3.OperationalError as e:       # Postgres uses ADD COLUMN IF NOT EXISTS instead
                     if "duplicate column name" not in str(e):
                         raise
             conn.execute("INSERT INTO schema_migrations VALUES (?, ?, ?)", (version, name, time.time()))

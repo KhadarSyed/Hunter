@@ -58,10 +58,10 @@ def update_execution_run(run_id: int, *, status: str | None = None, completed_un
     if status is not None:
         parts.append("status = ?")
         vals.append(status)
-        if status == "running" and not parts.__contains__("started_at"):
+        if status == "running" and started_at is None:       # an explicit time wins (one assignment per column)
             parts.append("started_at = ?")
             vals.append(time.time())
-        if status in ("completed", "failed", "cancelled"):
+        if status in ("completed", "failed", "cancelled") and finished_at is None:
             parts.append("finished_at = ?")
             vals.append(time.time())
     if completed_units is not None:
@@ -114,10 +114,10 @@ def update_execution_unit(eu_id: int, *, status: str | None = None, progress_pct
     if status is not None:
         parts.append("status = ?")
         vals.append(status)
-        if status == "running" and not parts.__contains__("started_at"):
+        if status == "running" and started_at is None:       # an explicit time wins (one assignment per column)
             parts.append("started_at = ?")
             vals.append(time.time())
-        if status in ("completed", "failed", "cancelled", "skipped"):
+        if status in ("completed", "failed", "cancelled", "skipped") and finished_at is None:
             parts.append("finished_at = ?")
             vals.append(time.time())
     if progress_pct is not None:

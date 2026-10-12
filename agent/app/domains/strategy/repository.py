@@ -10,7 +10,7 @@ import json
 import time
 from typing import Optional
 
-from ...core.db import _conn
+from ...core.db import _conn, using_postgres
 
 # ─── Search Strategies ───────────────────────────────────────────────────────
 
@@ -64,8 +64,8 @@ def update_strategy_query(strategy_id: int, query_type: str, query_text: str) ->
     now = time.time()
     cur = conn.execute(
         "INSERT INTO intel_query_versions (strategy_id, version_label, query_type, query_text, created_at) "
-        "VALUES (?, datetime('now'), ?, ?, ?)",
-        (strategy_id, query_type, query_text, now),
+        "VALUES (?, ?, ?, ?, ?)",
+        (strategy_id, time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(now)), query_type, query_text, now),
     )
     vid = cur.lastrowid
     conn.commit()
@@ -132,10 +132,13 @@ def get_strategy_project_id(strategy_id: int) -> int | None:
 
 def add_research_question(strategy_id: int, question: str, query: str) -> str | None:
     """Append an analyst-added RQ numbered after the highest existing RQn; returns its id (None if no strategy).
-    BEGIN IMMEDIATE takes the write lock before the read, so two concurrent adds can't pick the same RQn."""
+    The write lock is taken before the read (SQLite: BEGIN IMMEDIATE; Postgres: the row, FOR UPDATE), so two
+    concurrent adds can't pick the same RQn."""
     conn = _conn()
-    conn.execute("BEGIN IMMEDIATE")
-    row = conn.execute("SELECT strategy_json FROM intel_search_strategies WHERE id = ?", (strategy_id,)).fetchone()
+    if not using_postgres():
+        conn.execute("BEGIN IMMEDIATE")
+    row = conn.execute("SELECT strategy_json FROM intel_search_strategies WHERE id = ?"
+                       + (" FOR UPDATE" if using_postgres() else ""), (strategy_id,)).fetchone()
     if not row:
         conn.close()
         return None

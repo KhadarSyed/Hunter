@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 
-from ...core.db import _conn
+from ...core.db import _conn, using_postgres
 
 # ─── Pipeline Orchestrator ─────────────────────────────────────────────────
 
@@ -96,7 +96,8 @@ def update_pipeline_run(run_id: str, **kw) -> None:
 def get_latest_pipeline_run(project_id: int) -> dict | None:
     conn = _conn()
     row = conn.execute(
-        "SELECT * FROM intel_pipeline_runs WHERE project_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1",
+        "SELECT * FROM intel_pipeline_runs WHERE project_id=? ORDER BY created_at DESC, "
+        + ("ctid" if using_postgres() else "rowid") + " DESC LIMIT 1",          # insertion order breaks a tie
         (project_id,),
     ).fetchone()
     conn.close()
