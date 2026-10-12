@@ -1396,6 +1396,13 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             schema_json TEXT NOT NULL, source TEXT NOT NULL, updated_at REAL NOT NULL,
             PRIMARY KEY (project_id, rq_id))""",
     ]),
+    # An uploaded dataset's bytes, so a server without a persistent disk (Render free) restores the file after a
+    # restart instead of losing every upload (see strategy/repository.py).
+    (24, "dataset file contents", [
+        """CREATE TABLE IF NOT EXISTS intel_dataset_files (
+            dataset_id INTEGER NOT NULL PRIMARY KEY, file_name TEXT NOT NULL, content BLOB NOT NULL,
+            created_at REAL NOT NULL)""",
+    ]),
 ]
 
 

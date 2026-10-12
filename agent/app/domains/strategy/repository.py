@@ -7,10 +7,15 @@ Also contains:
 from __future__ import annotations
 
 import json
+import logging
 import time
+from pathlib import Path
 from typing import Optional
 
+from ...core import config
 from ...core.db import _conn, using_postgres
+
+logger = logging.getLogger(__name__)
 
 # ─── Search Strategies ───────────────────────────────────────────────────────
 
@@ -200,7 +205,45 @@ def save_dataset(project_id: int, file_name: str, file_path: str,
     dataset_id = cur.lastrowid
     conn.commit()
     conn.close()
+    _keep_file(dataset_id, file_name, file_path)
     return dataset_id
+
+
+def _keep_file(dataset_id: int, file_name: str, file_path: str) -> None:
+    """The upload's bytes go in the database too: the server's disk may not survive a restart."""
+    try:
+        content = Path(file_path).read_bytes()
+    except OSError as e:
+        logger.warning("dataset %s: file %s not kept in the database (%s)", dataset_id, file_path, e)
+        return
+    conn = _conn()
+    conn.execute("DELETE FROM intel_dataset_files WHERE dataset_id = ?", (dataset_id,))
+    conn.execute("INSERT INTO intel_dataset_files (dataset_id, file_name, content, created_at) VALUES (?, ?, ?, ?)",
+                 (dataset_id, file_name, content, time.time()))
+    conn.commit()
+    conn.close()
+
+
+def _restored(d: dict) -> dict:
+    """A dataset whose file is gone from disk (a restarted server) gets it back from the database, under UPLOAD_DIR
+    when its recorded folder no longer exists."""
+    path = Path(d.get("file_path") or "")
+    if not d.get("id") or (str(path) and path.is_file()):
+        return d
+    conn = _conn()
+    row = conn.execute("SELECT content FROM intel_dataset_files WHERE dataset_id = ?", (d["id"],)).fetchone()
+    if row is None:
+        conn.close()
+        return d
+    target = path if path.parent.is_dir() else Path(config.UPLOAD_DIR) / path.name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(bytes(row[0]))
+    if str(target) != str(path):
+        conn.execute("UPDATE intel_datasets SET file_path = ? WHERE id = ?", (str(target), d["id"]))
+        conn.commit()
+    conn.close()
+    logger.info("dataset %s: file restored from the database to %s", d["id"], target)
+    return {**d, "file_path": str(target)}
 
 
 def update_dataset_parsed(dataset_id: int, record_count: int,
@@ -239,7 +282,7 @@ def get_latest_dataset(project_id: int) -> Optional[dict]:
     d["column_mapping"] = json.loads(d["column_mapping_json"]) if d["column_mapping_json"] else {}
     d["stats"] = json.loads(d["stats_json"]) if d["stats_json"] else {}
     d["preview"] = json.loads(d["preview_json"]) if d["preview_json"] else []
-    return d
+    return _restored(d)
 
 
 def get_datasets_by_project(project_id: int) -> list[dict]:
@@ -255,7 +298,7 @@ def get_datasets_by_project(project_id: int) -> list[dict]:
         d["column_mapping"] = json.loads(d["column_mapping_json"]) if d.get("column_mapping_json") else {}
         d["stats"] = json.loads(d["stats_json"]) if d.get("stats_json") else {}
         d["preview"] = json.loads(d["preview_json"]) if d.get("preview_json") else []
-        results.append(d)
+        results.append(_restored(d))
     return results
 
 
@@ -273,7 +316,7 @@ def get_dataset_for_rq(project_id: int, research_question_id: str) -> dict | Non
     d["column_mapping"] = json.loads(d["column_mapping_json"]) if d.get("column_mapping_json") else {}
     d["stats"] = json.loads(d["stats_json"]) if d.get("stats_json") else {}
     d["preview"] = json.loads(d["preview_json"]) if d.get("preview_json") else []
-    return d
+    return _restored(d)
 
 
 def approve_dataset(dataset_id: int, reviewer: str = "analyst") -> bool:
@@ -290,6 +333,7 @@ def approve_dataset(dataset_id: int, reviewer: str = "analyst") -> bool:
 def delete_dataset(dataset_id: int) -> bool:
     conn = _conn()
     conn.execute("DELETE FROM intel_datasets WHERE id = ?", (dataset_id,))
+    conn.execute("DELETE FROM intel_dataset_files WHERE dataset_id = ?", (dataset_id,))
     conn.commit()
     conn.close()
     return True
@@ -304,7 +348,7 @@ def get_dataset_by_id(dataset_id: int) -> dict | None:
     d = dict(row)
     d["column_mapping"] = json.loads(d["column_mapping_json"]) if d.get("column_mapping_json") else {}
     d["stats"] = json.loads(d["stats_json"]) if d.get("stats_json") else {}
-    return d
+    return _restored(d)
 
 
 def update_enriched_record(dataset_id: int, record_id: str, updates: dict) -> dict | None:
