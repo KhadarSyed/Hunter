@@ -1589,7 +1589,7 @@ export const intelApi = {
   adminRetryIssue: (id: number) => post<{ ok: boolean }>(`/agent/admin/issues/${id}/retry`, {}),
   adminProposeFix: (id: number) => post<{ ok: boolean; status: string }>(`/agent/admin/issues/${id}/propose`, {}),
   agentEvents: (projectId: number, limit = 10) => get<AgentEvent[]>(`/agent/${projectId}/events?limit=${limit}`),
-  deliverableDownloadUrl: (projectId: number, runId: number, kind: "pptx" | "docx" | "html" | "pdf" | "studio_pptx") =>
+  deliverableDownloadUrl: (projectId: number, runId: number, kind: "pptx" | "docx" | "html" | "pdf" | "studio_pptx" | "xlsx") =>
     `${API_BASE}/deliverable/${projectId}/runs/${runId}/download/${kind}`,
   deliverableDeckUrl: (projectId: number, runId: number, path: string) =>
     `${API_BASE}/deliverable/${projectId}/runs/${runId}/deck/${path}`,

@@ -265,7 +265,8 @@ def _hero_info(query: str) -> dict:
 def _citation_icons(entries: list[dict], folder: Path) -> dict[int, Path]:
     icons = {}
     for e in entries:
-        icon = visuals.favicon_png(domain_of(e["url"]), folder)
+        icon = (visuals.favicon_png(domain_of(e["url"]), folder)
+                or visuals.letter_badge_png(e.get("outlet") or domain_of(e["url"]), folder))
         if icon:
             icons[e["n"]] = icon
     return icons
@@ -619,6 +620,7 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
                                      _verbatims_by_rq(rqs, rows_by_rq, insights_by_rq, registry, brands,
                                                       dims_by_rq, answer_tags), summaries_by_section)
             plan_input.citation_brands = _citation_brands(registry, rows, brands)
+            plan_input.mixed_media = len({analytics._channel(r) for r in rows} - {""}) > 1
             studio = run_studio(run, project_id, llm, plan_input,
                                 inp.brand_colors, inp.brand_image, inp.logos, out_dir,
                                 on_fix=lambda sid, action, kind: agent_memory.remember(

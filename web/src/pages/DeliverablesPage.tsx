@@ -289,6 +289,9 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
           <a href={intelApi.deliverableDownloadUrl(projectId, run.id, "docx")}
             className="inline-flex items-center gap-2 rounded-lg border border-[#5B2C9D] px-4 py-2 text-sm font-medium text-[#5B2C9D]">
             <Icon icon="lucide:file-text" width={16} /> Word brief (.docx)</a>
+          <a href={intelApi.deliverableDownloadUrl(projectId, run.id, "xlsx")}
+            className="inline-flex items-center gap-2 rounded-lg border border-[#5B2C9D] px-4 py-2 text-sm font-medium text-[#5B2C9D]">
+            <Icon icon="lucide:table" width={16} /> Data tables (.xlsx)</a>
         </div>
       )}
 

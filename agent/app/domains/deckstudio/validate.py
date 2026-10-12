@@ -9,9 +9,11 @@ Rows are {check, status: pass | warn | fail, detail}; a fail is something the cl
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from ..deliverable.engine_types import RQ
+from ..deliverable.visuals import value_icon
 from .spec import DeckSpec, SlideSpec
 
 
@@ -45,13 +47,20 @@ def _chart_slides(slides: list[SlideSpec], rqs: list[RQ]) -> list[SlideSpec]:
             and s.id.startswith(prefixes)]
 
 
+# charts of things that have a logo or site icon; people (experts, celebrities) and Yes/No shares have none
+_ENTITY_CHART = re.compile(r"brand-sov|brand-sentiment|outlet_ranking|entities-brands|entities-retailers")
+_STATIC = {"objectives", "methodology", "checklist", "citations", "scorecard"}   # reading slides: nothing to build
+
+
 def _evidence_rows(slides: list[SlideSpec], rqs: list[RQ], has_competitors: bool,
-                   citation_brands: dict[str, list[str]] | None) -> list[dict]:
+                   citation_brands: dict[str, list[str]] | None, mixed_media: bool = False) -> list[dict]:
     charts = _chart_slides(slides, rqs)
     bare = [s.id for s in charts if not _cited([s])]
     rows = [_row("Every chart slide has a cited summary", not bare, "no cited summary on " + ", ".join(bare[:6]))]
+    # icons belong beside named things (brands, outlets, retailers, experts, celebrities), not Yes/No or months
     unlabelled = [s.id for s in charts
-                  if (cats := [c for ch in s.charts for c in ch.get("categories") or []]) and not set(cats) & set(s.logos)]
+                  if (cats := [c for ch in s.charts for c in ch.get("categories") or []]) and not set(cats) & set(s.logos)
+                  and (_ENTITY_CHART.search(s.id) or any(value_icon(str(c)) for c in cats))]
     rows.append(_row("Chart labels show their icon or logo", not unlabelled,
                      f"{len(unlabelled)} chart(s) without icons: " + ", ".join(unlabelled[:4]), soft=True))
     if citation_brands is not None:
@@ -66,8 +75,9 @@ def _evidence_rows(slides: list[SlideSpec], rqs: list[RQ], has_competitors: bool
     no_shot = sum(1 for s in walls for c in s.cards if not c.get("image"))
     rows.append(_row("Verbatims show the post or article screenshot", not no_shot,
                      f"{no_shot} verbatim(s) without a screenshot", soft=True))
-    rows.append(_row("Social vs editorial split", any("social vs editorial" in (s.title or "").lower() for s in charts),
-                     "no social vs editorial chart", soft=True))
+    if mixed_media:                       # a single-channel study (editorial only, or social only) has nothing to split
+        rows.append(_row("Social vs editorial split", any("social vs editorial" in (s.title or "").lower() for s in charts),
+                         "no social vs editorial chart", soft=True))
     return rows
 
 
@@ -79,7 +89,7 @@ def _builds_row(spec: DeckSpec, pptx: Path) -> dict:
         animated = [s._element.find(ns) is not None for s in Presentation(str(pptx)).slides]
     except Exception as e:                  # an unreadable file is itself a failure to report, not to raise
         return _row("Slides build on click in PowerPoint", False, f"could not read the PPTX: {type(e).__name__}")
-    wanted = [k for k, s in enumerate(spec.slides) if s.cards and k < len(animated)]
+    wanted = [k for k, s in enumerate(spec.slides) if s.cards and s.type not in _STATIC and k < len(animated)]
     still = [spec.slides[k].id for k in wanted if not animated[k]]
     if wanted and len(still) == len(wanted):
         return _row("Slides build on click in PowerPoint", False, "no slide animates its cards")
@@ -89,7 +99,7 @@ def _builds_row(spec: DeckSpec, pptx: Path) -> dict:
 
 def validate_deck(spec: DeckSpec, rqs: list[RQ], checklist: list[dict], brand_products: list[str],
                   has_competitors: bool, citation_brands: dict[str, list[str]] | None = None,
-                  pptx: Path | None = None, is_category: bool = False) -> list[dict]:
+                  pptx: Path | None = None, is_category: bool = False, mixed_media: bool = False) -> list[dict]:
     """`is_category`: the client is a category, not a brand -- no single logo, and coverage needn't name a brand."""
     slides = spec.slides
     rows = [_row("Client logo on the cover", bool(spec.brand_logo),
@@ -103,7 +113,7 @@ def validate_deck(spec: DeckSpec, rqs: list[RQ], checklist: list[dict], brand_pr
         rows.append(_row("Brand sentiment vs competitors", any(s.id.startswith("brand-sentiment") for s in slides),
                          "no sentiment slide"))
     rows += [_question(rq, slides) for rq in rqs]
-    rows += _evidence_rows(slides, rqs, has_competitors, None if is_category else citation_brands)
+    rows += _evidence_rows(slides, rqs, has_competitors, None if is_category else citation_brands, mixed_media)
     summary = next((s for s in slides if s.type == "executive_summary"), None)
     uncited = [c.get("headline") or "" for c in (summary.cards if summary else []) if not c.get("citations")]
     rows.append(_row("Executive summary cites its sources", bool(summary) and not uncited,

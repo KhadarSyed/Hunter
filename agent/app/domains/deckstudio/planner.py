@@ -57,6 +57,7 @@ class PlanInput:
     objective: str = ""                                                      # the brief's research objective
     media: str = ""                                                          # e.g. "Earned editorial", "Social media"
     time_period: str = ""                                                    # the brief's window, e.g. "Past 12 months"
+    mixed_media: bool = False                                                # the data has both social and editorial
 
 
 def _link(url: str) -> str:

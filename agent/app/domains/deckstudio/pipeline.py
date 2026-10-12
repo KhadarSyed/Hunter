@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from ...core import config
-from . import validate
+from . import data_tables, validate
 from . import (art_director, assets, checklist, creative, design_systems, exporter, image_brief, indexer, planner, renderer, verbatims,
                vision)
 from .planner import PlanInput
@@ -93,7 +93,10 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     run.stage("index", "done")
 
     run.stage("design", "running")
-    rows = checklist.build_checklist(plan_input.rqs, plan_input.sections_by_rq, checklist.brief_asks(project_id))
+    workbook = data_tables.write_workbook(plan_input, deck_dir)
+    run.log(f"Data tables: {workbook.name}")
+    rows = checklist.build_checklist(plan_input.rqs, plan_input.sections_by_rq, checklist.brief_asks(project_id),
+                                     has_data_export=workbook.exists())
     plan_input.checklist = rows
     spec = planner.build_deck_spec(plan_input)
     attach_logos(spec, logos, plan_input.title, plan_input.brands)
@@ -211,7 +214,7 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     checks = validate.validate_deck(spec, plan_input.rqs, rows, plan_input.brand_products,
                                     has_competitors=len(plan_input.brands) > 1,
                                     citation_brands=plan_input.citation_brands or None, pptx=out["pptx"],
-                                    is_category=plan_input.is_category)
+                                    is_category=plan_input.is_category, mixed_media=plan_input.mixed_media)
     for c in checks:
         if c["status"] != "pass":
             run.log(f"Validation {c['status']}: {c['check'][:80]} - {c['detail'][:120]}")

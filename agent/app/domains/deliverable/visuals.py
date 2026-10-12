@@ -163,6 +163,36 @@ def favicon_png(domain: str, folder: Path) -> Path | None:
     return save_logo_png(r.content, out)
 
 
+BADGE_PX = 128
+_BADGE_FONTS = ("arialbd.ttf", "DejaVuSans-Bold.ttf")
+
+
+def letter_badge_png(name: str, folder: Path, color: str = style.VIOLET) -> Path | None:
+    """A round badge with the outlet's initial, standing in for a site that has no icon."""
+    from PIL import Image, ImageDraw, ImageFont
+    initial = next((ch for ch in name or "" if ch.isalnum()), "")
+    if not initial:
+        return None
+    out = folder / f"badge_{re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')[:40]}.png"
+    if out.exists():
+        return out
+    img = Image.new("RGBA", (BADGE_PX, BADGE_PX), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse((0, 0, BADGE_PX - 1, BADGE_PX - 1), fill="#" + color.lstrip("#"))
+    font = None
+    for face in _BADGE_FONTS:
+        try:
+            font = ImageFont.truetype(face, 72)
+            break
+        except OSError:
+            continue
+    draw.text((BADGE_PX / 2, BADGE_PX / 2), initial.upper(), fill="white", anchor="mm",
+              font=font or ImageFont.load_default(size=72))
+    folder.mkdir(parents=True, exist_ok=True)
+    img.save(out)
+    return out
+
+
 def country_code(country: str) -> str | None:
     """ISO 3166-1 alpha-2 (lowercase) for the circle-flags icon set."""
     return _ISO.get((country or "").strip().lower())

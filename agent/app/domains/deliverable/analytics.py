@@ -1,6 +1,7 @@
 """Compute stage: deterministic values for every chart and table; each value is also written as a fact."""
 from __future__ import annotations
 
+import re
 from collections import Counter
 
 from ...agents import question_dimensions as qd
@@ -259,9 +260,45 @@ def _media_split(module, rq, rows, base_n, _):
                            for k in cats] + notes, notes=notes)
 
 
+_NO_ANSWER = {"", "no", "none", "unknown", "n/a", "false"}
+
+
+def _stems(text: str) -> set[str]:
+    return {w[:6] for w in re.findall(r"[a-z]+", text.lower()) if len(w) > 2}
+
+
+def _question_tag(row: EngineRow, dim: qd.Dimension) -> str | None:
+    """The question tag this dimension reads: the same key, else the tag sharing two or more name words with the
+    dimension ('expert_brand_affiliated' for an 'Expert Affiliation' dimension)."""
+    tags = row.dynamic_tags or {}
+    if dim.key in tags:
+        return dim.key
+    words = _stems(f"{dim.key.replace('_', ' ')} {dim.label}")
+    best = max(tags, key=lambda t: len(_stems(t.replace("_", " ")) & words), default=None)
+    return best if best and len(_stems(best.replace("_", " ")) & words) >= 2 else None
+
+
+def _tag_values(row: EngineRow, dim: qd.Dimension) -> list[str] | None:
+    """The dimension's values from the question's own per-article tags (None when no tag matches): a Yes/No tag
+    means the dimension's single value applies or not; a list tag gives its values."""
+    key = _question_tag(row, dim)
+    if key is None:
+        return None
+    raw = row.dynamic_tags[key]
+    vals = [str(v).strip() for v in (raw if isinstance(raw, list) else [raw]) if v is not None]
+    low = {v.lower() for v in vals}
+    if low and low <= _NO_ANSWER | {"yes", "true"}:
+        return [dim.values[0].name] if low & {"yes", "true"} and len(dim.values) == 1 else []
+    return [v for v in vals if v.lower() not in _NO_ANSWER]
+
+
 def _values_of(row: EngineRow, dim: qd.Dimension) -> list[str]:
-    """The dimension's values this article names: the LLM's enrichment tags when it tagged this dimension,
-    otherwise the question's own keywords (a judged dimension has none, so untagged rows count as unknown)."""
+    """The dimension's values this article names: the question's own per-article tags when one matches the
+    dimension, else the LLM's enrichment tags for it, else the question's keywords (a judged dimension has none,
+    so untagged rows count as unknown)."""
+    from_tags = _tag_values(row, dim)
+    if from_tags is not None:
+        return from_tags
     tagged = qd.valid_names((row.tags or {}).get(dim.key), dim)
     if tagged is not None:
         return tagged
@@ -274,7 +311,7 @@ def _breakdown(module, rq, rows, base_n, _):
     (dim,) = qd.from_json([module["dimension"]])
     per_row = [(r, _values_of(r, dim)) for r in rows]
     counts = Counter(v for _, vals in per_row for v in vals)
-    order = [v.name for v in dim.values]
+    order = [v.name for v in dim.values] + [n for n in counts if n not in {v.name for v in dim.values}]
     top = sorted((n for n in order if counts.get(n)), key=lambda n: -counts[n])[:TOP_N + 4]
     if not top:
         return _section(module, rq, skipped=f"No articles name a {dim.label.lower()}")

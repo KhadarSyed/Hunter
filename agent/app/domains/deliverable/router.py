@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 
 from ...core import store
 from ...core.auth import require_project_access
+from ..deckstudio import data_tables
 from . import engine
 from .schemas import DeliverableRunPayload, DeliverableRunStarted
 
@@ -16,7 +17,8 @@ router = APIRouter()
 _MEDIA = {"pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
           "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
           "html": "text/html", "pdf": "application/pdf",
-          "studio_pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"}
+          "studio_pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+          "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
 ProjectId = Annotated[int, PathParam(ge=1)]
 RunId = Annotated[int, PathParam(ge=1)]
 Access = Annotated[dict, Depends(require_project_access)]
@@ -52,7 +54,10 @@ def get_run(project_id: ProjectId, run_id: RunId, _: Access):
 @router.get("/deliverable/{project_id}/runs/{run_id}/download/{kind}", response_class=FileResponse)
 def download(project_id: ProjectId, run_id: RunId, kind: str, _: Access):
     run = _owned_run(project_id, run_id)
-    path = run.get(f"{kind}_path") if kind in _MEDIA else None
+    if kind == "xlsx":                     # the data tables sit in the run's own deck folder, never a requested path
+        path = next(Path(run["deck_dir"]).glob(f"*{data_tables.FILE_SUFFIX}"), None) if run.get("deck_dir") else None
+    else:
+        path = run.get(f"{kind}_path") if kind in _MEDIA else None
     if not path or not Path(path).exists():
         raise HTTPException(404, "File not available")
     return FileResponse(path, media_type=_MEDIA[kind], filename=Path(path).name)
