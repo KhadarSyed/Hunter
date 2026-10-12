@@ -10,12 +10,31 @@ $machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
 $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
 $env:Path = "$machinePath;$userPath"
 
-$pythonExe = "C:\Users\sweta.shah\AppData\Local\Python\bin\python3.exe"
-if (-not (Test-Path $pythonExe)) {
-    $pythonExe = (Get-Command python3 -ErrorAction SilentlyContinue).Source
+# Try multiple Python installation locations
+$pythonCandidates = @(
+    "python3.exe",  # In PATH
+    "python.exe",   # In PATH
+    "C:\Program Files\Python312\python.exe",
+    "C:\Program Files\Python311\python.exe",
+    "C:\Program Files\Python310\python.exe",
+    "C:\Users\$env:USERNAME\AppData\Local\Programs\Python\Python312\python.exe",
+    "C:\Users\$env:USERNAME\AppData\Local\Programs\Python\Python311\python.exe",
+    "C:\Python312\python.exe",
+    "C:\Python311\python.exe"
+)
+
+$pythonExe = $null
+foreach ($candidate in $pythonCandidates) {
+    $resolved = (Get-Command $candidate -ErrorAction SilentlyContinue).Source
+    if ($resolved -and (Test-Path $resolved) -and $resolved -notlike "*Microsoft*") {
+        $pythonExe = $resolved
+        Write-Host "Found Python: $pythonExe"
+        break
+    }
 }
+
 if (-not $pythonExe) {
-    Write-Error "Could not find a working Python interpreter. See README.md."
+    Write-Error "Could not find a working Python interpreter. Install Python 3.11+ or add it to PATH."
     exit 1
 }
 
