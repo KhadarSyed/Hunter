@@ -281,6 +281,30 @@ def update_profile(user_id: int, display_name: str, avatar_url: str | None = Non
     conn.close()
 
 
+def find_organization_by_name(name: str) -> dict | None:
+    conn = _conn()
+    row = conn.execute("SELECT id, name, archived_at FROM organizations WHERE lower(name) = lower(?) ORDER BY id",
+                       (name.strip(),)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def create_bare_organization(name: str) -> int:
+    conn = _conn()
+    org_id = conn.execute("INSERT INTO organizations (name, created_at) VALUES (?, ?)", (name, time.time())).lastrowid
+    conn.commit()
+    conn.close()
+    return org_id
+
+
+def make_super_admin(user_id: int) -> None:
+    """Super Admins are org-less by design (memberships list them under organizations); also un-archives."""
+    conn = _conn()
+    conn.execute("UPDATE users SET role = 'super_admin', org_id = NULL, archived_at = NULL WHERE id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+
 def is_member_of_org(user_id: int, org_id: int) -> bool:
     """True if org_id is the user's primary org OR an additional membership."""
     conn = _conn()

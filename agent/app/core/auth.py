@@ -26,23 +26,39 @@ SEED_SUPER_ADMIN_EMAIL = "khadar.syed@infovision.com"
 SEED_SUPER_ADMIN_TEMP_PASSWORD = "Admin@123"   # same as domains.auth.service.DEFAULT_PASSWORD
 
 
+SEED_ORGANIZATION = "InfoVision"
+SEED_SUPER_ADMINS = (
+    (SEED_SUPER_ADMIN_EMAIL, "Khadar Syed"),
+    ("sweta.shah@infovision.com", "Sweta Shah"),
+    ("harish.thulasiram@infovision.com", "Harish Thulasiram"),
+)
+
+
 def seed_super_admin_if_missing() -> None:
-    """Idempotent: inserts the first Super Admin only if no user with that
-    email exists yet. Called once from main.py's lifespan, right after
+    """Idempotent, on every startup: the InfoVision organization and its Super Admins always exist. A missing
+    account is created with the default password (to be changed at first sign-in); an existing one keeps its
+    password and is (re)made a Super Admin linked to InfoVision. Called from main.py's lifespan, right after
     store.init_intelligence_db()."""
     from . import store  # local: avoids a circular import — see module docstring
-    if store.get_user_by_email(SEED_SUPER_ADMIN_EMAIL):
-        return
     from ..domains.auth import service  # local: avoids a circular import — see module docstring
-    store.create_user(
-        org_id=None,
-        email=SEED_SUPER_ADMIN_EMAIL,
-        password_hash=service.hash_password(SEED_SUPER_ADMIN_TEMP_PASSWORD),
-        display_name="Khadar Syed",
-        role="super_admin",
-        must_change_password=True,
-    )
-    logger.info("Seeded initial Super Admin: %s", SEED_SUPER_ADMIN_EMAIL)
+    org = store.find_organization_by_name(SEED_ORGANIZATION)
+    org_id = org["id"] if org else store.create_bare_organization(SEED_ORGANIZATION)
+    if org and org.get("archived_at"):
+        store.reactivate_organization(org_id)
+    for email, name in SEED_SUPER_ADMINS:
+        user = store.get_user_by_email(email)
+        if user is None:
+            user_id = store.create_user(org_id=None, email=email,
+                                        password_hash=service.hash_password(SEED_SUPER_ADMIN_TEMP_PASSWORD),
+                                        display_name=name, role="super_admin", must_change_password=True)
+            logger.info("Seeded Super Admin: %s", email)
+        else:
+            user_id = user["id"]
+            if user["role"] != "super_admin" or user.get("org_id") is not None or user.get("archived_at"):
+                store.make_super_admin(user_id)
+                logger.info("Made %s a Super Admin", email)
+        if not store.is_member_of_org(user_id, org_id):
+            store.add_user_to_org(user_id, org_id)
 
 
 def set_session_cookie(response: Response, token: str, expires_at: float) -> None:
