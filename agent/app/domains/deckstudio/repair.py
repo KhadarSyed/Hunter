@@ -13,6 +13,7 @@ MAX_ATTEMPTS = 2
 SO_WHAT_MAX = 140
 CARD_TEXT_MAX = 160
 CARDS_MAX = 2
+SEGMENT_TEXT_MAX = 300            # a segment card ("S" layout) keeps its why and so-what, and every segment keeps its card
 TABLE_ROWS_PER_SLIDE = 8
 _ACTIONS = {"low_contrast": "drop_photo"}
 _TABLE_KINDS = ("overflow", "off_slide")
@@ -37,6 +38,9 @@ def _cut(text: str, limit: int) -> str:
 
 def _shorten(slide) -> None:
     slide.so_what = _cut(slide.so_what, SO_WHAT_MAX)
+    if slide.treatment == "S":
+        slide.cards = [{**c, "text": _cut(c.get("text", ""), SEGMENT_TEXT_MAX)} for c in slide.cards]
+        return
     slide.cards = [{**c, "text": _cut(c.get("text", ""), CARD_TEXT_MAX)} for c in slide.cards[:CARDS_MAX]]
 
 

@@ -61,6 +61,14 @@ overflow:hidden;display:flex;align-items:center;justify-content:center;padding:1
 .obj-scope strong{color:var(--primary);font-weight:700}
 a.cite,a.vlink{text-decoration:none;cursor:pointer}
 .vnote{position:absolute;right:60px;bottom:52px;font:italic 400 17px var(--body);color:var(--primary)}
+.segs{position:absolute;left:790px;right:70px;top:240px;bottom:80px;display:flex;flex-direction:column;gap:12px}
+.seg{flex:1 1 0;min-height:0;background:var(--surface);border-left:6px solid var(--primary);border-radius:{{ t.radius }}px;padding:12px 22px;overflow:hidden;display:flex;flex-direction:column;justify-content:center}
+.seg p{font:400 17px/1.4 var(--body);-webkit-line-clamp:4}
+.seg strong{color:var(--text);font-weight:700}
+.seg .seg-label{color:var(--primary)}
+.seg .cites{margin-top:5px;gap:6px}
+.seg .cite{font-size:12px;padding:2px 8px 2px 4px}
+.seg .cite img{width:16px;height:16px}
 .thumb{float:right;width:48px;height:48px;object-fit:cover;object-position:top;border-radius:8px;margin:0 0 6px 10px}
 {% if t.type_scale %}.slide[data-type=cover] .title{font-size:{{ t.type_scale.hero }}px!important;font-weight:{{ t.type_scale.weight }}}
 .slide[data-type=divider] .question{font-size:{{ [t.type_scale.headline, 64]|min }}px;font-weight:{{ t.type_scale.weight }}}

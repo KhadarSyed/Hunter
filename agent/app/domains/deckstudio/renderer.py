@@ -8,6 +8,7 @@ from html import unescape
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from markupsafe import Markup, escape
 
 from .art_director import fonts_href
 from .charts import chart_svg
@@ -15,9 +16,17 @@ from .spec import DeckSpec, DeckTokens, SlideSpec
 
 TEMPLATES = Path(__file__).parent / "templates"
 _env = Environment(loader=FileSystemLoader(str(TEMPLATES)), autoescape=select_autoescape(["html", "j2"]))
+
+
+def _md_bold(text) -> Markup:
+    """**phrase** as bold, everything else escaped (card text comes from the model)."""
+    return Markup(re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", str(escape(text or ""))))
+
+
+_env.filters["md_bold"] = _md_bold
 _TAG = re.compile(r"<[^>]+>")
 FRONTEND_CSS = (Path(__file__).parent / "frontend_slides" / "viewport-base.css").read_text(encoding="utf-8")
-CHART_SIZE = {"A": (1000, 540), "C": (1100, 600), "plain": (1600, 600), "full": (900, 420)}
+CHART_SIZE = {"A": (1000, 540), "C": (1100, 600), "plain": (1600, 600), "full": (900, 420), "S": (620, 640)}
 CHART_SIZE_WITH_CARDS = {"C": (1100, 370)}          # the photo-panel slide's summary cards sit under the chart
 
 

@@ -78,9 +78,32 @@ def section_summaries(rq: RQ, sections: list[Section], rows: list[EngineRow], re
     for s in sections:
         if s.skipped or not (s.chart or s.table) or (s.chart or {}).get("kind") == "kpi" or not s.facts:
             continue
+        segments = chart_segments(s)
         summary = draft_section(f"{rq.question} - {s.title}", s.facts, _candidates([s], rows, evidence), registry, llm, 1,
-                                avoid=said)
+                                avoid=said, segments=segments or None)
         if summary:
-            out[s.id] = summary[:1]
-            said.append(f"{summary[0].get('headline', '')}: {summary[0].get('text', '')}")
+            out[s.id] = _segment_cards(summary, segments) or summary[:1]
+            said += [f"{c.get('headline', '')}: {c.get('text', '')}" for c in out[s.id]]
     return out
+
+
+SEGMENT_MAX = 5
+_NOT_SEGMENTS = {"yes", "no", "unknown", "none", "other"}
+
+
+def chart_segments(section: Section) -> list[str]:
+    """A breakdown chart's leading categories, each to be explained on its own card (a Yes/No share or a trend is
+    explained by one summary instead)."""
+    chart = section.chart or {}
+    cats = [str(c) for c in chart.get("categories") or []]
+    if chart.get("kind") not in ("bar", "treemap") or len(cats) < 2 or {c.lower() for c in cats} <= _NOT_SEGMENTS:
+        return []
+    return [c for c in cats if c.lower() not in _NOT_SEGMENTS][:SEGMENT_MAX]
+
+
+def _segment_cards(cards: list[dict], segments: list[str]) -> list[dict]:
+    """The cards that explain a segment, in the chart's order; fewer than two is not a breakdown explained, so the
+    slide keeps its single summary instead."""
+    by_name = {str(c.get("headline", "")).strip().rstrip(":").lower(): c for c in cards}
+    kept = [by_name[s.lower()] for s in segments if s.lower() in by_name]
+    return kept[:SEGMENT_MAX] if len(kept) >= 2 else []

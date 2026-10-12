@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm run build -- --outDir dist --emptyOutDir",
+  "buildCommand": "npm run build -- --mode vercel --outDir dist --emptyOutDir",
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/api/:path*", "destination": "https://hunter-intelligence-platform.onrender.com/api/:path*" },

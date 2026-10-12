@@ -161,11 +161,25 @@ def _entity_mismatch(text: str, cites: list[int], local: dict[int, Article], ent
     return f"cited articles don't mention {', '.join(named)}"
 
 
+def _segment_ask(segments: list[str]) -> str:
+    """One explanation per chart category, the way an analyst annotates a breakdown slide."""
+    return ("This chart breaks the coverage into SEGMENTS: " + "; ".join(segments) + ". Write one insight per "
+            "segment, in that order; its headline is the segment name exactly as given. Each text is 45-70 words "
+            "explaining WHY coverage falls into that segment: what people are saying and doing there, naming the "
+            "outlets, people, products, campaigns and events from ARTICLES, with a concrete example, then what it "
+            "means for the client. Wrap the two or three most telling phrases in **double asterisks**. The chart "
+            "already shows each segment's share, so write no numbers. Return "
+            '{"insights":[{"headline":"<segment name>","text":"<45-70 words>","citations":[ids]}]}')
+
+
 def draft_section(section: str, facts: list[str], candidates: list[Article], registry: CitationRegistry,
                   llm, n_insights: int = 3, entities: list[str] | None = None,
-                  avoid: list[str] | None = None) -> list[dict]:
+                  avoid: list[str] | None = None, segments: list[str] | None = None) -> list[dict]:
     """Candidates get local ids 1..k in the prompt; only articles an accepted insight actually cites are
-    registered, so the appendix lists cited articles only."""
+    registered, so the appendix lists cited articles only. With `segments` (a chart's categories), one card per
+    segment explains what drives it."""
+    if segments:
+        n_insights = len(segments)
     if llm is None:
         return _backfill([], facts, candidates, registry, n_insights)
     allowed = allowed_numbers(facts)
@@ -196,9 +210,10 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
          f"\nARTICLES:\n{json.dumps(arts, ensure_ascii=False)}\n" +
          ("ALREADY SAID on this question (the reader has seen these; make a different point, do not restate "
           "them):\n" + "\n".join(f"- {a}" for a in avoid) + "\n" if avoid else "") +
-         f"Write {n_insights} insights as "
-         '{"insights":[{"headline":"<=10 words: the takeaway, not the headline figure","text":"<=35 words: '
-         'the named drivers behind the finding, then the so-what for the client","citations":[ids]}]}'},
+         (_segment_ask(segments) if segments else
+          f"Write {n_insights} insights as "
+          '{"insights":[{"headline":"<=10 words: the takeaway, not the headline figure","text":"<=35 words: '
+          'the named drivers behind the finding, then the so-what for the client","citations":[ids]}]}')},
     ]
     headline_figs = _headline_figures(facts)
     try:

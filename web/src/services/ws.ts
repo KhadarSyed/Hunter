@@ -11,9 +11,14 @@ class AgentSocket {
     if (this.ws) return;
     // Same VITE_API_BASE_URL used by intel-api.ts for REST calls — when unset (same-origin
     // deploy), falls back to the page's own host, matching prior behavior.
+    // VITE_WS_URL wins: a host whose /api is a rewrite (Vercel) cannot proxy a WebSocket, so it connects to
+    // the backend directly.
     const apiOrigin = import.meta.env.VITE_API_BASE_URL as string | undefined;
+    const direct = import.meta.env.VITE_WS_URL as string | undefined;
     let wsUrl: string;
-    if (apiOrigin) {
+    if (direct) {
+      wsUrl = direct;
+    } else if (apiOrigin) {
       wsUrl = apiOrigin.replace(/^http/, "ws") + "/ws";
     } else {
       const proto = location.protocol === "https:" ? "wss" : "ws";

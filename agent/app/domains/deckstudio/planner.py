@@ -17,6 +17,7 @@ VERBATIM_TITLE = "{topic} (Verbatims)"
 COMPETITOR_VERBATIM_TITLE = "{topic}: competitors (Verbatims)"
 WALL_CELLS = 8                    # a 4 x 2 wall of whole posts
 KEY_INSIGHTS = 3                  # a question's insight cards, side by side on its own slide
+SEGMENT_CARDS = 5                 # a breakdown chart beside one explanation card per segment ("S" layout)
 BRAND_KEY = "BRAND"                       # sections_by_rq key of the brand vs competitors chapter
 BRAND_KICKER = "Brand vs competitors"
 DENSE_KINDS = {"line_peaks", "column", "treemap"}
@@ -128,9 +129,10 @@ def _evidence(rq: RQ, kicker: str, sections: list[Section], family: str,
         charts = [sec.chart] if sec.chart else []
         tables = [sec.table] if sec.table else []
         slide_type = TYPE_FOR_CHART.get((sec.chart or {}).get("kind", ""), "comparison_table")
-        cards = (summaries or {}).get(sec.id, [])[:1]        # every chart slide says what its chart shows
+        cards = (summaries or {}).get(sec.id, [])[:SEGMENT_CARDS]   # its summary, or one card per segment
         out.append(SlideSpec(
-            id=f"{sec.id}-{i}", type=slide_type, treatment=treatment("evidence", charts, tables), kicker=kicker,
+            id=f"{sec.id}-{i}", type=slide_type,
+            treatment="S" if charts and len(cards) > 1 else treatment("evidence", charts, tables), kicker=kicker,
             title=sec.title, question=rq.question, so_what=sec.facts[0].split(": ", 1)[-1] if sec.facts else "",
             charts=charts, tables=tables, cards=cards, facts_allowed=_facts(sections),
             citations=[n for c in cards for n in c.get("citations", [])],

@@ -40,6 +40,19 @@
   {% if charts and s.cards %}<div class="cards reveal" style="position:absolute;left:1190px;right:70px;top:320px;grid-template-columns:1fr">
     {% for c in s.cards[:3] %}<div class="card build" style="background:rgba(255,255,255,.94)">{% if c.thumb %}<img class="thumb" src="{{ c.thumb }}" alt="">{% endif %}<h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}</p>{% if c.citations and marks.cites %}<div class="cites">{% for n in c.citations[:3] %}{% set m = marks.cites.get(n|string) %}{% if m %}{% if m.url %}<a class="cite" href="{{ m.url }}">{% else %}<span class="cite">{% endif %}{% if m.icon %}<img src="{{ m.icon }}" alt="">{% endif %}{{ m.outlet }}{% if m.url %}</a>{% else %}</span>{% endif %}{% endif %}{% endfor %}</div>{% endif %}</div>{% endfor %}</div>{% endif %}
   {% if charts %}<div class="nlabel" style="position:absolute;right:80px;top:280px;color:var(--on-dark)">N = {{ base_n }}</div>{% endif %}
+{% elif s.treatment == "S" %}
+  <div style="position:absolute;left:70px;right:70px;top:48px">
+    {% if s.kicker %}<div class="kicker">{{ s.kicker }}</div>{% endif %}
+    <div class="title clamp" style="margin-top:8px;font-size:38px;-webkit-line-clamp:2">{{ s.question or s.title }}</div>
+    {% if s.question and s.title %}<div class="kicker" style="margin-top:10px;color:var(--muted)">{{ s.title }}</div>{% endif %}
+  </div>
+  <div class="panel reveal" style="left:70px;top:240px;width:680px;height:760px;overflow:hidden">
+    <div class="nlabel" style="text-align:right">N = {{ base_n }}</div>
+    {% if charts %}{{ charts[0] | safe }}{% elif s.tables %}{% include "table.html.j2" %}{% endif %}
+  </div>
+  <div class="segs reveal">
+    {% for c in s.cards[:5] %}<div class="seg build"><p class="clamp"><strong class="seg-label">{{ c.headline }}:</strong> {{ c.text | md_bold }}</p>{% if c.citations and marks.cites %}<div class="cites">{% for n in c.citations[:3] %}{% set m = marks.cites.get(n|string) %}{% if m %}{% if m.url %}<a class="cite" href="{{ m.url }}">{% else %}<span class="cite">{% endif %}{% if m.icon %}<img src="{{ m.icon }}" alt="">{% endif %}{{ m.outlet }}{% if m.url %}</a>{% else %}</span>{% endif %}{% endif %}{% endfor %}</div>{% endif %}</div>{% endfor %}
+  </div>
 {% elif s.treatment == "C" %}
   <div class="photo" style="left:0;top:0;bottom:0;width:672px;background-image:{{ bg }}"></div>
   <div class="overlay" style="right:auto;width:672px"></div>

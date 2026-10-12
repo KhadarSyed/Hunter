@@ -21,6 +21,22 @@ WALL_WORKERS = 3       # concurrent verbatim walls, one headless browser each
 CREATIVE_RESTYLE = False
 
 
+def reuse_photos(slides, log=lambda _m: None) -> None:
+    """A photo slide whose search found nothing (search quota spent, no relevant image) reuses one found for another
+    slide, never its neighbours', so no slide is left a bare gradient; with no photo at all, the gradient stays."""
+    found = list(dict.fromkeys(s.image["path"] for s in slides if s.image.get("path")))
+    k = 0
+    for i, s in enumerate(slides):
+        if s.image.get("path") or not found:
+            continue
+        near = {slides[j].image.get("path") for j in (i - 1, i + 1) if 0 <= j < len(slides)}
+        options = [found[(k + n) % len(found)] for n in range(len(found))]
+        pick = next((p for p in options if p not in near), options[0])
+        k = found.index(pick) + 1
+        s.image["path"] = pick
+        log(f"{s.id}: no photo of its own; reusing one found for another slide")
+
+
 def _article_urls(slide, plan_input: PlanInput) -> list[str]:
     """The articles behind a slide: its cards' citations, else the first verbatims of its question."""
     by_n = {c["n"]: c["url"] for c in plan_input.citations}
@@ -116,14 +132,15 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     run.stage("assets", "running")
     used: set[str] = set()
     found = []
-    photo_slides = [s for s in spec.slides if s.treatment in ("A", "C", "full") and s.image.get("query")]
+    photo_slides = [s for s in spec.slides
+                    if (s.treatment in ("A", "C", "full") or s.type == "objectives") and s.image.get("query")]
     scene_by_id = image_brief.scenes(llm, photo_slides, plan_input.brands, plan_input.products, plan_input.category)
     checks = {"n": 0}
     for s in spec.slides:
         add_chart_logos(s, logos)
 
     def photo_for(s):
-        role = "panel" if s.treatment == "C" else "background"
+        role = "panel" if s.treatment == "C" or s.type == "objectives" else "background"
         subjects = image_brief.subjects_for(s, plan_input.brands, plan_input.products, plan_input.category,
                                             scene_by_id.get(s.id, ""))
         label = s.question or s.title or s.kicker
@@ -154,6 +171,8 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
             run.log(f"Photo for {s.id}: {photo.licence} - {photo.why} - {photo.source_url[:90]}")
         else:
             run.log(f"No relevant photo for {s.id} ({photo.why}); brand gradient kept")
+    reuse_photos(photo_slides, run.log)
+
     def product_photo(name: str):
         subjects = image_brief.Subjects([plan_input.title], [name], plan_input.category, f"{name} product packshot")
         return assets.find_photo(f"{plan_input.title} {name}", "panel", deck_dir / "photos", used, subjects=subjects,
@@ -185,8 +204,10 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
             continue
         for c in s.cards:
             first = next((by_n[n] for n in c.get("citations", []) if by_n.get(n) in shots), None)
-            if first:
-                c["thumb"] = shots[first]
+            icon = next((m["icon"] for n in c.get("citations", [])
+                         if (m := spec.citation_meta.get(str(n)) or {}).get("icon")), None)
+            if first or icon:              # the article's screenshot, else its outlet's icon
+                c["thumb"] = shots[first] if first else icon
     run.stage("assets", "done", f"{sum(1 for f in found if f['licence'] != 'none')} photos")
 
     run.stage("compose", "running")
