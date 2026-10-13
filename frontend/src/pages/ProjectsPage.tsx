@@ -334,7 +334,7 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
           placeholder="Search projects by title, description, or brand..."
           className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-11 pr-16 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-500/20"
         />
-        <kbd className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500">Ctrl K</kbd>
+        <kbd className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-800">Ctrl K</kbd>
       </div>
 
       {projects !== null && projects.length > 0 && (
