@@ -67,6 +67,32 @@ def _link(url: str) -> str:
     return url if url.lower().startswith(("https://", "http://")) else ""
 
 
+QUERY_CHARS_PER_SLIDE = 4200      # Boolean query text one methodology slide's table holds before continuing
+_QUERY_LINE = re.compile(r"^\w+ query: ")
+
+
+def _methodology_slides(inp: PlanInput, all_facts: list[str]) -> list[SlideSpec]:
+    """Definitions & methodology: the counting rules, then each research question beside the search query that
+    collected its coverage, in a table that continues on further slides when the queries are long."""
+    definitions = [m for m in inp.methodology if not _QUERY_LINE.match(m)]
+    rows = [[q.id, q.question, q.query] for q in inp.rqs if q.query]
+    pages, page, used = [], [], 0
+    for row in rows:
+        if page and used + len(row[2]) > QUERY_CHARS_PER_SLIDE:
+            pages.append(page)
+            page, used = [], 0
+        page.append(row)
+        used += len(row[2])
+    pages.append(page)
+    facts = all_facts + [q.query for q in inp.rqs if q.query] + [q.question for q in inp.rqs]
+    return [SlideSpec(id="methodology" if k == 0 else f"methodology-cont-{k}", type="methodology", treatment="plain",
+                      title="Definitions & methodology" + (" (continued)" if k else ""),
+                      cards=[{"headline": "", "text": m} for m in definitions] if k == 0 else [],
+                      tables=[{"header": ["#", "Research question", "Search query"], "rows": chunk}] if chunk else [],
+                      facts_allowed=facts)
+            for k, chunk in enumerate(pages)]
+
+
 def _scope_rows(inp: PlanInput) -> list[list[str]]:
     """The reference decks' scope block: Brands / Sources / Media / Geography / Time period, empty fields left out."""
     period = inp.period
@@ -208,8 +234,7 @@ def build_deck_spec(inp: PlanInput) -> DeckSpec:
                                 title="Brief checklist", facts_allowed=list(all_facts),
                                 tables=[{"header": ["Brief asked", "Status", "Where", "Note"],
                                          "rows": [[r["ask"], r["status"], "—", r["note"]] for r in rows]}]))
-    slides.append(SlideSpec(id="methodology", type="methodology", treatment="plain", title="Definitions & methodology",
-                            cards=[{"headline": "", "text": m} for m in inp.methodology], facts_allowed=all_facts))
+    slides += _methodology_slides(inp, all_facts)
     for p in range(0, max(1, len(inp.citations)), CITES_PER_SLIDE):
         page = inp.citations[p:p + CITES_PER_SLIDE]
         slides.append(SlideSpec(id=f"citations-{p // CITES_PER_SLIDE + 1}", type="citations", treatment="plain", title="Sources",

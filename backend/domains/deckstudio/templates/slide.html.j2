@@ -77,6 +77,18 @@
     {% for c in s.cards[:8] %}<figure class="vcell build">{% if c.url %}<a class="vlink" href="{{ c.url }}">{% endif %}{% if c.image %}<img class="vshot" src="{{ c.image }}" alt="{{ c.headline }} · {{ c.text }}">{% endif %}{% if c.url %}</a>{% endif %}</figure>{% endfor %}
   </div>
   <div class="vnote">The above insights are based on analysis of a representative sample of data.</div>
+{% elif s.type == "methodology" %}
+  <div style="position:absolute;left:70px;right:70px;top:56px">
+    <div class="title clamp" style="font-size:46px">{{ s.title }}</div>
+  </div>
+  <div class="reveal" style="position:absolute;left:70px;right:70px;top:150px;bottom:80px;display:flex;flex-direction:column;gap:22px;overflow:hidden">
+    {% if s.cards %}<ul class="defs">{% for c in s.cards %}<li>{{ c.text }}</li>{% endfor %}</ul>{% endif %}
+    {% if s.tables %}{% set tb = s.tables[0] %}<div class="qtable"><table>
+      <colgroup><col style="width:80px"><col style="width:30%"><col></colgroup>
+      <thead><tr>{% for h in tb.header %}<th>{{ h }}</th>{% endfor %}</tr></thead>
+      <tbody>{% for row in tb.rows %}<tr><td class="qid">{{ row[0] }}</td><td class="qtext">{{ row[1] }}</td><td class="qquery">{{ row[2] }}</td></tr>{% endfor %}</tbody>
+    </table></div>{% endif %}
+  </div>
 {% else %}
   <div style="position:absolute;left:70px;right:70px;top:56px">
     {% if s.kicker %}<div class="kicker">{{ s.kicker }}</div>{% endif %}

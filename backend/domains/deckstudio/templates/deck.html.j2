@@ -61,6 +61,18 @@ overflow:hidden;display:flex;align-items:center;justify-content:center;padding:1
 .obj-scope strong{color:var(--primary);font-weight:700}
 a.cite,a.vlink{text-decoration:none;cursor:pointer}
 .vnote{position:absolute;right:60px;bottom:52px;font:italic 400 17px var(--body);color:var(--primary)}
+.defs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;font:400 18px/1.45 var(--body);color:var(--text)}
+.defs li{padding-left:18px;position:relative}
+.defs li::before{content:"";position:absolute;left:0;top:.6em;width:7px;height:7px;border-radius:50%;background:var(--primary)}
+.qtable{border-radius:18px;overflow:hidden;border:1px solid rgba(0,0,0,.10);background:var(--surface);box-shadow:0 8px 24px rgba(0,0,0,.06);min-height:0}
+.qtable table{font-size:16px}
+.qtable th{padding:12px 16px}
+.qtable td{padding:12px 16px}
+.qtable tbody tr:nth-child(even) td{background:rgba(0,0,0,.025)}
+.qtable tbody tr:last-child td{border-bottom:0}
+.qtable .qid{font-weight:700;color:var(--primary)}
+.qtable .qtext{font-weight:600}
+.qtable .qquery{font:400 12.5px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--muted);word-break:break-word}
 .segs{position:absolute;left:790px;right:70px;top:240px;bottom:80px;display:flex;flex-direction:column;gap:12px}
 .seg{flex:1 1 0;min-height:0;background:var(--surface);border-left:6px solid var(--primary);border-radius:{{ t.radius }}px;padding:12px 22px;overflow:hidden;display:flex;flex-direction:column;justify-content:center}
 .seg p{font:400 17px/1.4 var(--body);-webkit-line-clamp:4}
