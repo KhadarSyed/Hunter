@@ -286,10 +286,11 @@ def _rescue(section: str, facts: list[str], arts: list[dict], local: dict[int, A
     return [v for i, v in enumerate(found) if i in supported][:k]
 
 
-def _without_names(text: str, local: dict[int, Article]) -> str:
+def _without_names(text: str, local: dict[int, Article], names: list[str] | None = None) -> str:
     """The text with candidate outlets' names taken out, so the digits of 'Law360' or '9to5Mac' are not read as a
     statistic the facts don't state."""
-    for name in {a.outlet for a in local.values() if a.outlet and any(ch.isdigit() for ch in a.outlet)}:
+    named = {a.outlet for a in local.values() if a.outlet} | set(names or ())
+    for name in sorted((n for n in named if any(ch.isdigit() for ch in n)), key=len, reverse=True):
         text = re.sub(re.escape(name), " ", text, flags=re.IGNORECASE)
     return text
 
@@ -348,7 +349,7 @@ def _screen(section: str, parsed: dict, allowed: set[str], pairs: set, local: di
         headline, text = str(ins.get("headline", "")).strip(), _ID_REF.sub("", str(ins.get("text", ""))).strip()
         raw = [int(c) for c in ins.get("citations", []) if str(c).isdigit()]
         cites = [c for c in dict.fromkeys(raw) if c in local][:MAX_CITES]   # drop unknown ids, cap
-        checked = _without_names(f"{headline} {text}", local)
+        checked = _without_names(f"{headline} {text}", local, entities + list(owners or ()))
         reason = (validate_insight(checked, cites, allowed, set(local), pairs)
                   or _entity_mismatch(f"{headline} {text}", cites, local, entities)
                   or _wrong_segment(headline, cites, owners)

@@ -12,13 +12,15 @@ ASK_MODULES = [
     (r"theme|topic", {"theme_clusters"}), (r"expert", {"entities:experts"}), (r"affiliat", {"entities:experts"}),
     (r"celebrit", {"entities:celebrities"}), (r"brand|share of voice|competitor", {"brand_sov", "entities:brands"}),
     (r"sentiment|tone", {"sentiment_split", "brand_sentiment"}), (r"outlet|publication", {"outlet_ranking"}),
-    (r"trend|over time|month|volume", {"volume_trend"}), (r"reach|audience", {"reach"}),
+    (r"trend|over time|month|volume|spike|peak|driver|event|moment", {"volume_trend"}),
+    (r"reach|audience", {"reach"}),
     (r"retailer", {"entities:retailers"}),
     (r"social|editorial|source split|media type", {"media_split"}),
     (r"\bby (sport|activit|injur|type|categor|product|occasion)|which (sport|activit|injur|product)",
      {"question_breakdown", "dimension_crosstab"}),
 ]
-DELIVERED = re.compile(r"written summary|report|deck|presentation|visual|quantitative|findings", re.I)
+DELIVERED = re.compile(r"written summary|executive summary|report|deck|presentation|visual|chart|graph|"
+                       r"quantitative|findings", re.I)
 NOT_STATED = re.compile(r"not stated", re.I)
 DATA_EXPORT = re.compile(r"excel|csv|spreadsheet|data tables?|raw data|data set|dataset|xlsx", re.I)
 
@@ -100,7 +102,8 @@ def _ask_row(kind: str, ask: str, sections: list[Section], has_brief_doc: bool, 
                 "modules": [tagged.id]}
     wanted = set().union(*[mods for pattern, mods in ASK_MODULES if re.search(pattern, low)])
     if not wanted:
-        if kind == "deliverable" and DELIVERED.search(low) and (has_brief_doc or "summary" not in low):
+        # the deck itself delivers these (its charts, its executive summary), however the brief filed the ask
+        if DELIVERED.search(low) and (has_brief_doc or "summary" not in low):
             return {**row, "status": "covered", "note": "Delivered as this deck and the Word brief"}
         matched = _by_title(ask, sections)
         if matched:

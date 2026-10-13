@@ -52,7 +52,9 @@ def _segments(pairs) -> dict[str, list[str]]:
     out: dict[str, list] = {}
     for cat, r in pairs:
         out.setdefault(cat, []).append(r)
-    return {c: list(dict.fromkeys(r.article.norm_url for r in sorted(rs, key=lambda r: (-r.copies, -r.article.reach))))[:SEGMENT_URLS]
+    # articles the tagger read come first (that is where relevance was judged), then the most-read
+    return {c: list(dict.fromkeys(r.article.norm_url for r in sorted(
+                rs, key=lambda r: (not r.dynamic_tags, -r.copies, -r.article.reach))))[:SEGMENT_URLS]
             for c, rs in out.items()}
 
 
