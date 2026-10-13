@@ -89,7 +89,7 @@ export function ProjectSwitcher({ onNavigate }: { onNavigate: (page: string) => 
           style={{ maxHeight: VISIBLE_ROWS * ROW_HEIGHT_PX }}
         >
           {projects === null ? (
-            <div className="px-4 py-4 text-sm text-slate-600">Loading…</div>
+            <div className="px-4 py-4 text-sm text-slate-400">Loading…</div>
           ) : projects.length === 0 ? (
             <div className="px-4 py-4 text-sm text-slate-400">No projects found.</div>
           ) : (

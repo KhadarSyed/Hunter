@@ -206,7 +206,7 @@ export function QCResults({ onNavigate }: { onNavigate: (page: string) => void }
   }
 
   if (loading) {
-    return <div className="p-8 text-sm text-slate-600 text-center">Loading...</div>;
+    return <div className="p-8 text-sm text-slate-400 text-center">Loading...</div>;
   }
 
   return (

@@ -881,7 +881,7 @@ export function DataSources({ onNavigate }: Props) {
       <div className="h-full flex items-center justify-center">
         <div className="text-center space-y-3">
           <div className="w-10 h-10 rounded-full mx-auto border-4 border-slate-200 border-t-violet-600 animate-spin" />
-          <p className="text-sm text-slate-600">Loading...</p>
+          <p className="text-sm text-slate-500">Loading...</p>
         </div>
       </div>
     );
