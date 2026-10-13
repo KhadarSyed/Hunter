@@ -235,7 +235,8 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     checks = validate.validate_deck(spec, plan_input.rqs, rows, plan_input.brand_products,
                                     has_competitors=len(plan_input.brands) > 1,
                                     citation_brands=plan_input.citation_brands or None, pptx=out["pptx"],
-                                    is_category=plan_input.is_category, mixed_media=plan_input.mixed_media)
+                                    is_category=plan_input.is_category, mixed_media=plan_input.mixed_media,
+                                    brand_share=plan_input.brand_share)
     for c in checks:
         if c["status"] != "pass":
             run.log(f"Validation {c['status']}: {c['check'][:80]} - {c['detail'][:120]}")

@@ -53,7 +53,22 @@ def _question_row(rq: RQ, sections: list[Section]) -> dict:
 
 
 def _stems(text: str) -> set[str]:
-    return {w[:6] for w in re.findall(r"[a-z]+", text.lower()) if len(w) > 3}
+    """Word stems for matching an ask to an analysis: 'types' and 'type', 'sports' and 'sport' are one stem."""
+    words = (w[:-1] if len(w) > 4 and w.endswith("s") and not w.endswith("ss") else w
+             for w in re.findall(r"[a-z]+", text.lower()))
+    return {w[:6] for w in words if len(w) > 3}
+
+
+MIN_SHARED_STEMS = 2
+
+
+def _by_title(ask: str, sections: list[Section]) -> list[Section]:
+    """Drawn analyses whose title words the ask names ('percent breakdown of injury types per focus sport' ->
+    'Injury Type by Sport'): the request is answered even when no analysis keyword in it matched."""
+    want = _stems(ask)
+    return [s for s in sections if not s.skipped and (s.chart or s.table)
+            and len((title := _stems(s.title) - _GENERIC_TITLE) & want) >= min(MIN_SHARED_STEMS, len(title))
+            and title and title <= want]
 
 
 def _asked(question: str, section: Section) -> bool:
@@ -87,6 +102,10 @@ def _ask_row(kind: str, ask: str, sections: list[Section], has_brief_doc: bool, 
     if not wanted:
         if kind == "deliverable" and DELIVERED.search(low) and (has_brief_doc or "summary" not in low):
             return {**row, "status": "covered", "note": "Delivered as this deck and the Word brief"}
+        matched = _by_title(ask, sections)
+        if matched:
+            return {**row, "status": "covered", "note": f"Answered by: {matched[0].title}",
+                    "modules": [m.id for m in matched]}
         return {**row, "status": "missing", "note": "No analysis in this run matches this request"}
     drawn = [s for s in sections if not s.skipped and _keys(s) & wanted]
     if not drawn:

@@ -59,6 +59,7 @@ class PlanInput:
     media: str = ""                                                          # e.g. "Earned editorial", "Social media"
     time_period: str = ""                                                    # the brief's window, e.g. "Past 12 months"
     mixed_media: bool = False                                                # the data has both social and editorial
+    brand_share: float = 1.0                                                 # share of articles naming a brand of the set
 
 
 def _link(url: str) -> str:

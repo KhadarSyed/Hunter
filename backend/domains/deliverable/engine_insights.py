@@ -70,7 +70,8 @@ def _breakdown_answer(rq: RQ, sections: list[Section]) -> dict | None:
 
 
 def section_summaries(rq: RQ, sections: list[Section], rows: list[EngineRow], registry: CitationRegistry, llm,
-                      evidence: list[EngineRow] | None = None, avoid: list[dict] | None = None) -> dict[str, list[dict]]:
+                      evidence: list[EngineRow] | None = None, avoid: list[dict] | None = None,
+                      relevant: set[str] | None = None) -> dict[str, list[dict]]:
     """One cited summary per drawn chart or table (not the KPI tile), so no evidence slide goes without its
     answer and its sources. Each is told what the question's insights and earlier summaries already said."""
     out = {}
@@ -80,11 +81,14 @@ def section_summaries(rq: RQ, sections: list[Section], rows: list[EngineRow], re
             continue
         segments = chart_segments(s)
         by_url = {r.article.norm_url: r.article for r in rows}
+        # a category's card is written from its own articles that also answer the question (the evidence set):
+        # a post matching a keyword in another sense ('cut deals with rivals') never becomes the example
+        answering = relevant if relevant else ({r.article.norm_url for r in evidence} if evidence else set(by_url))
         owned: dict[str, list[str]] = {}          # article -> every category it is counted in
         for seg in segments:
-            for u in s.segment_urls.get(seg, [])[:SEGMENT_ARTICLES]:
-                if u in by_url:
-                    owned.setdefault(u, []).append(seg)
+            mine = [u for u in s.segment_urls.get(seg, []) if u in by_url]
+            for u in ([u for u in mine if u in answering] or mine)[:SEGMENT_ARTICLES]:
+                owned.setdefault(u, []).append(seg)
         cands = ([by_url[u] for u in dict.fromkeys(owned)] if owned else _candidates([s], rows, evidence))
         summary = draft_section(f"{rq.question} - {s.title}", s.facts, cands, registry, llm, 1,
                                 avoid=said, segments=segments or None, article_segments=owned or None)
@@ -96,6 +100,11 @@ def section_summaries(rq: RQ, sections: list[Section], rows: list[EngineRow], re
                                  segments=missing, article_segments=owned or None)
             found = {**_by_headline(more or []), **_by_headline(cards)}
             cards = [found[g.lower()] for g in segments if g.lower() in found]     # back in the chart's order
+        if summary and len(cards) < 2 and all(c.get("fact_only") for c in summary[:1]):
+            # only a restated statistic came back: ask once more for what drives it, in the client's terms
+            why = draft_section(f"{rq.question} - {s.title}: explain WHY the leading result looks this way and what "
+                                "it means for the client", s.facts, cands, registry, llm, 1, avoid=said)
+            summary = [c for c in why if not c.get("fact_only")][:1] or summary
         if summary:
             out[s.id] = (cards if len(cards) >= 2 else []) or summary[:1]
             said += [f"{c.get('headline', '')}: {c.get('text', '')}" for c in out[s.id]]

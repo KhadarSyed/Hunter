@@ -146,7 +146,8 @@ def _backfill(kept: list[dict], facts: list[str], candidates: list[Article], reg
             continue
         text = fact.rstrip(".") + "."
         out.append({"headline": _fact_headline(fact), "text": text[:1].upper() + text[1:],
-                    "citations": [registry.cite(a) for a in evidence]})   # register only when used
+                    "citations": [registry.cite(a) for a in evidence],   # register only when used
+                    "fact_only": True})                                  # a statistic, not an explanation
         stated |= set(_NUM.findall(fact))
     return out
 

@@ -44,7 +44,7 @@ def _section(module: dict, rq: RQ, **kw) -> Section:
                    title=module.get("title") or module["module"], **kw)
 
 
-SEGMENT_URLS = 6    # articles kept per chart category for its insight
+SEGMENT_URLS = 20   # articles kept per chart category, best first, for its insight (relevant ones are picked from these)
 
 
 def _segments(pairs) -> dict[str, list[str]]:

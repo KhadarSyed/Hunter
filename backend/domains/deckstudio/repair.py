@@ -13,6 +13,7 @@ MAX_ATTEMPTS = 2
 SO_WHAT_MAX = 140
 CARD_TEXT_MAX = 160
 CARDS_MAX = 2
+WALL_QUESTION_MAX = 110          # a verbatim wall header: the question, cut at a sentence or word boundary
 SEGMENT_TEXT_MAX = 480            # a segment card ("S" layout) keeps its why and so-what (cards run ~350-480 characters)
 TABLE_ROWS_PER_SLIDE = 8
 _ACTIONS = {"low_contrast": "drop_photo"}
@@ -38,6 +39,12 @@ def _cut(text: str, limit: int) -> str:
 
 def _shorten(slide) -> None:
     slide.so_what = _cut(slide.so_what, SO_WHAT_MAX)
+    if slide.type == "verbatim_wall":
+        # a wall's overflow is its header (a long research question); its screenshots are the content, so the
+        # header is shortened and every post stays
+        slide.question = _cut(slide.question or "", WALL_QUESTION_MAX)
+        slide.title = _cut(slide.title or "", WALL_QUESTION_MAX)
+        return
     if slide.treatment == "S":
         slide.cards = [{**c, "text": _cut(c.get("text", ""), SEGMENT_TEXT_MAX)} for c in slide.cards]
         return

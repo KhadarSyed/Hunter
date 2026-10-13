@@ -15,7 +15,7 @@ from ...core import config, store
 from ...core.events import broadcast
 from . import (analytics, brand_kit, catalog, engine_insights, extract, factcheck, generic_deck, templates_index,
                visuals, word_brief)
-from . import brand_analytics, evidence, tag_insights
+from . import brand_analytics, entity_relevance, evidence, tag_insights
 from ...agents import question_tag_schema
 from . import rows as R
 from .citations import CitationRegistry, domain_of
@@ -427,6 +427,13 @@ def _citation_brands(registry, rows, brands) -> dict[str, list[str]]:
     return out
 
 
+def _relevant_urls(rows, answer_tag: str, brands) -> set[str]:
+    """The articles that answer a question: tagged yes on its answer tag, or naming a brand of the set. Keyword
+    matches in another sense (a 'cut' in a video game) carry neither, so they are never a card's example."""
+    return {r.article.norm_url for r in rows
+            if (answer_tag and evidence.affirmative((r.dynamic_tags or {}).get(answer_tag))) or evidence.row_brands(r, brands)}
+
+
 def _verbatims_by_rq(rqs, rows_by_rq, insights_by_rq, registry, brands, dims_by_rq,
                      answer_tags: dict[str, str] | None = None) -> dict[str, list[dict]]:
     """Each question's verbatim wall: articles that name the brand and carry the question's intent (its
@@ -507,7 +514,9 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
                           for q in rqs}
         for q in rqs:
             run.log(f"{q.id}: {len(evidence_by_rq[q.id])} articles name the brand and can be cited")
-        asks = [text for _, text in brief_asks(project_id)]
+        # the brief's own words count too: "look at both social and editorial" asks for the split even when the
+        # brief analysis did not list it as an expected analysis
+        asks = [text for _, text in brief_asks(project_id)] + [(project.get("spec") or {}).get("raw_brief") or ""]
         plans = {q.id: catalog.with_brief_asks(
                      catalog.with_breakdowns(catalog.plan_rq(llm, q, rows_by_rq[q.id])[0], q, dims_by_rq.get(q.id, [])), asks)
                  for q in rqs}
@@ -536,6 +545,10 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
             tagged = tag_insights.tag_section(q, rows_by_rq[q.id], tag_schemas.get(q.id))
             if tagged:               # the question answered from its own tags leads its chapter
                 sections_by_rq[q.id].insert(0, tagged)
+            # names a keyword pulled in from another world never reach a brand/product chart (remembered per category)
+            sections_by_rq[q.id] = entity_relevance.prune(sections_by_rq[q.id], llm,
+                                                          _category(project, (project.get("brand") or "")),
+                                                          q.question, run.log)
             for s in sections_by_rq[q.id]:
                 run.section(s.to_dict())
             drawn = [s for s in sections_by_rq[q.id] if not s.skipped]
@@ -554,7 +567,9 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
             found = engine_insights.rq_insights(q, sections_by_rq[q.id], rows_by_rq[q.id], registry, llm,
                                                 evidence=evidence_by_rq[q.id])
             summaries = engine_insights.section_summaries(q, sections_by_rq[q.id], rows_by_rq[q.id], registry, llm,
-                                                          evidence=evidence_by_rq[q.id], avoid=found)
+                                                          evidence=evidence_by_rq[q.id], avoid=found,
+                                                          relevant=_relevant_urls(rows_by_rq[q.id], answer_tags[q.id],
+                                                                                  brands))
             return found, summaries
 
         with ThreadPoolExecutor(max_workers=INSIGHT_WORKERS) as pool:
@@ -626,6 +641,7 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
                                      _verbatims_by_rq(rqs, rows_by_rq, insights_by_rq, registry, brands,
                                                       dims_by_rq, answer_tags), summaries_by_section)
             plan_input.citation_brands = _citation_brands(registry, rows, brands)
+            plan_input.brand_share = sum(1 for r in rows if evidence.row_brands(r, brands)) / max(1, len(rows))
             plan_input.mixed_media = len({analytics._channel(r) for r in rows} - {""}) > 1
             studio = run_studio(run, project_id, llm, plan_input,
                                 inp.brand_colors, inp.brand_image, inp.logos, out_dir,

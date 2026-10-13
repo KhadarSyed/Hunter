@@ -64,8 +64,12 @@ def _segments(slide: SlideSpec) -> list[str]:
 _STATIC = {"objectives", "methodology", "checklist", "citations", "scorecard"}   # reading slides: nothing to build
 
 
+TERRITORY_SHARE = 0.2      # under this share of articles naming the brand, the study is about a territory
+
+
 def _evidence_rows(slides: list[SlideSpec], rqs: list[RQ], has_competitors: bool,
-                   citation_brands: dict[str, list[str]] | None, mixed_media: bool = False) -> list[dict]:
+                   citation_brands: dict[str, list[str]] | None, mixed_media: bool = False,
+                   territory: bool = False) -> list[dict]:
     charts = _chart_slides(slides, rqs)
     bare = [s.id for s in charts if not _cited([s])]
     rows = [_row("Every chart slide has a cited summary", not bare, "no cited summary on " + ", ".join(bare[:6]))]
@@ -96,8 +100,12 @@ def _evidence_rows(slides: list[SlideSpec], rqs: list[RQ], has_competitors: bool
     rows.append(_row("No chart shows only 'Not stated' or 'Unknown'", not empty, "placeholder chart: " + ", ".join(empty)))
     if citation_brands is not None:
         stray = sorted((n for n in _cited(slides) if not citation_brands.get(n)), key=lambda n: int(n) if n.isdigit() else 0)
+        # a territory study (sports-injury talk for a first-aid brand) cites the conversation itself, which mostly
+        # never names the brand: there it is a note, not a failure
         rows.append(_row("Citations name the brand or a competitor literally", not stray,
-                         "cited source(s) never name a brand: " + ", ".join(stray[:12])))
+                         "cited source(s) never name a brand: " + ", ".join(stray[:12])
+                         + (" (expected: the study is about the wider conversation, which rarely names the brand)"
+                            if territory else ""), soft=territory))
     walls = [s for s in slides if s.type == "verbatim_wall"]
     if has_competitors:
         rows.append(_row("Competitor verbatims on their own slide",
@@ -130,7 +138,8 @@ def _builds_row(spec: DeckSpec, pptx: Path) -> dict:
 
 def validate_deck(spec: DeckSpec, rqs: list[RQ], checklist: list[dict], brand_products: list[str],
                   has_competitors: bool, citation_brands: dict[str, list[str]] | None = None,
-                  pptx: Path | None = None, is_category: bool = False, mixed_media: bool = False) -> list[dict]:
+                  pptx: Path | None = None, is_category: bool = False, mixed_media: bool = False,
+                  brand_share: float = 1.0) -> list[dict]:
     """`is_category`: the client is a category, not a brand -- no single logo, and coverage needn't name a brand."""
     slides = spec.slides
     rows = [_row("Client logo on the cover", bool(spec.brand_logo),
@@ -144,7 +153,8 @@ def validate_deck(spec: DeckSpec, rqs: list[RQ], checklist: list[dict], brand_pr
         rows.append(_row("Brand sentiment vs competitors", any(s.id.startswith("brand-sentiment") for s in slides),
                          "no sentiment slide"))
     rows += [_question(rq, slides) for rq in rqs]
-    rows += _evidence_rows(slides, rqs, has_competitors, None if is_category else citation_brands, mixed_media)
+    rows += _evidence_rows(slides, rqs, has_competitors, None if is_category else citation_brands, mixed_media,
+                           territory=brand_share < TERRITORY_SHARE)
     summary = next((s for s in slides if s.type == "executive_summary"), None)
     uncited = [c.get("headline") or "" for c in (summary.cards if summary else []) if not c.get("citations")]
     rows.append(_row("Executive summary cites its sources", bool(summary) and not uncited,
