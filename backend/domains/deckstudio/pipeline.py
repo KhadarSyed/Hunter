@@ -84,11 +84,9 @@ def add_chart_logos(slide, logos: dict[str, Path]) -> None:
 
 
 def _brand_logo(name: str, logos: dict[str, Path]) -> Path | None:
-    """The brand's logo, else its master brand's ("Aveeno" for "Aveeno Baby")."""
-    if name in logos:
-        return logos[name]
-    words = name.split()
-    return next((logos[" ".join(words[:k])] for k in range(len(words) - 1, 0, -1) if " ".join(words[:k]) in logos), None)
+    """The brand's logo, else its master brand's or its product line's (see visuals.find_logo)."""
+    from ..deliverable.visuals import find_logo
+    return find_logo(name, logos)
 
 
 def attach_logos(spec, logos: dict[str, Path], client: str, brands: list[str] | None = None) -> None:

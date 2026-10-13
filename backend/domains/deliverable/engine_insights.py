@@ -79,26 +79,46 @@ def section_summaries(rq: RQ, sections: list[Section], rows: list[EngineRow], re
         if s.skipped or not (s.chart or s.table) or (s.chart or {}).get("kind") == "kpi" or not s.facts:
             continue
         segments = chart_segments(s)
-        summary = draft_section(f"{rq.question} - {s.title}", s.facts, _candidates([s], rows, evidence), registry, llm, 1,
-                                avoid=said, segments=segments or None)
+        by_url = {r.article.norm_url: r.article for r in rows}
+        owned: dict[str, list[str]] = {}          # article -> every category it is counted in
+        for seg in segments:
+            for u in s.segment_urls.get(seg, [])[:SEGMENT_ARTICLES]:
+                if u in by_url:
+                    owned.setdefault(u, []).append(seg)
+        cands = ([by_url[u] for u in dict.fromkeys(owned)] if owned else _candidates([s], rows, evidence))
+        summary = draft_section(f"{rq.question} - {s.title}", s.facts, cands, registry, llm, 1,
+                                avoid=said, segments=segments or None, article_segments=owned or None)
+        cards = _segment_cards(summary, segments) if summary else []
+        missing = [g for g in segments if g.lower() not in _by_headline(cards)]
+        if cards and missing:            # one more try for the categories whose card was rejected
+            more = draft_section(f"{rq.question} - {s.title}", s.facts, cands, registry, llm, 1,
+                                 avoid=said + [f"{c['headline']}: {c['text']}" for c in cards],
+                                 segments=missing, article_segments=owned or None)
+            found = {**_by_headline(more or []), **_by_headline(cards)}
+            cards = [found[g.lower()] for g in segments if g.lower() in found]     # back in the chart's order
         if summary:
-            out[s.id] = _segment_cards(summary, segments) or summary[:1]
+            out[s.id] = (cards if len(cards) >= 2 else []) or summary[:1]
             said += [f"{c.get('headline', '')}: {c.get('text', '')}" for c in out[s.id]]
     return out
 
 
 SEGMENT_MAX = 5
-_NOT_SEGMENTS = {"yes", "no", "unknown", "none", "other"}
+SEGMENT_ARTICLES = 3          # a category's own articles offered for its card
+_NOT_SEGMENTS = {"unknown", "none", "other", "not stated", "n/a"}
 
 
 def chart_segments(section: Section) -> list[str]:
-    """A breakdown chart's leading categories, each to be explained on its own card (a Yes/No share or a trend is
-    explained by one summary instead)."""
+    """A breakdown chart's categories, each explained on its own card: what the coverage in it says and why (a
+    trend or a single-category chart is explained by one summary; 'Unknown' and the like never get a card)."""
     chart = section.chart or {}
-    cats = [str(c) for c in chart.get("categories") or []]
-    if chart.get("kind") not in ("bar", "treemap") or len(cats) < 2 or {c.lower() for c in cats} <= _NOT_SEGMENTS:
+    if chart.get("kind") not in ("bar", "treemap", "doughnut", "pie"):
         return []
-    return [c for c in cats if c.lower() not in _NOT_SEGMENTS][:SEGMENT_MAX]
+    cats = [str(c) for c in chart.get("categories") or [] if str(c).strip().lower() not in _NOT_SEGMENTS]
+    return cats[:SEGMENT_MAX] if len(cats) >= 2 else []
+
+
+def _by_headline(cards: list[dict]) -> dict[str, dict]:
+    return {str(c.get("headline", "")).strip().rstrip(":").lower(): c for c in cards}
 
 
 def _segment_cards(cards: list[dict], segments: list[str]) -> list[dict]:

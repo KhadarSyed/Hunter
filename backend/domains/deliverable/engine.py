@@ -32,7 +32,7 @@ from ..strategy.dimensions import project_dimensions as question_dimensions
 logger = logging.getLogger(__name__)
 STAGES = ("gate", "ingest", "routing", "plan", "classify", "compute", "insights", "template", "render", "qc",
           "index", "design", "assets", "compose", "export")
-MAX_LOGOS = 24
+MAX_LOGOS = 40
 CITE_POOL = 12          # brand / competitor articles offered to the brand chapter's summaries
 INSIGHT_WORKERS = 4     # questions drafting insights at once (each makes several chat calls)
 _lock = threading.Lock()
@@ -306,8 +306,9 @@ def _label_icons(sections_by_rq, rows, folder: Path, color: str) -> dict[str, Pa
             for label in (s.chart or {}).get("categories") or []:
                 if label in out:
                     continue
-                if s.module in _OUTLET_MODULES:
-                    icon = visuals.favicon_png(domain_by_outlet.get(label, ""), folder / "favicons")
+                if s.module in _OUTLET_MODULES:      # an outlet without a site icon still gets its initial
+                    icon = (visuals.favicon_png(domain_by_outlet.get(label, ""), folder / "favicons")
+                            or visuals.letter_badge_png(label, folder / "favicons", color))
                 else:
                     icon_id = visuals.value_icon(label)
                     icon = visuals.icon_png(icon_id, folder / "icons", color) if icon_id else None
@@ -334,8 +335,13 @@ def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_
     # every brand or retailer drawn in a chart gets its logo looked up, not only the share-of-voice chart
     sov_brands = [c for secs in sections_by_rq.values() for s in secs if s.chart and not s.skipped
                   and (s.module == "brand_sov" or s.id.endswith(("-brands", "-retailers"))) for c in s.chart["categories"]]
-    logo_map = visuals.logos(list(dict.fromkeys(competitors + sov_brands))[:MAX_LOGOS], out_dir / "logos", judge=judge)
+    names = list(dict.fromkeys(visuals.plain_name(n) for n in competitors + sov_brands if n))[:MAX_LOGOS]
+    logo_map = visuals.logos(names, out_dir / "logos", judge=judge)
     logo_map = {**_label_icons(sections_by_rq, rows, out_dir, kit.accent), **logo_map}   # brand logos win
+    for name in dict.fromkeys(sov_brands):     # every brand drawn in a chart shows a mark beside its label
+        mark = visuals.find_logo(name, logo_map) or visuals.letter_badge_png(name, out_dir / "logos", kit.accent)
+        if mark:
+            logo_map[name] = mark
     if kit.logo:
         logo_map[brand] = kit.logo
     elif (mark := visuals.wordmark_png(brand, _category(project, brand), out_dir / "brand", kit.accent)):

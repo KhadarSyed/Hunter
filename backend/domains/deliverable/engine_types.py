@@ -41,6 +41,10 @@ class Section:
     candidate_urls: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     skipped: str | None = None
+    # chart category -> the articles counted in it, so each category's insight is written from its own articles
+    segment_urls: dict[str, list[str]] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        d.pop("segment_urls")          # working data for the insight writer, not part of the stored section
+        return d

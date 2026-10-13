@@ -48,7 +48,19 @@ def _chart_slides(slides: list[SlideSpec], rqs: list[RQ]) -> list[SlideSpec]:
 
 
 # charts of things that have a logo or site icon; people (experts, celebrities) and Yes/No shares have none
-_ENTITY_CHART = re.compile(r"brand-sov|brand-sentiment|outlet_ranking|entities-brands|entities-retailers")
+_ENTITY_CHART = re.compile(r"brand[-_]sov|brand[-_]sentiment|outlet_ranking|entities-brands|entities-retailers")
+# categories that answer nothing on their own; a chart of only these is a placeholder, and they get no insight card
+_NO_ANSWER = {"unknown", "none", "other", "not stated", "n/a"}
+SEGMENT_CARDS = 5                  # matches the planner: a breakdown chart explains up to 5 of its categories
+
+
+def _segments(slide: SlideSpec) -> list[str]:
+    """The categories of a breakdown chart that each need their own explanation card."""
+    chart = slide.charts[0] if slide.charts else {}
+    if chart.get("kind") not in ("bar", "treemap", "doughnut", "pie"):
+        return []
+    cats = [str(c) for c in chart.get("categories") or [] if str(c).strip().lower() not in _NO_ANSWER]
+    return cats[:SEGMENT_CARDS] if len(cats) >= 2 else []
 _STATIC = {"objectives", "methodology", "checklist", "citations", "scorecard"}   # reading slides: nothing to build
 
 
@@ -60,9 +72,22 @@ def _evidence_rows(slides: list[SlideSpec], rqs: list[RQ], has_competitors: bool
     # icons belong beside named things (brands, outlets, retailers, experts, celebrities), not Yes/No or months
     unlabelled = [s.id for s in charts
                   if (cats := [c for ch in s.charts for c in ch.get("categories") or []]) and not set(cats) & set(s.logos)
-                  and (_ENTITY_CHART.search(s.id) or any(value_icon(str(c)) for c in cats))]
+                  and any(value_icon(str(c)) for c in cats) and not _ENTITY_CHART.search(s.id)]
     rows.append(_row("Chart labels show their icon or logo", not unlabelled,
                      f"{len(unlabelled)} chart(s) without icons: " + ", ".join(unlabelled[:4]), soft=True))
+    # a brand, retailer or outlet chart marks every label: one logo among eight bars reads as a broken slide
+    no_logo = [f"{s.id} ({', '.join(missing[:4])})" for s in charts if _ENTITY_CHART.search(s.id)
+               for missing in [[str(c) for ch in s.charts for c in ch.get("categories") or [] if str(c) not in s.logos]]
+               if missing]
+    rows.append(_row("Every brand, retailer and outlet in a chart shows its logo", not no_logo,
+                     "missing: " + "; ".join(no_logo[:4])))
+    # each category of a breakdown chart is explained on its own card (what drives it), not one summary for all
+    thin = [f"{s.id} ({len(s.cards)} of {len(segs)})" for s in charts if (segs := _segments(s)) and len(s.cards) < len(segs)]
+    rows.append(_row("Every chart category has its own insight", not thin,
+                     "explained only partly: " + ", ".join(thin[:6])))
+    empty = [s.id for s in charts for ch in s.charts[:1]
+             if ch.get("categories") and all(str(c).strip().lower() in _NO_ANSWER for c in ch["categories"])]
+    rows.append(_row("No chart shows only 'Not stated' or 'Unknown'", not empty, "placeholder chart: " + ", ".join(empty)))
     if citation_brands is not None:
         stray = sorted((n for n in _cited(slides) if not citation_brands.get(n)), key=lambda n: int(n) if n.isdigit() else 0)
         rows.append(_row("Citations name the brand or a competitor literally", not stray,

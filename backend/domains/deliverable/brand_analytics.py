@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from .analytics import _label, _pct
+from .analytics import SEGMENT_URLS, _label, _pct
 from .engine_types import EngineRow, Section
 from .evidence import Brand, row_brands
 
@@ -30,7 +30,7 @@ def _sov(named_rows, brands: list[Brand]) -> Section:
                    chart={"kind": "bar", "categories": [_label(n) for n in order],
                           "values": [_pct(counts[n], total) for n in order], "unit": "percent", "peaks": [],
                           "series_label": "Share of brand mentions"},
-                   facts=facts, candidate_urls=urls, notes=["logos"])
+                   facts=facts, candidate_urls=urls, notes=["logos"], segment_urls=_by_brand(named_rows, order))
 
 
 def _sentiment(named_rows, brands: list[Brand]) -> Section:
@@ -58,7 +58,14 @@ def _sentiment(named_rows, brands: list[Brand]) -> Section:
                           "unit": "percent", "peaks": [], "series_label": "Positive share"},
                    table={"header": ["Brand", "Positive", "Neutral", "Negative", "Articles"], "rows": rows,
                           "col_widths": [3.0, 1.6, 1.6, 1.6, 1.4]},
-                   facts=facts, notes=["logos"])
+                   facts=facts, notes=["logos"], segment_urls=_by_brand(named_rows, order))
+
+
+def _by_brand(named_rows, order: list[str]) -> dict[str, list[str]]:
+    """{brand label: the articles naming it, most-read first}: each brand's insight is written from its own coverage."""
+    return {_label(n): [r.article.norm_url for r in sorted((r for r, named in named_rows if n in named),
+                                                           key=lambda r: (-r.copies, -r.article.reach))][:SEGMENT_URLS]
+            for n in order}
 
 
 def brand_sections(rows: list[EngineRow], brands: list[Brand]) -> list[Section]:

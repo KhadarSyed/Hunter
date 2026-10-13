@@ -111,7 +111,9 @@ def tag_section(rq: RQ, rows: list[EngineRow], schema: TagSchema | None) -> Sect
                    chart={"kind": "bar", "categories": order, "values": [counts[v] for v in order], "unit": "count",
                           "peaks": [], "series_label": "Articles"},
                    facts=facts, candidate_urls=list(dict.fromkeys(cite_first)),
-                   notes=[f"Base: {len(tagged)} articles tagged for this question"])
+                   notes=[f"Base: {len(tagged)} articles tagged for this question"],
+                   segment_urls={v: [r.article.norm_url for r in tagged if v in _values(r, lead.tag_name)][:8]
+                                 for v in order})
 
 
 def tag_answer(rq: RQ, section: Section) -> dict:

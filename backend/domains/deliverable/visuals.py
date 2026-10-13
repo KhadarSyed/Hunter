@@ -193,6 +193,31 @@ def letter_badge_png(name: str, folder: Path, color: str = style.VIOLET) -> Path
     return out
 
 
+_QUOTES = str.maketrans({"’": "'", "‘": "'", "“": '"', "”": '"'})
+
+
+def plain_name(name: str) -> str:
+    """A brand name with typographic quotes made plain: "Johnson’s" and "Johnson's" are one brand."""
+    return (name or "").translate(_QUOTES).strip()
+
+
+def find_logo(name: str, logos: dict[str, Path]) -> Path | None:
+    """The logo for a chart label: exact, then ignoring quotes and case, then the master brand's ("Aveeno" for
+    "Aveeno Baby"), then the brand's own product line's ("Aquaphor Baby" for "Aquaphor")."""
+    if name in logos:
+        return logos[name]
+    by_key = {plain_name(k).casefold(): v for k, v in logos.items() if v}
+    key = plain_name(name).casefold()
+    if key in by_key:
+        return by_key[key]
+    words = key.split()
+    master = next((" ".join(words[:k]) for k in range(len(words) - 1, 0, -1) if " ".join(words[:k]) in by_key), None)
+    if master:
+        return by_key[master]
+    line = sorted(k for k in by_key if k.startswith(key + " "))
+    return by_key[line[0]] if line else None
+
+
 def country_code(country: str) -> str | None:
     """ISO 3166-1 alpha-2 (lowercase) for the circle-flags icon set."""
     return _ISO.get((country or "").strip().lower())

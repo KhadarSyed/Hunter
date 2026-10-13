@@ -167,14 +167,17 @@ def _segment_ask(segments: list[str]) -> str:
             "segment, in that order; its headline is the segment name exactly as given. Each text is 45-70 words "
             "explaining WHY coverage falls into that segment: what people are saying and doing there, naming the "
             "outlets, people, products, campaigns and events from ARTICLES, with a concrete example, then what it "
-            "means for the client. Wrap the two or three most telling phrases in **double asterisks**. The chart "
+            "means for the client. Each article in ARTICLES lists the segments it is counted in: explain a "
+            "segment only from its own articles and cite at least one of them (for a sentiment segment, say what in "
+            "those articles makes them positive, neutral or negative). Wrap the two or three most telling phrases in **double asterisks**. The chart "
             "already shows each segment's share, so write no numbers. Return "
             '{"insights":[{"headline":"<segment name>","text":"<45-70 words>","citations":[ids]}]}')
 
 
 def draft_section(section: str, facts: list[str], candidates: list[Article], registry: CitationRegistry,
                   llm, n_insights: int = 3, entities: list[str] | None = None,
-                  avoid: list[str] | None = None, segments: list[str] | None = None) -> list[dict]:
+                  avoid: list[str] | None = None, segments: list[str] | None = None,
+                  article_segments: dict[str, list[str]] | None = None) -> list[dict]:
     """Candidates get local ids 1..k in the prompt; only articles an accepted insight actually cites are
     registered, so the appendix lists cited articles only. With `segments` (a chart's categories), one card per
     segment explains what drives it."""
@@ -186,7 +189,10 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
     pairs = allowed_pairs(facts)
     local = {i: a for i, a in enumerate(candidates, start=1)}
     arts = [{"id": i, "outlet": a.outlet, "date": a.date.isoformat() if a.date else "", "title": a.title,
-             "excerpt": a.text[:400]} for i, a in local.items()]
+             "excerpt": a.text[:400], **({"segments": article_segments[a.norm_url]}
+                                         if article_segments and a.norm_url in article_segments else {})}
+            for i, a in local.items()]
+    owners = _segment_owners(local, article_segments)
     messages = [
         {"role": "system", "content": "You write insights for a media-research deck, the way a senior media analyst "
          "does. The chart beside each insight already shows the shares and counts, so an insight never restates the "
@@ -218,7 +224,8 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
     headline_figs = _headline_figures(facts)
     try:
         reply = llm.chat(messages, format_json=True)
-        valid, rejected = _screen(section, json.loads(reply), allowed, pairs, local, entities or [], headline_figs)
+        valid, rejected = _screen(section, json.loads(reply), allowed, pairs, local, entities or [], headline_figs,
+                                  owners=owners)
     except (json.JSONDecodeError, RuntimeError) as e:
         logger.warning("insight drafting for %s failed (%s); using fallback", section, e)
         return _fallback(facts, candidates, registry)
@@ -231,7 +238,8 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
                               "format and rules."}]
         try:
             more, _ = _screen(section, json.loads(llm.chat(repair, format_json=True)), allowed, pairs, local,
-                              entities or [], headline_figs, {f for h, t, _ in valid for f in _figures(f"{h} {t}")})
+                              entities or [], headline_figs, {f for h, t, _ in valid for f in _figures(f"{h} {t}")},
+                              owners=owners)
             seen = {t for _, t, _ in valid}
             valid += [v for v in more if v[1] not in seen]          # the model may repeat an accepted insight
         except (json.JSONDecodeError, RuntimeError) as e:
@@ -312,9 +320,26 @@ def _repeats(text: str, shown: set[str], taken: set[str]) -> str | None:
     return None
 
 
+def _segment_owners(local: dict[int, Article], article_segments: dict[str, list[str]] | None) -> dict[str, set[int]]:
+    """{segment name (lower case): the local ids of its own articles} (an article can count in several)."""
+    out: dict[str, set[int]] = {}
+    for i, a in local.items():
+        for seg in (article_segments or {}).get(a.norm_url) or []:
+            out.setdefault(seg.strip().lower(), set()).add(i)
+    return out
+
+
+def _wrong_segment(headline: str, cites: list[int], owners: dict[str, set[int]] | None) -> str | None:
+    """A segment card must cite its own segment's articles: one built on another segment's coverage misleads."""
+    mine = (owners or {}).get(headline.strip().rstrip(":").lower())
+    if mine and not set(cites) & mine:
+        return f"cites no article from the {headline} segment; use its own articles (ids {sorted(mine)})"
+    return None
+
+
 def _screen(section: str, parsed: dict, allowed: set[str], pairs: set, local: dict[int, Article],
             entities: list[str], shown: set[str] | None = None,
-            taken: set[str] | None = None) -> tuple[list[tuple], list[tuple[str, str]]]:
+            taken: set[str] | None = None, owners: dict[str, set[int]] | None = None) -> tuple[list[tuple], list[tuple[str, str]]]:
     """Split drafted insights into valid (headline, text, local cites) and rejected (text, reason)."""
     valid, rejected = [], []
     taken = set(taken or ())
@@ -325,6 +350,7 @@ def _screen(section: str, parsed: dict, allowed: set[str], pairs: set, local: di
         checked = _without_names(f"{headline} {text}", local)
         reason = (validate_insight(checked, cites, allowed, set(local), pairs)
                   or _entity_mismatch(f"{headline} {text}", cites, local, entities)
+                  or _wrong_segment(headline, cites, owners)
                   or _repeats(checked, shown or set(), taken))
         if reason:
             logger.info("dropped insight in %s: %s", section, reason)

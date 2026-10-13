@@ -10,7 +10,6 @@ from .engine_types import RQ, EngineRow, Section
 from .metrics import TOP_PEAKS, month_label
 
 TOP_N = 8
-_AFFILIATION_WORDS = ("affiliat", "sponsor", "paid", "brand")
 NO_ROWS = "No articles for this question"
 _NOT_A_NAME = {"unknown", "none", "n/a", "na", "not stated", "unnamed", ""}
 LABEL_CHARS = 30
@@ -42,6 +41,18 @@ def _section(module: dict, rq: RQ, **kw) -> Section:
     suffix = f"-{kind}" if kind else ""
     return Section(id=f"{rq.id.lower()}-{module['module']}{suffix}", rq_id=rq.id, module=module["module"],
                    title=module.get("title") or module["module"], **kw)
+
+
+SEGMENT_URLS = 6    # articles kept per chart category for its insight
+
+
+def _segments(pairs) -> dict[str, list[str]]:
+    """{category: its articles' URLs, most-read first} from (category, row) pairs."""
+    out: dict[str, list] = {}
+    for cat, r in pairs:
+        out.setdefault(cat, []).append(r)
+    return {c: list(dict.fromkeys(r.article.norm_url for r in sorted(rs, key=lambda r: (-r.copies, -r.article.reach))))[:SEGMENT_URLS]
+            for c, rs in out.items()}
 
 
 def _share_kpi(module, rq, rows, base_n, _):
@@ -93,7 +104,9 @@ def _outlets(module, rq, rows, base_n, _):
                                        "values": [c for _, c in top], "unit": "count", "peaks": [],
                                        "series_label": "Articles"},
                     facts=[f"Top outlet for {rq.id}: {o} with {c} articles" for o, c in top],
-                    candidate_urls=[next(r.article.norm_url for r in rows if r.article.outlet == o) for o, _ in top[:5]])
+                    candidate_urls=[next(r.article.norm_url for r in rows if r.article.outlet == o) for o, _ in top[:5]],
+                    segment_urls=_segments((_label(r.article.outlet), r) for r in rows
+                                           if r.article.outlet in {o for o, _ in top}))
 
 
 def _sentiment(module, rq, rows, base_n, _):
@@ -106,7 +119,9 @@ def _sentiment(module, rq, rows, base_n, _):
     vals = [_pct(known[k], total) for k in cats]
     return _section(module, rq, chart={"kind": "doughnut", "categories": cats, "values": vals, "unit": "percent",
                                        "peaks": [], "series_label": "Sentiment"},
-                    facts=[f"{rq.id} sentiment: {known[k]} of {total} articles {k.lower()} ({v}%)" for k, v in zip(cats, vals)])
+                    facts=[f"{rq.id} sentiment: {known[k]} of {total} articles {k.lower()} ({v}%)" for k, v in zip(cats, vals)],
+                    segment_urls=_segments(((r.article.sentiment or "").strip().title(), r) for r in rows
+                                           if (r.article.sentiment or "").strip().title() in known))
 
 
 def _reach(module, rq, rows, base_n, _):
@@ -120,7 +135,9 @@ def _reach(module, rq, rows, base_n, _):
     return _section(module, rq, chart={"kind": "bar", "categories": [_label(o) for o, _ in top],
                                        "values": [v for _, v in top], "unit": "count", "peaks": [],
                                        "series_label": "Reach"},
-                    facts=[f"{rq.id} total reach: {sum(by_outlet.values())}"] + [f"Reach for {o}: {v}" for o, v in top])
+                    facts=[f"{rq.id} total reach: {sum(by_outlet.values())}"] + [f"Reach for {o}: {v}" for o, v in top],
+                    segment_urls=_segments((_label(r.article.outlet), r) for r in rows
+                                           if r.article.outlet in {o for o, _ in top}))
 
 
 def _themes(module, rq, rows, base_n, _):
@@ -136,7 +153,10 @@ def _themes(module, rq, rows, base_n, _):
         return _section(module, rq, skipped="No themes in the data")
     return _section(module, rq, chart={"kind": "treemap", "categories": [t for t, _ in top], "values": [c for _, c in top],
                                        "unit": "count", "peaks": [], "series_label": "Articles"},
-                    facts=[f"Theme \"{t}\": {c} of {len(rows)} articles" for t, c in top])
+                    facts=[f"Theme \"{t}\": {c} of {len(rows)} articles" for t, c in top],
+                    segment_urls=_segments((display[k], r) for r in rows
+                                           for k in {t.strip().lower() for t in r.themes if t and t.strip()}
+                                           if display.get(k) in {t for t, _ in top}))
 
 
 def _brand_sov(module, rq, rows, base_n, _):
@@ -148,7 +168,10 @@ def _brand_sov(module, rq, rows, base_n, _):
                                        "values": [_pct(c, total) for _, c in top], "unit": "percent", "peaks": [],
                                        "series_label": "Share of brand mentions"},
                     facts=[f"Brand {b}: {c} of {total} brand mentions ({_pct(c, total)}%)" for b, c in top],
-                    notes=["logos"])
+                    notes=["logos"],
+                    segment_urls=_segments((b, r) for r in rows
+                                           for b in {str(x).strip() for x in (r.entities or {}).get("brands") or [] if x}
+                                           if b in {b for b, _ in top}))
 
 
 def _top_articles(module, rq, rows, base_n, _):
@@ -183,6 +206,7 @@ def _entities(module, rq, rows, base_n, extraction):
     rows_out = [[e["name"]] + [_words(e.get(c)) for c in cols] + [str(e["count"])] for e in ranked[:10]]
     chart = {"kind": "bar", "categories": [_label(e["name"]) for e in ranked[:TOP_N]],
              "values": [e["count"] for e in ranked[:TOP_N]], "unit": "count", "peaks": [], "series_label": "Articles"}
+    segments = {_label(e["name"]): list(dict.fromkeys(e["urls"]))[:SEGMENT_URLS] for e in ranked[:TOP_N]}
     if kind == "experts":
         known = [e for e in ranked if e.get("affiliation") in ("affiliated", "independent")]
         aff = [e for e in known if e["affiliation"] == "affiliated"]
@@ -203,21 +227,34 @@ def _entities(module, rq, rows, base_n, extraction):
             if not known:
                 chart = {"kind": "doughnut", "categories": cats, "values": vals, "unit": "percent", "peaks": [],
                          "series_label": "Affiliation"}
+                segments = _people_segments(ranked, lambda e: labels[e.get("affiliation") if e.get("affiliation")
+                                                                      in ("affiliated", "independent") else "unknown"])
         types = Counter(e.get("expert_type") for e in ranked if e.get("expert_type") not in (None, "", "unknown"))
         facts += [f"{t.replace('_', ' ')} experts: {c}" for t, c in types.most_common()]
-        asks_affiliation = any(w in rq.question.lower() for w in _AFFILIATION_WORDS)
-        if not known and types and not asks_affiliation:
-            # An all-"Not stated" doughnut answers nothing about which experts are cited: chart the type mix
+        if not known and types:
+            # An all-"Not stated" doughnut answers nothing (the affiliation fact above says it is not stated), so the
+            # type mix is charted instead, for an affiliation question too
             typed = sum(types.values())
             mix = [(t.replace("_", " ").capitalize(), c) for t, c in types.most_common(TOP_N)]
             facts += [f"{name}: {c} of {typed} experts ({_pct(c, typed)}%)" for name, c in mix]
             chart = {"kind": "doughnut", "categories": [n for n, _ in mix], "values": [_pct(c, typed) for _, c in mix],
                      "unit": "percent", "peaks": [], "series_label": "Expert type"}
+            segments = _people_segments([e for e in ranked if e.get("expert_type") not in (None, "", "unknown")],
+                                        lambda e: e["expert_type"].replace("_", " ").capitalize())
     sampled = min(len(rows), extract_mod.EXTRACT_SAMPLE)
     notes = [f"Named in the {sampled} most-read of {len(rows)} articles"] if len(rows) > sampled else []
     return _section(module, rq, chart=chart, table={"header": header, "rows": rows_out,
                                                      "col_widths": [3.2] + [2.2] * len(cols) + [1.2]},
-                    facts=facts + notes, candidate_urls=[e["urls"][0] for e in ranked[:6]], notes=notes)
+                    facts=facts + notes, candidate_urls=[e["urls"][0] for e in ranked[:6]], notes=notes,
+                    segment_urls=segments)
+
+
+def _people_segments(people: list[dict], key) -> dict[str, list[str]]:
+    """{category: the articles naming people in it} for a chart of people grouped by `key`."""
+    out: dict[str, list[str]] = {}
+    for e in people:
+        out.setdefault(key(e), []).extend(e["urls"])
+    return {k: list(dict.fromkeys(v))[:SEGMENT_URLS] for k, v in out.items()}
 
 
 def _words(value) -> str:
@@ -323,7 +360,8 @@ def _breakdown(module, rq, rows, base_n, _):
                                        "values": [counts[v] for v in top], "unit": "count", "peaks": [],
                                        "series_label": "Articles"},
                     facts=facts,
-                    candidate_urls=[next(r.article.norm_url for r, vals in per_row if v in vals) for v in top[:5]])
+                    candidate_urls=[next(r.article.norm_url for r, vals in per_row if v in vals) for v in top[:5]],
+                    segment_urls=_segments((_label(v), r) for r, vals in per_row for v in vals if v in top))
 
 
 def _crosstab(module, rq, rows, base_n, _):

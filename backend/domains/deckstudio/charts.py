@@ -61,20 +61,27 @@ def _line(c, t, w, h):
     return out
 
 
+LEGEND_W = 260          # room a side legend needs; a narrower chart puts the legend under the ring
+LEGEND_ROW = 40
+
+
 def _doughnut(c, t, w, h):
     cats, vals = c["categories"], [float(v) for v in c["values"]]
     total = sum(vals) or 1
-    cx = cy = h / 2
-    r = (h / 2 - 12) / 1.21          # the ring's stroke (0.42 r) reaches 1.21 r: keep the whole ring in the box
+    side = w >= h + LEGEND_W
+    size = h if side else min(w, h - LEGEND_ROW * len(cats) - 20)
+    cx, cy = (size / 2, size / 2) if side else (w / 2, size / 2)
+    r = (size / 2 - 12) / 1.21       # the ring's stroke (0.42 r) reaches 1.21 r: keep the whole ring in the box
     out, a0 = [], -math.pi / 2
     for i, (cat, v) in enumerate(zip(cats, vals)):
         a1 = a0 + 2 * math.pi * v / total - 1e-4
         x0, y0, x1, y1 = cx + r * math.cos(a0), cy + r * math.sin(a0), cx + r * math.cos(a1), cy + r * math.sin(a1)
         out.append(f'<path d="M{x0:.1f},{y0:.1f} A{r:.1f},{r:.1f} 0 {1 if a1 - a0 > math.pi else 0} 1 {x1:.1f},{y1:.1f}" '
                    f'fill="none" stroke="#{t.series[i % 6]}" stroke-width="{r * .42:.1f}"/>')
-        ly = 40 + i * 40
-        out.append(f'<rect x="{h + 30}" y="{ly}" width="18" height="18" rx="4" fill="#{t.series[i % 6]}"/>')
-        out.append(f'<text class="ylab" style="font-size:22px" x="{h + 58}" y="{ly + 16}">{escape(_short(cat))} · {_fmt(v, c.get("unit", "count"))}</text>')
+        lx, ly = (size + 30, 40 + i * LEGEND_ROW) if side else (max(20, w / 2 - 120), size + 20 + i * LEGEND_ROW)
+        out.append(f'<rect x="{lx:.0f}" y="{ly:.0f}" width="18" height="18" rx="4" fill="#{t.series[i % 6]}"/>')
+        out.append(f'<text class="ylab" style="font-size:22px" x="{lx + 28:.0f}" y="{ly + 16:.0f}">{escape(_short(cat))} · '
+                   f'{_fmt(v, c.get("unit", "count"))}</text>')
         a0 = a1 + 1e-4
     return out
 
