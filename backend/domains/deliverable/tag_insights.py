@@ -12,6 +12,7 @@ from collections import Counter
 
 from ...agents.question_tag_schema import TagDef, TagSchema
 from .engine_types import RQ, EngineRow, Section
+from .labels import unify
 
 TOP = 3
 MAX_QUOTES = 3
@@ -51,6 +52,13 @@ def lead_tag(schema: TagSchema | None, question: str = "") -> str:
 def _values(row: EngineRow, tag: str) -> list[str]:
     v = (row.dynamic_tags or {}).get(tag)
     return [x for x in (v if isinstance(v, list) else [v]) if x]
+
+
+def _unified(rows: list[EngineRow], tag: TagDef) -> dict[int, list[str]]:
+    """{id(row): its values for `tag`}, with spelling, case and plural variants under one label (the schema's own
+    allowed value when one matches)."""
+    names = unify((str(v) for r in rows for v in _values(r, tag.tag_name)), tag.allowed_values)
+    return {id(r): list(dict.fromkeys(names[str(v)] for v in _values(r, tag.tag_name))) for r in rows}
 
 
 def _top(counter: Counter, unit: str = "articles") -> str:
@@ -93,11 +101,12 @@ def tag_section(rq: RQ, rows: list[EngineRow], schema: TagSchema | None) -> Sect
     tagged = [r for r in rows if _values(r, lead.tag_name)]
     if not tagged:
         return None
-    counts = Counter(v for r in tagged for v in _values(r, lead.tag_name))
+    vals = _unified(tagged, lead)
+    counts = Counter(v for r in tagged for v in vals[id(r)])
     order = [v for v in lead.allowed_values if counts.get(v)] + [v for v in counts if v not in lead.allowed_values]
     label = _label(lead.tag_name)
     yes = next((v for v in order if v in POSITIVE), order[0])
-    hits = [r for r in tagged if yes in _values(r, lead.tag_name)]
+    hits = [r for r in tagged if yes in vals[id(r)]]
     facts = [f"{rq.id}: {label}: {yes} in {counts[yes]} of {len(tagged)} tagged articles ({_pct(counts[yes], len(tagged))}%)"]
     facts += [f"{rq.id}: {label}: {v} in {counts[v]} of {len(tagged)} tagged articles ({_pct(counts[v], len(tagged))}%)"
               for v in order if v != yes]
@@ -112,7 +121,7 @@ def tag_section(rq: RQ, rows: list[EngineRow], schema: TagSchema | None) -> Sect
                           "peaks": [], "series_label": "Articles"},
                    facts=facts, candidate_urls=list(dict.fromkeys(cite_first)),
                    notes=[f"Base: {len(tagged)} articles tagged for this question"],
-                   segment_urls={v: [r.article.norm_url for r in tagged if v in _values(r, lead.tag_name)][:8]
+                   segment_urls={v: [r.article.norm_url for r in tagged if v in vals[id(r)]][:8]
                                  for v in order})
 
 

@@ -6,6 +6,7 @@ from collections import Counter
 
 from ...agents import question_dimensions as qd
 from . import extract as extract_mod
+from .labels import canon, unify
 from .engine_types import RQ, EngineRow, Section
 from .metrics import TOP_PEAKS, month_label
 
@@ -144,10 +145,10 @@ def _themes(module, rq, rows, base_n, _):
     display: dict[str, str] = {}
     counts: Counter = Counter()
     for r in rows:
-        for key in {t.strip().lower() for t in r.themes if t and t.strip()}:   # merge case variants
+        for key in {canon(t) for t in r.themes if t and t.strip()}:   # merge case, spelling and plural variants
             counts[key] += 1
         for t in r.themes:
-            display.setdefault(t.strip().lower(), t.strip())
+            display.setdefault(canon(t), t.strip())
     top = [(display[k], c) for k, c in counts.most_common(TOP_N)]
     if not top:
         return _section(module, rq, skipped="No themes in the data")
@@ -155,12 +156,17 @@ def _themes(module, rq, rows, base_n, _):
                                        "unit": "count", "peaks": [], "series_label": "Articles"},
                     facts=[f"Theme \"{t}\": {c} of {len(rows)} articles" for t, c in top],
                     segment_urls=_segments((display[k], r) for r in rows
-                                           for k in {t.strip().lower() for t in r.themes if t and t.strip()}
+                                           for k in {canon(t) for t in r.themes if t and t.strip()}
                                            if display.get(k) in {t for t, _ in top}))
 
 
+def _brands_of(row: EngineRow, names: dict[str, str]) -> set[str]:
+    return {names[str(x).strip()] for x in (row.entities or {}).get("brands") or [] if str(x).strip()}
+
+
 def _brand_sov(module, rq, rows, base_n, _):
-    counts = Counter(b for r in rows for b in {str(x).strip() for x in (r.entities or {}).get("brands") or [] if x})
+    names = unify(str(x).strip() for r in rows for x in (r.entities or {}).get("brands") or [] if str(x).strip())
+    counts = Counter(b for r in rows for b in _brands_of(r, names))
     if not counts:
         return _section(module, rq, skipped="No brands named in the data")
     top, total = counts.most_common(TOP_N), sum(counts.values())
@@ -169,8 +175,7 @@ def _brand_sov(module, rq, rows, base_n, _):
                                        "series_label": "Share of brand mentions"},
                     facts=[f"Brand {b}: {c} of {total} brand mentions ({_pct(c, total)}%)" for b, c in top],
                     notes=["logos"],
-                    segment_urls=_segments((b, r) for r in rows
-                                           for b in {str(x).strip() for x in (r.entities or {}).get("brands") or [] if x}
+                    segment_urls=_segments((b, r) for r in rows for b in _brands_of(r, names)
                                            if b in {b for b, _ in top}))
 
 
@@ -194,7 +199,7 @@ def _entities(module, rq, rows, base_n, extraction):
         for item in extraction.get(r.article.norm_url, []):
             if item["name"].strip().lower() in _NOT_A_NAME:
                 continue
-            entry = people.setdefault(item["name"].lower(), {**item, "count": 0, "urls": []})
+            entry = people.setdefault(canon(item["name"]), {**item, "count": 0, "urls": []})
             entry["count"] += 1
             entry["urls"].append(r.article.norm_url)
     if not people:
@@ -346,7 +351,9 @@ def _values_of(row: EngineRow, dim: qd.Dimension) -> list[str]:
 
 def _breakdown(module, rq, rows, base_n, _):
     (dim,) = qd.from_json([module["dimension"]])
-    per_row = [(r, _values_of(r, dim)) for r in rows]
+    raw = [(r, _values_of(r, dim)) for r in rows]
+    names = unify((v for _, vals in raw for v in vals), [v.name for v in dim.values])
+    per_row = [(r, list(dict.fromkeys(names[v] for v in vals))) for r, vals in raw]
     counts = Counter(v for _, vals in per_row for v in vals)
     order = [v.name for v in dim.values] + [n for n in counts if n not in {v.name for v in dim.values}]
     top = sorted((n for n in order if counts.get(n)), key=lambda n: -counts[n])[:TOP_N + 4]

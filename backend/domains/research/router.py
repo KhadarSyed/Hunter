@@ -141,6 +141,10 @@ def start_background_research(req: StartResearchRequest):
                 api_keys=api_keys, on_source_result=on_source_result,
             )
 
+            if web_result.get("status") == "failed":
+                # nothing was searched (e.g. no brand name in the specification): fail loudly instead of saving an
+                # empty result that lets the strategy and every later stage run on no research at all
+                raise RuntimeError(web_result.get("error") or "web research could not run")
             if web_result.get("status") != "completed" or not web_result.get("web_search_executed"):
                 logger.warning("[research:%s] Web search did not fully complete — continuing anyway", job_id)
 

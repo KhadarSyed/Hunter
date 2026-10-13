@@ -18,6 +18,26 @@ def _short(s) -> str:
     return s if len(s) <= MAX_LABEL_CHARS else s[:MAX_LABEL_CHARS - 1] + "…"
 
 
+LABEL_PT = 22
+GLYPH_EM = 0.53            # average glyph width of the label font, for fitting a label to its room
+BADGE_R = 15
+
+
+def _fit(s, room_px: float, size: int = LABEL_PT) -> str:
+    """The label shortened (with an ellipsis) to the room left of the bar, so a long name never runs off the chart."""
+    s = str(s)
+    chars = max(4, int(room_px / (size * GLYPH_EM)))
+    return s if len(s) <= chars else s[:chars - 1].rstrip() + "…"
+
+
+def _badge(cat, cx: float, cy: float, t) -> list[str]:
+    """A round initial standing in for a missing logo or icon, so every label in a marked chart has a mark."""
+    initial = next((ch for ch in str(cat) if ch.isalnum()), "?").upper()
+    return [f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{BADGE_R}" fill="#{t.primary}"/>',
+            f'<text x="{cx:.1f}" y="{cy + 6:.1f}" text-anchor="middle" style="font:700 17px var(--chrome);fill:#fff">'
+            f'{escape(initial)}</text>']
+
+
 def _fmt(v, unit: str) -> str:
     v = float(v)
     return f"{v:.1f}%" if unit == "percent" else (str(int(v)) if v.is_integer() else f"{v:.1f}")
@@ -28,14 +48,18 @@ def _bars(c, t, logos, w, h):
     top = max(vals) or 1
     row = min(56, (h - 10) / max(1, len(cats)))
     out = []
+    marked = any(cat in logos for cat in cats)       # one mark per label, or none: never a few logos and gaps
     for i, (cat, v) in enumerate(zip(cats, vals)):
         y = 5 + i * row
         bw = (w - LABEL_W - 110) * v / top
-        label_x = LABEL_W - (LOGO_W + 14 if cat in logos else 8)
-        out.append(f'<text class="ylab" style="font-size:22px" x="{label_x}" y="{y + row * .62:.1f}" text-anchor="end">{escape(_short(cat))}</text>')
+        label_x = LABEL_W - (LOGO_W + 14 if marked else 8)
+        out.append(f'<text class="ylab" style="font-size:{LABEL_PT}px" x="{label_x}" y="{y + row * .62:.1f}" '
+                   f'text-anchor="end">{escape(_fit(cat, label_x - 6))}</text>')
         if cat in logos:
             out.append(f'<image href="{escape(logos[cat])}" x="{LABEL_W - LOGO_W - 4}" y="{y + row / 2 - LOGO_H / 2:.1f}" '
                        f'width="{LOGO_W}" height="{LOGO_H}" preserveAspectRatio="xMidYMid meet"/>')
+        elif marked:
+            out += _badge(cat, LABEL_W - 4 - LOGO_W / 2, y + row / 2, t)
         out.append(f'<rect x="{LABEL_W + 6}" y="{y + row * .18:.1f}" width="{max(bw, 3):.1f}" height="{row * .64:.1f}" rx="4" '
                    f'fill="#{t.series[0]}" opacity="{0.45 + 0.55 * v / top:.2f}"/>')
         out.append(f'<text class="val" style="font-size:21px" x="{LABEL_W + 14 + bw:.1f}" y="{y + row * .62:.1f}">{_fmt(v, c.get("unit", "count"))}</text>')
