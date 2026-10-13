@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 
@@ -18,8 +19,14 @@ def _clean(value: str | None) -> str:
     return (value or "").split("#")[0].strip().strip('"')
 
 
+_NUMBERED = re.compile(r"^SERP_API_KEY_(\d+)$")
+
+
 def _keys() -> list[str]:
-    raw = (_clean(os.environ.get("SERP_API_KEYS")).split(",") + [_clean(os.environ.get("SERP_API_KEY"))])
+    """SERP_API_KEYS (comma-separated), SERP_API_KEY, then SERP_API_KEY_2, SERP_API_KEY_3, ... in number order."""
+    numbered = sorted((int(m.group(1)), v) for k, v in os.environ.items() if (m := _NUMBERED.match(k)))
+    raw = (_clean(os.environ.get("SERP_API_KEYS")).split(",") + [_clean(os.environ.get("SERP_API_KEY"))]
+           + [_clean(v) for _, v in numbered])
     return list(dict.fromkeys(k.strip().strip('"') for k in raw if k.strip().strip('"')))
 
 
