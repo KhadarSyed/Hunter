@@ -6,6 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import logging
 import os
+import re
 from pathlib import Path
 
 from pptx import Presentation
@@ -234,9 +235,46 @@ def _takeaways(prs, inp: DeckInput):
                              cols=3, cite_icons=_cite_icons(inp))
 
 
+QUERY_TABLE_HEADER = ["#", "Research question", "Search query"]
+QUERY_COL_SIZES = [10, 10, 7.5]           # points: id, question, Boolean query (monospace)
+_QUERY_LINE = re.compile(r"^\w+ query: ")
+
+
+def _query_cols(width: float) -> list[float]:
+    inner = width - 2 * blocks.TABLE_INSET
+    return [0.7, 3.0, inner - 0.7 - 3.0]
+
+
 def _methodology(prs, inp: DeckInput):
-    s = _slide(prs, inp, "APPENDIX", "Definitions & Methodology", "", inp.icons.get("methodology"))
-    blocks.add_text(s, style.MARGIN, CHART_TOP, style.SLIDE_W - 2 * style.MARGIN, 4.8, "\n".join(inp.methodology), 10)
+    """The counting rules, then each research question beside the search query that collected its coverage, in a
+    rounded table that continues on further slides when the queries do not fit."""
+    definitions = [m for m in inp.methodology if not _QUERY_LINE.match(m)]
+    rows = [[q.id, q.question, q.query] for q in inp.rqs if q.query]
+    width = style.SLIDE_W - 2 * style.MARGIN
+    cols = _query_cols(width)
+    bottom = style.FOOTER_Y - 0.12
+    defs_h = blocks.text_height("\n".join(definitions), width, 10) if definitions else 0
+    top = CHART_TOP + defs_h + 0.1
+    page: list[list[str]] = []
+    used = 0.34 + 2 * blocks.TABLE_INSET                       # header row and frame inset
+    first = True
+    for row in rows + [None]:
+        h = max(blocks.text_height(str(v), cols[c], QUERY_COL_SIZES[c], c == 2) for c, v in enumerate(row)) if row else 0
+        if row is not None and (not page or top + used + h <= bottom):
+            page.append(row)
+            used += h
+            continue
+        s = _slide(prs, inp, "APPENDIX", "Definitions & Methodology" if first else "Methodology (continued)", "",
+                   inp.icons.get("methodology"))
+        if first and definitions:
+            blocks.add_text(s, style.MARGIN, CHART_TOP, width, defs_h, "\n".join(definitions), 10)
+        if page:
+            blocks.add_rounded_table(s, style.MARGIN, top, width, QUERY_TABLE_HEADER, page, cols, QUERY_COL_SIZES,
+                                     mono_cols=(2,))
+        if row is None:
+            break
+        first, top = False, CHART_TOP
+        page, used = [row], 0.34 + 2 * blocks.TABLE_INSET + h
 
 
 def _citations(prs, inp: DeckInput) -> list[int]:

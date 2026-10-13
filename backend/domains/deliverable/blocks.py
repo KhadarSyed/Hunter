@@ -288,3 +288,48 @@ def add_table(slide, x, y, w, h, header: list[str], rows: list[list[str]], col_w
                     run.font.name, run.font.size, run.font.bold = style.FONT, Pt(9 if r == 0 else 8), r == 0
                     run.font.color.rgb = _rgb(style.VIOLET if r == 0 else style.BODY)
     return table
+
+
+MONO_FONT = "Consolas"
+TABLE_INSET = 0.07          # the table sits this far inside its rounded frame, so the corners read as rounded
+_CHAR_W = {"mono": 0.55, "text": 0.52}     # average glyph width in ems (Consolas advances exactly 0.55)
+
+
+def text_height(text: str, width_in: float, size_pt: float, mono: bool = False, pad_in: float = 0.1) -> float:
+    """Estimated height of `text` wrapped to `width_in` (inches) at `size_pt`."""
+    per_line = max(1, int((width_in - 0.1) / (size_pt / 72 * _CHAR_W["mono" if mono else "text"])))
+    lines = sum(max(1, -(-len(part) // per_line)) for part in (text or "").split("\n"))
+    return lines * size_pt * 1.2 / 72 + pad_in
+
+
+def add_rounded_table(slide, x, y, w, header: list[str], rows: list[list[str]], col_widths: list[float],
+                      sizes: list[float], mono_cols: tuple[int, ...] = (), header_fill: str = style.VIOLET) -> float:
+    """A table inside a rounded card: native PowerPoint tables cannot round their corners, so the frame does.
+    Row heights are estimated from the text so the frame fits; returns the frame's height in inches."""
+    heights = [0.34] + [max(text_height(str(v), col_widths[c], sizes[c], c in mono_cols) for c, v in enumerate(r))
+                        for r in rows]
+    frame_h = sum(heights) + 2 * TABLE_INSET
+    frame = _rect(slide, x, y, w, frame_h, style.WHITE, style.CARD_LINE, MSO_SHAPE.ROUNDED_RECTANGLE)
+    frame.adjustments[0] = min(0.5, 0.16 / frame_h)          # a ~0.16in corner radius whatever the height
+    shape = slide.shapes.add_table(len(rows) + 1, len(header), Inches(x + TABLE_INSET), Inches(y + TABLE_INSET),
+                                   Inches(w - 2 * TABLE_INSET), Inches(sum(heights)))
+    table = shape.table
+    for j, cw in enumerate(col_widths):
+        table.columns[j].width = Inches(cw)
+    for i, rh in enumerate(heights):
+        table.rows[i].height = Inches(rh)
+    for r, values in enumerate([header] + rows):
+        for c, v in enumerate(values):
+            cell = table.cell(r, c)
+            cell.text = str(v)
+            cell.fill.solid()
+            cell.fill.fore_color.rgb = _rgb(header_fill if r == 0 else (style.WHITE if r % 2 else style.CARD_FILL))
+            cell.margin_left = cell.margin_right = Inches(0.08)
+            cell.margin_top = cell.margin_bottom = Inches(0.04)
+            for p in cell.text_frame.paragraphs:
+                for run in p.runs:
+                    run.font.name = MONO_FONT if (r and c in mono_cols) else style.FONT
+                    run.font.size = Pt(10 if r == 0 else sizes[c])
+                    run.font.bold = r == 0 or c == 0
+                    run.font.color.rgb = _rgb(style.WHITE if r == 0 else (style.VIOLET if c == 0 else style.BODY))
+    return frame_h
