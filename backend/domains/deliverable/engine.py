@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 STAGES = ("gate", "ingest", "routing", "plan", "classify", "compute", "insights", "template", "render", "qc",
           "index", "design", "assets", "compose", "export")
 MAX_LOGOS = 40
+RETAIL_CATEGORY = "retail: stores, supermarkets and online marketplaces"
 CITE_POOL = 12          # brand / competitor articles offered to the brand chapter's summaries
 INSIGHT_WORKERS = 4     # questions drafting insights at once (each makes several chat calls)
 _lock = threading.Lock()
@@ -319,7 +320,7 @@ def _label_icons(sections_by_rq, rows, folder: Path, color: str) -> dict[str, Pa
 
 def _logo_judge(llm, category: str):
     """A vision check that a logo is the brand's own -- the one in this project's category, not a namesake."""
-    return lambda data, name: vision.is_logo_of(llm, data, name, category=category)
+    return lambda data, name, domain="": vision.is_logo_of(llm, data, name, category=category, domain=domain)
 
 
 def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_rq, answers, takeaways,
@@ -335,8 +336,15 @@ def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_
     # every brand or retailer drawn in a chart gets its logo looked up, not only the share-of-voice chart
     sov_brands = [c for secs in sections_by_rq.values() for s in secs if s.chart and not s.skipped
                   and (s.module == "brand_sov" or s.id.endswith(("-brands", "-retailers"))) for c in s.chart["categories"]]
+    retailers = {visuals.plain_name(c) for secs in sections_by_rq.values() for s in secs
+                 if s.chart and not s.skipped and s.id.endswith("-retailers") for c in s.chart["categories"]}
     names = list(dict.fromkeys(visuals.plain_name(n) for n in competitors + sov_brands if n))[:MAX_LOGOS]
-    logo_map = visuals.logos(names, out_dir / "logos", judge=judge)
+    category = _category(project, brand)
+    # brands are judged against the project's category (a namesake from another industry is refused); retailers
+    # (Amazon, Walmart) sell into the category without belonging to it, so they are judged as retailers
+    shop_judge = _logo_judge(llm, RETAIL_CATEGORY) if llm is not None else None
+    logo_map = {**visuals.logos([n for n in names if n not in retailers], out_dir / "logos", judge=judge, hint=category),
+                **visuals.logos([n for n in names if n in retailers], out_dir / "logos", judge=shop_judge, hint="store")}
     logo_map = {**_label_icons(sections_by_rq, rows, out_dir, kit.accent), **logo_map}   # brand logos win
     for name in dict.fromkeys(sov_brands):     # every brand drawn in a chart shows a mark beside its label
         mark = visuals.find_logo(name, logo_map) or visuals.letter_badge_png(name, out_dir / "logos", kit.accent)

@@ -110,6 +110,28 @@ def resolve_brand_domain(brand_name: str) -> str | None:
     return None
 
 
+def candidate_domains(brand_name: str, hint: str = "", limit: int = 5) -> list[str]:
+    """Every plausible Brandfetch match for the name, then for the name plus a hint (the project's category), in
+    search order: the first match is often a namesake ("Rini" -> rini.se, not iamrini.com)."""
+    if not brand_name.strip() or not is_reachable():
+        return []
+    out: list[str] = []
+    for query in dict.fromkeys(q for q in (brand_name.strip(), f"{brand_name.strip()} {hint}".strip()) if q):
+        try:
+            r = _get(f"{SEARCH_API_URL}/{requests.utils.quote(query)}", timeout=REQUEST_TIMEOUT_S,
+                     headers={"Authorization": f"Bearer {_env('BRANDFETCH_API_KEY')}"},
+                     params={"c": _env("BRANDFETCH_CLIENT_ID")})
+            matches = r.json() if r.status_code == 200 else []
+        except (requests.RequestException, ValueError) as e:
+            logger.warning("Brandfetch search failed for %r: %s", query, type(e).__name__)
+            continue
+        for match in matches or []:
+            domain = (match.get("domain") or "").removeprefix("https://").removeprefix("http://").rstrip("/")
+            if domain and domain not in out and _is_plausible_match(brand_name, match.get("name") or "", domain):
+                out.append(domain)
+    return out[:limit]
+
+
 # ─── Google Images (SerpAPI) ─────────────────────────────────────────────────
 
 # Words that say nothing about which brand an image belongs to.

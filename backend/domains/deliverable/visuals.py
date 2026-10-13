@@ -4,6 +4,7 @@ from __future__ import annotations
 import colorsys
 import html
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -50,14 +51,61 @@ def palette_from_logo(path: Path | None) -> list[str]:
     return out
 
 
-def logos(names: list[str], folder: Path, judge=None) -> dict[str, Path]:
-    """Downloaded logos by brand; one the judge says belongs to another brand is left out (no logo beats a
-    wrong one: a name lookup can land on a different company's site)."""
-    from .cli import _download_logos
+LOGO_TRIES = 6           # candidate images tried per brand before falling back to a letter badge
+_CDN = "https://cdn.brandfetch.io"
+
+
+def _cdn_pngs(domain: str) -> list[str]:
+    """A domain's wordmark, then its square icon: some brands only have the icon as PNG (the wordmark comes back as
+    WEBP, which is also Brandfetch's placeholder for an unknown brand, so it is never trusted)."""
+    client = os.environ.get("BRANDFETCH_CLIENT_ID", "")
+    return [f"{_CDN}/{domain}/w/400/h/400/{kind}.png?c={client}" for kind in ("logo", "icon")]
+
+
+def _fetch_logo(url: str, path: Path) -> Path | None:
+    from .cli import LOGO_HEADERS, LOGO_TIMEOUT_S, is_real_logo, save_logo_png
+    try:
+        r = requests.get(url, headers=LOGO_HEADERS, timeout=LOGO_TIMEOUT_S)
+    except requests.RequestException as e:
+        logger.warning("logo download failed for %s: %s", url.split("?")[0], type(e).__name__)
+        return None
+    return save_logo_png(r.content, path) if r.ok and is_real_logo(r.headers.get("content-type", "")) else None
+
+
+def logos(names: list[str], folder: Path, judge=None, hint: str = "") -> dict[str, Path]:
+    """Downloaded logos by brand. Each candidate is checked by `judge` (no logo beats a wrong one: a name lookup can
+    land on a different company's site); when one is rejected, the brand's other plausible matches, and matches for
+    the name plus `hint`, are tried in turn."""
+    from ..research.brandfetch import candidate_domains, resolve_logo
+    from .cli import logo_png_url
     folder.mkdir(parents=True, exist_ok=True)
-    got = _download_logos([{"brand": n} for n in names if n], folder)
-    return {name: path for name, path in got.items()
-            if path and (judge is None or judge(path.read_bytes(), name) is not False)}
+    out: dict[str, Path] = {}
+    for name in (n for n in names if n):
+        stem = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+        info = resolve_logo(name)
+        first = [logo_png_url(info)] + (_cdn_pngs(info["domain"])[1:] if info.get("domain") else [])
+        tried, k = set(), 0
+
+        def accepted(url: str, domain: str) -> Path | None:
+            nonlocal k
+            if not url or url in tried:
+                return None
+            tried.add(url)
+            k += 1
+            path = _fetch_logo(url, folder / f"{stem}_{k}.png")
+            return path if path and (judge is None or judge(path.read_bytes(), name, domain) is not False) else None
+
+        found = next((p for p in (accepted(u, info.get("domain") or "") for u in first) if p), None)
+        if found is None and judge is not None:
+            for domain in candidate_domains(name, hint):
+                if k >= LOGO_TRIES:
+                    break
+                found = next((p for p in (accepted(u, domain) for u in _cdn_pngs(domain)) if p), None)
+                if found:
+                    break
+        if found:
+            out[name] = found
+    return out
 
 
 def _fetch_svg(icon_id: str, color: str) -> str | None:

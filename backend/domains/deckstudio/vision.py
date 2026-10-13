@@ -46,7 +46,11 @@ _LOGO_CATEGORY = (" The brand meant is the one in {category}: say NO for a compa
                   "the name (e.g. a wordmark that also reads 'water filters' or 'bank').")
 
 
-def is_logo_of(llm, image_bytes: bytes, brand: str, category: str = "") -> bool | None:
+_LOGO_SOURCE = (" The image was taken from the website {domain}: use what you know about whose site that is (a "
+                "namesake's site means NO even when the wordmark spells the name).")
+
+
+def is_logo_of(llm, image_bytes: bytes, brand: str, category: str = "", domain: str = "") -> bool | None:
     """Whether a candidate logo is the brand's own (Brandfetch records can carry a sister brand's wordmark).
     None = could not judge."""
     if llm is None or not getattr(llm, "is_reachable", lambda: False)():
@@ -54,7 +58,8 @@ def is_logo_of(llm, image_bytes: bytes, brand: str, category: str = "") -> bool 
     try:
         reply = llm.chat([{"role": "user", "content": [
             {"type": "text", "text": _LOGO_PROMPT.format(brand=brand)
-             + (_LOGO_CATEGORY.format(category=category) if category else "")},
+             + (_LOGO_CATEGORY.format(category=category) if category else "")
+             + (_LOGO_SOURCE.format(domain=domain) if domain else "")},
             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{_thumb(image_bytes)}"}}]}])
     except Exception as e:      # an unjudged logo is kept, as before
         logger.warning("logo check skipped: %s", type(e).__name__)
