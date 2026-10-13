@@ -75,7 +75,8 @@ def _methodology_slides(inp: PlanInput, all_facts: list[str]) -> list[SlideSpec]
     """Definitions & methodology: the counting rules, then each research question beside the search query that
     collected its coverage, in a table that continues on further slides when the queries are long."""
     definitions = [m for m in inp.methodology if not _QUERY_LINE.match(m)]
-    rows = [[q.id, q.question, q.query] for q in inp.rqs if q.query]
+    # numbered RQ1..RQn like the classic deck (the ids here can be long labels such as "Question 1")
+    rows = [[f"RQ{n}", q.question, q.query] for n, q in enumerate([q for q in inp.rqs if q.query], start=1)]
     pages, page, used = [], [], 0
     for row in rows:
         if page and used + len(row[2]) > QUERY_CHARS_PER_SLIDE:
