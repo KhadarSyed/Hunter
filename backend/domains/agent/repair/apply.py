@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -149,7 +150,19 @@ def _qa(fix: dict) -> list[str]:
     page = (issue.get("detail") or {}).get("page") or "dashboard"
     found = walk(f"http://127.0.0.1:{os.environ.get('HUNTER_PORT', '8002')}", _qa_user(), issue.get("project_id") or 0,
                  config.DATA_DIR / "qa" / "verify", [page])
-    return [f.detail for f in found if f.kind == issue["kind"]]
+    target = _subject((issue.get("detail") or {}).get("detail") or "")
+    # the fix is judged on its own issue: another problem of the same kind on the page (a different element) is a
+    # separate issue with its own fix, and must not roll this one back
+    return [f.detail for f in found if f.kind == issue["kind"] and (not target or _subject(f.detail) == target)]
+
+
+_QUOTED_SUBJECT = re.compile(r'"([^"]+)"')
+
+
+def _subject(detail: str) -> str:
+    """The element a QA finding is about: '2.63:1 "Loading…"' -> 'loading…' (the measured value is left out)."""
+    m = _QUOTED_SUBJECT.search(detail or "")
+    return " ".join(m.group(1).split()).lower() if m else ""
 
 
 def _touches_frontend(sha: str) -> bool:
