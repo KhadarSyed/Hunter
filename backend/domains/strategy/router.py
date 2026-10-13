@@ -72,14 +72,15 @@ router = APIRouter()
 
 
 def _date_range(values: list[str]) -> dict:
-    """Earliest and latest as real dates (ISO), so day-first exports (25-09-2026) are not compared as text; values
-    that no format parses fall back to their text order."""
+    """Earliest and latest as real dates (ISO), so day-first exports (25-09-2026) are not compared as text, and the
+    count of dates that parsed; when none parse, the text order of the raw values."""
     from ..deliverable.ingest import infer_date_order, parse_date
     order = infer_date_order(values)
     dates = sorted(d for d in (parse_date(v, order) for v in values) if d)
     if dates:
-        return {"earliest": dates[0].isoformat(), "latest": dates[-1].isoformat(), "count": len(values)}
+        return {"earliest": dates[0].isoformat(), "latest": dates[-1].isoformat(), "count": len(dates)}
     return {"earliest": min(values), "latest": max(values), "count": len(values)}
+
 
 def _extract_competitors_from_text(text: str, brand_name: str) -> list[str]:
     """Extract competitor names from natural-language brief text."""

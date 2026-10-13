@@ -98,12 +98,17 @@ def get_current_user(session_token: str | None = Cookie(default=None, alias=SESS
     return user
 
 
-def _check_project_access(project: dict, user: dict) -> None:
+def can_access_project(project: dict, user: dict) -> bool:
+    """The one project-access rule, shared by the REST dependencies and the /ws event filter."""
     if user["role"] == "super_admin":
-        return
+        return True
     if user["org_id"] is None or project.get("org_id") != user["org_id"]:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this project")
-    if user["role"] == "analyser" and project.get("owner_user_id") != user["id"]:
+        return False
+    return not (user["role"] == "analyser" and project.get("owner_user_id") != user["id"])
+
+
+def _check_project_access(project: dict, user: dict) -> None:
+    if not can_access_project(project, user):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this project")
 
 

@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -210,39 +212,62 @@ def save_dataset(project_id: int, file_name: str, file_path: str,
 
 
 def _keep_file(dataset_id: int, file_name: str, file_path: str) -> None:
-    """The upload's bytes go in the database too: the server's disk may not survive a restart."""
+    """The upload's bytes go in the database too: the server's disk may not survive a restart. A failure here is
+    logged, never raised: the dataset itself is already saved."""
     try:
         content = Path(file_path).read_bytes()
     except OSError as e:
         logger.warning("dataset %s: file %s not kept in the database (%s)", dataset_id, file_path, e)
         return
     conn = _conn()
-    conn.execute("DELETE FROM intel_dataset_files WHERE dataset_id = ?", (dataset_id,))
-    conn.execute("INSERT INTO intel_dataset_files (dataset_id, file_name, content, created_at) VALUES (?, ?, ?, ?)",
-                 (dataset_id, file_name, content, time.time()))
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute("DELETE FROM intel_dataset_files WHERE dataset_id = ?", (dataset_id,))
+        conn.execute("INSERT INTO intel_dataset_files (dataset_id, file_name, content, created_at) "
+                     "VALUES (?, ?, ?, ?)", (dataset_id, file_name, content, time.time()))
+        conn.commit()
+    except Exception as e:
+        logger.error("dataset %s: could not keep its file in the database (%s)", dataset_id, e)
+    finally:
+        conn.close()
 
 
 def _restored(d: dict) -> dict:
-    """A dataset whose file is gone from disk (a restarted server) gets it back from the database, under UPLOAD_DIR
-    when its recorded folder no longer exists."""
+    """A dataset whose file is gone from disk (a restarted server) gets it back from the database, always under
+    UPLOAD_DIR. Written to a temporary name and renamed, so a concurrent reader never sees half a file."""
     path = Path(d.get("file_path") or "")
-    if not d.get("id") or (str(path) and path.is_file()):
+    if not d.get("id") or not path.name or path.is_file():
         return d
+    upload_dir = Path(config.UPLOAD_DIR).resolve()
+    target = upload_dir / path.name
+    if target.is_file():                     # restored by another request, or recorded under an old folder
+        return _repointed(d, target)
     conn = _conn()
-    row = conn.execute("SELECT content FROM intel_dataset_files WHERE dataset_id = ?", (d["id"],)).fetchone()
-    if row is None:
+    try:
+        row = conn.execute("SELECT content FROM intel_dataset_files WHERE dataset_id = ?", (d["id"],)).fetchone()
+    finally:
         conn.close()
+    if row is None:
         return d
-    target = path if path.parent.is_dir() else Path(config.UPLOAD_DIR) / path.name
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(bytes(row[0]))
-    if str(target) != str(path):
-        conn.execute("UPDATE intel_datasets SET file_path = ? WHERE id = ?", (str(target), d["id"]))
-        conn.commit()
-    conn.close()
+    try:
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        partial = target.with_name(f".{target.name}.{uuid.uuid4().hex}.part")
+        partial.write_bytes(bytes(row[0]))
+        os.replace(partial, target)
+    except OSError as e:
+        logger.error("dataset %s: could not restore its file (%s)", d["id"], e)
+        return d
     logger.info("dataset %s: file restored from the database to %s", d["id"], target)
+    return _repointed(d, target)
+
+
+def _repointed(d: dict, target: Path) -> dict:
+    if str(target) != str(d.get("file_path")):
+        conn = _conn()
+        try:
+            conn.execute("UPDATE intel_datasets SET file_path = ? WHERE id = ?", (str(target), d["id"]))
+            conn.commit()
+        finally:
+            conn.close()
     return {**d, "file_path": str(target)}
 
 

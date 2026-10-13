@@ -667,7 +667,7 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         store.update_deliverable_run(run_id, status="failed", stage=stage, stages_json=run.stages, error=str(e),
                                      finished_at=time.time())
         broadcast({"type": "deliverable_failed", "project_id": project_id, "run_id": run_id, "stage": stage,
-                   "error": str(e)})
+                   "error": _wire(str(e))})
         try:
             issues.from_exception(stage, e, project_id)
         except Exception:       # filing an issue must never mask the run's own failure

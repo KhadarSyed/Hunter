@@ -118,12 +118,21 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
   const [liveLog, setLiveLog] = useState<Record<number, DeliverableLogLine[]>>({});
   const [liveProgress, setLiveProgress] = useState<Record<number, DeliverableProgress>>({});
   const runIdRef = useRef<number | null>(null);
+  // Every load is numbered; a response that is no longer the newest (a slower poll, or a project the user has
+  // left) is dropped instead of overwriting fresher state
+  const loadSeq = useRef(0);
+  const load = (id: number) => {
+    const seq = ++loadSeq.current;
+    intelApi.deliverableLatest(id)
+      .then((p) => { if (seq === loadSeq.current) setPayload(p); })
+      .catch(() => undefined);
+  };
   runIdRef.current = payload.run?.id ?? null;
 
   useEffect(() => {
     agentSocket.connect();
-    intelApi.deliverableLatest(projectId).then(setPayload).catch(() => undefined);
-    const refresh = () => intelApi.deliverableLatest(projectId).then(setPayload).catch(() => undefined);
+    load(projectId);
+    const refresh = () => load(projectId);
     const off = agentSocket.onMessage((msg) => {
       if (msg.project_id !== projectId) return;
       // Events can beat the POST response on Generate: a run id we have not seen yet means "reload the latest"
@@ -134,6 +143,7 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
       } else if (msg.type === "deliverable_log") {
         setLiveLog((l) => ({ ...l, [msg.run_id]: [...(l[msg.run_id] ?? []), { ts: msg.ts, message: msg.message }] }));
       } else if (msg.type === "deliverable_stage") {
+        loadSeq.current++;                   // this event is newer than any load still in flight
         setPayload((p) => (p.run && p.run.id === msg.run_id
           ? { ...p, run: { ...p.run, stage: msg.stage, stages: { ...p.run.stages, [msg.stage]: msg.status } } } : p));
         if (msg.detail) setDetails((d) => ({ ...d, [msg.stage]: msg.detail }));
@@ -145,7 +155,7 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
     });
     // A reconnect means events may have been missed (a server restart can end the run while the socket is down)
     const offStatus = agentSocket.onStatus((connected) => { if (connected) refresh(); });
-    return () => { off(); offStatus(); };
+    return () => { off(); offStatus(); loadSeq.current++; };   // responses for the old project are dropped
   }, [projectId]);
 
   // Safety net while a run is in progress: the stored state, re-read now and then, catches a run that ended unseen
@@ -153,7 +163,7 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
   useEffect(() => {
     if (!isRunning) return;
     const timer = window.setInterval(() => {
-      intelApi.deliverableLatest(projectId).then(setPayload).catch(() => undefined);
+      load(projectId);
     }, RUN_POLL_MS);
     return () => window.clearInterval(timer);
   }, [isRunning, projectId]);

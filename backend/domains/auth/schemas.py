@@ -24,6 +24,10 @@ class MeResponse(LoginResponse):
     pass
 
 
+class WsTicketResponse(ApiModel):
+    ticket: str
+
+
 class ChangePasswordRequest(ApiModel):
     current_password: str
     new_password: str

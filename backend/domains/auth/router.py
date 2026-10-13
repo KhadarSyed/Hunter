@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Cookie, Depends, File, HTTPException, Response, UploadFile, status
 
 from ...core import store
+from ...core import ws_tickets
 from ...core.auth import SESSION_COOKIE_NAME, clear_session_cookie, get_current_user, set_session_cookie
 from ...core.config import UPLOAD_DIR
 from . import service
@@ -23,6 +24,7 @@ from .schemas import (
     UpdateProfileRequest,
     UserOrganizationRow,
     UserResponse,
+    WsTicketResponse,
 )
 
 router = APIRouter()
@@ -62,6 +64,12 @@ def login_route(req: LoginRequest, response: Response):
 @router.get("/me", response_model=MeResponse)
 def me_route(user: Annotated[dict, Depends(get_current_user)]):
     return _to_response(user)
+
+
+@router.get("/ws-ticket", response_model=WsTicketResponse)
+def ws_ticket_route(user: Annotated[dict, Depends(get_current_user)]):
+    """A one-minute ticket for opening /ws, which connects to the backend directly and so never sees the cookie."""
+    return {"ticket": ws_tickets.issue(user["id"])}
 
 
 @router.post("/logout")

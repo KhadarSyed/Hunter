@@ -196,7 +196,9 @@ def build_pptx(pngs: list[Path], spec: DeckSpec, out: Path, builds: list[Shot] |
         for href, box in (shot.links if shot else []):
             _hotspot(slide, href, box)
         _animate(slide, ids)
-        lines = [s.kicker, s.question or s.title, s.so_what] + [f"{c.get('headline', '')}: {c.get('text', '')}" for c in s.cards]
+        # card text marks its key phrases **bold** for the slide; speaker notes are plain text
+        lines = [s.kicker, s.question or s.title, s.so_what] + [
+            f"{c.get('headline', '')}: {c.get('text', '').replace('**', '')}" for c in s.cards]
         if s.type in ("verbatim_wall", "citations") and s.notes:
             lines.append(s.notes)
         slide.notes_slide.notes_text_frame.text = "\n".join(x for x in lines if x)
