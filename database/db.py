@@ -1405,7 +1405,14 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             dataset_id INTEGER NOT NULL PRIMARY KEY, file_name TEXT NOT NULL, content BLOB NOT NULL,
             created_at REAL NOT NULL)""",
     ]),
-    # 25 is taken by _relocate_data_paths (below); the next entry here is 26.
+    # 25 is taken by _relocate_data_paths (below).
+    # Websites/domains and keywords an organization keeps out of research, datasets, decks and reports.
+    (26, "exclusion list", [
+        """CREATE TABLE IF NOT EXISTS intel_exclusions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, org_id INTEGER, kind TEXT NOT NULL, value TEXT NOT NULL,
+            created_by INTEGER, created_at REAL NOT NULL)""",
+        "CREATE INDEX IF NOT EXISTS idx_intel_exclusions_org ON intel_exclusions(org_id)",
+    ]),
 ]
 
 

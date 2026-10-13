@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path
 from ...agents.brand_intelligence import run as run_bi
 from ...core import store
 from ..datasources import repository as ds_repo
+from ..exclusions import service as exclusions
 from ..datasources import service as ds_service
 from ...core.anthropic_client import get_llm_client
 from ...core.api import OkResponse
@@ -142,6 +143,9 @@ def start_background_research(req: StartResearchRequest):
 
             if web_result.get("status") != "completed" or not web_result.get("web_search_executed"):
                 logger.warning("[research:%s] Web search did not fully complete — continuing anyway", job_id)
+
+            # The organization's excluded websites and keywords are dropped before anything is saved or enriched
+            web_result = exclusions.scrub_research(web_result, exclusions.rules_for_project(project_id))
 
             # ── Stage 2: Persist web results BEFORE LLM enrichment ──
             logger.info("[research:%s] Stage 2 — persisting validated web results (pre-LLM)", job_id)

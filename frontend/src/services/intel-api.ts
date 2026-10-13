@@ -5,6 +5,9 @@ import type { Insight, InsightDetail, InsightsSummary, InsightValidation, Insigh
 // when the frontend and backend are deployed on separate origins (FE on Vercel, BE on
 // Render) — see also ws.ts, which derives the WebSocket origin from the same variable.
 const API_ORIGIN = import.meta.env.VITE_API_BASE_URL ?? "";
+export type ExclusionKind = "domain" | "keyword";
+export interface ExclusionRecord { id: number; kind: ExclusionKind; value: string; created_at: number }
+
 export const API_BASE = `${API_ORIGIN}/api/intel`;
 
 // "include" is required (not just "same-origin", the fetch default) once API_ORIGIN
@@ -1565,6 +1568,11 @@ export const intelApi = {
 
   qcExportDownloadUrl: (exportId: number) =>
     `${API_BASE}/qc/export/download/${exportId}`,
+
+  // Settings > Exclusions: websites/domains and keywords kept out of research, datasets, decks and reports
+  listExclusions: () => get<ExclusionRecord[]>("/exclusions"),
+  addExclusion: (kind: ExclusionKind, value: string) => post<ExclusionRecord>("/exclusions", { kind, value }),
+  deleteExclusion: (id: number) => del<{ ok: boolean }>(`/exclusions/${id}`),
 
   listDataSources: () => get<DataSourceRecord[]>("/datasources"),
 

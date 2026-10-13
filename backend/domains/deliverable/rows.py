@@ -1,14 +1,18 @@
 """Ingest stage: approved datasets -> one EngineRow per unique URL, routed to RQs by file and by query."""
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 
 from ...core import store
+from ..exclusions.service import excluded as excluded_by, rules_for_project
 from ..execution.service import _is_excluded, _load_dataset
 from .boolean_query import matches
 from .engine_types import RQ, EngineRow
 from .ingest import Article, infer_date_order, normalize_url, parse_date
+
+logger = logging.getLogger(__name__)
 
 
 def load_rqs(project_id: int) -> list[RQ]:
@@ -99,7 +103,19 @@ def load_rows(project_id: int, rqs: list[RQ]) -> list[EngineRow]:
             row = _row(rec, ds.get("research_question_id"), ds.get("file_name") or "", i, orders[ds["id"]])
             if row is not None and row.article.norm_url not in excluded:
                 add(row)
-    return list(merged.values())
+    return _without_excluded(project_id, list(merged.values()))
+
+
+def _without_excluded(project_id: int, rows: list[EngineRow]) -> list[EngineRow]:
+    """Rows from the organization's excluded websites, or naming an excluded keyword, never reach a chart, an
+    insight, a verbatim or a slide (Settings > Exclusions)."""
+    rules = rules_for_project(project_id)
+    if not rules:
+        return rows
+    kept = [r for r in rows if not excluded_by(rules, r.article.url, r.article.title, r.article.text)]
+    if len(kept) < len(rows):
+        logger.info("project %s: exclusion list removed %d of %d articles", project_id, len(rows) - len(kept), len(rows))
+    return kept
 
 
 def route(rows: list[EngineRow], rqs: list[RQ]) -> list[EngineRow]:

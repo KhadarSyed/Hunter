@@ -5,8 +5,9 @@ import { ManageUsersTab } from "./ManageUsersTab";
 import { ManageOrganizationTab } from "./ManageOrganizationTab";
 import { DataSourcesTab } from "./DataSourcesTab";
 import { FixesTab } from "./FixesTab";
+import { ExclusionsTab } from "./ExclusionsTab";
 
-type SettingsTab = "profile" | "users" | "organizations" | "datasources" | "fixes";
+type SettingsTab = "profile" | "users" | "organizations" | "datasources" | "exclusions" | "fixes";
 
 const ROLE_LABELS: Record<string, string> = {
   super_admin: "Super Admin",
@@ -21,6 +22,8 @@ export function SettingsPage() {
 
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: "profile", label: "My Profile" },
+    ...(user.role === "admin" || user.role === "analyser" || user.role === "super_admin"
+      ? [{ id: "exclusions" as const, label: "Exclusions" }] : []),
     ...(user.role === "admin" || user.role === "super_admin"
       ? [{ id: "users" as const, label: "Organization Users" },
          { id: "datasources" as const, label: "Data Sources" }] : []),
@@ -62,6 +65,7 @@ export function SettingsPage() {
           {tab === "profile" && <ProfileSettingsTab />}
           {tab === "users" && <ManageUsersTab />}
           {tab === "datasources" && <DataSourcesTab />}
+          {tab === "exclusions" && <ExclusionsTab />}
           {tab === "organizations" && <ManageOrganizationTab />}
           {tab === "fixes" && <FixesTab />}
         </div>

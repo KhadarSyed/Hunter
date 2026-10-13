@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from urllib.parse import urlparse
 
+from ..exclusions.service import keep, rules_for_project
 from . import news_search
 from . import repository
 
@@ -217,6 +218,7 @@ def fetch_and_persist(
     items_persisted = 0
     source_status: dict[str, str] = {"tavily": "ok", "serpapi": "ok", "google_rss": "ok"}
     social_domains = list(news_search.SOCIAL_PLATFORM_DOMAINS.keys())
+    rules = rules_for_project(project_id)
 
     def _track_failures(bucket_result: dict) -> None:
         for failed in bucket_result.get("failed_sources", []):
@@ -256,7 +258,7 @@ def fetch_and_persist(
             combined.append(item)
 
         items_fetched += len(combined)
-        for item in combined:
+        for item in keep(combined, rules):       # the organization's excluded websites and keywords never land
             repository.upsert_research_item(project_id, research_id, item)
             items_persisted += 1
 
