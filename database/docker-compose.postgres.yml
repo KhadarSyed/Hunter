@@ -1,0 +1,25 @@
+# Local Postgres for development (from the repo root): `docker compose -f database/docker-compose.postgres.yml up -d`
+# then set DATABASE_URL=postgresql://hunter:hunter@127.0.0.1:5433/hunter in .env
+# (127.0.0.1, not localhost: on Windows localhost can resolve to IPv6 and hang).
+# Local-only credentials; production uses the hosting provider's DATABASE_URL.
+# The project name is pinned so the data volume stays hunteragent_hunter-pgdata wherever this file lives.
+name: hunteragent
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: hunter-postgres
+    environment:
+      POSTGRES_USER: hunter
+      POSTGRES_PASSWORD: hunter
+      POSTGRES_DB: hunter
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - hunter-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hunter -d hunter"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  hunter-pgdata:
