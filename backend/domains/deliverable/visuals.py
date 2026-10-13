@@ -244,7 +244,7 @@ def letter_badge_png(name: str, folder: Path, color: str = style.VIOLET) -> Path
     initial = next((ch for ch in name or "" if ch.isalnum()), "")
     if not initial:
         return None
-    out = folder / f"badge_{re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')[:40]}.png"
+    out = folder / f"{BADGE_PREFIX}{re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')[:40]}.png"
     if out.exists():
         return out
     img = Image.new("RGBA", (BADGE_PX, BADGE_PX), (0, 0, 0, 0))
@@ -287,6 +287,31 @@ def find_logo(name: str, logos: dict[str, Path]) -> Path | None:
         return by_key[master]
     line = sorted(k for k in by_key if k.startswith(key + " "))
     return by_key[line[0]] if line else None
+
+
+BADGE_PREFIX = "badge_"
+PAGE_LOGO_PX = 160         # logos embedded in the web page are shrunk to this height
+
+
+def is_badge(path: Path | str) -> bool:
+    """A letter-badge stand-in (see letter_badge_png), not a real logo."""
+    return Path(path).name.startswith(BADGE_PREFIX)
+
+
+def logo_data_uri(path: Path) -> str | None:
+    """A small PNG data URI of a logo for the web page, which cannot read the run's files directly."""
+    import base64
+    import io
+    try:
+        with Image.open(path) as im:
+            im = im.convert("RGBA")
+            im.thumbnail((PAGE_LOGO_PX * 4, PAGE_LOGO_PX))
+            buf = io.BytesIO()
+            im.save(buf, format="PNG", optimize=True)
+    except OSError as e:
+        logger.warning("logo %s unreadable: %s", Path(path).name, e)
+        return None
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
 
 def country_code(country: str) -> str | None:

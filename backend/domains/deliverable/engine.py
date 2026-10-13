@@ -246,18 +246,6 @@ def _deck_citations(entries: list[dict]) -> list[dict]:
     return out
 
 
-def _logo_urls(names: list[str]) -> dict[str, str]:
-    """Brand logo URLs for the web page (the deck embeds downloaded PNGs instead)."""
-    from ..research.brandfetch import resolve_logo
-    from .cli import logo_png_url
-    out = {}
-    for name in names:
-        url = logo_png_url(resolve_logo(name))
-        if url:
-            out[name] = url
-    return out
-
-
 def _hero_info(query: str) -> dict:
     from ..research.pexels import resolve_background_image
     return resolve_background_image(query) or {}
@@ -273,7 +261,9 @@ def _citation_icons(entries: list[dict], folder: Path) -> dict[int, Path]:
     return icons
 
 
-def _page_visuals(project: dict, sections_by_rq, kit_logo_url: str | None) -> dict:
+def _page_visuals(project: dict, sections_by_rq, verified: dict[str, Path]) -> dict:
+    """The page's banner and logo strips: the deck's own verified logos (the ones the vision check approved), so the
+    page never shows a namesake's logo the deck refused. Letter-badge stand-ins are left out."""
     spec = project.get("spec") or {}
     brand = (spec.get("commissioning_brand") or {}).get("name") or project.get("brand") or ""
     industry = (spec.get("industry") or {}).get("name") or ""
@@ -281,9 +271,9 @@ def _page_visuals(project: dict, sections_by_rq, kit_logo_url: str | None) -> di
     named = [c for secs in sections_by_rq.values() for s in secs
              if s.module in ("brand_sov", "entities") and s.chart and s.id.endswith(("brand_sov", "brands"))
              for c in s.chart["categories"]]
-    logos = _logo_urls(list(dict.fromkeys(competitors + named))[:MAX_LOGOS])
-    if kit_logo_url:
-        logos[brand] = kit_logo_url
+    logos = {n: uri for n in dict.fromkeys([brand] + competitors + named)
+             if (path := visuals.find_logo(n, verified)) and not visuals.is_badge(path)
+             and (uri := visuals.logo_data_uri(path))}
     hero = _hero_info(f"{brand} {industry}".strip())
     photographer = hero.get("photographer") or "Pexels"
     country = (spec.get("included_scope") or {}).get("geography") or spec.get("geography") or ""
@@ -603,7 +593,7 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
                                                               out_dir / f"{safe} - Deliverable.pptx")
         run.section({"id": "citations", "rq_id": None, "module": "citations", "title": "Citations",
                      "citations": _deck_citations(registry.entries())})
-        run.section(_page_visuals(project, sections_by_rq, None))
+        run.section(_page_visuals(project, sections_by_rq, inp.logos))
         run.log(f"Deck saved with {len(Presentation(str(pptx_path)).slides)} slides; "
                 f"{len(registry.entries())} sources cited")
         run.stage("render", "done", pptx_path.name)

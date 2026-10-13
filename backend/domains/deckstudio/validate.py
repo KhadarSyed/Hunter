@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 
 from ..deliverable.engine_types import RQ
-from ..deliverable.visuals import value_icon
+from ..deliverable.visuals import is_badge, value_icon
 from .spec import DeckSpec, SlideSpec
 
 
@@ -81,6 +81,12 @@ def _evidence_rows(slides: list[SlideSpec], rqs: list[RQ], has_competitors: bool
                if missing]
     rows.append(_row("Every brand, retailer and outlet in a chart shows its logo", not no_logo,
                      "missing: " + "; ".join(no_logo[:4])))
+    # a letter badge keeps the chart readable but is not the brand's logo: name every label still waiting for one
+    # (soft: some brands have no logo that the vision check could confirm, and a wrong logo is worse than a badge)
+    badged = sorted({str(c) for s in charts if _ENTITY_CHART.search(s.id) for ch in s.charts
+                     for c in ch.get("categories") or [] if str(c) in s.logos and is_badge(s.logos[str(c)])})
+    rows.append(_row("Brand logos are verified, not letter-badge stand-ins", not badged,
+                     f"{len(badged)} without a verified logo: " + ", ".join(badged[:10]), soft=True))
     # each category of a breakdown chart is explained on its own card (what drives it), not one summary for all
     thin = [f"{s.id} ({len(s.cards)} of {len(segs)})" for s in charts if (segs := _segments(s)) and len(s.cards) < len(segs)]
     rows.append(_row("Every chart category has its own insight", not thin,
