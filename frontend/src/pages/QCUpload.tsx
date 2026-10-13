@@ -137,7 +137,7 @@ export function QCUpload({ onNavigate }: { onNavigate: (page: string) => void })
   if (loadingReport) {
     return (
       <div className="p-8 max-w-3xl mx-auto animate-fade-in">
-        <div className="text-sm text-slate-400 py-8 text-center">Loading...</div>
+        <div className="text-sm text-slate-600 py-8 text-center">Loading...</div>
       </div>
     );
   }
