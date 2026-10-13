@@ -78,9 +78,11 @@ _STAGE_LABELS = {"gate": "Checking approvals", "ingest": "Ingesting approved dat
 
 
 # Share of a typical run's time spent in each stage: the overall % moves with the work, not the stage count
-# Measured on runs 14-17 (2026-10-07): assets and compose dominate, classification is cached after the first run
-STAGE_WEIGHTS = {"gate": 0, "ingest": 0, "routing": 1, "plan": 4, "classify": 2, "compute": 1, "insights": 10,
-                 "template": 1, "render": 17, "qc": 2, "index": 1, "design": 1, "assets": 22, "compose": 32, "export": 6}
+# Percent of a run per stage (sums to 100), measured on run 45 (2026-10-13): photo search and article screenshots
+# (assets) dominate now that the creative restyle is off, so compose is short
+STAGE_WEIGHTS = {"gate": 0, "ingest": 0, "routing": 0.3, "plan": 1.2, "classify": 0.2, "compute": 0, "insights": 7.6,
+                 "template": 0.1, "render": 17.8, "qc": 2.9, "index": 7.7, "design": 0.6, "assets": 55.6, "compose": 1.5,
+                 "export": 4.5}
 TYPICAL_RUNS = 5
 
 

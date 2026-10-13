@@ -99,7 +99,7 @@ def apply_fix(fix_id: int, approved_by: str | None, restart=None, build_web=None
     if test_file.exists():
         shutil.copy2(test_file, config.REPO_ROOT / "backend" / "tests" / test_file.name)
     _discard_worktree(fix)
-    if "frontend/" in fix["diff"]:
+    if _touches_frontend(sha):
         code, out = (build_web or _build_web)()
         if code != 0:
             worktree.revert(sha)
@@ -152,9 +152,15 @@ def _qa(fix: dict) -> list[str]:
     return [f.detail for f in found if f.kind == issue["kind"]]
 
 
+def _touches_frontend(sha: str) -> bool:
+    """Whether a merged fix changed the frontend, read from the merge itself: a fix proposed before the web/ ->
+    frontend/ move carries the old paths in its stored diff."""
+    return any(f.startswith("frontend/") for f in worktree.changed_files(sha))
+
+
 def _rolled_back(fix: dict, why: str, setting: dict, build_web) -> None:
     worktree.revert(fix["commit_sha"])
-    if "frontend/" in fix["diff"]:
+    if _touches_frontend(fix["commit_sha"]):
         (build_web or _build_web)()
     store.update_fix(fix["id"], status="rolled_back", note=f"verify failed: {why[:200]}")
     store.set_issue_status(fix["issue_id"], "open", f"fix {fix['id']} rolled back")

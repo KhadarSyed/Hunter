@@ -120,6 +120,12 @@ def merge(branch: str, repo: Path | None = None) -> str:
     return _git(repo, "rev-parse", "HEAD")
 
 
+def changed_files(sha: str, repo: Path | None = None) -> list[str]:
+    """The files a merge commit changed on the main line (first parent), with today's paths: a fix made before a
+    folder move still reports where its change landed."""
+    return [f for f in _git(repo or config.REPO_ROOT, "diff", "--name-only", f"{sha}^1", sha).splitlines() if f]
+
+
 def revert(sha: str, repo: Path | None = None) -> str:
     repo = repo or config.REPO_ROOT
     try:
