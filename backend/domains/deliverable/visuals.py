@@ -7,6 +7,7 @@ import logging
 import os
 import re
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 from PIL import Image
@@ -69,14 +70,18 @@ def _fetch_logo(url: str, path: Path) -> Path | None:
     except requests.RequestException as e:
         logger.warning("logo download failed for %s: %s", url.split("?")[0], type(e).__name__)
         return None
-    return save_logo_png(r.content, path) if r.ok and is_real_logo(r.headers.get("content-type", "")) else None
+    ctype = r.headers.get("content-type", "").split(";")[0].strip()
+    # Brandfetch answers an unknown brand with a WEBP placeholder, so its CDN must return PNG; any other host's
+    # raster image is converted to PNG
+    ok = is_real_logo(ctype) if url.startswith(_CDN) else ctype in ("image/png", "image/jpeg", "image/webp")
+    return save_logo_png(r.content, path) if r.ok and ok else None
 
 
 def logos(names: list[str], folder: Path, judge=None, hint: str = "") -> dict[str, Path]:
     """Downloaded logos by brand. Each candidate is checked by `judge` (no logo beats a wrong one: a name lookup can
     land on a different company's site); when one is rejected, the brand's other plausible matches, and matches for
     the name plus `hint`, are tried in turn."""
-    from ..research.brandfetch import candidate_domains, resolve_logo
+    from ..research.brandfetch import candidate_domains, google_logo_candidates, resolve_logo
     from .cli import logo_png_url
     folder.mkdir(parents=True, exist_ok=True)
     out: dict[str, Path] = {}
@@ -84,7 +89,7 @@ def logos(names: list[str], folder: Path, judge=None, hint: str = "") -> dict[st
         stem = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
         info = resolve_logo(name)
         first = [logo_png_url(info)] + (_cdn_pngs(info["domain"])[1:] if info.get("domain") else [])
-        tried, k = set(), 0
+        tried, k, chosen = set(), 0, {}
 
         def accepted(url: str, domain: str) -> Path | None:
             nonlocal k
@@ -93,7 +98,10 @@ def logos(names: list[str], folder: Path, judge=None, hint: str = "") -> dict[st
             tried.add(url)
             k += 1
             path = _fetch_logo(url, folder / f"{stem}_{k}.png")
-            return path if path and (judge is None or judge(path.read_bytes(), name, domain) is not False) else None
+            ok = path and (judge is None or judge(path.read_bytes(), name, domain) is not False)
+            if ok:
+                chosen.update(url=url, domain=domain)
+            return path if ok else None
 
         found = next((p for p in (accepted(u, info.get("domain") or "") for u in first) if p), None)
         if found is None and judge is not None:
@@ -103,9 +111,24 @@ def logos(names: list[str], folder: Path, judge=None, hint: str = "") -> dict[st
                 found = next((p for p in (accepted(u, domain) for u in _cdn_pngs(domain)) if p), None)
                 if found:
                     break
+        if found is None and judge is not None:     # last: Google Images for the name plus the category
+            for url in google_logo_candidates(name, hint):
+                found = accepted(url, urlparse(url).netloc.removeprefix("www."))
+                if found:
+                    break
         if found:
             out[name] = found
+            if chosen["url"] not in first:          # remember the approved logo: later decks start from it
+                _remember(name, chosen["url"], chosen["domain"])
     return out
+
+
+def _remember(name: str, url: str, domain: str) -> None:
+    from ...core import store
+    from ..research.brandfetch import normalize_brand
+    on_cdn = url.startswith(_CDN)
+    store.save_brand_logo(normalize_brand(name), name, url, domain if on_cdn else None,
+                          "brandfetch" if on_cdn else "google")
 
 
 def _fetch_svg(icon_id: str, color: str) -> str | None:

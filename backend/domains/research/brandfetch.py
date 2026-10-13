@@ -166,6 +166,22 @@ def _google_logo(brand_name: str) -> str | None:
     return svg or (urls[0] if urls else None)
 
 
+def google_logo_candidates(brand_name: str, hint: str = "", limit: int = 4) -> list[str]:
+    """Plausible logo image URLs from Google Images for "<name> <hint> logo" (the hint, e.g. the project's category,
+    steers away from namesakes); PNG/JPG first, since the deck cannot embed SVG. Empty when SerpAPI is unavailable."""
+    try:
+        r = serp_keys.get(SERPAPI_URL, {"engine": "google_images", "q": f"{brand_name} {hint} logo".replace("  ", " ")},
+                          GOOGLE_TIMEOUT_S)
+        images = r.json().get("images_results", []) if r is not None and r.status_code == 200 else []
+    except (requests.RequestException, ValueError) as e:
+        logger.warning("Google logo search for %r unavailable: %s", brand_name, type(e).__name__)
+        return []
+    urls = [u for u in (i.get("original") or "" for i in images) if u.startswith("https://")
+            and _is_plausible_image(brand_name, u)]
+    raster = [u for u in urls if u.lower().split("?")[0].endswith((".png", ".jpg", ".jpeg"))]
+    return list(dict.fromkeys(raster + urls))[:limit]
+
+
 # ─── Resolver ────────────────────────────────────────────────────────────────
 
 def resolve_logo(brand_name: str) -> dict:
