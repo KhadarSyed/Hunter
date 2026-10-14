@@ -1,6 +1,7 @@
 import type { Page } from "../App";
 import { ProfileMenu } from "./ProfileMenu";
 import { NotificationBell } from "./NotificationBell";
+import { HelpVideoButton } from "./HelpVideoButton";
 
 /** Minimal icon-only sidebar for the landing/projects-list view (full
  * pipeline navigation only appears once a project is open — see
@@ -62,6 +63,7 @@ export function IconRailSidebar({ currentPage, onNavigate }: { currentPage: Page
         })}
       </nav>
       <div className="flex flex-col items-center gap-1">
+        <HelpVideoButton />
         <NotificationBell />
         <ProfileMenu onNavigate={onNavigate} />
       </div>

@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      :root {
+        --violet: #5b2c9d;
+        --violet-soft: #ede7f6;
+        --ink: #14121a;
+        --muted: #5d5870;
+        --teal: #0f7b6c;
+        --line: #e4dff0;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #f7f5fb;
+      }
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        font-family: Inter, "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(1200px 700px at 85% 10%, #e9defa 0%, rgba(233, 222, 250, 0) 60%),
+          linear-gradient(160deg, #fbfaff 0%, #f2eef9 100%);
+      }
+      .clip { position: absolute; inset: 0; }
+
+      /* ── Intro / outro cards ─────────────────────────────── */
+      .card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        background: linear-gradient(150deg, #2a1150 0%, #5b2c9d 55%, #7b4fc0 100%);
+        color: #fff;
+      }
+      .card img { width: 132px; height: 132px; border-radius: 32px; background: #fff; padding: 14px; }
+      .card .kicker {
+        margin-top: 44px;
+        font-size: 26px;
+        font-weight: 600;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: #d9c8f5;
+      }
+      .card h1 { margin-top: 18px; font-size: 92px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.05; }
+      .card p { margin-top: 26px; font-size: 38px; font-weight: 500; color: #efe7fb; max-width: 1300px; line-height: 1.35; }
+      .card .path {
+        margin-top: 46px;
+        display: flex;
+        gap: 18px;
+        align-items: center;
+        font-size: 32px;
+        font-weight: 600;
+      }
+      .card .path span.pill { background: rgba(255, 255, 255, 0.16); border: 1px solid rgba(255, 255, 255, 0.35); padding: 14px 28px; border-radius: 999px; }
+      .card .path span.arrow { color: #d9c8f5; }
+
+      /* ── Step scenes ─────────────────────────────────────── */
+      .panel { position: absolute; left: 96px; top: 150px; width: 560px; }
+      .step {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--violet);
+        background: var(--violet-soft);
+        padding: 10px 20px;
+        border-radius: 999px;
+      }
+      .panel h2 { margin-top: 26px; font-size: 64px; font-weight: 800; letter-spacing: -0.03em; line-height: 1.04; }
+      .block { margin-top: 40px; padding-left: 24px; border-left: 6px solid var(--violet); }
+      .block.get { border-left-color: var(--teal); }
+      .label { font-size: 20px; font-weight: 800; letter-spacing: 0.18em; text-transform: uppercase; color: var(--violet); }
+      .get .label { color: var(--teal); }
+      .text { margin-top: 10px; font-size: 32px; font-weight: 500; line-height: 1.32; color: var(--ink); }
+
+      .frame {
+        position: absolute;
+        left: 720px;
+        top: 130px;
+        width: 1104px;
+        height: 661px;
+        border-radius: 22px;
+        overflow: hidden;
+        background: #fff;
+        box-shadow: 0 40px 90px rgba(45, 20, 90, 0.22), 0 0 0 1px var(--line);
+      }
+      .bar { height: 40px; display: flex; align-items: center; gap: 9px; padding: 0 18px; background: #f1edf8; border-bottom: 1px solid var(--line); }
+      .bar i { width: 13px; height: 13px; border-radius: 50%; background: #d3cbe3; }
+      .bar b { margin-left: 18px; font-size: 16px; font-weight: 500; color: var(--muted); }
+      .shot { width: 1104px; height: 621px; overflow: hidden; }
+      .shot img { display: block; width: 1104px; height: 621px; transform-origin: 50% 0%; }
+
+      .progress { position: absolute; left: 96px; right: 96px; top: 900px; display: flex; gap: 14px; }
+      .progress span { flex: 1; height: 8px; border-radius: 99px; background: #ddd5ec; }
+      .progress span.done { background: #a98ad6; }
+      .progress span.on { background: var(--violet); }
+      .caption { position: absolute; left: 96px; top: 936px; font-size: 22px; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="60" data-width="1920" data-height="1080">
+
+      <!-- Intro 0–4s -->
+      <section id="intro" class="clip card" data-start="0" data-duration="4" data-track-index="0">
+        <img class="intro-logo" src="assets/logo.png" alt="Hunter logo" />
+        <div class="kicker intro-line">60-second guide</div>
+        <h1 class="intro-line">Hunter Intelligence Platform</h1>
+        <p class="intro-line">From a client brief to a branded, cited deck, in eight steps.</p>
+      </section>
+
+      <!-- Step 1 -->
+      <section id="s1" class="clip scene" data-start="4" data-duration="6.5" data-track-index="0">
+        <div class="panel">
+          <div class="step t1">Step 1 of 8</div>
+          <h2 class="t1">All Projects</h2>
+          <div class="block t2"><div class="label">Do this</div><div class="text">Sign in. You land on All Projects.</div></div>
+          <div class="block get t3"><div class="label">You get</div><div class="text">Every project at a glance, with its brand logo, brief type and last edit.</div></div>
+        </div>
+        <div class="frame"><div class="bar"><i></i><i></i><i></i><b>Hunter · All Projects</b></div><div class="shot" data-layout-allow-overflow><img src="assets/screens/01-projects.png" alt="All Projects page" /></div></div>
+        <div class="progress"><span class="on"></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+        <div class="caption">Sign in → All Projects</div>
+      </section>
+
+      <!-- Step 2 -->
+      <section id="s2" class="clip scene" data-start="10.5" data-duration="6.5" data-track-index="0">
+        <div class="panel">
+          <div class="step t1">Step 2 of 8</div>
+          <h2 class="t1">New Project</h2>
+          <div class="block t2"><div class="label">Do this</div><div class="text">Click New Project. Enter the client, market and time period, then paste or upload the brief.</div></div>
+          <div class="block get t3"><div class="label">You get</div><div class="text">Click Analyze Brief and the AI starts reading it.</div></div>
+        </div>
+        <div class="frame"><div class="bar"><i></i><i></i><i></i><b>Hunter · New Project</b></div><div class="shot" data-layout-allow-overflow><img src="assets/screens/02-new-project.png" alt="New Project form" /></div></div>
+        <div class="progress"><span class="done"></span><span class="on"></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+        <div class="caption">New Project → Analyze Brief</div>
+      </section>
+
+      <!-- Step 3 -->
+      <section id="s3" class="clip scene" data-start="17" data-duration="6.5" data-track-index="0">
+        <div class="panel">
+          <div class="step t1">Step 3 of 8</div>
+          <h2 class="t1">Brief &amp; Scope</h2>
+          <div class="block t2"><div class="label">Do this</div><div class="text">Check what the AI understood: client, competitors, market and scope.</div></div>
+          <div class="block get t3"><div class="label">You get</div><div class="text">A structured scope you can edit. Click Approve to move on.</div></div>
+        </div>
+        <div class="frame"><div class="bar"><i></i><i></i><i></i><b>Hunter · Brief &amp; Scope</b></div><div class="shot" data-layout-allow-overflow><img src="assets/screens/03-brief-scope.png" alt="Brief and Scope review" /></div></div>
+        <div class="progress"><span class="done"></span><span class="done"></span><span class="on"></span><span></span><span></span><span></span><span></span><span></span></div>
+        <div class="caption">Review → Approve</div>
+      </section>
+
+      <!-- Step 4 -->
+      <section id="s4" class="clip scene" data-start="23.5" data-duration="6.5" data-track-index="0">
+        <div class="panel">
+          <div class="step t1">Step 4 of 8</div>
+          <h2 class="t1">Background Research</h2>
+          <div class="block t2"><div class="label">Do this</div><div class="text">Open Background Research and let it run.</div></div>
+          <div class="block get t3"><div class="label">You get</div><div class="text">A cited news brief on the brand and its competitors. Download it as Word.</div></div>
+        </div>
+        <div class="frame"><div class="bar"><i></i><i></i><i></i><b>Hunter · Background Research</b></div><div class="shot" data-layout-allow-overflow><img src="assets/screens/04-research.png" alt="Competitive news brief" /></div></div>
+        <div class="progress"><span class="done"></span><span class="done"></span><span class="done"></span><span class="on"></span><span></span><span></span><span></span><span></span></div>
+        <div class="caption">Research → Approve</div>
+      </section>
+
+      <!-- Step 5 -->
+      <section id="s5" class="clip scene" data-start="30" data-duration="6.5" data-track-index="0">
+        <div class="panel">
+          <div class="step t1">Step 5 of 8</div>
+          <h2 class="t1">Search Strategy</h2>
+          <div class="block t2"><div class="label">Do this</div><div class="text">Generate the search strategy and pick Broad, Balanced or Precise.</div></div>
+          <div class="block get t3"><div class="label">You get</div><div class="text">Meltwater Boolean queries, scored for coverage and precision. Copy them or export to Excel.</div></div>
+        </div>
+        <div class="frame"><div class="bar"><i></i><i></i><i></i><b>Hunter · Search Strategy</b></div><div class="shot" data-layout-allow-overflow><img src="assets/screens/05-strategy.png" alt="Search Strategy with Boolean queries" /></div></div>
+        <div class="progress"><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="on"></span><span></span><span></span><span></span></div>
+        <div class="caption">Strategy → Approve</div>
+      </section>
+
+      <!-- Step 6 -->
+      <section id="s6" class="clip scene" data-start="36.5" data-duration="6.5" data-track-index="0">
+        <div class="panel">
+          <div class="step t1">Step 6 of 8</div>
+          <h2 class="t1">Data Sources</h2>
+          <div class="block t2"><div class="label">Do this</div><div class="text">Run each query in Meltwater and upload the export to its research question.</div></div>
+          <div class="block get t3"><div class="label">You get</div><div class="text">Record counts, date range and sentiment for every file. Approve each dataset.</div></div>
+        </div>
+        <div class="frame"><div class="bar"><i></i><i></i><i></i><b>Hunter · Data Sources</b></div><div class="shot" data-layout-allow-overflow><img src="assets/screens/06-data-sources.png" alt="Data Sources uploads" /></div></div>
+        <div class="progress"><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="on"></span><span></span><span></span></div>
+        <div class="caption">Upload → Approve</div>
+      </section>
+
+      <!-- Step 7 -->
+      <section id="s7" class="clip scene" data-start="43" data-duration="6.5" data-track-index="0">
+        <div class="panel">
+          <div class="step t1">Step 7 of 8</div>
+          <h2 class="t1">Answers</h2>
+          <div class="block t2"><div class="label">Do this</div><div class="text">Click Go to Deliverable, then open the Overview tab.</div></div>
+          <div class="block get t3"><div class="label">You get</div><div class="text">An answer to every research question, with the figures and the sources behind it.</div></div>
+        </div>
+        <div class="frame"><div class="bar"><i></i><i></i><i></i><b>Hunter · Deliverables · Overview</b></div><div class="shot" data-layout-allow-overflow><img src="assets/screens/07-overview.png" alt="Deliverables overview with answers" /></div></div>
+        <div class="progress"><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="on"></span><span></span></div>
+        <div class="caption">Deliverables → Overview</div>
+      </section>
+
+      <!-- Step 8 -->
+      <section id="s8" class="clip scene" data-start="49.5" data-duration="6.5" data-track-index="0">
+        <div class="panel">
+          <div class="step t1">Step 8 of 8</div>
+          <h2 class="t1">Your Deck</h2>
+          <div class="block t2"><div class="label">Do this</div><div class="text">Open the Presentation tab and check the quality results.</div></div>
+          <div class="block get t3"><div class="label">You get</div><div class="text">A branded deck. Download it as PowerPoint or PDF, plus a Word brief and Excel tables.</div></div>
+        </div>
+        <div class="frame"><div class="bar"><i></i><i></i><i></i><b>Hunter · Deliverables · Presentation</b></div><div class="shot" data-layout-allow-overflow><img src="assets/screens/08-deliverables.png" alt="Branded presentation and downloads" /></div></div>
+        <div class="progress"><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="done"></span><span class="on"></span></div>
+        <div class="caption">Presentation → Download</div>
+      </section>
+
+      <!-- Outro 56–60s -->
+      <section id="outro" class="clip card" data-start="56" data-duration="4" data-track-index="0">
+        <img class="outro-logo" src="assets/logo.png" alt="Hunter logo" />
+        <h1 class="outro-line">You're ready.</h1>
+        <div class="path outro-line">
+          <span class="pill">All Projects</span><span class="arrow">→</span>
+          <span class="pill">New Project</span><span class="arrow">→</span>
+          <span class="pill">Analyze Brief</span>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      const SCENE_SECONDS = 6.5;
+      const FADE = 0.4;
+      const scenes = [
+        ["#s1", 4], ["#s2", 10.5], ["#s3", 17], ["#s4", 23.5],
+        ["#s5", 30], ["#s6", 36.5], ["#s7", 43], ["#s8", 49.5],
+      ];
+
+      const tl = gsap.timeline({ paused: true });
+
+      // Intro
+      tl.fromTo("#intro", { opacity: 0 }, { opacity: 1, duration: 0.5 }, 0);
+      tl.fromTo(".intro-logo", { opacity: 0, scale: 0.8 }, { opacity: 1, scale: 1, duration: 0.6 }, 0.2);
+      tl.fromTo(".intro-line", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.6, stagger: 0.25 }, 0.5);
+      tl.to("#intro", { opacity: 0, duration: FADE }, 4 - FADE);
+
+      // Steps: fade in, slow push-in on the screen, titles in order (heading, "Do this", "You get")
+      for (const [id, start] of scenes) {
+        tl.fromTo(id, { opacity: 0 }, { opacity: 1, duration: FADE }, start);
+        tl.fromTo(`${id} .frame`, { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.7 }, start + 0.1);
+        tl.fromTo(`${id} .shot img`, { scale: 1 }, { scale: 1.06, duration: SCENE_SECONDS - 0.2, ease: "none" }, start + 0.1);
+        tl.fromTo(`${id} .t1`, { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.5, stagger: 0.1 }, start + 0.25);
+        tl.fromTo(`${id} .t2`, { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.5 }, start + 0.9);
+        tl.fromTo(`${id} .t3`, { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.5 }, start + 2.4);
+        tl.to(id, { opacity: 0, duration: FADE }, start + SCENE_SECONDS - FADE);
+      }
+
+      // Outro
+      tl.fromTo("#outro", { opacity: 0 }, { opacity: 1, duration: 0.5 }, 56);
+      tl.fromTo(".outro-logo", { opacity: 0, scale: 0.8 }, { opacity: 1, scale: 1, duration: 0.6 }, 56.2);
+      tl.fromTo(".outro-line", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.6, stagger: 0.3 }, 56.5);
+
+      window.__timelines = window.__timelines || {};
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

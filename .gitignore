@@ -54,3 +54,7 @@ Band-Aid/
 Planet-Fitness/
 PPT Templates/
 ui-*.png
+
+# HyperFrames video guide: render output and working files (the served copy lives in frontend/public/videos/)
+docs/video-guide/renders/
+docs/video-guide/.hyperframes/
