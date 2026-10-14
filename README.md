@@ -32,8 +32,8 @@ Already done for you in this environment:
 - Node.js installed (via winget)
 - Azure OpenAI and NVIDIA NIM API keys configured in `.env` (see `.env.example`)
 - Python dependencies installed
-- Branding template copied to `agent/data/hunter_template.pptx`
-- Folders configured (see `agent/data/settings.json`, editable from the UI too):
+- Branding template copied to `data/hunter_template.pptx`
+- Folders configured (see `data/settings.json`, editable from the UI too):
   - Repository: `...\Hunter PR\2026\All PPT Decks`
   - Briefs inbox: `...\Hunter PR\2026\New Client Brief Feeder Agent`
   - Output: `...\Hunter PR\2026\Agent Output`
@@ -46,17 +46,17 @@ winget install -e --id OpenJS.NodeJS.LTS
 # Copy .env.example to .env and fill in AZURE_OPENAI_* / NVIDIA_EMBED_* keys
 
 # Backend deps (use your real python.exe - see "Known quirk" below)
-<python.exe> -m pip install -r agent/requirements.txt
+<python.exe> -m pip install -r backend/requirements.txt
 
 # Frontend deps
-cd web
+cd frontend
 npm install
 ```
 
 ## Running it
 
 ```powershell
-.\start.ps1
+.\deploy\start.ps1      # or double-click "Start Hunter Agent.bat"
 ```
 
 This starts the backend on `http://127.0.0.1:8000`, the frontend on
@@ -118,9 +118,13 @@ large concatenated decks in the repository, not real per-client projects).
 ## Project layout
 
 ```
-agent/            Python backend (FastAPI, deck assembly, retrieval, memory)
-  app/
-  data/            hunter_template.pptx, settings.json, memory.db
-web/               React + Vite frontend (light mode, InfoVision violet accent)
-start.ps1          One-command launcher
+frontend/          React + Vite frontend (light mode, InfoVision violet accent)
+backend/           FastAPI app: core/, domains/<stage>/, deck/ (Brief-to-Deck), main.py
+  agents/          LLM agents
+  tools/           deterministic analysis methods
+database/          schema + migrations (db.py), Postgres adapter (pg.py), local Postgres compose file
+data/              runtime data: hunter_template.pptx, settings.json, uploads, deliverables
+deploy/            Dockerfile, render.yaml, start.ps1 (one-command launcher)
+docs/              product and subsystem docs, handover/
+.claude/skills/    Claude Code skills;  .mcp.json  MCP servers
 ```

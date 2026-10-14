@@ -1,0 +1,41 @@
+# Render blueprint (reference). The live service runs the Docker image built from deploy/Dockerfile with the repo
+# root as build context, and keeps every table in Render Postgres via DATABASE_URL. Render reads a blueprint only
+# from the repo root, so this copy documents the settings rather than driving them.
+services:
+  - type: web
+    name: hunter-intelligence-platform
+    runtime: docker
+    dockerfilePath: ./deploy/Dockerfile
+    dockerContext: .
+    plan: free
+    # The image binds $PORT (see the Dockerfile CMD)
+    healthCheckPath: /api/health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        # Render Postgres internal connection string; without it the app falls back to SQLite on an
+        # ephemeral disk and loses everything on restart
+        sync: false
+      - key: CORS_ORIGINS
+        # JSON array string, e.g. ["https://your-app.vercel.app"]; must NOT be "*" (allow_credentials requires
+        # an explicit origin list, see backend/core/auth.py's cross-origin session cookie)
+        sync: false
+      - key: AZURE_OPENAI_API_KEY
+        sync: false
+      - key: AZURE_OPENAI_ENDPOINT
+        sync: false
+      - key: AZURE_OPENAI_API_VERSION
+        sync: false
+      - key: AZURE_OPENAI_MODEL
+        sync: false
+      - key: NVIDIA_EMBED_API_KEY
+        sync: false
+      - key: NVIDIA_EMBED_API_URL
+        sync: false
+      - key: NVIDIA_EMBED_MODEL
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: SERPAPI_API_KEY
+        sync: false

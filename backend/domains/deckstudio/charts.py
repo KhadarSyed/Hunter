@@ -1,0 +1,147 @@
+"""Inline SVG charts for the HTML deck: deterministic, offline, screenshot-safe; logos beside labels,
+skipped axis labels on long series, annotated peaks."""
+from __future__ import annotations
+
+import math
+from html import escape
+
+from .spec import DeckTokens
+
+MAX_X_LABELS = 8
+LABEL_W = 300
+LOGO_W, LOGO_H = 64, 30     # wordmarks are wide; the box keeps their aspect ratio
+MAX_LABEL_CHARS = 24
+
+
+def _short(s) -> str:
+    s = str(s)
+    return s if len(s) <= MAX_LABEL_CHARS else s[:MAX_LABEL_CHARS - 1] + "…"
+
+
+LABEL_PT = 22
+GLYPH_EM = 0.53            # average glyph width of the label font, for fitting a label to its room
+BADGE_R = 15
+
+
+def _fit(s, room_px: float, size: int = LABEL_PT) -> str:
+    """The label shortened (with an ellipsis) to the room left of the bar, so a long name never runs off the chart."""
+    s = str(s)
+    chars = max(4, int(room_px / (size * GLYPH_EM)))
+    return s if len(s) <= chars else s[:chars - 1].rstrip() + "…"
+
+
+def _badge(cat, cx: float, cy: float, t) -> list[str]:
+    """A round initial standing in for a missing logo or icon, so every label in a marked chart has a mark."""
+    initial = next((ch for ch in str(cat) if ch.isalnum()), "?").upper()
+    return [f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{BADGE_R}" fill="#{t.primary}"/>',
+            f'<text x="{cx:.1f}" y="{cy + 6:.1f}" text-anchor="middle" style="font:700 17px var(--chrome);fill:#fff">'
+            f'{escape(initial)}</text>']
+
+
+def _fmt(v, unit: str) -> str:
+    v = float(v)
+    return f"{v:.1f}%" if unit == "percent" else (str(int(v)) if v.is_integer() else f"{v:.1f}")
+
+
+DARK_CHIP_LUMA = 0.55
+
+
+def _dark_chip(t) -> str:
+    """The brand colour when it is dark enough to carry a white logo, else the deck's text colour."""
+    try:
+        r, g, b = (int(t.primary[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    except ValueError:
+        return t.text
+    return t.primary if 0.299 * r + 0.587 * g + 0.114 * b < DARK_CHIP_LUMA else t.text
+
+
+def _bars(c, t, logos, w, h, light=frozenset()):
+    cats, vals = c["categories"], [float(v) for v in c["values"]]
+    top = max(vals) or 1
+    row = min(56, (h - 10) / max(1, len(cats)))
+    out = []
+    marked = any(cat in logos for cat in cats)       # one mark per label, or none: never a few logos and gaps
+    for i, (cat, v) in enumerate(zip(cats, vals)):
+        y = 5 + i * row
+        bw = (w - LABEL_W - 110) * v / top
+        label_x = LABEL_W - (LOGO_W + 14 if marked else 8)
+        out.append(f'<text class="ylab" style="font-size:{LABEL_PT}px" x="{label_x}" y="{y + row * .62:.1f}" '
+                   f'text-anchor="end">{escape(_fit(cat, label_x - 6))}</text>')
+        if cat in logos:
+            if cat in light:            # a white logo on its dark chip, or it vanishes into the white chart
+                out.append(f'<rect x="{LABEL_W - LOGO_W - 6}" y="{y + row / 2 - LOGO_H / 2 - 2:.1f}" width="{LOGO_W + 4}" '
+                           f'height="{LOGO_H + 4}" rx="6" fill="#{_dark_chip(t)}"/>')
+            out.append(f'<image href="{escape(logos[cat])}" x="{LABEL_W - LOGO_W - 4}" y="{y + row / 2 - LOGO_H / 2:.1f}" '
+                       f'width="{LOGO_W}" height="{LOGO_H}" preserveAspectRatio="xMidYMid meet"/>')
+        elif marked:
+            out += _badge(cat, LABEL_W - 4 - LOGO_W / 2, y + row / 2, t)
+        out.append(f'<rect x="{LABEL_W + 6}" y="{y + row * .18:.1f}" width="{max(bw, 3):.1f}" height="{row * .64:.1f}" rx="4" '
+                   f'fill="#{t.series[0]}" opacity="{0.45 + 0.55 * v / top:.2f}"/>')
+        out.append(f'<text class="val" style="font-size:21px" x="{LABEL_W + 14 + bw:.1f}" y="{y + row * .62:.1f}">{_fmt(v, c.get("unit", "count"))}</text>')
+    return out
+
+
+def _line(c, t, w, h):
+    cats, vals = c["categories"], [float(v) for v in c["values"]]
+    top, n = (max(vals) or 1), max(1, len(vals) - 1)
+    pl, pb, pt = 60, 46, 40
+    xs = [pl + (w - pl - 30) * i / n for i in range(len(vals))]
+    ys = [pt + (h - pt - pb) * (1 - v / top) for v in vals]
+    step = max(1, -(-len(cats) // MAX_X_LABELS))
+    points = " ".join(f"{x:.1f},{y:.1f}" for x, y in zip(xs, ys))
+    out = [f'<line x1="{pl}" y1="{h - pb}" x2="{w - 30}" y2="{h - pb}" stroke="#{t.muted}" stroke-opacity=".35"/>',
+           f'<polyline points="{points}" fill="none" stroke="#{t.series[0]}" stroke-width="4" stroke-linejoin="round"/>']
+    out += [f'<text class="xlab" style="font-size:18px" x="{xs[i]:.1f}" y="{h - pb + 28}" text-anchor="middle">{escape(_short(cats[i]))}</text>'
+            for i in range(0, len(cats), step)]
+    for p in c.get("peaks") or []:
+        if 0 <= p < len(vals):
+            out.append(f'<circle cx="{xs[p]:.1f}" cy="{ys[p]:.1f}" r="8" fill="#{t.primary}"/>')
+            out.append(f'<text class="peak" style="font-size:21px" x="{xs[p]:.1f}" y="{ys[p] - 16:.1f}" text-anchor="middle">{_fmt(vals[p], "count")}</text>')
+    return out
+
+
+LEGEND_W = 260          # room a side legend needs; a narrower chart puts the legend under the ring
+LEGEND_ROW = 40
+
+
+def _doughnut(c, t, w, h):
+    cats, vals = c["categories"], [float(v) for v in c["values"]]
+    total = sum(vals) or 1
+    side = w >= h + LEGEND_W
+    size = h if side else min(w, h - LEGEND_ROW * len(cats) - 20)
+    cx, cy = (size / 2, size / 2) if side else (w / 2, size / 2)
+    r = (size / 2 - 12) / 1.21       # the ring's stroke (0.42 r) reaches 1.21 r: keep the whole ring in the box
+    out, a0 = [], -math.pi / 2
+    for i, (cat, v) in enumerate(zip(cats, vals)):
+        a1 = a0 + 2 * math.pi * v / total - 1e-4
+        x0, y0, x1, y1 = cx + r * math.cos(a0), cy + r * math.sin(a0), cx + r * math.cos(a1), cy + r * math.sin(a1)
+        out.append(f'<path d="M{x0:.1f},{y0:.1f} A{r:.1f},{r:.1f} 0 {1 if a1 - a0 > math.pi else 0} 1 {x1:.1f},{y1:.1f}" '
+                   f'fill="none" stroke="#{t.series[i % 6]}" stroke-width="{r * .42:.1f}"/>')
+        lx, ly = (size + 30, 40 + i * LEGEND_ROW) if side else (max(20, w / 2 - 120), size + 20 + i * LEGEND_ROW)
+        out.append(f'<rect x="{lx:.0f}" y="{ly:.0f}" width="18" height="18" rx="4" fill="#{t.series[i % 6]}"/>')
+        out.append(f'<text class="ylab" style="font-size:22px" x="{lx + 28:.0f}" y="{ly + 16:.0f}">{escape(_short(cat))} · '
+                   f'{_fmt(v, c.get("unit", "count"))}</text>')
+        a0 = a1 + 1e-4
+    return out
+
+
+def _kpi(c, t, w, h):
+    v = (c.get("values") or [0])[0]
+    return [f'<text class="kpi" style="font-size:160px" x="{w / 2}" y="{h * .66:.1f}" text-anchor="middle" fill="#{t.primary}">'
+            f'{_fmt(v, c.get("unit", "percent"))}</text>']
+
+
+def chart_svg(chart: dict, tokens: DeckTokens, logos: dict[str, str], width: int, height: int,
+              light: set[str] = frozenset()) -> str:
+    """`light`: labels whose logo is white (drawn on a dark chip)."""
+    kind = chart.get("kind")
+    if kind in ("bar", "treemap"):
+        body = _bars(chart, tokens, logos, width, height, light)
+    elif kind in ("line_peaks", "column"):
+        body = _line(chart, tokens, width, height)
+    elif kind == "doughnut":
+        body = _doughnut(chart, tokens, width, height)
+    else:
+        body = _kpi(chart, tokens, width, height)
+    return (f'<svg class="chart" viewBox="0 0 {width} {height}" width="100%" height="100%" '
+            f'preserveAspectRatio="xMinYMin meet" xmlns="http://www.w3.org/2000/svg">{"".join(body)}</svg>')

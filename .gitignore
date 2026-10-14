@@ -8,43 +8,45 @@ __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
+.ruff_cache/
 
 # Node / frontend build output
 node_modules/
-web/dist/
-web/tsconfig.tsbuildinfo
-agent/static/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
+backend/static/
 
 # Runtime data (databases, uploads, rendered deliverables, local settings)
-agent/data/memory.db
-agent/data/memory.db-shm
-agent/data/memory.db-wal
-agent/data/settings.json
-agent/data/uploads/*
-!agent/data/uploads/.gitkeep
-agent/data/briefs/*
-!agent/data/briefs/.gitkeep
-agent/data/rendered/*
-!agent/data/rendered/.gitkeep
-agent/data/exports/
-agent/data/specifications/
-agent/data/backups/
+data/memory.db
+data/memory.db-shm
+data/memory.db-wal
+data/settings.json
+data/uploads/*
+!data/uploads/.gitkeep
+data/briefs/*
+!data/briefs/.gitkeep
+data/rendered/*
+!data/rendered/.gitkeep
+data/exports/
+data/specifications/
+data/backups/
+data/deliverables/
+data/qa/
+data/verbatims/
+data/brand_logos/
+data/autofix/
 
 # Local scratch / logs
-backend.out.log
-backend.err.log
 *.log
 .playwright-mcp/
+.tours/
 
 # OS
 Thumbs.db
 .DS_Store
 
-# Tests are kept local only (not pushed)
-agent/tests/
-agent/output/test_*.pptx
-.playwright-mcp/
-.tours/
+# Tests written by the self-repair agent stay local (never pushed)
+backend/tests/
 
 # Client briefs, datasets and reference decks stay on the workstation (never pushed)
 Baby-Skincare_Category/
@@ -52,7 +54,3 @@ Band-Aid/
 Planet-Fitness/
 PPT Templates/
 ui-*.png
-agent/data/deliverables/
-agent/data/qa/
-agent/data/verbatims/
-agent/data/autofix/

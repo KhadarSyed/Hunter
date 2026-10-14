@@ -1,3 +1,5 @@
+# Build context is the repo root (docker build -f deploy/Dockerfile .)
+
 # Secrets, VCS and local tooling never enter the image
 .env
 .env.*
@@ -7,6 +9,7 @@
 .playwright-mcp
 .tours
 .superpowers
+.ruff_cache
 **/__pycache__
 **/*.pyc
 *.log
@@ -17,17 +20,15 @@ Band-Aid/
 Planet-Fitness/
 PPT Templates/
 ui-*.png
-agent/tests/
-agent/output/
-agent/static/
+backend/tests/
+backend/static/
 docs/
-handover/
 
-# Runtime data: the image ships only the deck templates under agent/data
-agent/data/*
-!agent/data/hunter_template.pptx
-!agent/data/hunter_template_skeleton.pptx
+# Runtime data: the image ships only the deck templates under data/
+data/*
+!data/hunter_template.pptx
+!data/hunter_template_skeleton.pptx
 
 # Frontend dependencies and builds are reinstalled inside the image
-web/node_modules/
-web/dist/
+frontend/node_modules/
+frontend/dist/

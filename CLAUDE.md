@@ -9,89 +9,92 @@ Two products live in one app:
 1. **Brief-to-Deck agent** (the original tool, see `README.md`) — watches a folder for client
    briefs, retrieves matching slides from an indexed historical deck library, drafts missing
    content, and assembles a branded PowerPoint via Windows COM automation.
-   Lives in `agent/app/deck/`: `pipeline.py`, `deck_builder.py`, `deck_index.py`, `retrieval.py`,
-   `slide_copy_com.py`, `chart_builders.py`, `watcher.py`, `memory.py` → `agent/data/memory.db`.
+   Lives in `backend/deck/`: `pipeline.py`, `deck_builder.py`, `deck_index.py`, `retrieval.py`,
+   `slide_copy_com.py`, `chart_builders.py`, `watcher.py`, `memory.py`.
 2. **Hunter Intelligence Platform** (the actively developed product, see
-   `docs/CURRENT_STATUS.md` and `handover/HANDOVER.md`) — a 15-stage research pipeline (brief →
+   `docs/CURRENT_STATUS.md` and `docs/handover/HANDOVER.md`) — a 15-stage research pipeline (brief →
    scope → background research → search strategy → data sources → research execution → evidence
    library → insights → storyline → slide intelligence → presentation composer → PPTX/Word
    renderers → publishing gateway) plus a separate **QC flow** for cleaning Meltwater/Empower
-   Excel exports. Lives in `agent/app/domains/<stage>/` (one folder per stage, see Backend layout
+   Excel exports. Lives in `backend/domains/<stage>/` (one folder per stage, see Backend layout
    below); `domains/__init__.py` mounts every stage router under `/api/intel`.
 
-Both are mounted on the same FastAPI app (`agent/app/main.py`) and the same React SPA. When
+Both are mounted on the same FastAPI app (`backend/main.py`) and the same React SPA. When
 orienting in this codebase, first figure out which of the two systems a file belongs to — they
 share LLM clients and some helper patterns but have separate databases, separate pipelines, and
 mostly disjoint code paths.
 
+## Repository layout
+
+```
+frontend/        React SPA (Vite); `npm run build` writes into backend/static/
+backend/         FastAPI app — main.py, core/, domains/<stage>/, deck/, supervisor.py, requirements.txt
+  agents/        LLM agents (brief scope, query builder, enrichment, tag schemas, …)
+  tools/         pluggable deterministic analysis methods (decorator-registered executors)
+database/        db.py (connection, schema, migrations), pg.py (Postgres adapter), pg_migrate.py,
+                 docker-compose.postgres.yml (local Postgres)
+data/            runtime data (gitignored) + the shipped house templates
+deploy/          Dockerfile (build from the repo root), render.yaml (reference), start.ps1
+docs/            product/subsystem docs, docs/handover/
+.claude/skills/  Claude Code skills (deck-studio) — must stay here for Claude Code to load them
+.mcp.json        MCP servers (Playwright, Brandfetch) — must stay at the repo root
+```
+
 ## Quick Start
 
-- **Backend:** `python -m uvicorn agent.app.main:app --host 0.0.0.0 --port 8002` from the project root
-  (or `.\start.ps1` to launch backend + frontend together).
-- **Frontend (dev):** `npm run dev` from `web/` — Vite on port 5173, proxies `/api` and `/ws` to
-  `http://127.0.0.1:8002` (see `web/vite.config.ts`).
-- **Frontend (build):** `npm run build` from `web/` — runs `tsc -b && vite build`, outputs straight
-  into `agent/static/` so the FastAPI server can serve the built SPA directly from port 8002 with
-  no Vite involved.
+- **Backend:** `python -m uvicorn backend.main:app --host 0.0.0.0 --port 8002` from the repo root
+  (or `.\deploy\start.ps1` / `Start Hunter Agent.bat` to build the frontend once and launch).
+- **Frontend (dev):** `npm run dev` from `frontend/` — Vite on port 5173, proxies `/api` and `/ws` to
+  `http://127.0.0.1:8002` (see `frontend/vite.config.ts`).
+- **Frontend (build):** `npm run build` from `frontend/` — runs `tsc -b && vite build`, outputs straight
+  into `backend/static/` so the FastAPI server can serve the built SPA directly from port 8002 with
+  no Vite involved. Type-check only: `cd frontend && npx tsc --noEmit`.
+- **Docker:** `docker build -f deploy/Dockerfile .` from the repo root.
+- **Local Postgres:** `docker compose -f database/docker-compose.postgres.yml up -d`, then set
+  `DATABASE_URL` in `.env`.
 - If plain `python`/`pip` resolve to a broken Microsoft Store stub on a given machine, use the full
   path to the real interpreter instead — check with `where python3`.
-- **Kill stale backend processes:** `Get-Process -Name python,python3 -ErrorAction SilentlyContinue | Stop-Process -Force`
 - **Clear stale bytecode** (uvicorn `--reload` sometimes misses changes):
-  `Get-ChildItem -Path "agent\app" -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force`
-
-### Tests
-
-```powershell
-# Unit tests (agent/tests/, ~17 files)
-python -m pytest agent/tests/ -x -q --ignore=agent/tests/test_e2e_live_workflow.py
-
-# Single test file / test
-python -m pytest agent/tests/test_intelligence_store.py -v
-python -m pytest agent/tests/test_executor_service.py::TestClassName::test_name -v
-
-# E2E test — requires a running server (port 8000 in the test, adjust if yours runs on 8002)
-python -u agent/tests/test_e2e_live_workflow.py
-
-# Frontend type-check (no separate lint/test script configured)
-cd web && npx tsc --noEmit
-```
+  `Get-ChildItem -Path "backend","database" -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force`
 
 ## Architecture
 
 ### Backend layout (FastAPI, Django-style feature folders)
 
 ```
-agent/app/
+backend/
   main.py              FastAPI app: mounts domains router, /ws, Brief-to-Deck REST, serves SPA
-  core/                shared infra — config.py (DATA_DIR/UPLOAD_DIR/EXPORT_DIR), db.py (_conn,
-                       schema bootstrap), events.py (WebSocket broadcast), store.py (facade that
-                       re-exports every domain repository), LLM clients (llm_provider.py & co.)
+  core/                shared infra — config.py (DATA_DIR/UPLOAD_DIR/EXPORT_DIR), events.py
+                       (WebSocket broadcast), store.py (facade that re-exports database.db and every
+                       domain repository), LLM clients (llm_provider.py & co.)
   domains/<stage>/     router.py (APIRouter, bare sub-paths) · schemas.py (Pydantic) ·
-                       repository.py (SQLite) · service modules (service.py, renderer.py, …)
+                       repository.py (SQL via database.db._conn) · service modules (service.py, …)
   deck/                Brief-to-Deck product
-  agents/  methods/    LLM agents and pluggable deterministic analysis methods
+  agents/  tools/      LLM agents and pluggable deterministic analysis methods
+database/              db.py (_conn, schema bootstrap, MIGRATIONS), pg.py (sqlite3-like Postgres adapter)
 ```
 
 Rules: services call persistence through `from ...core import store` (add new SQL functions to
-the owning `domains/<stage>/repository.py`, never to `store.py`); build file paths from
-`core.config` constants, never from `Path(__file__)`; services never import a `router.py`.
-Frontend (`web/src/`): `pages/` · `components/` · `context/` (React providers) · `hooks/` ·
-`services/` (REST + WebSocket clients) · `types/` · `data/` (demo fixtures).
+the owning `domains/<stage>/repository.py`, never to `store.py`); repositories import `_conn` from
+`database.db`; build file paths from `core.config` constants, never from `Path(__file__)`; services
+never import a `router.py`. Frontend (`frontend/src/`): `pages/` · `components/` · `context/`
+(React providers) · `hooks/` · `services/` (REST + WebSocket clients) · `types/` · `data/` (demo fixtures).
 
-- **Backend:** Python FastAPI (`agent/app/main.py`), single process, single-threaded pipeline
+- **Backend:** Python FastAPI (`backend/main.py`), single process, single-threaded pipeline
   execution (`_run_lock` in `main.py` — only one Brief-to-Deck run at a time by design, since
   PowerPoint COM automation and the local LLM are both single-consumer on this machine).
-- **Frontend:** React 18 + TypeScript + Vite 5 + Tailwind CSS 4 (`web/src/`). No router — `App.tsx`
-  holds a `useState<Page>` and switches on it; there is no deep linking or browser back/forward.
-  ~27 page components in `web/src/pages/`, one per pipeline stage or QC step.
-- **Database:** despite the docs (`handover/HANDOVER.md`, `docs/CURRENT_STATUS.md`) describing
-  two separate SQLite files, `deck/memory.py` and `core/db.py` both actually connect to the
-  same `config.MEMORY_DB_PATH` (`agent/data/memory.db`) — verify with
-  `grep sqlite3.connect agent/app/deck/memory.py agent/app/core/db.py` before trusting the
-  "separate `intelligence.db`" claim in older docs. Both Brief-to-Deck tables (runs/events/chat/
-  slide_index) and every Intelligence Platform table (projects/specs/strategies/jobs/evidence/
-  insights/storylines/renders/QC, 58+ tables) live in this one file.
-- **LLM chain:** `agent/app/core/llm_provider.py::build_llm_client(settings)` is the single factory
+- **Frontend:** React 18 + TypeScript + Vite 5 + Tailwind CSS 4 (`frontend/src/`). The page is
+  chosen by a `useState<Page>` in `App.tsx`, mirrored into the URL path. ~27 page components in
+  `frontend/src/pages/`, one per pipeline stage or QC step.
+- **Database:** one database for both products. With `DATABASE_URL` set (local Docker Postgres, or
+  Render Postgres in production) everything runs on Postgres through `database/pg.py`, which
+  translates the SQLite-dialect SQL; without it, SQLite at `config.MEMORY_DB_PATH`
+  (`data/memory.db`). Older docs describing a separate `intelligence.db` are out of date. Both
+  Brief-to-Deck tables (runs/events/chat/slide_index) and every Intelligence Platform table
+  (projects/specs/strategies/jobs/evidence/insights/storylines/renders/QC, 60+ tables) live there.
+  Uploaded dataset files are also kept in `intel_dataset_files`, since a hosted server's disk may
+  not survive a restart.
+- **LLM chain:** `backend/core/llm_provider.py::build_llm_client(settings)` is the single factory
   used everywhere a chat/embedding client is needed (`get_llm_client()` in `core/anthropic_client.py`,
   and every other call site — `deck/pipeline.py`, `domains/plan/service.py`,
   `core/llm_synthesis.py`, the `agents/*.py` modules). All clients live in `core/`. It returns a
@@ -110,7 +113,7 @@ Frontend (`web/src/`): `pages/` · `components/` · `context/` (React providers)
 ### Intelligence Platform stage → module map
 
 Each stage is a `domains/<stage>/` folder + one or more frontend pages (paths below are relative
-to `agent/app/domains/` unless they start with `agents/` or `methods/`). Consult
+to `backend/domains/` unless they start with `agents/` or `tools/`). Consult
 `docs/CURRENT_STATUS.md` for exhaustive per-stage detail (DB tables, endpoint counts, test
 counts) before assuming a stage is unbuilt — most of the pipeline is fully implemented and tested,
 not scaffolding.
@@ -121,7 +124,7 @@ not scaffolding.
 | Brief & Scope | `brief/parser.py`, `agents/brief_scope.py`, `spec/service.py`, `spec/renderer.py` | `NewProject.tsx`, `BriefScopeReview.tsx` |
 | Background Research | `research/service.py`, `research/web_research.py`, `research/news_search.py`, `agents/brand_intelligence.py` | `BackgroundResearch.tsx` |
 | Search Strategy + dataset evaluation | `strategy/router.py` (`_build_deterministic_strategy()`), `agents/meltwater_query_builder.py`, `agents/query_evaluator.py` | `SearchStrategy.tsx`, `QueryEvaluation.tsx` |
-| Research Plan / Execution | `plan/service.py`, `execution/service.py`, `methods/` (12 pluggable deterministic analysis methods, decorator-registered) | `ResearchPlan.tsx`, `ResearchExecution.tsx` |
+| Research Plan / Execution | `plan/service.py`, `execution/service.py`, `tools/` (12 pluggable deterministic analysis methods, decorator-registered) | `ResearchPlan.tsx`, `ResearchExecution.tsx` |
 | Evidence Library | `library/service.py` | `EvidenceLibrary.tsx` |
 | Analysis & Insights | `insights/service.py`, `insights/sov_analyzer.py`, `insights/theme_classifier.py` | `AnalysisPage.tsx`, `InsightsPage.tsx` |
 | Storyline | `storyline/service.py` | `StorylinePage.tsx` |
@@ -172,8 +175,8 @@ Note: 11 pages (`ResearchPlan`, `EvidenceLibrary`, `InsightsPage`, `StorylinePag
 - **JBL vs Jabil entity confusion** — research results can include Jabil Inc. (ticker "JBL") or the
   WWE commentator "JBL" instead of the intended speaker/brand; entity disambiguation in
   `domains/research/web_research.py` is incomplete.
-- **No URL routing** in the frontend — state-based page switching only, no deep linking or
-  browser back/forward.
+- **Hand-rolled URL routing** in the frontend — `App.tsx` maps its page state to and from the
+  path (`parseUrl`/`buildUrl`); there is no router library.
 - **Slide Intelligence classification is keyword-based**, not LLM-based — nuanced slide purposes
   can be misclassified (manual correction workflow exists to compensate).
 - **No Meltwater API integration** — Boolean search queries are validated for syntax only, never
@@ -181,7 +184,7 @@ Note: 11 pages (`ResearchPlan`, `EvidenceLibrary`, `InsightsPage`, `StorylinePag
 
 ## Handover & Status Docs
 
-- `handover/HANDOVER.md` — architecture, bug history, environment variables, DB schema reference.
+- `docs/handover/HANDOVER.md` — architecture, bug history, environment variables, DB schema reference.
 - `docs/CURRENT_STATUS.md` — authoritative per-stage completion status, endpoint/table/test counts,
   sprint-by-sprint change log. Check this before assuming a stage is unbuilt.
 - `docs/PRODUCT_SPEC.md`, `docs/PIPELINE_ORCHESTRATOR.md`, `docs/PRESENTATION_COMPOSER.md`,
