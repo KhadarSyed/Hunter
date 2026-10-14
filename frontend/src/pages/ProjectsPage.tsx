@@ -30,6 +30,34 @@ function gradientFor(brand: string): string {
   return BRAND_GRADIENTS[h % BRAND_GRADIENTS.length];
 }
 
+// Card header photos (Pexels, via the backend's cached /pexels/image lookup), shared across
+// cards so several projects for one brand make a single request.
+const photoCache = new Map<string, Promise<string | null>>();
+
+function cardPhotoQuery(brand: string, projectName: string): string {
+  // "company" steers a dictionary-word brand (Apple, Dove, Shell) toward brand imagery —
+  // same reasoning as BriefScopeReview's header background.
+  if (brand) return `${brand} company`;
+  return projectName.trim();
+}
+
+function useCardPhoto(query: string): string | null {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    setUrl(null);
+    if (!query) return;
+    let cancelled = false;
+    let pending = photoCache.get(query);
+    if (!pending) {
+      pending = intelApi.getPexelsImage(query).then((res) => res.image_url).catch(() => null);
+      photoCache.set(query, pending);
+    }
+    pending.then((u) => { if (!cancelled) setUrl(u); });
+    return () => { cancelled = true; };
+  }, [query]);
+  return url;
+}
+
 // How the brief was provided: uploaded file type or pasted text.
 const BRIEF_SOURCES: Record<string, { label: string; icon: string }> = {
   pdf: { label: "PDF", icon: "vscode-icons:file-type-pdf2" },
@@ -76,6 +104,9 @@ function ProjectCard({ project, onOpen, onEdit, onDelete, selected, onToggleSele
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const brand = project.brand?.trim() ?? "";
+  const photoUrl = useCardPhoto(cardPhotoQuery(brand, project.project_name));
+  const [photoLoaded, setPhotoLoaded] = useState(false);
+  const showPhoto = Boolean(photoUrl) && photoLoaded;
 
   const openMenu = () => {
     const rect = menuButtonRef.current?.getBoundingClientRect();
@@ -89,7 +120,23 @@ function ProjectCard({ project, onOpen, onEdit, onDelete, selected, onToggleSele
     }`}>
       <button onClick={onOpen} data-project-id={project.id} className="relative h-48 w-full overflow-hidden text-left" aria-label={`Open ${project.project_name}`}>
         <div className={`absolute inset-0 bg-gradient-to-br ${brand ? gradientFor(brand) : NO_BRAND_GRADIENT}`} />
-        <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(white_1px,transparent_1px)] [background-size:14px_14px]" />
+        {photoUrl && (
+          <img
+            src={photoUrl}
+            alt=""
+            loading="lazy"
+            onLoad={() => setPhotoLoaded(true)}
+            onError={() => setPhotoLoaded(false)}
+            className={`absolute inset-0 h-full w-full object-cover transition-[opacity,transform] duration-500 group-hover:scale-105 ${
+              showPhoto ? "opacity-100" : "opacity-0"
+            }`}
+          />
+        )}
+        {showPhoto ? (
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/70 via-slate-900/35 to-slate-900/20" />
+        ) : (
+          <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(white_1px,transparent_1px)] [background-size:14px_14px]" />
+        )}
         <BriefSourceChip source={project.brief_source} />
         {brand && (
           <span className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white backdrop-blur">

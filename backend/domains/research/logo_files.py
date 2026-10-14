@@ -41,7 +41,9 @@ def _paths(brand_name: str) -> tuple[Path, Path]:
 def _candidates(info: dict) -> list[str]:
     client = os.environ.get("BRANDFETCH_CLIENT_ID", "")
     domain = info.get("domain")
-    cdn = [f"{CDN}/{domain}/w/400/h/400/{kind}.png?c={client}" for kind in ("logo", "icon")] if domain else []
+    # icon first: it is what the plain CDN URL served before logos were cached here, and a brand's "logo" asset can
+    # belong to a sister brand (band-aid.com's "logo" is Neosporin's wordmark)
+    cdn = [f"{CDN}/{domain}/w/400/h/400/{kind}.png?c={client}" for kind in ("icon", "logo")] if domain else []
     return cdn + ([info["logo_url"]] if info.get("logo_url") else [])
 
 
