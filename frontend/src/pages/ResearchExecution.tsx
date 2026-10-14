@@ -1,3 +1,4 @@
+import { usSpelling } from "../utils/format";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useDemoState } from "../context/demo-state";
 import { intelApi, type JobStatus } from "../services/intel-api";
@@ -197,9 +198,9 @@ function UnitTable({
                 <div className="font-medium text-slate-700">{u.unit_id}</div>
                 <div className="text-[10px] text-slate-400">{u.objective_id}</div>
               </td>
-              <td className="py-2.5 pr-3 text-slate-600">{u.method}</td>
+              <td className="py-2.5 pr-3 text-slate-600">{usSpelling(u.method)}</td>
               <td className="py-2.5 pr-3">
-                <Badge label={u.status} variant={u.status} />
+                <Badge label={usSpelling(u.status)} variant={u.status} />
                 {u.error && (
                   <div className="text-[10px] text-red-500 mt-1 max-w-[200px] truncate">
                     {u.error}
@@ -570,7 +571,7 @@ export function ResearchExecution({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {run && <Badge label={run.status.replace(/_/g, " ")} variant={run.status} />}
+          {run && <Badge label={usSpelling(run.status.replace(/_/g, " "))} variant={run.status} />}
         </div>
       </div>
 

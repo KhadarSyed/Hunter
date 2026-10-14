@@ -349,6 +349,6 @@ register(Tool("revise_slide", "Restyle one slide of the finished deck following 
               "(slide = number or id). Numbers must stay those in the data.",
               {"type": "object", "required": ["slide", "instructions"], "properties": {"slide": _STR, "instructions": _STR}},
               _revise, costly=True))
-register(Tool("set_design", "Change the deck's colours (6-hex) or fonts and re-export it.",
+register(Tool("set_design", "Change the deck's colors (6-hex) or fonts and re-export it.",
               {"type": "object", "required": ["changes"], "properties": {"changes": {"type": "object"}}},
               _design, costly=True))

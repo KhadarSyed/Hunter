@@ -3,16 +3,18 @@ tokens), find assets, compose (render + creative pass), export."""
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from ...core import config
-from . import data_tables, validate
+from . import data_tables, fixer, validate
 from . import (art_director, assets, checklist, creative, design_systems, exporter, image_brief, indexer, planner, renderer, verbatims,
                vision)
 from .planner import PlanInput
 
+logger = logging.getLogger(__name__)
 _BUDGET = threading.Lock()
 # concurrent photo searches (more risks the photo API's and the vision model's rate limits) and verbatim walls (one
 # headless browser each); a small container gets fewer, or it runs out of memory mid-run
@@ -77,8 +79,12 @@ def attach_product(spec, products: list[str], find) -> None:
 
 def add_chart_logos(slide, logos: dict[str, Path]) -> None:
     """Logos beside chart labels, added to what the planner already put on the slide (e.g. source icons)."""
+    outlet_cols = [[i for i, h in enumerate(t.get("header") or []) if str(h).strip().lower() in ("outlet", "source")]
+                   for t in slide.tables]
     names = [c for ch in slide.charts for c in ch.get("categories", [])] + \
-            [str(row[0]) for t in slide.tables for row in t.get("rows", []) if row]
+            [str(row[0]) for t in slide.tables for row in t.get("rows", []) if row] + \
+            [str(row[i]) for t, cols in zip(slide.tables, outlet_cols) for row in t.get("rows", []) for i in cols
+             if len(row) > i and row[i]]
     found = {n: _brand_logo(n, logos) for n in names}
     slide.logos = {**slide.logos, **{n: str(p) for n, p in found.items() if p}}
 
@@ -96,6 +102,18 @@ def attach_logos(spec, logos: dict[str, Path], client: str, brands: list[str] | 
     names = list(dict.fromkeys([client] + list(brands if brands is not None else logos)))
     found = {n: _brand_logo(n, logos) for n in names}
     spec.logo_strip = {n: str(p) for n, p in found.items() if p}
+
+
+def repair_context(plan_input: PlanInput, checklist_rows: list[dict]) -> dict:
+    """The run's own context for the repair agent (fixer.py), saved beside the deck."""
+    return {**plan_input.repair_context, "rqs": [{"id": q.id, "question": q.question, "query": q.query}
+                                                 for q in plan_input.rqs],
+            "citations": [{k: c.get(k, "") for k in ("n", "outlet", "title", "url", "date")} for c in plan_input.citations],
+            "citation_brands": {str(k): v for k, v in (plan_input.citation_brands or {}).items()},
+            "checklist": checklist_rows, "category": plan_input.category, "verbatims_by_rq": plan_input.verbatims_by_rq,
+            "validate": {"brand_products": plan_input.brand_products, "has_competitors": len(plan_input.brands) > 1,
+                         "is_category": plan_input.is_category, "mixed_media": plan_input.mixed_media,
+                         "brand_share": plan_input.brand_share}}
 
 
 def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: list[str], brand_image: Path | None,
@@ -241,6 +259,21 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
         if c["status"] != "pass":
             run.log(f"Validation {c['status']}: {c['check'][:80]} - {c['detail'][:120]}")
     run.log(f"Validation: {sum(c['status'] == 'pass' for c in checks)} of {len(checks)} checks pass")
+
+    # the validator's findings are acted on, not just listed: the repair agent fixes what it can and says why not
+    run.stage("repair", "running")
+    repair = fixer.Repair(spec, repair_context(plan_input, rows), llm, deck_dir, log=run.log)
+    try:
+        fixer.save(repair)                 # the Fix button can repair this run later from the same context
+        checks, rebuilt = fixer.run_repairs(repair, checks, "all", on_fix)
+        rows = repair.checklist
+        counts = {k: sum(1 for r in rows if r["status"] == k) for k in ("covered", "partial", "missing")}
+        if rebuilt:
+            html, out = rebuilt["html"], rebuilt
+    except Exception as e:                 # the validated deck still ships; the Fix button can retry
+        logger.exception("repair agent failed")
+        run.log(f"Repair agent stopped: {type(e).__name__}: {e}")
+    run.stage("repair", "done", f"{sum(c['status'] == 'pass' for c in checks)} of {len(checks)} checks pass")
     return {"validation": checks, "html": html, "pptx": out["pptx"], "pdf": out["pdf"], "family": spec.family,
             "family_reason": spec.family_reason,
             "design_system": entry["name"], "design_reason": design_why, "checklist": rows, "scorecard": counts, "report": report,

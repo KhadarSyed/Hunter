@@ -966,7 +966,7 @@ def cancel_pipeline(run_id: str) -> dict:
     if run["status"] in ("completed", "cancelled"):
         return {"error": f"Cannot cancel — current status: {run['status']}"}
     store.update_pipeline_run(run_id, status="cancelled", completed_at=time.time())
-    _log(run_id, None, "Pipeline cancelled by user")
+    _log(run_id, None, "Pipeline canceled by user")
     return {"status": "cancelled", "run_id": run_id}
 
 

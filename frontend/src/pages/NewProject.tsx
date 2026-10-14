@@ -1,3 +1,4 @@
+import { formatDate } from "../utils/format";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { CountryFlag, GEOGRAPHIES } from "../components/CountryFlag";
 import { useProject, type ProjectType } from "../context/project-context";
@@ -101,8 +102,8 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
       setBriefSource({ type: (file.name.split(".").pop() || "file").toLowerCase(), file_name: file.name });
       setExtractionNote(
         result.extraction_method === "nvidia"
-          ? `Text extracted from ${file.name} with NVIDIA ${result.model ?? "Nemotron-Parse"}${result.pages ? ` (${result.pages} page${result.pages > 1 ? "s" : ""})` : ""} — review before analysing.`
-          : `Text extracted from ${file.name} — review before analysing.`,
+          ? `Text extracted from ${file.name} with NVIDIA ${result.model ?? "Nemotron-Parse"}${result.pages ? ` (${result.pages} page${result.pages > 1 ? "s" : ""})` : ""} — review before analyzing.`
+          : `Text extracted from ${file.name} — review before analyzing.`,
       );
       return true;
     } catch (e: unknown) {
@@ -256,7 +257,7 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
             ? "Name the QC project, then upload the monitoring report. All fields marked * are required."
             : "Type or paste the client brief (or upload a file to extract it — upload is optional), then click Analyze Brief. All fields marked * are required."}
         </p>
-        {draft && <span className="text-xs text-slate-400">Draft from {new Date(draft.savedAt).toLocaleDateString()}</span>}
+        {draft && <span className="text-xs text-slate-400">Draft from {formatDate(draft.savedAt)}</span>}
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-5">

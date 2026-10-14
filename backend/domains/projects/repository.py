@@ -235,7 +235,7 @@ def cancel_stale_running_jobs():
     conn = _conn()
     now = time.time()
     conn.execute(
-        "UPDATE intel_jobs SET status = 'cancelled', finished_at = ?, error = 'Cancelled: stale running job from prior session' "
+        "UPDATE intel_jobs SET status = 'cancelled', finished_at = ?, error = 'Canceled: stale running job from prior session' "
         "WHERE status = 'running'",
         (now,),
     )

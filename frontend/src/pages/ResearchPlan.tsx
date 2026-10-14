@@ -1,3 +1,4 @@
+import { usSpelling } from "../utils/format";
 import { useState, useEffect, useCallback } from "react";
 import { useDemoState } from "../context/demo-state";
 import { intelApi, type PlanResult, type JobStatus } from "../services/intel-api";
@@ -131,7 +132,7 @@ function ObjectiveCard({ obj }: { obj: PlanObjective }) {
                 <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Methods</div>
                 <div className="flex flex-wrap gap-1.5">
                   {methods.map((m, i) => (
-                    <span key={i} className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{m}</span>
+                    <span key={i} className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{usSpelling(m)}</span>
                   ))}
                 </div>
               </div>
@@ -148,7 +149,7 @@ function ObjectiveCard({ obj }: { obj: PlanObjective }) {
             <div className="flex items-center gap-4 pt-2 border-t border-slate-100 text-xs text-slate-500">
               <span>Supports: <span className="text-slate-700 font-medium">{obj.deliverable_mapping.supports}</span></span>
               {obj.deliverable_mapping.recommended_visual && (
-                <span>Visual: <span className="text-slate-700 font-medium">{obj.deliverable_mapping.recommended_visual}</span></span>
+                <span>Visual: <span className="text-slate-700 font-medium">{usSpelling(obj.deliverable_mapping.recommended_visual)}</span></span>
               )}
             </div>
           )}
@@ -226,7 +227,7 @@ function MethodsSummary({ methods }: { methods: AnalysisMethodSummary[] }) {
     <div className="grid grid-cols-2 gap-3">
       {methods.map((m, i) => (
         <div key={i} className="bg-white border border-slate-200 rounded-lg p-3">
-          <div className="text-sm font-semibold text-slate-800">{m.method}</div>
+          <div className="text-sm font-semibold text-slate-800">{usSpelling(m.method)}</div>
           <div className="text-xs text-slate-500 mt-1">{m.description}</div>
           <div className="flex items-center gap-2 mt-2 text-[10px] text-slate-400">
             <span>Output: {m.output_type}</span>

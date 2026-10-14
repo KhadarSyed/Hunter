@@ -8,6 +8,7 @@ deck can show it on its own slides. An enrichment flag (brand_mention = "figurat
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -77,12 +78,18 @@ def _figurative(text: str, start: int, end: int) -> bool:
     return bool(_IDIOM_BEFORE.search(before) or _IDIOM_AFTER.match(after))
 
 
+def _fold(text: str) -> str:
+    """Accents dropped, so 'EōS Fitness' in an article names the brand 'EoS Fitness'."""
+    return unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode("ascii")
+
+
 def mentions(text: str, brands: list[Brand]) -> list[str]:
     """Brands named literally in the text, in brand order (primary first)."""
     out = []
+    text = _fold(text)
     for b in brands:
         if any(not _figurative(text, m.start(), m.end())
-               for t in b.terms for m in _term_pattern(t).finditer(text or "")):
+               for t in b.terms for m in _term_pattern(_fold(t)).finditer(text)):
             out.append(b.name)
     return out
 

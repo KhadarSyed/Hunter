@@ -1,3 +1,4 @@
+import { formatDate as formatDateUS } from "../utils/format";
 import { useState, useEffect } from "react";
 import { useProject, type ProjectType } from "../context/project-context";
 import { intelApi } from "../services/intel-api";
@@ -46,8 +47,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
   };
 
   const formatDate = (ts: number) => {
-    const d = new Date(ts * 1000);
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    return formatDateUS(ts * 1000, { month: "short", day: "numeric" });
   };
 
   return (

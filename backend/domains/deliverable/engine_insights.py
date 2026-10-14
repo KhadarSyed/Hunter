@@ -76,6 +76,8 @@ def section_summaries(rq: RQ, sections: list[Section], rows: list[EngineRow], re
     answer and its sources. Each is told what the question's insights and earlier summaries already said."""
     out = {}
     said = [f"{c.get('headline', '')}: {c.get('text', '')}" for c in avoid or []]
+    # the categories of the question's other theme-like charts: a card that opens on one of them is off its own
+    related = {g.strip().lower() for s in sections if not _NAMED_THINGS.search(s.id) for g in chart_segments(s)}
     for s in sections:
         if s.skipped or not (s.chart or s.table) or (s.chart or {}).get("kind") == "kpi" or not s.facts:
             continue
@@ -90,14 +92,16 @@ def section_summaries(rq: RQ, sections: list[Section], rows: list[EngineRow], re
             for u in ([u for u in mine if u in answering] or mine)[:SEGMENT_ARTICLES]:
                 owned.setdefault(u, []).append(seg)
         cands = ([by_url[u] for u in dict.fromkeys(owned)] if owned else _candidates([s], rows, evidence))
+        mine = related if not _NAMED_THINGS.search(s.id) else set()
         summary = draft_section(f"{rq.question} - {s.title}", s.facts, cands, registry, llm, 1,
-                                avoid=said, segments=segments or None, article_segments=owned or None)
+                                avoid=said, segments=segments or None, article_segments=owned or None,
+                                related_segments=mine)
         cards = _segment_cards(summary, segments) if summary else []
         missing = [g for g in segments if g.lower() not in _by_headline(cards)]
         if cards and missing:            # one more try for the categories whose card was rejected
             more = draft_section(f"{rq.question} - {s.title}", s.facts, cands, registry, llm, 1,
                                  avoid=said + [f"{c['headline']}: {c['text']}" for c in cards],
-                                 segments=missing, article_segments=owned or None)
+                                 segments=missing, article_segments=owned or None, related_segments=mine)
             found = {**_by_headline(more or []), **_by_headline(cards)}
             cards = [found[g.lower()] for g in segments if g.lower() in found]     # back in the chart's order
         if summary and len(cards) < 2 and all(c.get("fact_only") for c in summary[:1]):
@@ -111,6 +115,8 @@ def section_summaries(rq: RQ, sections: list[Section], rows: list[EngineRow], re
     return out
 
 
+# brand, outlet and people charts: their cards name brands and people by design (see deckstudio.validate)
+_NAMED_THINGS = re.compile(r"brand|competitor|retailer|product|outlet|expert|celebrit|people|person|entities")
 SEGMENT_MAX = 5
 SEGMENT_ARTICLES = 3          # a category's own articles offered for its card
 _NOT_SEGMENTS = {"unknown", "none", "other", "not stated", "n/a"}

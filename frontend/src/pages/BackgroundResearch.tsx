@@ -1,3 +1,4 @@
+import { formatDate } from "../utils/format";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { intelApi, type BriefResult, type BriefData, type BriefSection, type JobStatus, type SourceRef } from "../services/intel-api";
@@ -154,7 +155,7 @@ function CitationLink({ refId, sources }: { refId: string; sources: SourceLookup
   if (!src || !src.url) {
     return <span className="font-bold text-[#5B2C9D] text-[10px]">[{refId}]</span>;
   }
-  const title = `${src.headline} — ${src.publisher}${src.date ? ` (${src.date})` : ""}`;
+  const title = `${src.headline} — ${src.publisher}${src.date ? ` (${formatDate(src.date)})` : ""}`;
   let domain = "";
   try {
     domain = new URL(src.url).hostname;
@@ -213,7 +214,7 @@ function SectionSources({ section, sources }: { section: BriefSection; sources: 
           const src = sources[r];
           return (
             <a key={r} href={src.url} target="_blank" rel="noopener noreferrer"
-              title={`${src.headline}${src.date ? ` (${src.date})` : ""}`}
+              title={`${src.headline}${src.date ? ` (${formatDate(src.date)})` : ""}`}
               className="inline-flex max-w-[16rem] items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-600 hover:border-[#5B2C9D]/40 hover:text-[#5B2C9D]">
               <CitationIcon url={src.url} label={src.publisher} />
               <span className="truncate">{src.publisher || src.headline}</span>
@@ -409,18 +410,14 @@ function CompetitorRow({
     setPexelsVideo(null);
     if (!name.trim()) return;
     let cancelled = false;
+    // Both at once (see SectionVideoBanner): Pexels shows while the official-channel search runs, and the
+    // competitor's own video replaces it when found. "company" disambiguates a name that is also a common word
+    // ("Apple", "Target", "Dove") away from Pexels' literal stock photos for that word.
     intelApi.getSectionVideo(name, name).then((res) => {
-      if (cancelled) return;
-      if (res.embed_url) {
-        setVideoEmbedUrl(res.embed_url);
-        return;
-      }
-      // "company" disambiguates a competitor name that's also a common word (e.g. "Apple",
-      // "Target", "Dove") away from Pexels' literal stock photos for that word — see
-      // BriefScopeReview.tsx's identical fix for the project-level banner.
-      intelApi.getPexelsImage(`${name} company`).then((pres) => {
-        if (!cancelled) { setPexelsImage(pres.image_url); setPexelsVideo(pres.video_url); }
-      }).catch(() => {});
+      if (!cancelled && res.embed_url) setVideoEmbedUrl(res.embed_url);
+    }).catch(() => {});
+    intelApi.getPexelsImage(`${name} company`).then((pres) => {
+      if (!cancelled) { setPexelsImage(pres.image_url); setPexelsVideo(pres.video_url); }
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [name]);
@@ -503,6 +500,8 @@ const SECTION_VIDEO_QUERIES: Record<string, (brand: string, category: string) =>
   executive_summary: (brand, category) => buildVideoQuery(brand, category, "industry overview"),
   brand_developments: (brand) => buildVideoQuery(brand, "latest news"),
   brand_narrative: (brand) => buildVideoQuery(brand, "brand story"),
+  // the competitive landscape: the category's own footage (official video first, then Pexels), never a blank banner
+  competitor_developments: (brand, category) => category || buildVideoQuery(brand, "company"),
   industry_context: (_brand, category) => buildVideoQuery(category, "industry trends"),
   key_issues: (_brand, category) => buildVideoQuery(category, "industry challenges"),
 };
@@ -559,15 +558,13 @@ function SectionVideoBanner({ activeTab, brandName, category, sectionContent, pr
     const query = product ? buildVideoQuery(brandName, product) : queryFn(brandName, category);
     lastQueryRef.current = query;
 
+    // Both at once: the official-channel search can take ~20s on a first lookup, so the Pexels footage shows
+    // meanwhile and the official video replaces it when one is found (the render prefers the embed)
     intelApi.getSectionVideo(query, brandName).then((res) => {
-      if (cancelled) return;
-      if (res.embed_url) { setEmbedUrl(res.embed_url); return; }
-      // No official-channel video for this query at all (including its own fallbacks) —
-      // degrade to generic Pexels stock footage/imagery rather than showing nothing, same
-      // three-tier pattern CompetitorRow already uses below.
-      intelApi.getPexelsImage(query).then((pres) => {
-        if (!cancelled) { setPexelsImage(pres.image_url); setPexelsVideo(pres.video_url); }
-      }).catch(() => {});
+      if (!cancelled && res.embed_url) setEmbedUrl(res.embed_url);
+    }).catch(() => {});
+    intelApi.getPexelsImage(query).then((pres) => {
+      if (!cancelled) { setPexelsImage(pres.image_url); setPexelsVideo(pres.video_url); }
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [activeTab, brandName, category, sectionContent, productNames]);
@@ -602,13 +599,15 @@ function SectionVideoBanner({ activeTab, brandName, category, sectionContent, pr
         // Final tier — no official video and no Pexels result either: the brand's own
         // logo on a plain dark banner, so a section never collapses to an empty gap.
         <div className="absolute inset-0 flex items-center justify-center">
-          <BrandLogo brandName={brandName} size={56} rounded="lg" className="opacity-90" />
+          <div className="rounded-xl bg-white p-3 shadow-lg">
+            <BrandLogo brandName={brandName} size={56} rounded="lg" />
+          </div>
         </div>
       )}
       {hasMedia && <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />}
       {brandName && hasMedia && (
         <div className="absolute bottom-3 left-4 flex items-center gap-2">
-          <BrandLogo brandName={brandName} size={28} rounded="lg" className="shadow-lg" />
+          <span className="rounded-md bg-white p-1 shadow-lg"><BrandLogo brandName={brandName} size={22} rounded="lg" /></span>
           <span className="text-white text-xs font-semibold" style={{ textShadow: "0 1px 3px rgba(0,0,0,0.6)" }}>
             {brandName}
           </span>
@@ -1368,7 +1367,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
                       </div>
                     </div>
                   </div>
-                  <div className="pt-1.5 mt-1 border-t border-slate-100"><span className="text-slate-400">Range:</span> <span className="text-slate-600">{brief.metadata.date_range_start} to {brief.metadata.date_range_end}</span></div>
+                  <div className="pt-1.5 mt-1 border-t border-slate-100"><span className="text-slate-400">Range:</span> <span className="text-slate-600">{formatDate(brief.metadata.date_range_start)} to {formatDate(brief.metadata.date_range_end)}</span></div>
                   <div className="text-slate-400 pt-1">Generated: {brief.generated_at}</div>
                   {brief.search_log.length > 0 && (
                     <div className="pt-2 mt-1 border-t border-slate-100">

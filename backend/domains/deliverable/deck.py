@@ -279,7 +279,7 @@ def build_deck(cfg, m, cm, ins, registry: CitationRegistry, articles_by_url, log
         "not a census of all category coverage.",
         "Date ranges differ by theme; each trend slide states its own range. Peaks are the five months with the "
         "most articles.",
-        "Expert type, brand affiliation, celebrities, retailers and topics were labelled from article text by an AI "
+        "Expert type, brand affiliation, celebrities, retailers and topics were labeled from article text by an AI "
         "model with a fixed label set; anything the text does not state is reported as 'not stated'.",
         "Every insight cites the numbered articles that support it; see the citation list.",
         *_syndication_notes(m, labels),

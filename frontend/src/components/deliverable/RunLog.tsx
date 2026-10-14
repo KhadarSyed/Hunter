@@ -1,7 +1,8 @@
+import { formatTime } from "../../utils/format";
 import { useEffect, useRef } from "react";
 import type { DeliverableLogLine } from "../../services/intel-api";
 
-const time = (ts: number) => new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const time = (ts: number) => formatTime(ts * 1000, { seconds: true });
 
 /** The run's progress lines as they stream in, newest at the bottom and kept in view while the run is live. */
 export function RunLog({ lines, isLive }: { lines: DeliverableLogLine[]; isLive: boolean }) {

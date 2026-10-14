@@ -1,3 +1,4 @@
+import { formatDateTime, formatNumber, usSpelling } from "../utils/format";
 import { useState, useEffect, useCallback } from "react";
 import { intelApi } from "../services/intel-api";
 import { useActiveProjectId, useProject } from "../context/project-context";
@@ -178,7 +179,7 @@ export function WordRendererPage({ onNavigate }: Props) {
     };
     return (
       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${colors[status] || "bg-slate-100 text-slate-600"}`}>
-        {status}
+        {usSpelling(status)}
       </span>
     );
   };
@@ -190,7 +191,7 @@ export function WordRendererPage({ onNavigate }: Props) {
     b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(1)} MB`;
 
   const formatTime = (ts: number) =>
-    new Date(ts * 1000).toLocaleString();
+    formatDateTime(ts * 1000);
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
@@ -228,7 +229,7 @@ export function WordRendererPage({ onNavigate }: Props) {
         <div className="bg-white rounded-xl border border-slate-200 p-4">
           <div className="text-xs font-medium text-slate-500 uppercase tracking-wider">Word Count</div>
           <div className="text-2xl font-bold text-slate-900 mt-1">
-            {summary?.latest_document?.word_count?.toLocaleString() ?? "—"}
+            {formatNumber(summary?.latest_document?.word_count) || "—"}
           </div>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-4">
@@ -312,7 +313,7 @@ export function WordRendererPage({ onNavigate }: Props) {
                 <div>
                   <span className="font-medium text-emerald-800">Report rendered successfully</span>
                   <span className="text-emerald-600 ml-3">
-                    {renderResult.section_count} sections · {renderResult.word_count?.toLocaleString()} words · {formatBytes(renderResult.file_size_bytes || 0)} · {formatDuration(renderResult.render_duration_ms || 0)}
+                    {renderResult.section_count} sections · {formatNumber(renderResult.word_count)} words · {formatBytes(renderResult.file_size_bytes || 0)} · {formatDuration(renderResult.render_duration_ms || 0)}
                   </span>
                   {renderResult.warnings && renderResult.warnings.length > 0 && (
                     <span className="text-amber-600 ml-2">({renderResult.warnings.length} warning{renderResult.warnings.length > 1 ? "s" : ""})</span>

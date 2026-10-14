@@ -1,3 +1,4 @@
+import { formatDate as formatDateUS } from "../utils/format";
 import { useEffect, useState } from "react";
 import { intelApi, type ResearchItem } from "../services/intel-api";
 import { ArticleReaderModal } from "./ArticleReaderModal";
@@ -29,11 +30,7 @@ function sourceLabel(sourceApi: string): string {
 
 function formatDate(ts: number): string {
   try {
-    return new Date(ts * 1000).toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
+    return formatDateUS(ts * 1000);
   } catch {
     return "";
   }

@@ -10,8 +10,10 @@ import concurrent.futures
 import logging
 import uuid
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi.responses import FileResponse
 
 from ...agents.brand_intelligence import run as run_bi
 from ...core import store
@@ -25,6 +27,7 @@ from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from . import article_extractor
 from . import brandfetch as brandfetch_client
+from . import logo_files
 from . import multi_source as multi_source_module
 from . import pexels as pexels_client
 from . import video_search
@@ -327,8 +330,22 @@ def approve_news_item(research_id: Annotated[int, Path(ge=1)], req: NewsApproval
 
 @router.get("/brandfetch/logo", response_model=BrandLogoResponse)
 def get_brand_logo_route(brand_name: str):
-    """Logo for a brand/product: saved brand_logos table first, then Brandfetch, then Google."""
-    return brandfetch_client.resolve_logo(brand_name)
+    """Logo for a brand/product: saved brand_logos table first, then Brandfetch, then Google. The image itself is
+    served from this app (see logo_files): Brandfetch no longer serves hotlinked images to the page."""
+    info = brandfetch_client.resolve_logo(brand_name)
+    found = logo_files.logo_file(brand_name)
+    return {**info, "logo_url": f"/api/intel/brandfetch/logo/image?brand_name={quote(brand_name)}" if found else None,
+            "is_light": bool(found and found[1])}
+
+
+@router.get("/brandfetch/logo/image", response_class=FileResponse)
+def get_brand_logo_image_route(brand_name: str):
+    """The brand's logo as a PNG, fetched once and cached."""
+    found = logo_files.logo_file(brand_name)
+    if not found:
+        raise HTTPException(404, "No logo for this brand")
+    return FileResponse(found[0], media_type="image/png",
+                        headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"})
 
 
 # ─── Pexels ────────────────────────────────────────────────────────────────

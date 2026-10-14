@@ -40,6 +40,14 @@ _LAYOUT_JS = """() => {
     for (let i = 1; i < labels.length; i++)
       if (labels[i].left < labels[i - 1].right - 1 && labels[i].width && labels[i - 1].width)
         out.push({slide_id: id, kind: 'overlap', detail: 'axis labels ' + i});
+    // a table taller than the panel that clips it hides its last rows: the panel itself has no text of its own, so
+    // the per-element check below never sees it
+    slide.querySelectorAll('table').forEach(tb => {
+      let clip = tb.parentElement;
+      while (clip && clip !== slide && getComputedStyle(clip).overflow === 'visible') clip = clip.parentElement;
+      if (clip && clip !== slide && tb.getBoundingClientRect().bottom > clip.getBoundingClientRect().bottom + 2)
+        out.push({slide_id: id, kind: 'overflow', detail: 'table rows hidden below the panel'});
+    });
     slide.querySelectorAll('*').forEach(el => {
       if (el.closest('svg')) return;
       const r = el.getBoundingClientRect();

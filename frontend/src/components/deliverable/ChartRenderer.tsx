@@ -1,3 +1,4 @@
+import { formatNumber } from "../../utils/format";
 import { useLayoutEffect, useRef } from "react";
 import * as am5 from "@amcharts/amcharts5";
 import * as am5xy from "@amcharts/amcharts5/xy";
@@ -16,7 +17,7 @@ export interface ChartSpec {
 
 const VIOLET = "#5B2C9D";
 const HOUSE = ["D9C8F0", "FDE3D2", "D4E6F7", "D3F0E3"];
-const fmt = (v: number, unit?: string) => (unit === "percent" ? `${v}%` : v.toLocaleString());
+const fmt = (v: number, unit?: string) => (unit === "percent" ? `${v}%` : formatNumber(v));
 
 type Datum = { category: string; value: number; peak: boolean };
 

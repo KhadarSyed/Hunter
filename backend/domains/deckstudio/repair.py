@@ -6,7 +6,7 @@ import re
 from dataclasses import replace
 from pathlib import Path
 
-from . import guards
+from . import guards, tables
 from .renderer import render_deck
 
 MAX_ATTEMPTS = 2
@@ -24,11 +24,18 @@ def action_for(kind: str) -> str:
     return _ACTIONS.get(kind, "shorten")
 
 
-def _cut(text: str, limit: int) -> str:
-    """Whole sentences that fit; a mid-sentence cut (with …) only when not even the first sentence fits."""
+_KEEP = ""                # stands in for the '!' of a name ('Yahoo! Life') while sentences are split
+
+
+def _cut(text: str, limit: int, names: tuple[str, ...] = ()) -> str:
+    """Whole sentences that fit; a mid-sentence cut (with …) only when not even the first sentence fits. `names`
+    hold a '!' that does not end a sentence (outlets like 'Yahoo! Life')."""
     if len(text) <= limit:
         return text
-    sentences = re.split(r"(?<=[.!?])\s+", text)
+    for name in names:
+        text = text.replace(name, name.replace("!", _KEEP))
+    sentences = [x.replace(_KEEP, "!") for x in re.split(r"(?<=[.!?])\s+", text)]
+    text = text.replace(_KEEP, "!")
     kept = ""
     for s in sentences:
         if len(f"{kept} {s}".strip()) > limit:
@@ -37,8 +44,8 @@ def _cut(text: str, limit: int) -> str:
     return kept or text[:limit].rsplit(" ", 1)[0].rstrip(",;:") + "…"
 
 
-def _shorten(slide) -> None:
-    slide.so_what = _cut(slide.so_what, SO_WHAT_MAX)
+def _shorten(slide, names: tuple[str, ...] = ()) -> None:
+    slide.so_what = _cut(slide.so_what, SO_WHAT_MAX, names)
     if slide.type == "verbatim_wall":
         # a wall's overflow is its header (a long research question); its screenshots are the content, so the
         # header is shortened and every post stays
@@ -46,22 +53,28 @@ def _shorten(slide) -> None:
         slide.title = _cut(slide.title or "", WALL_QUESTION_MAX)
         return
     if slide.treatment == "S":
-        slide.cards = [{**c, "text": _cut(c.get("text", ""), SEGMENT_TEXT_MAX)} for c in slide.cards]
+        slide.cards = [{**c, "text": _cut(c.get("text", ""), SEGMENT_TEXT_MAX, names)} for c in slide.cards]
         return
-    slide.cards = [{**c, "text": _cut(c.get("text", ""), CARD_TEXT_MAX)} for c in slide.cards[:CARDS_MAX]]
+    slide.cards = [{**c, "text": _cut(c.get("text", ""), CARD_TEXT_MAX, names)} for c in slide.cards[:CARDS_MAX]]
 
 
 def _split(spec, slide) -> bool:
     rows = slide.tables[0]["rows"] if slide.tables else []
-    if len(rows) <= TABLE_ROWS_PER_SLIDE:
+    if slide.type in tables.OWN_LAYOUT or slide.charts:
+        cap = TABLE_ROWS_PER_SLIDE
+    else:                       # evidence tables: what this layout holds, minus a row for safety
+        cap = max(tables.MIN_ROWS, tables.rows_cap(slide) - 1)
+    if len(rows) <= cap:
         return False
     at = spec.slides.index(slide)
-    chunks = [rows[i:i + TABLE_ROWS_PER_SLIDE] for i in range(0, len(rows), TABLE_ROWS_PER_SLIDE)]
+    chunks = [rows[i:i + cap] for i in range(0, len(rows), cap)]
     table = slide.tables[0]
-    slide.tables = [{**table, "rows": chunks[0]}]
-    for k, chunk in enumerate(chunks[1:], start=1):
+    links = table.get("links") or []
+    slide.tables = [{**table, "rows": chunks[0], "links": links[:cap]}]
+    for k, chunk in enumerate(chunks[1:], start=1):       # the insight cards stay with the table's first part
         spec.slides.insert(at + k, replace(slide, id=f"{slide.id}-cont-{k}", title=f"{slide.title} (continued)",
-                                           tables=[{**table, "rows": chunk}]))
+                                           cards=[], citations=[],
+                                           tables=[{**table, "rows": chunk, "links": links[k * cap:(k + 1) * cap]}]))
     return True
 
 
@@ -71,7 +84,8 @@ def _apply(spec, slide, kind: str) -> str:
     if action_for(kind) == "drop_photo":
         slide.image = {**slide.image, "path": None}
         return "drop_photo"
-    _shorten(slide)
+    _shorten(slide, tuple(sorted({str(m.get("outlet") or "") for m in (spec.citation_meta or {}).values()
+                                  if "!" in str(m.get("outlet") or "")}, key=len, reverse=True)))
     return "shorten"
 
 

@@ -10,6 +10,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup, escape
 
+from . import logo_prep, tables
 from .art_director import fonts_href
 from .charts import chart_svg
 from .spec import DeckSpec, DeckTokens, SlideSpec
@@ -46,23 +47,51 @@ def render_slide(slide: SlideSpec, tokens: DeckTokens, n: int, total: int, base_
                                    **({"thumb": _asset(c["thumb"], out_dir)} if c.get("thumb") else {})}
                                   for c in slide.cards])
     image = _asset(slide.image.get("path"), out_dir)
-    logos = {name: rel for name, p in slide.logos.items() if (rel := _asset(p, out_dir))}
+    # every mark beside a chart label or table cell is trimmed, and a white one is set on a dark chip (as on the cover)
+    marked = {name: m for name, p in slide.logos.items() if (m := _mark(p, out_dir))}
+    logos = {name: rel for name, (rel, _light) in marked.items()}
+    light = {name for name, (_rel, is_light) in marked.items() if is_light}
     w, h = CHART_SIZE_WITH_CARDS["C"] if slide.treatment == "C" and slide.cards else CHART_SIZE.get(slide.treatment, (1000, 540))
-    charts = [chart_svg(c, tokens, logos, w, h) for c in slide.charts]
+    charts = [chart_svg(c, tokens, logos, w, h, light=light) for c in slide.charts]
     return _env.get_template("slide.html.j2").render(s=slide, t=tokens, n=n, total=total, base_n=base_n, period=period,
                                                      source=source, image=image, charts=charts, logos=logos,
+                                                     light_logos=light, table_cap=tables.rows_cap(slide),
                                                      marks=marks or {"brand": None, "name": "", "strip": [], "cites": {}})
 
 
 MAX_STRIP_LOGOS = 6
 
 
+DARK_CHIP_LUMA = 0.55        # a white logo needs a chip at least this dark to read
+
+
+def _dark_enough(color: str, fallback: str) -> str:
+    """The brand colour behind a white logo, or the deck's text colour when the brand colour is too pale."""
+    try:
+        r, g, b = (int(color.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    except ValueError:
+        return fallback.lstrip("#")
+    return color.lstrip("#") if 0.299 * r + 0.587 * g + 0.114 * b < DARK_CHIP_LUMA else fallback.lstrip("#")
+
+
+def _mark(path: str | None, out_dir: Path) -> tuple[str, bool] | None:
+    """A logo trimmed to its mark and copied into assets/, and whether it is light (set on a dark chip)."""
+    prepared = logo_prep.prepare(path, out_dir)
+    rel = _asset(prepared[0], out_dir) if prepared else None
+    return (rel, prepared[1]) if rel else None
+
+
 def _marks(spec: DeckSpec, out_dir: Path) -> dict:
     """The client's logo (cover and footers) and the competitive set (cover), copied into assets/."""
-    strip = [(name, rel) for name, p in list(spec.logo_strip.items())[:MAX_STRIP_LOGOS] if (rel := _asset(p, out_dir))]
+    strip = [(name, *mark) for name, p in list(spec.logo_strip.items())[:MAX_STRIP_LOGOS]
+             if (mark := _mark(p, out_dir))]
     cites = {n: {"outlet": m.get("outlet") or "", "icon": _asset(m.get("icon"), out_dir), "url": m.get("url") or ""}
              for n, m in (spec.citation_meta or {}).items()}
-    return {"brand": _asset(spec.brand_logo, out_dir), "name": spec.title, "strip": strip, "cites": cites,
+    brand = _mark(spec.brand_logo, out_dir)
+    tokens = spec.tokens or DeckTokens()
+    return {"brand": brand[0] if brand else None, "brand_light": bool(brand and brand[1]),
+            "chip_dark": f"#{_dark_enough(tokens.primary, tokens.text)}",
+            "name": spec.title, "strip": strip, "cites": cites,
             "product": _asset(spec.product_image, out_dir), "product_name": spec.product_name}
 
 

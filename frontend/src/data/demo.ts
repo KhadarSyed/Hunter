@@ -28,11 +28,11 @@ export const DEMO_BRIEF = ``;
 
 export const DEMO_SPEC = {
   executive_interpretation:
-    "The client wants to understand broader social conversations among moms on social media — their priorities, tensions, coping strategies, food-preparation behaviours, and language — segmented by life stage (young children vs. teenagers). This is an audience insight study, not a brand-tracking exercise.",
+    "The client wants to understand broader social conversations among moms on social media — their priorities, tensions, coping strategies, food-preparation behaviors, and language — segmented by life stage (young children vs. teenagers). This is an audience insight study, not a brand-tracking exercise.",
   commissioning_brand: { name: "Sample Brand", role: "Strategic context and funding client" },
   research_subject: {
     description:
-      "Broader social conversations among moms on US social media over the past 12 months — their priorities, tensions, food-preparation behaviours, and consumer language.",
+      "Broader social conversations among moms on US social media over the past 12 months — their priorities, tensions, food-preparation behaviors, and consumer language.",
     is_brand_study: false,
   },
   research_audience: {
@@ -41,11 +41,11 @@ export const DEMO_SPEC = {
   strategic_application:
     "Findings will inform audience strategy, content positioning, and product messaging by revealing how the target audience talks about key topics in their own words.",
   business_objective:
-    "Understand how moms prioritise their lives, identify the themes and tensions they discuss, and determine whether these differ between moms of young children and moms of teenagers.",
+    "Understand how moms prioritize their lives, identify the themes and tensions they discuss, and determine whether these differ between moms of young children and moms of teenagers.",
   research_objective:
-    "Analyse social media conversations among US moms to map priorities, tensions, resolution strategies, food-preparation behaviours, simplification patterns, and consumer language — segmented by child age group.",
+    "Analyze social media conversations among US moms to map priorities, tensions, resolution strategies, food-preparation behaviors, simplification patterns, and consumer language — segmented by child age group.",
   deliverable_objective:
-    "A qualitative research report with thematic analysis, life-stage comparison, food-behaviour mapping, and a consumer language glossary — supported by verbatims and platform evidence.",
+    "A qualitative research report with thematic analysis, life-stage comparison, food-behavior mapping, and a consumer language glossary — supported by verbatims and platform evidence.",
   validated_entities: [
     { name: "Sample Brand", type: "brand", confidence: "high" as const, reasoning: "Identified as the brand commissioning the research." },
     { name: "US Moms", type: "audience", confidence: "high" as const, reasoning: "Brief explicitly names moms as the research audience, scoped to the United States." },
@@ -175,11 +175,11 @@ export const DEMO_RESEARCH_OBJECTIVES: ResearchObjective[] = [
     questionIds: ["RQ3"], priority: "high",
     platforms: [
       { name: "Reddit", justification: "Solution-oriented subreddits show detailed problem-solving" },
-      { name: "TikTok", justification: "Life hack videos demonstrate coping behaviours visually" },
+      { name: "TikTok", justification: "Life hack videos demonstrate coping behaviors visually" },
       { name: "Instagram", justification: "Carousel posts share curated solutions and tips" },
     ],
     evidence: ["Resolution strategies with examples", "Coping mechanism categories", "Before/after narratives"],
-    methods: ["Behaviour Analysis", "Narrative Analysis"],
+    methods: ["Behavior Analysis", "Narrative Analysis"],
     deliverable: "Resolution & Coping section", confidence: "high", complexity: "medium", status: "pending",
     searchConcepts: ["mom life hacks", "parenting tips", "mom self care routine", "setting boundaries"],
   },
@@ -199,7 +199,7 @@ export const DEMO_RESEARCH_OBJECTIVES: ResearchObjective[] = [
   },
   {
     id: "RO5", objective: "Identify how moms simplify and streamline their daily lives",
-    why: "Simplification behaviours connect directly to product opportunities",
+    why: "Simplification behaviors connect directly to product opportunities",
     questionIds: ["RQ5"], priority: "medium",
     platforms: [
       { name: "TikTok", justification: "Life hack and routine videos demonstrate simplification visually" },
@@ -207,23 +207,23 @@ export const DEMO_RESEARCH_OBJECTIVES: ResearchObjective[] = [
       { name: "Reddit", justification: "Practical discussion threads on simplifying routines" },
     ],
     evidence: ["Simplification strategies and categories", "Frequency and engagement indicators", "Verbatims about what works"],
-    methods: ["Behaviour Analysis", "Trend Analysis"],
-    deliverable: "Simplification Behaviours section", confidence: "medium", complexity: "medium", status: "pending",
+    methods: ["Behavior Analysis", "Trend Analysis"],
+    deliverable: "Simplification Behaviors section", confidence: "medium", complexity: "medium", status: "pending",
     searchConcepts: ["simplify life as mom", "mom routine", "batch cooking", "minimalist mom"],
   },
   {
-    id: "RO6", objective: "Analyse the role of food preparation in moms' daily lives",
+    id: "RO6", objective: "Analyze the role of food preparation in moms' daily lives",
     why: "Directly relevant to the commissioning brand's strategic context",
     questionIds: ["RQ6"], priority: "high",
     platforms: [
       { name: "TikTok", justification: "Cooking content and 'what I feed my kids' is a massive category" },
-      { name: "Reddit", justification: "r/MealPrepSunday discussions reveal practical food behaviours" },
+      { name: "Reddit", justification: "r/MealPrepSunday discussions reveal practical food behaviors" },
       { name: "Instagram", justification: "Food content and family meal sharing is engagement-rich" },
       { name: "Facebook", justification: "Recipe sharing and 'what's for dinner' discussions" },
     ],
-    evidence: ["Food preparation behaviours and routines", "Pain points around cooking", "Time-saving food strategies"],
-    methods: ["Behaviour Analysis", "Thematic Analysis"],
-    deliverable: "Food Preparation Behaviours section", confidence: "high", complexity: "medium", status: "pending",
+    evidence: ["Food preparation behaviors and routines", "Pain points around cooking", "Time-saving food strategies"],
+    methods: ["Behavior Analysis", "Thematic Analysis"],
+    deliverable: "Food Preparation Behaviors section", confidence: "high", complexity: "medium", status: "pending",
     searchConcepts: ["weeknight dinners", "meal prep mom", "picky eaters", "cooking fatigue"],
   },
   {
@@ -235,12 +235,12 @@ export const DEMO_RESEARCH_OBJECTIVES: ResearchObjective[] = [
       { name: "Reddit", justification: "Discussion about what actually saves time in the kitchen" },
     ],
     evidence: ["Meal simplification strategies", "Decision factors (time, cost, nutrition)", "Convenience vs guilt tension"],
-    methods: ["Behaviour Analysis", "Tension Analysis"],
-    deliverable: "Food Preparation Behaviours section (detail)", confidence: "medium", complexity: "medium", status: "pending",
+    methods: ["Behavior Analysis", "Tension Analysis"],
+    deliverable: "Food Preparation Behaviors section (detail)", confidence: "medium", complexity: "medium", status: "pending",
     searchConcepts: ["5 minute dinner", "dump meals", "frozen food hack", "convenience food guilt"],
   },
   {
-    id: "RO8", objective: "Catalogue the colloquialisms, slang, and phrases moms use across platforms",
+    id: "RO8", objective: "Catalog the colloquialisms, slang, and phrases moms use across platforms",
     why: "Consumer language informs brand voice, content strategy, and audience targeting",
     questionIds: ["RQ7"], priority: "medium",
     platforms: [
@@ -269,16 +269,16 @@ export const DEMO_RESEARCH_OBJECTIVES: ResearchObjective[] = [
     searchConcepts: ["mom community", "parenting discussion", "parent advice"],
   },
   {
-    id: "RO10", objective: "Compare food-preparation behaviours across life stages (A1 vs A2)",
-    why: "Life-stage comparison applied to food behaviours — directly relevant to brand strategy",
+    id: "RO10", objective: "Compare food-preparation behaviors across life stages (A1 vs A2)",
+    why: "Life-stage comparison applied to food behaviors — directly relevant to brand strategy",
     questionIds: ["RQ4", "RQ6"], priority: "medium",
     platforms: [
       { name: "Reddit", justification: "Age-specific subreddits for cohort separation" },
       { name: "TikTok", justification: "Creators self-identify their child's age" },
       { name: "Facebook", justification: "Age-specific parenting groups for targeted comparison" },
     ],
-    evidence: ["Divergent food behaviours by child age", "Shared vs unique food challenges", "Strategy differences by life stage"],
-    methods: ["Life-stage Comparison", "Behaviour Analysis"],
+    evidence: ["Divergent food behaviors by child age", "Shared vs unique food challenges", "Strategy differences by life stage"],
+    methods: ["Life-stage Comparison", "Behavior Analysis"],
     deliverable: "Life-stage Comparison section (food focus)", confidence: "medium", complexity: "medium", status: "pending",
     searchConcepts: ["cooking for toddlers vs teenagers", "picky eater stages", "feeding family"],
   },

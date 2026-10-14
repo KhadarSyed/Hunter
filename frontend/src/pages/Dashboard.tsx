@@ -1,3 +1,4 @@
+import { formatTime } from "../utils/format";
 import { useState, useEffect, useCallback } from "react";
 import { useDemoState } from "../context/demo-state";
 import { useProject, useActiveProjectId } from "../context/project-context";
@@ -5,7 +6,7 @@ import { BrandLogo } from "../components/BrandLogo";
 import { intelApi } from "../services/intel-api";
 
 type ActivityItem = { action: string; detail: string; timestamp: string };
-const clock = (seconds: number) => new Date(seconds * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const clock = (seconds: number) => formatTime(seconds * 1000);
 
 interface StageInfo {
   id: string;

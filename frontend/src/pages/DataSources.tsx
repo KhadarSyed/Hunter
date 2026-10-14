@@ -1,3 +1,4 @@
+import { formatNumber } from "../utils/format";
 import { useState, useEffect, useRef } from "react";
 import { intelApi, type JobStatus } from "../services/intel-api";
 import { useActiveProjectId, useProject } from "../context/project-context";
@@ -337,7 +338,7 @@ function RQCard({
               </svg>
               <span className="text-xs font-medium text-slate-700 truncate flex-1">{dataset.file_name}</span>
               <span className="text-xs font-bold tabular-nums" style={{ color: V }}>
-                {dataset.record_count?.toLocaleString()} records
+                {formatNumber(dataset.record_count)} records
               </span>
             </div>
 
@@ -388,7 +389,7 @@ function RQCard({
                       {Object.entries(stats.sheets).map(([sheet, count]) => (
                         <div key={sheet} className="flex items-center justify-between text-xs">
                           <span className="text-slate-600 truncate">{sheet}</span>
-                          <span className="font-semibold text-slate-700 tabular-nums">{(count as number).toLocaleString()}</span>
+                          <span className="font-semibold text-slate-700 tabular-nums">{formatNumber(count as number)}</span>
                         </div>
                       ))}
                     </div>
@@ -419,7 +420,7 @@ function RQCard({
                       {Object.entries(stats.media_types as Record<string, number>).map(([type, count]) => (
                         <div key={type} className="flex items-center justify-between text-xs">
                           <span className="text-slate-600">{type}</span>
-                          <span className="font-semibold text-slate-700 tabular-nums">{count.toLocaleString()}</span>
+                          <span className="font-semibold text-slate-700 tabular-nums">{formatNumber(count)}</span>
                         </div>
                       ))}
                     </div>
@@ -434,7 +435,7 @@ function RQCard({
                       {Object.entries(stats.top_sources).slice(0, 5).map(([source, count]) => (
                         <div key={source} className="flex items-center justify-between text-xs">
                           <span className="text-slate-600 truncate">{source}</span>
-                          <span className="font-semibold text-slate-700 tabular-nums">{(count as number).toLocaleString()}</span>
+                          <span className="font-semibold text-slate-700 tabular-nums">{formatNumber(count as number)}</span>
                         </div>
                       ))}
                     </div>

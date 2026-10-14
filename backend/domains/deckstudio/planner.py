@@ -8,7 +8,9 @@ from dataclasses import dataclass, field
 from ...core import store
 from ..deliverable.engine_types import RQ, Section
 from .indexer import FAMILY_WORDS
+from . import tables
 from .spec import SPEC_VERSION, DeckSpec, SlideSpec
+from .verbatims import us_date
 
 LIGHT_MAX_BARS = 6
 CHECKLIST_ROWS_PER_SLIDE = 9
@@ -60,6 +62,7 @@ class PlanInput:
     time_period: str = ""                                                    # the brief's window, e.g. "Past 12 months"
     mixed_media: bool = False                                                # the data has both social and editorial
     brand_share: float = 1.0                                                 # share of articles naming a brand of the set
+    repair_context: dict = field(default_factory=dict)                       # what the repair agent needs (fixer.py)
 
 
 def _link(url: str) -> str:
@@ -241,12 +244,15 @@ def build_deck_spec(inp: PlanInput) -> DeckSpec:
         page = inp.citations[p:p + CITES_PER_SLIDE]
         slides.append(SlideSpec(id=f"citations-{p // CITES_PER_SLIDE + 1}", type="citations", treatment="plain", title="Sources",
                                 tables=[{"header": ["#", "Source", "Headline", "Date"],
-                                         "rows": [[str(c["n"]), c.get("outlet") or c.get("domain", ""), c["title"], c["date"]] for c in page]}],
-                                facts_allowed=all_facts + [str(c["n"]) for c in page] + [c["date"] for c in page],
+                                         "rows": [[str(c["n"]), c.get("outlet") or c.get("domain", ""), c["title"], us_date(c["date"])]
+                                                  for c in page]}],
+                                facts_allowed=all_facts + [str(c["n"]) for c in page] + [c["date"] for c in page]
+                                + [us_date(c["date"]) for c in page],
                                 notes="\n".join(c["url"] for c in page),
                                 logos={(c.get("outlet") or c.get("domain", "")): c["icon"] for c in page if c.get("icon")}))
     slides.append(SlideSpec(id="closing", type="closing", treatment="full", title="Thank you", so_what=inp.title,
                             image={"query": f"{inp.title} thank you", "role": "background"}, reference=pick_reference("closing", family)))
+    slides = tables.paginate(slides)          # a long table continues on the next slide, never clipped
     for s in slides:
         _without_codes(s)
     return DeckSpec(version=SPEC_VERSION, title=inp.title, subtitle=inp.subtitle, period=inp.period, base_n=inp.base_n,

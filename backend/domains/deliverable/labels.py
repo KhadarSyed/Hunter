@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import Counter
 from collections.abc import Iterable
 
@@ -10,8 +11,10 @@ _NOT_ALNUM = re.compile(r"[^a-z0-9]+")
 
 
 def canon(text: str) -> str:
-    """The key variants share: case, spacing, punctuation and a plural 's' ignored ('Band-Aids' -> 'bandaid')."""
-    key = _NOT_ALNUM.sub("", str(text).lower())
+    """The key variants share: case, spacing, punctuation, accents and a plural 's' ignored ('Band-Aids' ->
+    'bandaid', 'EōS Fitness' -> 'eosfitnes', the same key as 'EoS Fitness')."""
+    folded = unicodedata.normalize("NFKD", str(text)).encode("ascii", "ignore").decode("ascii")
+    key = _NOT_ALNUM.sub("", folded.lower())
     return key[:-1] if len(key) > 3 and key.endswith("s") and not key.endswith("ss") else key
 
 

@@ -110,7 +110,7 @@ export const DEMO_RQ_QUERIES: ResearchQuestionQuery[] = [
     boolean_string:
       '(mom OR moms OR mother) AND (simplify OR shortcut OR "life hack" OR minimize OR routine OR streamline OR "girl dinner" OR "snack dinner" OR "sad beige food" OR convenience OR "batch cooking") AND NOT (hiring OR job OR ad)',
     query_type: "standalone",
-    coverage_notes: "Captures simplification behaviours including viral food trends. High TikTok volume expected.",
+    coverage_notes: "Captures simplification behaviors including viral food trends. High TikTok volume expected.",
   },
   {
     question_id: "RQ6",
@@ -126,7 +126,7 @@ export const DEMO_RQ_QUERIES: ResearchQuestionQuery[] = [
     boolean_string:
       '(mom OR moms OR mother) AND ("mom brain" OR "touched out" OR "gentle parenting" OR "crunchy mom" OR "silky mom" OR "hot mess" OR "wine mom" OR "boy mom" OR "girl mom" OR "fed is best" OR "mom rage" OR "invisible labor") AND NOT (hiring OR job OR ad)',
     query_type: "standalone",
-    coverage_notes: "Language-specific query. Designed to surface identity-signalling and community-specific phrases.",
+    coverage_notes: "Language-specific query. Designed to surface identity-signaling and community-specific phrases.",
   },
   {
     question_id: "RQ8",
@@ -141,7 +141,7 @@ export const DEMO_RQ_QUERIES: ResearchQuestionQuery[] = [
 export const DEMO_SEARCH_STRATEGY: MeltwaterStrategyOutput = {
   strategy_summary: {
     objective:
-      "Capture authentic social media conversations among US moms about their priorities, tensions, coping strategies, food-preparation behaviours, simplification patterns, and community language — segmented by child age group.",
+      "Capture authentic social media conversations among US moms about their priorities, tensions, coping strategies, food-preparation behaviors, simplification patterns, and community language — segmented by child age group.",
     approach: "audience-led",
     strengths: [
       "Audience-led approach captures organic conversations rather than brand-filtered mentions",
@@ -230,10 +230,10 @@ export const DEMO_SEARCH_STRATEGY: MeltwaterStrategyOutput = {
   term_rationale: [
     { term: "mom / moms / mother", reason_included: "Core audience identifier from brief", expected_capture: "All mom-identifying social content", risk_introduced: "Very broad — requires topic co-occurrence", source: "brief" },
     { term: '"mom life"', reason_included: "Self-identification phrase — higher precision than bare 'mom'", expected_capture: "Content where user identifies as a mom discussing their life", risk_introduced: "Low risk — highly specific phrase", source: "inferred" },
-    { term: '"meal prep"', reason_included: "Key food preparation behaviour from RQ6", expected_capture: "Planned meal preparation discussions", risk_introduced: "May capture non-mom meal prep content", source: "brief" },
+    { term: '"meal prep"', reason_included: "Key food preparation behavior from RQ6", expected_capture: "Planned meal preparation discussions", risk_introduced: "May capture non-mom meal prep content", source: "brief" },
     { term: '"picky eater"', reason_included: "Top food tension identified in background research", expected_capture: "Parent discussions about children's eating habits", risk_introduced: "Low — almost always in parenting context", source: "background-research" },
     { term: '"touched out"', reason_included: "Emerging mom-specific term for sensory overwhelm", expected_capture: "Authentic tension expression unique to parenting", risk_introduced: "Very low — term is parenting-specific", source: "background-research" },
-    { term: '"girl dinner"', reason_included: "Viral simplification trend from background research", expected_capture: "Low-effort meal conversations showing simplification behaviour", risk_introduced: "Medium — not always mom-specific", source: "background-research" },
+    { term: '"girl dinner"', reason_included: "Viral simplification trend from background research", expected_capture: "Low-effort meal conversations showing simplification behavior", risk_introduced: "Medium — not always mom-specific", source: "background-research" },
     { term: '"gentle parenting"', reason_included: "Major parenting philosophy generating online discussion", expected_capture: "Parenting approach debates and experiences", risk_introduced: "Low — specific to parenting domain", source: "background-research" },
   ],
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections import Counter
 from decimal import ROUND_HALF_UP, Decimal
 
 from .citations import CitationRegistry
@@ -178,7 +179,8 @@ def _segment_ask(segments: list[str]) -> str:
 def draft_section(section: str, facts: list[str], candidates: list[Article], registry: CitationRegistry,
                   llm, n_insights: int = 3, entities: list[str] | None = None,
                   avoid: list[str] | None = None, segments: list[str] | None = None,
-                  article_segments: dict[str, list[str]] | None = None) -> list[dict]:
+                  article_segments: dict[str, list[str]] | None = None,
+                  related_segments: set[str] | None = None) -> list[dict]:
     """Candidates get local ids 1..k in the prompt; only articles an accepted insight actually cites are
     registered, so the appendix lists cited articles only. With `segments` (a chart's categories), one card per
     segment explains what drives it."""
@@ -226,7 +228,7 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
     try:
         reply = llm.chat(messages, format_json=True)
         valid, rejected = _screen(section, json.loads(reply), allowed, pairs, local, entities or [], headline_figs,
-                                  owners=owners)
+                                  owners=owners, related=related_segments)
     except (json.JSONDecodeError, RuntimeError) as e:
         logger.warning("insight drafting for %s failed (%s); using fallback", section, e)
         return _fallback(facts, candidates, registry)
@@ -240,7 +242,7 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
         try:
             more, _ = _screen(section, json.loads(llm.chat(repair, format_json=True)), allowed, pairs, local,
                               entities or [], headline_figs, {f for h, t, _ in valid for f in _figures(f"{h} {t}")},
-                              owners=owners)
+                              owners=owners, related=related_segments)
             seen = {t for _, t, _ in valid}
             valid += [v for v in more if v[1] not in seen]          # the model may repeat an accepted insight
         except (json.JSONDecodeError, RuntimeError) as e:
@@ -339,9 +341,44 @@ def _wrong_segment(headline: str, cites: list[int], owners: dict[str, set[int]] 
     return None
 
 
+# words any card about coverage uses: they name no segment
+_MEDIA_WORDS = {"coverage", "media", "article", "articles", "story", "stories", "news", "mentions", "posts", "outlets"}
+SEGMENT_STEM = 4            # 'expansion' is named by 'expand', 'closing' by 'closures'
+
+
+def _words(label: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9]+", label.lower()) if len(w) > 3}
+
+
+def _off_segment(headline: str, text: str, owners: dict[str, set[int]] | None, context: str = "",
+                 related: set[str] = frozenset()) -> str | None:
+    """A segment card is about its segment. One that opens on another segment of the chart and never names its own
+    (a 'promotion' card that starts 'Expansion coverage is...') explains the wrong bar. A card naming neither is let through:
+    it may use a synonym ('moves into new locations' for expansion). Words every card may use -- the question's and
+    title's own ('fitness', 'planet') and words several segments share -- name no segment."""
+    own = headline.strip().rstrip(":").lower()
+    if not owners or own not in owners:
+        return None
+    shared = Counter(w for seg in set(owners) | set(related) for w in _words(seg))
+    generic = _words(context) | {w for w, n in shared.items() if n > 1} | _MEDIA_WORDS
+    body = text.lower()
+    opening = re.split(r"(?<=[.!?])\s", body, maxsplit=1)[0]      # what the card says it is about
+
+    def named(seg: str) -> bool:
+        return any(w[:SEGMENT_STEM] in body for w in _words(seg) - generic)
+
+    if not _words(own) - generic or named(own):
+        return None
+    # `related`: the categories of the question's other charts ('controversy' on the theme chart beside this one)
+    other = next((seg for seg in list(owners) + sorted(related - set(owners)) if seg != own
+                  and any(w[:SEGMENT_STEM] in opening for w in _words(seg) - generic - _words(own))), None)
+    return f"describes {other}, not {headline}: explain what drives {headline} itself" if other else None
+
+
 def _screen(section: str, parsed: dict, allowed: set[str], pairs: set, local: dict[int, Article],
             entities: list[str], shown: set[str] | None = None,
-            taken: set[str] | None = None, owners: dict[str, set[int]] | None = None) -> tuple[list[tuple], list[tuple[str, str]]]:
+            taken: set[str] | None = None, owners: dict[str, set[int]] | None = None,
+            related: set[str] | None = None) -> tuple[list[tuple], list[tuple[str, str]]]:
     """Split drafted insights into valid (headline, text, local cites) and rejected (text, reason)."""
     valid, rejected = [], []
     taken = set(taken or ())
@@ -353,6 +390,7 @@ def _screen(section: str, parsed: dict, allowed: set[str], pairs: set, local: di
         reason = (validate_insight(checked, cites, allowed, set(local), pairs)
                   or _entity_mismatch(f"{headline} {text}", cites, local, entities)
                   or _wrong_segment(headline, cites, owners)
+                  or _off_segment(headline, text, owners, section, related or set())
                   or _repeats(checked, shown or set(), taken))
         if reason:
             logger.info("dropped insight in %s: %s", section, reason)

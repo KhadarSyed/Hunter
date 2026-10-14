@@ -73,12 +73,16 @@ def get_latest_deliverable_run(project_id: int) -> Optional[dict]:
 def fail_interrupted_deliverable_runs() -> int:
     """Runs still 'running' at startup died with the previous process; without this they block Generate."""
     conn = _conn()
+    # a Fix on a finished deck (its deck_dir is set only once the run has finished) was interrupted, not the run:
+    # the deck as last saved is still the deliverable
+    repaired = conn.execute("UPDATE intel_deliverable_runs SET status = 'completed' WHERE status = 'running' "
+                            "AND stage = 'repair' AND deck_dir IS NOT NULL").rowcount
     cur = conn.execute("UPDATE intel_deliverable_runs SET status = 'failed', "
                        "error = 'interrupted by a server restart', finished_at = ? WHERE status = 'running'",
                        (time.time(),))
     conn.commit()
     conn.close()
-    return cur.rowcount
+    return cur.rowcount + repaired
 
 
 def get_active_deliverable_run(project_id: int) -> Optional[dict]:

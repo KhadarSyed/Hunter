@@ -1,3 +1,4 @@
+import { formatDateTime, formatDate } from "../utils/format";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { intelApi, type EnrichedRecord, type BrandSentiment, type QuestionDimension, type DynamicTagDef, type TagSchemas } from "../services/intel-api";
 import { TagSchemaPanel } from "./TagSchemaPanel";
@@ -35,7 +36,7 @@ const rowKey = (r: Pick<EnrichedRecord, "dataset_id" | "id">) => `${r.dataset_id
 function formatReviewedAt(iso: string | null | undefined): string {
   if (!iso) return "";
   try {
-    return new Date(iso).toLocaleString();
+    return formatDateTime(iso);
   } catch {
     return iso;
   }
@@ -214,7 +215,7 @@ function RecordDrawer({
         </div>
         <div className="flex items-center gap-3 text-xs text-slate-400 mb-4 flex-wrap">
           <span>{record.source_name}</span>
-          {record.date && <span>• {record.date}</span>}
+          {record.date && <span>• {formatDate(record.date)}</span>}
           {record.author && <span>• {record.author}</span>}
           {record.url && <a href={record.url} target="_blank" rel="noopener noreferrer" className="hover:underline" style={{ color: V }}>Open original ↗</a>}
         </div>
@@ -276,7 +277,7 @@ function RecordDrawer({
           <div className="rounded-xl border border-slate-200 p-3 space-y-0.5">
             <FieldRow label="Title / Post" value={record.title} />
             <FieldRow label="Author" value={record.author} />
-            <FieldRow label="Published" value={record.date} />
+            <FieldRow label="Published" value={record.date ? formatDate(record.date) : record.date} />
             <FieldRow label="Country" value={record.country} />
             <FieldRow label="Media type" value={record.media_type} />
             {record.reach && <FieldRow label="Reach" value={record.reach} />}

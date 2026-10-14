@@ -1,3 +1,4 @@
+import { formatDateTime, usSpelling } from "../utils/format";
 import { useState, useEffect, useCallback } from "react";
 import { intelApi } from "../services/intel-api";
 import { useActiveProjectId, useProject } from "../context/project-context";
@@ -404,7 +405,7 @@ export function PowerPointRendererPage({ onNavigate }: Props) {
                       {slide.slide_purpose.replace(/_/g, " ")}
                     </span>
                     <span className="text-sm text-slate-700 truncate flex-1">{slide.title}</span>
-                    <span className="text-xs text-slate-400">{slide.recommended_visual?.replace(/_/g, " ") || "text"}</span>
+                    <span className="text-xs text-slate-400">{usSpelling(slide.recommended_visual?.replace(/_/g, " ") || "text")}</span>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleRenderSlide(slide.id); }}
                       className="text-[10px] px-2 py-0.5 rounded border border-slate-200 text-slate-500 hover:bg-slate-100"
@@ -479,7 +480,7 @@ export function PowerPointRendererPage({ onNavigate }: Props) {
                         {h.details_json?.error && h.details_json.error}
                       </span>
                       <span className="text-xs text-slate-400">{h.actor}</span>
-                      <span className="text-xs text-slate-300">{new Date(h.created_at * 1000).toLocaleString()}</span>
+                      <span className="text-xs text-slate-300">{formatDateTime(h.created_at * 1000)}</span>
                     </div>
                   ))}
                 </div>
@@ -517,7 +518,7 @@ export function PowerPointRendererPage({ onNavigate }: Props) {
               </div>
               <div>
                 <div className="text-[10px] text-slate-400 font-medium mb-0.5">Visual</div>
-                <div className="text-xs text-slate-600">{selectedSlide.recommended_visual?.replace(/_/g, " ") || "—"}</div>
+                <div className="text-xs text-slate-600">{usSpelling(selectedSlide.recommended_visual?.replace(/_/g, " ") || "—")}</div>
               </div>
               <div>
                 <div className="text-[10px] text-slate-400 font-medium mb-0.5">Layout</div>

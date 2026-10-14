@@ -5,6 +5,8 @@ import { intelApi } from "../services/intel-api";
 // name doesn't re-fetch every time. Frontend-side complement to the backend's
 // own process-lifetime cache. Deliberately minimal — no external state library.
 const logoCache = new Map<string, string | null>();
+// brands whose logo is white: drawn on a dark chip, or it vanishes on the light page
+const lightLogos = new Set<string>();
 
 const MONOGRAM_COLORS = [
   "bg-violet-100 text-violet-700",
@@ -59,6 +61,7 @@ export function BrandLogo({ brandName, size = 20, className = "", rounded = "ful
       .then((res) => {
         if (cancelled) return;
         logoCache.set(brandName, res.logo_url);
+        if (res.is_light) lightLogos.add(brandName);
         setLogoUrl(res.logo_url);
       })
       .catch(() => {
@@ -91,7 +94,7 @@ export function BrandLogo({ brandName, size = 20, className = "", rounded = "ful
       <img
         src={logoUrl}
         alt={`${brandName} logo`}
-        className={`${radius} ${rounded === "full" ? "object-cover" : "object-contain"} shrink-0 ${className}`}
+        className={`${radius} ${rounded === "full" ? "object-cover" : "object-contain"} shrink-0 ${lightLogos.has(brandName) ? "bg-[#5B2C9D] p-[8%]" : ""} ${className}`}
         style={dimension}
         onError={() => setImgFailed(true)}
       />

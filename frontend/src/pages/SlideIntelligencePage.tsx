@@ -1,3 +1,4 @@
+import { formatDateTime as formatDateTimeUS } from "../utils/format";
 import { useState, useEffect, useCallback } from "react";
 import { intelApi } from "../services/intel-api";
 import type {
@@ -72,13 +73,7 @@ function formatDateTime(ts: number | null | undefined): string {
   if (!ts) return "--";
   const d = new Date(ts < 1e12 ? ts * 1000 : ts);
   if (isNaN(d.getTime())) return "--";
-  return d.toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDateTimeUS(d);
 }
 
 function formatBytes(bytes: number): string {

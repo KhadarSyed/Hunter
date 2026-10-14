@@ -1,3 +1,4 @@
+import { formatTime, usSpelling } from "../utils/format";
 import { useState, useEffect, useCallback } from "react";
 import { intelApi } from "../services/intel-api";
 import { useActiveProjectId, useProject } from "../context/project-context";
@@ -42,7 +43,7 @@ function StatusBadge({ status }: { status: string }) {
   const cls = STATUS_COLORS[status] || "bg-slate-100 text-slate-500";
   return (
     <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${cls}`}>
-      {status.replace(/_/g, " ")}
+      {usSpelling(status.replace(/_/g, " "))}
     </span>
   );
 }
@@ -343,7 +344,7 @@ export function PipelineOrchestratorPage({ onNavigate }: { onNavigate: (p: strin
                           log.level === "error" ? "text-red-600" : "text-slate-600"
                         }`}>
                           <span className="text-slate-400 shrink-0 w-20">
-                            {new Date(log.created_at * 1000).toLocaleTimeString()}
+                            {formatTime(log.created_at * 1000, { seconds: true })}
                           </span>
                           <span className={`shrink-0 w-12 uppercase text-[10px] font-bold ${
                             log.level === "error" ? "text-red-500" : log.level === "warn" ? "text-amber-500" : "text-slate-400"

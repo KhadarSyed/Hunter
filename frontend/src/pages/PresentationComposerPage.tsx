@@ -1,3 +1,4 @@
+import { usSpelling } from "../utils/format";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { intelApi } from "../services/intel-api";
 import type { PCPresentation, PCSlide, PCPresentationDetail, PCPresentationSummary, PCValidation } from "../types/contracts";
@@ -593,7 +594,7 @@ export function PresentationComposerPage({ onNavigate }: { onNavigate: (p: strin
                     <div className="p-3 rounded-lg border border-slate-200">
                       <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">Visual</div>
                       <div className="text-sm font-medium text-slate-800">
-                        {(selectedSlide.recommended_visual || "—").replace(/_/g, " ")}
+                        {usSpelling((selectedSlide.recommended_visual || "—").replace(/_/g, " "))}
                       </div>
                       {selectedSlide.recommended_chart && (
                         <div className="text-xs text-slate-500 mt-1">

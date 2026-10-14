@@ -475,7 +475,7 @@ def _run_execution(
     for idx, unit in enumerate(execution_units):
         run_state = _active_runs.get(run_id, {})
         if run_state.get("cancel"):
-            store.add_execution_log(run_id, "Execution cancelled by user")
+            store.add_execution_log(run_id, "Execution canceled by user")
             remaining = len(execution_units) - idx
             store.update_execution_run(run_id, status="cancelled", skipped_units=skipped + remaining)
             return {"status": "cancelled", "run_id": run_id}
@@ -696,7 +696,7 @@ def cancel_execution(run_id: int) -> bool:
     run = store.get_execution_run(run_id)
     if run and run["status"] in ("pending", "paused"):
         store.update_execution_run(run_id, status="cancelled")
-        store.add_execution_log(run_id, "Execution cancelled")
+        store.add_execution_log(run_id, "Execution canceled")
         return True
     return False
 

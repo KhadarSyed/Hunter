@@ -1,3 +1,4 @@
+import { usSpelling } from "../utils/format";
 import { useState, useEffect, useCallback } from "react";
 import { intelApi } from "../services/intel-api";
 import type { Insight, InsightDetail, InsightsSummary, StorylineDetail, StorylineSummary, StoryNodeEnriched } from "../types/contracts";
@@ -60,7 +61,7 @@ const SpinnerIcon = () => (
 );
 
 function Badge({ label, colors }: { label: string; colors: string }) {
-  return <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded border whitespace-nowrap ${colors}`}>{label.replace(/_/g, " ")}</span>;
+  return <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded border whitespace-nowrap ${colors}`}>{usSpelling(label.replace(/_/g, " "))}</span>;
 }
 
 function MetricCard({ label, value, dot }: { label: string; value: number | string; dot: string }) {

@@ -862,8 +862,11 @@ export const intelApi = {
   },
 
   // Brandfetch logo lookup
+  // The logo is served by this API (Brandfetch refuses hotlinked images), so its path takes the API's origin
   getBrandLogo: (brandName: string) =>
-    get<{ brand_name: string; logo_url: string | null }>(`/brandfetch/logo?brand_name=${encodeURIComponent(brandName)}`),
+    get<{ brand_name: string; logo_url: string | null; is_light?: boolean }>(
+      `/brandfetch/logo?brand_name=${encodeURIComponent(brandName)}`,
+    ).then((res) => ({ ...res, logo_url: res.logo_url?.startsWith("/api/") ? `${API_ORIGIN}${res.logo_url}` : res.logo_url })),
 
   // Pexels dynamic background image lookup
   getPexelsImage: (query: string) =>
@@ -1583,6 +1586,8 @@ export const intelApi = {
     post<{ source: string; status: string; error: string | null }>(`/datasources/${source}/validate`),
   // Deliverable engine: one run streams stages and sections over /ws and produces the PPTX + Word brief.
   deliverableRun: (projectId: number) => post<{ run_id: number }>(`/deliverable/${projectId}/run`, {}),
+  deliverableRepair: (projectId: number, runId: number, scope: RepairScope) =>
+    post<{ run_id: number; scope: RepairScope }>(`/deliverable/${projectId}/runs/${runId}/repair?scope=${scope}`, {}),
   deliverableLatest: (projectId: number) => get<DeliverablePayload>(`/deliverable/${projectId}/latest`),
   agentState: (projectId: number) => get<AgentState>(`/agent/${projectId}`),
   agentStart: (projectId: number, inputFolder?: string) =>
@@ -1612,6 +1617,9 @@ export interface DeliverableRun {
   error: string | null;
 }
 export interface DeliverableCard { headline: string; text: string; citations: number[] }
+/** What the Fix button repairs: the open deck checks, the brief's open asks, or both. */
+export type RepairScope = "checks" | "brief" | "all";
+
 export interface DeliverableSection {
   id: string; rq_id: string | null; module: string; title: string;
   chart?: import("../components/deliverable/ChartRenderer").ChartSpec | null;

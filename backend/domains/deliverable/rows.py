@@ -55,7 +55,8 @@ def _row(rec: dict, rq: str | None, source_file: str, index: int, date_order: st
                       outlet=str(rec.get("source_name") or rec.get("source") or ""),
                       text=str(rec.get("content") or title),
                       sentiment=rec.get("overall_sentiment") or rec.get("sentiment") or None,
-                      reach=_to_float(rec.get("reach")), source_file=source_file, row_index=index)
+                      reach=_to_float(rec.get("reach")), source_file=source_file, row_index=index,
+                      image=str(rec.get("image") or "").strip())
     return EngineRow(article=article, rq_ids={rq} if rq else set(), media_type=str(rec.get("media_type") or ""),
                      themes=_theme_labels(rec.get("themes")), entities=rec.get("entities") or {},
                      tags=rec.get("question_tags") if isinstance(rec.get("question_tags"), dict) else {},
@@ -79,6 +80,8 @@ def load_rows(project_id: int, rqs: list[RQ]) -> list[EngineRow]:
             # one article under several questions keeps every question's own tags (their names differ)
             existing.dynamic_tags = {**row.dynamic_tags, **existing.dynamic_tags}
             existing.tag_evidence = {**row.tag_evidence, **existing.tag_evidence}
+            if not existing.article.image:      # an enriched record may lack the picture its export row carries
+                existing.article.image = row.article.image
         else:
             merged[row.article.norm_url] = row
 

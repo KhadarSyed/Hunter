@@ -181,14 +181,31 @@ def _brand_sov(module, rq, rows, base_n, _):
                                            if b in {b for b, _ in top}))
 
 
-def _top_articles(module, rq, rows, base_n, _):
-    ranked = sorted(rows, key=lambda r: (-r.article.reach, -r.copies, r.article.title))[:TOP_N]
-    table_rows = [[r.article.title[:70], r.article.outlet, r.article.date.isoformat() if r.article.date else "",
-                   f"{int(r.article.reach)}" if r.article.reach else "", str(r.copies)] for r in ranked]
+def us_date(d) -> str:
+    """Sep 6, 2026: how a US reader writes a date."""
+    return f"{d:%b} {d.day}, {d.year}" if d else ""
+
+
+def _top_articles(module, rq, rows, base_n, _, brands=()):
+    """The question's most-read articles that are about the brand: articles naming a brand of the study come first,
+    then the ones tagged as answering the question, then the rest -- each group by reach. A celebrity story with
+    huge reach that matched a keyword never leads a brand's table."""
+    from . import evidence          # evidence reads dimension values from this module
+    def key(r):
+        return (not (brands and evidence.row_brands(r, brands)), not r.dynamic_tags, -r.article.reach, -r.copies,
+                r.article.title)
+    ranked = sorted(rows, key=key)[:TOP_N]
+    table_rows = [[r.article.title[:110], r.article.outlet, us_date(r.article.date),
+                   f"{int(r.article.reach):,}" if r.article.reach else "", str(r.copies)] for r in ranked]
+    links = [r.article.url if r.article.url.lower().startswith(("https://", "http://")) else "" for r in ranked]
     return _section(module, rq, table={"header": ["Headline", "Outlet", "Date", "Reach", "Copies"], "rows": table_rows,
-                                       "col_widths": [5.6, 2.4, 1.4, 1.4, 1.0]},
-                    facts=[f"\"{r.article.title[:70]}\" ({r.article.outlet}) reach {int(r.article.reach)}, {r.copies} copies"
-                           for r in ranked],
+                                       "links": links, "col_widths": [5.6, 2.4, 1.6, 1.6, 1.0]},
+                    # the first fact is the slide's lead line: the most-read article about the brand, said plainly
+                    facts=([f"{rq.id}: The most-read article was \"{ranked[0].article.title[:110]}\" in "
+                            f"{ranked[0].article.outlet}, reaching {int(ranked[0].article.reach):,} readers"]
+                           if ranked and ranked[0].article.reach else []) +
+                          [f"\"{r.article.title[:110]}\" ({r.article.outlet}, {us_date(r.article.date)}) reach "
+                           f"{int(r.article.reach):,}, {r.copies} copies" for r in ranked],
                     candidate_urls=[r.article.norm_url for r in ranked])
 
 
@@ -405,9 +422,11 @@ _HANDLERS = {"share_kpi": _share_kpi, "volume_trend": _trend, "outlet_ranking": 
 
 
 def compute_module(module: dict, rq: RQ, rows: list[EngineRow], base_n: int,
-                   extraction: dict[str, list[dict]] | None) -> Section:
+                   extraction: dict[str, list[dict]] | None, brands=()) -> Section:
     if not rows:
         return _section(module, rq, skipped=NO_ROWS)
+    if module["module"] == "top_articles":      # ranked by being about the study's brands first
+        return _top_articles(module, rq, rows, base_n, extraction, brands)
     return _HANDLERS[module["module"]](module, rq, rows, base_n, extraction)
 
 

@@ -13,12 +13,14 @@ import re
 from pathlib import Path
 
 from ..deliverable.engine_types import RQ
+from ..deliverable.insights import _off_segment
 from ..deliverable.visuals import is_badge, value_icon
 from .spec import DeckSpec, SlideSpec
 
 
-def _row(check: str, ok: bool, detail: str = "", soft: bool = False) -> dict:
-    return {"check": check, "status": "pass" if ok else ("warn" if soft else "fail"), "detail": "" if ok else detail}
+def _row(check: str, ok: bool, detail: str = "", soft: bool = False, note: str = "") -> dict:
+    """`note`: what a passing check still wants the analyst to know (e.g. a category shown as a count only)."""
+    return {"check": check, "status": "pass" if ok else ("warn" if soft else "fail"), "detail": note if ok else detail}
 
 
 def _cited(slides: list[SlideSpec]) -> set[str]:
@@ -49,6 +51,9 @@ def _chart_slides(slides: list[SlideSpec], rqs: list[RQ]) -> list[SlideSpec]:
 
 # charts of things that have a logo or site icon; people (experts, celebrities) and Yes/No shares have none
 _ENTITY_CHART = re.compile(r"brand[-_]sov|brand[-_]sentiment|outlet_ranking|entities-brands|entities-retailers")
+# charts of brands and retailers, whose mark should be the verified logo (an outlet without a site icon shows its
+# initial by design: a court-records feed or a broadcast clip has no logo to verify)
+_BRAND_CHART = re.compile(r"brand[-_]sov|brand[-_]sentiment|entities-brands|entities-retailers")
 # categories that answer nothing on their own; a chart of only these is a placeholder, and they get no insight card
 _NO_ANSWER = {"unknown", "none", "other", "not stated", "n/a"}
 SEGMENT_CARDS = 5                  # matches the planner: a breakdown chart explains up to 5 of its categories
@@ -61,6 +66,29 @@ def _segments(slide: SlideSpec) -> list[str]:
         return []
     cats = [str(c) for c in chart.get("categories") or [] if str(c).strip().lower() not in _NO_ANSWER]
     return cats[:SEGMENT_CARDS] if len(cats) >= 2 else []
+_NAMED_THINGS = re.compile(r"brand|competitor|retailer|product|outlet|expert|celebrit|people|person|entities")
+
+
+def off_topic_cards(charts: list[SlideSpec]) -> list[tuple[str, str]]:
+    """(slide id, card headline) for each category card whose text never names its category."""
+    # brand, outlet and people charts are left out: their cards name brands and people by design, and a brand's
+    # name in a theme card is not a sign the card is about the wrong theme
+    charts = [s for s in charts if not _NAMED_THINGS.search(s.id)]
+    out = []
+    by_question: dict[str, set[str]] = {}
+    for s in charts:
+        by_question.setdefault(s.id.split("-", 1)[0], set()).update(g.strip().lower() for g in _segments(s))
+    for s in charts:
+        segs = {g.strip().lower(): {0} for g in _segments(s)}
+        related = by_question.get(s.id.split("-", 1)[0], set())
+        for c in s.cards:
+            key = str(c.get("headline", "")).strip().rstrip(":").lower()
+            if key in segs and not c.get("count_only") and _off_segment(str(c.get("headline")), str(c.get("text", "")), segs,
+                                                                     f"{s.question} {s.title} {s.kicker}", related):
+                out.append((s.id, str(c.get("headline"))))
+    return out
+
+
 _STATIC = {"objectives", "methodology", "checklist", "citations", "scorecard"}   # reading slides: nothing to build
 
 
@@ -71,7 +99,7 @@ def _evidence_rows(slides: list[SlideSpec], rqs: list[RQ], has_competitors: bool
                    citation_brands: dict[str, list[str]] | None, mixed_media: bool = False,
                    territory: bool = False) -> list[dict]:
     charts = _chart_slides(slides, rqs)
-    bare = [s.id for s in charts if not _cited([s])]
+    bare = [s.id for s in charts if not _cited([s]) and "-cont-" not in s.id]   # a continued table's summary is on its first part
     rows = [_row("Every chart slide has a cited summary", not bare, "no cited summary on " + ", ".join(bare[:6]))]
     # icons belong beside named things (brands, outlets, retailers, experts, celebrities), not Yes/No or months
     unlabelled = [s.id for s in charts
@@ -87,25 +115,32 @@ def _evidence_rows(slides: list[SlideSpec], rqs: list[RQ], has_competitors: bool
                      "missing: " + "; ".join(no_logo[:4])))
     # a letter badge keeps the chart readable but is not the brand's logo: name every label still waiting for one
     # (soft: some brands have no logo that the vision check could confirm, and a wrong logo is worse than a badge)
-    badged = sorted({str(c) for s in charts if _ENTITY_CHART.search(s.id) for ch in s.charts
+    badged = sorted({str(c) for s in charts if _BRAND_CHART.search(s.id) for ch in s.charts
                      for c in ch.get("categories") or [] if str(c) in s.logos and is_badge(s.logos[str(c)])})
     rows.append(_row("Brand logos are verified, not letter-badge stand-ins", not badged,
                      f"{len(badged)} without a verified logo: " + ", ".join(badged[:10]), soft=True))
     # each category of a breakdown chart is explained on its own card (what drives it), not one summary for all
     thin = [f"{s.id} ({len(s.cards)} of {len(segs)})" for s in charts if (segs := _segments(s)) and len(s.cards) < len(segs)]
+    counted = [f"{c['headline']} ({s.id})" for s in charts for c in s.cards if c.get("count_only")]
     rows.append(_row("Every chart category has its own insight", not thin,
-                     "explained only partly: " + ", ".join(thin[:6])))
+                     "explained only partly: " + ", ".join(thin[:6]),
+                     note=f"{len(counted)} category(ies) shown as a count only - no sampled article explains them: "
+                          + ", ".join(counted[:6]) if counted else ""))
+    # a category's card is about that category: an 'expansion' card that writes about a scandal explains the wrong bar
+    off = off_topic_cards(charts)
+    rows.append(_row("Each category card explains its own category", not off,
+                     "card(s) about something else: " + ", ".join(f"{h} ({sid})" for sid, h in off[:6])))
     empty = [s.id for s in charts for ch in s.charts[:1]
              if ch.get("categories") and all(str(c).strip().lower() in _NO_ANSWER for c in ch["categories"])]
     rows.append(_row("No chart shows only 'Not stated' or 'Unknown'", not empty, "placeholder chart: " + ", ".join(empty)))
     if citation_brands is not None:
         stray = sorted((n for n in _cited(slides) if not citation_brands.get(n)), key=lambda n: int(n) if n.isdigit() else 0)
-        # a territory study (sports-injury talk for a first-aid brand) cites the conversation itself, which mostly
-        # never names the brand: there it is a note, not a failure
-        rows.append(_row("Citations name the brand or a competitor literally", not stray,
-                         "cited source(s) never name a brand: " + ", ".join(stray[:12])
-                         + (" (expected: the study is about the wider conversation, which rarely names the brand)"
-                            if territory else ""), soft=territory))
+        # a territory study (sports-injury talk for a first-aid brand) cites the conversation itself: there a source
+        # that never names the brand is the expected evidence, so the check passes with a note
+        rows.append(_row("Citations name the brand or a competitor literally", not stray or territory,
+                         "cited source(s) never name a brand: " + ", ".join(stray[:12]),
+                         note=f"{len(stray)} cited source(s) discuss the wider conversation without naming a brand, "
+                              "as expected for a territory study" if stray and territory else ""))
     walls = [s for s in slides if s.type == "verbatim_wall"]
     if has_competitors:
         rows.append(_row("Competitor verbatims on their own slide",

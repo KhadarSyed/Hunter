@@ -80,7 +80,7 @@ def set_design(deck_dir: Path, changes: dict) -> dict:
         if key not in allowed:
             rejected[key] = "not a design token"
         elif key in _COLOR_FIELDS and not _HEX.match(str(value)):
-            rejected[key] = "colours are 6 hex digits"
+            rejected[key] = "colors are 6 hex digits"
         elif key in _FONT_FIELDS and str(value) not in art_director.GOOGLE_FONTS:
             rejected[key] = "font not available"
         else:

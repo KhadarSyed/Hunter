@@ -13,6 +13,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 
 from ...core import store
+from ..research.service import industry_name
 from ...core.api import OkResponse
 from ...core.auth import require_project_access
 from ...core.config import UPLOAD_DIR
@@ -116,12 +117,15 @@ def get_analyst_brief(project_id: BriefIdParam,
 
     research = store.get_latest_research(project_id)
     research_approved = research and research.get("approval_status") == "approved"
+    content = brief["brief"]
+    if isinstance(content, dict) and not content.get("category"):    # briefs saved before the industry fallback
+        content = {**content, "category": industry_name((store.get_project(project_id) or {}).get("spec") or {})}
 
     return {
         "brief_id": brief["id"],
         "version": brief["version"],
         "approval_status": brief["approval_status"],
-        "brief": brief["brief"],
+        "brief": content,
         "docx_path": brief.get("docx_path"),
         "docx_generated_at": brief.get("docx_generated_at"),
         "research_approved": research_approved,

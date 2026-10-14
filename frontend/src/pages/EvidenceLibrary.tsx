@@ -1,3 +1,4 @@
+import { formatDateTime as formatDateTimeUS, formatDate, usSpelling } from "../utils/format";
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { ReactNode, RefObject } from "react";
 import { intelApi } from "../services/intel-api";
@@ -14,7 +15,7 @@ function formatDateTime(ts: number | null | undefined): string {
   if (!ts) return "--";
   const d = new Date(ts < 1e12 ? ts * 1000 : ts);
   if (isNaN(d.getTime())) return "--";
-  return d.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return formatDateTimeUS(d);
 }
 
 function scorePct(v: number | null | undefined): number {
@@ -176,7 +177,7 @@ function EvidenceTable({ items, selectedIds, busyItemId, onToggleSelect, onToggl
               <td className="py-2.5 pr-3 max-w-[260px]"><p className="text-slate-700 truncate" title={item.text_excerpt}>{item.text_excerpt}</p></td>
               <td className="py-2.5 pr-3 text-slate-500 max-w-[110px] truncate">{item.source || "--"}</td>
               <td className="py-2.5 pr-3 text-slate-500 whitespace-nowrap">{item.platform || "--"}</td>
-              <td className="py-2.5 pr-3 text-slate-500 whitespace-nowrap">{item.method}</td>
+              <td className="py-2.5 pr-3 text-slate-500 whitespace-nowrap">{usSpelling(item.method)}</td>
               <td className="py-2.5 pr-3"><Badge label={item.confidence} variant={item.confidence} /></td>
               <td className="py-2.5 pr-3"><QualityBar score={item.quality_score} /></td>
               <td className="py-2.5">
@@ -212,8 +213,8 @@ function EvidenceCard({ item, selected, busy, onToggleSelect, onReview, onToggle
       <div className="flex items-center flex-wrap gap-x-2 gap-y-1 text-[10px] text-slate-400">
         <span>{item.source || "Unknown source"}</span>
         {item.platform && <><span>&middot;</span><span>{item.platform}</span></>}
-        {item.date && <><span>&middot;</span><span>{item.date}</span></>}
-        <span>&middot;</span><span>{item.method}</span>
+        {item.date && <><span>&middot;</span><span>{formatDate(item.date)}</span></>}
+        <span>&middot;</span><span>{usSpelling(item.method)}</span>
       </div>
       <div className="flex items-center justify-between pt-2 border-t border-slate-100">
         <Badge label={item.confidence} variant={item.confidence} />
@@ -260,7 +261,7 @@ function DetailDrawer({ itemId, detail, loading, busy, noteDraft, setNoteDraft, 
                 <MetaRow label="Platform" value={detail.item.platform || "--"} />
                 <MetaRow label="Date" value={detail.item.date || "--"} />
                 <MetaRow label="Evidence Type" value={detail.item.evidence_type || "--"} />
-                <MetaRow label="Method" value={detail.item.method} />
+                <MetaRow label="Method" value={detail.item.method ? usSpelling(detail.item.method) : detail.item.method} />
                 <MetaRow label="Dataset" value={detail.item.dataset || "--"} />
                 <MetaRow label="Objective" value={detail.item.objective_id} />
                 <MetaRow label="Unit" value={detail.item.unit_id} />

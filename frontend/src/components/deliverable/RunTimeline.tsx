@@ -1,8 +1,8 @@
 const STAGES = ["gate", "ingest", "routing", "plan", "classify", "compute", "insights", "template", "render", "qc",
-  "index", "design", "assets", "compose", "export"] as const;
+  "index", "design", "assets", "compose", "export", "repair"] as const;
 const LABELS: Record<string, string> = { gate: "Gate", ingest: "Ingest", routing: "Routing", plan: "Plan",
   classify: "Classify", compute: "Compute", insights: "Insights", template: "Template", render: "Render", qc: "QC",
-  index: "References", design: "Design", assets: "Photos", compose: "Compose", export: "Export" };
+  index: "References", design: "Design", assets: "Photos", compose: "Compose", export: "Export", repair: "Repair" };
 
 export function RunTimeline({ stages, details }: { stages: Record<string, string>; details: Record<string, string> }) {
   return (

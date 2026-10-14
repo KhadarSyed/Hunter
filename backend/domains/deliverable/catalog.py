@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 MODULES: dict[str, dict] = {
     "share_kpi": {"needs_extraction": False, "desc": "share of coverage for this question (KPI tile)"},
-    "volume_trend": {"needs_extraction": False, "desc": "monthly volume line with the top-5 peaks labelled"},
+    "volume_trend": {"needs_extraction": False, "desc": "monthly volume line with the top-5 peaks labeled"},
     "sentiment_split": {"needs_extraction": False, "desc": "positive / neutral / negative split (doughnut)"},
     "outlet_ranking": {"needs_extraction": False, "desc": "top outlets by articles (bar chart)"},
     "reach": {"needs_extraction": False, "desc": "total and top-outlet reach (bar chart)"},

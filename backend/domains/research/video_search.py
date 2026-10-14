@@ -48,6 +48,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import unicodedata
 import time
 import zlib
 from urllib.parse import quote, urlencode
@@ -96,13 +97,17 @@ def normalize_query(text: str) -> str:
     return " ".join(text.lower().split())
 
 
+def _fold(text: str) -> str:
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+
+
 def _is_official_channel(author_name: str | None, brand: str) -> bool:
     """True only for an (near-)exact brand-name channel match — "Tesla" or "Tesla Motors"
     for brand "Tesla", never a fan/commentary channel that merely mentions the brand."""
     if not author_name or not brand:
         return False
-    a_words = re.findall(r"[a-z0-9]+", author_name.lower())
-    b_words = re.findall(r"[a-z0-9]+", brand.lower())
+    a_words = re.findall(r"[a-z0-9]+", _fold(author_name).lower())      # 'EōS Fitness' is the channel of 'EoS Fitness'
+    b_words = re.findall(r"[a-z0-9]+", _fold(brand).lower())
     if not a_words or not b_words:
         return False
     if a_words == b_words:

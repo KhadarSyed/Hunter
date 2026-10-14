@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from typing import Callable, Optional
 
 import requests
@@ -19,6 +20,29 @@ logger = logging.getLogger(__name__)
 
 class AzureOpenAIError(RuntimeError):
     pass
+
+
+ATTEMPTS = 3
+BACKOFF_S = (2, 6)                   # waits before the 2nd and 3rd attempt
+_RETRY_STATUS = {429, 500, 502, 503, 504}
+
+
+def _post(url: str, headers: dict, payload: dict, timeout: int = 180) -> requests.Response:
+    """A request that survives a dropped connection (a proxy's TLS reset), a rate limit or a server hiccup: a
+    long run makes hundreds of calls, and one transient failure must not fail it."""
+    for attempt in range(ATTEMPTS):
+        try:
+            r = requests.post(url, headers=headers, json=payload, timeout=timeout)
+        except (requests.ConnectionError, requests.Timeout) as e:
+            if attempt == ATTEMPTS - 1:
+                raise
+            logger.warning("Azure OpenAI call retried after %s", type(e).__name__)
+        else:
+            if r.status_code not in _RETRY_STATUS or attempt == ATTEMPTS - 1:
+                return r
+            logger.warning("Azure OpenAI call retried after HTTP %s", r.status_code)
+        time.sleep(BACKOFF_S[attempt])
+    raise AzureOpenAIError("unreachable")
 
 
 class AzureOpenAIClient:
@@ -55,7 +79,7 @@ class AzureOpenAIClient:
             payload["response_format"] = {"type": "json_object"}
 
         if not on_token:
-            r = requests.post(self._url(), headers=headers, json=payload, timeout=180)
+            r = _post(self._url(), headers, payload)
             if r.status_code != 200:
                 raise AzureOpenAIError(f"Azure OpenAI chat failed: {r.status_code} {r.text[:300]}")
             data = r.json()
@@ -86,7 +110,7 @@ class AzureOpenAIClient:
         payload: dict = {"messages": messages, "max_tokens": 4096}
         if tools:
             payload.update(tools=tools, tool_choice=tool_choice)
-        r = requests.post(self._url(), headers=headers, json=payload, timeout=180)
+        r = _post(self._url(), headers, payload)
         if r.status_code != 200:
             raise AzureOpenAIError(f"Azure OpenAI tool call failed: {r.status_code} {r.text[:300]}")
         message = r.json()["choices"][0]["message"]

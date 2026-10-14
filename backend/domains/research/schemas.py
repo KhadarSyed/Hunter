@@ -72,6 +72,7 @@ class BrandLogoResponse(ApiModel):
     source: str | None = None  # brandfetch | google | none
     domain: str | None = None
     cached: bool = False  # True = served from the brand_logos table
+    is_light: bool = False  # a white logo: the page sets it on a dark chip
 
 
 class PexelsImageResponse(ApiModel):

@@ -43,6 +43,12 @@ SECTION_TITLES = {
 }
 
 
+
+def industry_name(spec: dict) -> str:
+    """The scope's industry ('Fitness Centers / Health Clubs'): the brief's category when the brand gives none."""
+    industry = (spec or {}).get("industry")
+    return str(industry.get("name") or "") if isinstance(industry, dict) else str(industry or "")
+
 def compose_brief(project_id: int, research_id: int, spec: dict, research_data: dict,
                    llm_output: Optional[dict] = None) -> dict:
     source_spec = spec.get("source_spec", {})
@@ -52,7 +58,8 @@ def compose_brief(project_id: int, research_id: int, spec: dict, research_data: 
     if not research_subject:
         desc = rs.get("description", "")
         research_subject = desc if len(desc) <= 80 else brand_name
-    category = (spec.get("commissioning_brand") or source_spec.get("commissioning_brand") or {}).get("category", "")
+    category = ((spec.get("commissioning_brand") or source_spec.get("commissioning_brand") or {}).get("category", "")
+                or industry_name(spec) or industry_name(source_spec))
     if not category:
         for s in (spec, source_spec):
             subj = s.get("research_subject", {})

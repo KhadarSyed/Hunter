@@ -1,3 +1,4 @@
+import { formatDateTime as formatDateTimeUS, usSpelling } from "../utils/format";
 import { useState, useEffect, useCallback } from "react";
 import { intelApi } from "../services/intel-api";
 import type { Insight, InsightDetail, InsightsSummary } from "../types/contracts";
@@ -21,7 +22,7 @@ function formatDateTime(ts: number | null | undefined): string {
   if (!ts) return "--";
   const d = new Date(ts < 1e12 ? ts * 1000 : ts);
   if (isNaN(d.getTime())) return "--";
-  return d.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return formatDateTimeUS(d);
 }
 
 // ─── Icons ─────────────────────────────────────────────────────────────────
@@ -54,7 +55,7 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 function Badge({ label, colors }: { label: string; colors: string }) {
-  return <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded border whitespace-nowrap ${colors}`}>{label.replace(/_/g, " ")}</span>;
+  return <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded border whitespace-nowrap ${colors}`}>{usSpelling(label.replace(/_/g, " "))}</span>;
 }
 
 function MetricCard({ label, value, dot }: { label: string; value: number | string; dot: string }) {
@@ -72,7 +73,7 @@ function MetricCard({ label, value, dot }: { label: string; value: number | stri
 function FilterSelect({ label, value, onChange, options, labels }: { label: string; value: string; onChange: (v: string) => void; options: string[]; labels?: Record<string, string> }) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)} className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-600 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400">
-      {options.map((o) => <option key={o} value={o}>{o === "all" ? `All ${label}` : labels?.[o] || o.replace(/_/g, " ")}</option>)}
+      {options.map((o) => <option key={o} value={o}>{o === "all" ? `All ${label}` : labels?.[o] || usSpelling(o.replace(/_/g, " "))}</option>)}
     </select>
   );
 }
@@ -237,7 +238,7 @@ function InsightDrawer({ detail, loading, busy, notesDraft, setNotesDraft, onSav
             {detail.insight.recommended_visualisation && (
               <div>
                 <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Recommended Visualization</div>
-                <p className="text-[12px] text-slate-600">{detail.insight.recommended_visualisation}</p>
+                <p className="text-[12px] text-slate-600">{usSpelling(detail.insight.recommended_visualisation)}</p>
               </div>
             )}
 

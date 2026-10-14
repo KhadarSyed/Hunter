@@ -10,13 +10,14 @@ import logging
 import re
 import socket
 from contextlib import contextmanager
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 logger = logging.getLogger(__name__)
 GRID = 8
-CAPTURE_VERSION = "6"          # bump when capture rules change: older cached shots are taken again
+CAPTURE_VERSION = "9"          # bump when capture rules change: older cached shots are taken again
 VIEW_W, VIEW_H = 1280, 800
 CAPTURE_TIMEOUT_MS = 20000
 SETTLE_MS = 1200
@@ -30,9 +31,17 @@ _BLOCKED = re.compile(r"\b(403 forbidden|404 not found|page not found|access den
                       r"enable javascript and cookies)\b", re.I)
 BLOCK_CHECK_CHARS = 600
 POST_SELECTOR = "article, blockquote, [data-testid='tweet'], .EmbeddedMedia, .Embed"
-_TWEET = re.compile(r"(?:twitter|x)\.com/[^/]+/status/(\d+)")
+_TWEET = re.compile(r"(?:twitter|x)\.com/[^/]+/status(?:es)?/(\d+)")
 _INSTA = re.compile(r"instagram\.com/(p|reel)/([\w-]+)")
 _TIKTOK = re.compile(r"tiktok\.com/@[^/]+/video/(\d+)")
+_VIDEO_FILE = re.compile(r"\.(mp4|m3u8|mov|webm|m4v)(\?|$)", re.I)
+_POST_PAGES = ("facebook.com", "fb.watch", "instagram.com", "youtube.com", "youtu.be", "twitter.com", "x.com",
+               "tiktok.com")
+YOUTUBE_THUMB ="https://i.ytimg.com/vi/{id}/hqdefault.jpg"
+IMAGE_WAIT_MS = 8000              # a post's own photos load before its shot is taken
+# Every picture on the page has finished loading (a broken one counts as finished: it is removed or ignored)
+_IMAGES_LOADED_JS = "() => [...document.images].every(i => i.complete)"
+_POST_IMAGES_JS = "() => [...document.images].filter(i => i.naturalWidth > 200).length"
 _BODY_TEXT_JS = "() => document.body ? document.body.innerText.slice(0, 4000) : ''"
 _HEADLINE_JS = """() => { const h = document.querySelector('h1') || document.querySelector('article h2');
   if (!h) return {found: false, top: 0}; h.scrollIntoView({block: 'start'});
@@ -46,7 +55,7 @@ display:flex;align-items:center;justify-content:center;flex:none">{initial}{icon
 <div style="font:700 36px/1.3 Arial;color:#0f1419;margin-top:34px">{title}</div>
 <div style="font:400 32px/1.45 Arial;color:#0f1419;margin-top:22px">{lead}</div>{image}
 <div style="font:400 26px Arial;color:#536471;margin-top:30px">{date}</div></div></body></html>"""
-_CARD_IMAGE = ('<img src="{src}" alt="" onerror="this.remove()" style="display:block;width:100%;max-height:330px;'
+_CARD_IMAGE = ('<img class="photo" src="{src}" alt="" onerror="this.remove()" style="display:block;width:100%;max-height:330px;'
                'object-fit:cover;border-radius:18px;margin-top:26px">')     # a hot-link-blocked photo just goes
 # The page's own headline, summary, lead photo and name (Open Graph tags, else its first h1)
 _META_JS = """() => { const m = n => (document.querySelector(`meta[property="${n}"],meta[name="${n}"]`) || {}).content || '';
@@ -57,6 +66,12 @@ LEAD_CHARS = 280
 FAVICON_URL = "https://www.google.com/s2/favicons?domain={domain}&sz=128"
 _ICON = ('<img src="{src}" alt="" onerror="this.remove()" style="position:absolute;inset:0;width:72px;height:72px;'
          'border-radius:50%;background:#fff;object-fit:contain;border:1px solid #e6e6ea">')
+# Facebook and Instagram post pages answer a link-preview agent with the post's current picture (export CDN links
+# are signed and expire)
+PREVIEW_AGENT = "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"
+_PREVIEW_HOSTS = {"facebook.com", "instagram.com"}
+_OG_IMAGE_JS = "() => (document.querySelector('meta[property=\"og:image\"]') || {}).content || ''"
+_CARD_HAS_PHOTO_JS = "() => { const i = document.querySelector('.photo'); return !!i && i.naturalWidth > 0; }"
 CARD_W = 760                      # about a post's width, so a card reads like the captured posts beside it
 _CARD_HEIGHT_JS = "() => document.querySelector('.post').getBoundingClientRect().height"
 
@@ -76,7 +91,8 @@ def pick(rows, cited_urls: list[str], limit: int = GRID, ordered: bool = False) 
         stories.add(story)
         outlets.add(a.outlet)
         chosen.append({"url": a.url, "outlet": a.outlet, "title": a.title,
-                       "date": a.date.isoformat() if a.date else "", "text": (a.text or "")[:400]})
+                       "date": a.date.isoformat() if a.date else "", "text": (a.text or "")[:400],
+                       "photo": photo_url(getattr(a, "image", ""))})
 
     for url in cited_urls:
         if url in by_url:
@@ -90,6 +106,27 @@ def pick(rows, cited_urls: list[str], limit: int = GRID, ordered: bool = False) 
     return chosen
 
 
+def photo_url(url: str | None) -> str:
+    """The dataset's picture for a post when it is a still image on a public https host (a video file is not)."""
+    url = (url or "").strip()
+    host = (urlparse(url).hostname or "").lower()
+    if any(host == d or host.endswith("." + d) for d in _POST_PAGES):      # exports sometimes put the post's own page (a reel, a watch link) in the Image column
+        return ""
+    return url if url.startswith("https://") and not _VIDEO_FILE.search(url) else ""
+
+
+def youtube_id(url: str) -> str | None:
+    parsed = urlparse(url)
+    if parsed.hostname and (parsed.hostname == "youtube.com" or parsed.hostname.endswith(".youtube.com")):
+        if v := parse_qs(parsed.query).get("v"):
+            return v[0]
+        if m := re.match(r"/(?:shorts|embed|live)/([\w-]+)", parsed.path):
+            return m.group(1)
+    if parsed.hostname == "youtu.be" and parsed.path.strip("/"):
+        return parsed.path.strip("/")
+    return None
+
+
 def embed_url(url: str) -> str | None:
     if m := _TWEET.search(url):
         return f"https://platform.twitter.com/embed/Tweet.html?id={m.group(1)}"
@@ -97,11 +134,8 @@ def embed_url(url: str) -> str | None:
         return f"https://www.instagram.com/{m.group(1)}/{m.group(2)}/embed"
     if m := _TIKTOK.search(url):
         return f"https://www.tiktok.com/embed/v2/{m.group(1)}"
-    parsed = urlparse(url)
-    if parsed.hostname and parsed.hostname.endswith("youtube.com") and (v := parse_qs(parsed.query).get("v")):
-        return f"https://www.youtube.com/embed/{v[0]}"
-    if parsed.hostname == "youtu.be" and parsed.path.strip("/"):
-        return f"https://www.youtube.com/embed/{parsed.path.strip('/')}"
+    # YouTube is never embedded: a headless player draws "Video player configuration error", so a video is shown
+    # as a card with its own thumbnail instead (see _one)
     return None
 
 
@@ -154,6 +188,29 @@ def _browser_page():
             browser.close()
 
 
+BLANK_STDDEV = 3.0              # a shot this uniform is an empty frame, not a post
+
+
+def _drawn(shot: Path) -> bool:
+    """The screenshot shows something: an embed that loaded nothing leaves a blank white frame."""
+    from PIL import Image, ImageStat
+    if not shot.exists():
+        return False
+    with Image.open(shot) as im:
+        blank = ImageStat.Stat(im.convert("L")).stddev[0] < BLANK_STDDEV
+    if blank:
+        shot.unlink()
+    return not blank
+
+
+def _wait_for_images(page) -> None:
+    """A social post's photo is part of the post: the shot waits for every picture to load (or fail)."""
+    try:
+        page.wait_for_function(_IMAGES_LOADED_JS, timeout=IMAGE_WAIT_MS)
+    except Exception:           # a picture that never settles: the shot is taken with what has loaded
+        logger.info("pictures still loading at screenshot time")
+
+
 def _dismiss_consent(page) -> None:
     buttons = page.locator("button")
     for i in range(min(buttons.count(), MAX_CONSENT_BUTTONS)):
@@ -173,7 +230,8 @@ def _article_card(page, item: dict, url: str, out: Path) -> bool:
     _card(page, {**item, "url": url, "title": item.get("title") or meta.get("title") or "",
                  "text": item.get("text") or meta.get("description") or "",
                  "outlet": item.get("outlet") or meta.get("site") or "",
-                 "image": image if image.startswith("https://") and is_public_http(image) else ""}, out)
+                 "image": (image if image.startswith("https://") and is_public_http(image) else "")
+                 or item.get("image") or ""}, out)
     return out.exists()
 
 
@@ -191,14 +249,26 @@ def _capture(page, url: str, out: Path, item: dict | None = None) -> bool:
         if embed_url(url):                    # a social post: the post card itself, as the platform draws it
             post = page.locator(POST_SELECTOR).first
             if post.count():
+                post.scroll_into_view_if_needed(timeout=2000)
+                _wait_for_images(page)
+                if (item or {}).get("photo") and not page.evaluate(_POST_IMAGES_JS):
+                    return False              # the post has a photo the embed did not draw: the card shows it
                 post.screenshot(path=str(out))
-                return out.exists()
-            page.screenshot(path=str(out))
-            return out.exists()
+                return _drawn(out)
+            return False                      # no post drawn (deleted, private): the card carries its words
         return _article_card(page, item or {}, url, out)
     except Exception as e:      # blocked, timed out, crashed: the article card stands in
         logger.info("screenshot fell back to a card for %s: %s", urlparse(url).hostname, type(e).__name__)
         return False
+
+
+def us_date(value: str) -> str:
+    """'2025-12-23' as a US reader expects it: 'Dec 23, 2025'; anything else is shown as given."""
+    try:
+        d = date.fromisoformat(value[:10])
+    except ValueError:
+        return value
+    return f"{d:%b} {d.day}, {d.year}"
 
 
 def _card(page, item: dict, out: Path) -> None:
@@ -210,11 +280,11 @@ def _card(page, item: dict, out: Path) -> None:
                                   handle=html.escape(f"@{domain}" if domain else ""),
                                   icon=_ICON.format(src=html.escape(FAVICON_URL.format(domain=domain), quote=True))
                                   if domain else "", title=html.escape(item.get("title") or ""),
-                                  date=html.escape(item.get("date") or ""), lead=html.escape(lead),
+                                  date=html.escape(us_date(item.get("date") or "")), lead=html.escape(lead),
                                   image=_CARD_IMAGE.format(src=html.escape(item["image"], quote=True))
                                   if item.get("image") else ""))
     if item.get("image"):
-        page.wait_for_timeout(SETTLE_MS)          # the lead photo loads before the shot
+        _wait_for_images(page)                    # the lead photo loads before the shot
     height = page.evaluate(_CARD_HEIGHT_JS)
     height = int(height) if isinstance(height, (int, float)) and height > 0 else VIEW_H
     page.screenshot(path=str(out), clip={"x": 0, "y": 0, "width": CARD_W, "height": height}, full_page=True)
@@ -242,17 +312,45 @@ def collect(items: list[dict], folder: Path, page_factory=None) -> list[dict]:
     return out
 
 
+def _preview_photo(page, url: str) -> str:
+    """A Facebook or Instagram post's picture as the platform shows it in link previews; '' when unavailable."""
+    host = (urlparse(url).hostname or "").removeprefix("www.").removeprefix("m.")
+    if host not in _PREVIEW_HOSTS or not is_public_http(url):
+        return ""
+    try:
+        page.set_extra_http_headers({"User-Agent": PREVIEW_AGENT})
+        page.goto(url, timeout=CAPTURE_TIMEOUT_MS, wait_until="domcontentloaded")
+        photo = photo_url(page.evaluate(_OG_IMAGE_JS))
+    except Exception as e:      # blocked or timed out: the card keeps its text
+        logger.info("no preview picture for %s: %s", host, type(e).__name__)
+        photo = ""
+    finally:
+        page.set_extra_http_headers({})
+    try:
+        page.goto("about:blank")
+    except Exception:           # the next card is drawn with set_content, which needs no navigation
+        pass
+    return photo if photo and is_public_http(photo) else ""
+
+
 def _one(page, item: dict, shot: Path, card: Path) -> dict:
     """A screenshot, else an article card drawn on a clean tab (a visited site's CSP, e.g. Trusted Types, would block
     it), else nothing: one difficult article never stops the others."""
+    vid = youtube_id(item["url"])
+    if vid:                                     # a video: its own thumbnail, on a card that names the channel
+        item = {**item, "photo": item.get("photo") or YOUTUBE_THUMB.format(id=vid),
+                "outlet": item.get("outlet") or "YouTube"}
+    item = {**item, "image": item.get("photo") or ""}      # the post's own picture, drawn on its card
     try:
-        if _capture(page, item["url"], shot, item):
+        if not vid and _capture(page, item["url"], shot, item):
             return {"image": str(shot), "kind": "screenshot"}
         try:
             page.goto("about:blank")
         except Exception:       # the card is still attempted; a failure there is handled below
             pass
         _card(page, item, card)
+        if not page.evaluate(_CARD_HAS_PHOTO_JS) and (fresh := _preview_photo(page, item["url"])):
+            _card(page, {**item, "image": fresh}, card)     # the post's current picture, read from its own page
         return {"image": str(card), "kind": "card"}
     except Exception as e:
         logger.warning("verbatim skipped for %s: %s", urlparse(item["url"]).hostname, type(e).__name__)

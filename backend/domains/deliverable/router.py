@@ -2,15 +2,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Path as PathParam
+from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query
 from fastapi.responses import FileResponse
 
 from ...core import store
 from ...core.auth import require_project_access
 from ..deckstudio import data_tables
-from . import engine
+from . import engine, repair_run
 from .schemas import DeliverableRunPayload, DeliverableRunStarted
 
 router = APIRouter()
@@ -37,6 +37,20 @@ def start(project_id: ProjectId, _: Access):
         return {"run_id": engine.start_run(project_id)}
     except engine.RunBusy as e:
         raise HTTPException(409, str(e))
+
+
+@router.post("/deliverable/{project_id}/runs/{run_id}/repair", status_code=202)
+def repair(project_id: ProjectId, run_id: RunId, _: Access,
+           scope: Annotated[Literal["checks", "brief", "all"], Query()] = "all"):
+    """The repair agent on a finished run: the open deck checks, the brief's open asks, or both."""
+    _owned_run(project_id, run_id)
+    try:
+        repair_run.start(project_id, run_id, scope)
+    except engine.RunBusy as e:
+        raise HTTPException(409, str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(409, str(e))
+    return {"run_id": run_id, "scope": scope}
 
 
 @router.get("/deliverable/{project_id}/latest", response_model=DeliverableRunPayload)

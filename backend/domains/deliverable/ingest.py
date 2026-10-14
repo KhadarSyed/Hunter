@@ -28,6 +28,7 @@ class Article:
     themes: set[str] = field(default_factory=set)
     source_file: str = ""
     row_index: int = 0
+    image: str = ""            # the post's or article's own picture (Meltwater's Image column), when the export has one
 
 
 def normalize_url(url: str) -> str:

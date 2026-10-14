@@ -43,7 +43,19 @@ def _fmt(v, unit: str) -> str:
     return f"{v:.1f}%" if unit == "percent" else (str(int(v)) if v.is_integer() else f"{v:.1f}")
 
 
-def _bars(c, t, logos, w, h):
+DARK_CHIP_LUMA = 0.55
+
+
+def _dark_chip(t) -> str:
+    """The brand colour when it is dark enough to carry a white logo, else the deck's text colour."""
+    try:
+        r, g, b = (int(t.primary[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    except ValueError:
+        return t.text
+    return t.primary if 0.299 * r + 0.587 * g + 0.114 * b < DARK_CHIP_LUMA else t.text
+
+
+def _bars(c, t, logos, w, h, light=frozenset()):
     cats, vals = c["categories"], [float(v) for v in c["values"]]
     top = max(vals) or 1
     row = min(56, (h - 10) / max(1, len(cats)))
@@ -56,6 +68,9 @@ def _bars(c, t, logos, w, h):
         out.append(f'<text class="ylab" style="font-size:{LABEL_PT}px" x="{label_x}" y="{y + row * .62:.1f}" '
                    f'text-anchor="end">{escape(_fit(cat, label_x - 6))}</text>')
         if cat in logos:
+            if cat in light:            # a white logo on its dark chip, or it vanishes into the white chart
+                out.append(f'<rect x="{LABEL_W - LOGO_W - 6}" y="{y + row / 2 - LOGO_H / 2 - 2:.1f}" width="{LOGO_W + 4}" '
+                           f'height="{LOGO_H + 4}" rx="6" fill="#{_dark_chip(t)}"/>')
             out.append(f'<image href="{escape(logos[cat])}" x="{LABEL_W - LOGO_W - 4}" y="{y + row / 2 - LOGO_H / 2:.1f}" '
                        f'width="{LOGO_W}" height="{LOGO_H}" preserveAspectRatio="xMidYMid meet"/>')
         elif marked:
@@ -116,10 +131,12 @@ def _kpi(c, t, w, h):
             f'{_fmt(v, c.get("unit", "percent"))}</text>']
 
 
-def chart_svg(chart: dict, tokens: DeckTokens, logos: dict[str, str], width: int, height: int) -> str:
+def chart_svg(chart: dict, tokens: DeckTokens, logos: dict[str, str], width: int, height: int,
+              light: set[str] = frozenset()) -> str:
+    """`light`: labels whose logo is white (drawn on a dark chip)."""
     kind = chart.get("kind")
     if kind in ("bar", "treemap"):
-        body = _bars(chart, tokens, logos, width, height)
+        body = _bars(chart, tokens, logos, width, height, light)
     elif kind in ("line_peaks", "column"):
         body = _line(chart, tokens, width, height)
     elif kind == "doughnut":

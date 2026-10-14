@@ -1,3 +1,4 @@
+import { formatDate } from "../utils/format";
 import { useState, useEffect, useRef } from "react";
 import { useActiveProjectId } from "../context/project-context";
 import { intelApi, API_BASE, CREDENTIALS } from "../services/intel-api";
@@ -337,7 +338,7 @@ export function QCResults({ onNavigate }: { onNavigate: (page: string) => void }
                   <div className="flex items-center gap-2 mt-1.5 text-xs text-slate-500">
                     {group.source && <span>{group.source}</span>}
                     {group.source && group.date && <span>·</span>}
-                    {group.date && <span>{group.date}</span>}
+                    {group.date && <span>{formatDate(group.date)}</span>}
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">

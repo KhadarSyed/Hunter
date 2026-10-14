@@ -383,7 +383,7 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
         <div className="mt-10 flex flex-col items-center rounded-3xl border-2 border-dashed border-slate-300 bg-white/60 px-6 py-16 text-center">
           <Icon icon="lucide:folder-open" width={36} className="text-slate-400" />
           <p className="mt-3 text-base font-semibold text-slate-700">Currently no projects listed.</p>
-          <p className="mt-1 text-sm text-slate-500">Create a project and analyse a client brief to get started.</p>
+          <p className="mt-1 text-sm text-slate-500">Create a project and analyze a client brief to get started.</p>
           <button
             onClick={() => onNavigate(newPage)}
             className="mt-5 inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"

@@ -15,7 +15,7 @@ from ...core import config, store
 from ...core.events import broadcast
 from . import (analytics, brand_kit, catalog, engine_insights, extract, factcheck, generic_deck, templates_index,
                visuals, word_brief)
-from . import brand_analytics, entity_relevance, evidence, tag_insights
+from . import brand_analytics, entity_relevance, evidence, repair_context, tag_insights
 from ...agents import question_tag_schema
 from . import rows as R
 from .citations import CitationRegistry, domain_of
@@ -31,7 +31,7 @@ from ..strategy.dimensions import project_dimensions as question_dimensions
 
 logger = logging.getLogger(__name__)
 STAGES = ("gate", "ingest", "routing", "plan", "classify", "compute", "insights", "template", "render", "qc",
-          "index", "design", "assets", "compose", "export")
+          "index", "design", "assets", "compose", "export", "repair")
 MAX_LOGOS = 40
 RETAIL_CATEGORY = "retail: stores, supermarkets and online marketplaces"
 CITE_POOL = 12          # brand / competitor articles offered to the brand chapter's summaries
@@ -74,15 +74,17 @@ _STAGE_LABELS = {"gate": "Checking approvals", "ingest": "Ingesting approved dat
                  "insights": "Drafting cited insights", "template": "Choosing a template",
                  "render": "Building slides", "qc": "Fact check and layout QC",
                  "index": "Reading reference decks", "design": "Designing the deck",
-                 "assets": "Finding photos & logos", "compose": "Composing slides", "export": "Exporting PPTX & PDF"}
+                 "assets": "Finding photos & logos", "compose": "Composing slides", "export": "Exporting PPTX & PDF",
+                 "repair": "Repairing open deck checks"}
 
 
 # Share of a typical run's time spent in each stage: the overall % moves with the work, not the stage count
 # Percent of a run per stage (sums to 100), measured on run 45 (2026-10-13): photo search and article screenshots
-# (assets) dominate now that the creative restyle is off, so compose is short
+# (assets) dominate now that the creative restyle is off, so compose is short. The repair agent's 4 is an estimate
+# (a re-render and export when checks are open), taken from assets until runs are measured again
 STAGE_WEIGHTS = {"gate": 0, "ingest": 0, "routing": 0.3, "plan": 1.2, "classify": 0.2, "compute": 0, "insights": 7.6,
-                 "template": 0.1, "render": 17.8, "qc": 2.9, "index": 7.7, "design": 0.6, "assets": 55.6, "compose": 1.5,
-                 "export": 4.5}
+                 "template": 0.1, "render": 17.8, "qc": 2.9, "index": 7.7, "design": 0.6, "assets": 51.6, "compose": 1.5,
+                 "export": 4.5, "repair": 4}
 TYPICAL_RUNS = 5
 
 
@@ -287,6 +289,15 @@ def _page_visuals(project: dict, sections_by_rq, verified: dict[str, Path]) -> d
 _OUTLET_MODULES = ("outlet_ranking", "reach")
 
 
+OUTLET_COLUMNS = ("outlet", "source")
+
+
+def _table_outlets(s: Section) -> list[str]:
+    header = [str(h).strip().lower() for h in (s.table or {}).get("header") or []]
+    col = next((i for i, h in enumerate(header) if h in OUTLET_COLUMNS), None)
+    return [str(r[col]) for r in (s.table or {}).get("rows") or [] if col is not None and len(r) > col and r[col]]
+
+
 def _label_icons(sections_by_rq, rows, folder: Path, color: str) -> dict[str, Path]:
     """An icon beside every chart label that has one: a sport's or an injury's symbol, an outlet's site icon."""
     domain_by_outlet: dict[str, str] = {}
@@ -296,6 +307,10 @@ def _label_icons(sections_by_rq, rows, folder: Path, color: str) -> dict[str, Pa
     out: dict[str, Path] = {}
     for secs in sections_by_rq.values():
         for s in secs:
+            for outlet in _table_outlets(s):         # a table's outlet column shows each site's icon too
+                if outlet not in out and (icon := visuals.favicon_png(domain_by_outlet.get(outlet, ""), folder / "favicons")
+                                          or visuals.letter_badge_png(outlet, folder / "favicons", color)):
+                    out[outlet] = icon
             for label in (s.chart or {}).get("categories") or []:
                 if label in out:
                     continue
@@ -540,7 +555,7 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         sections_by_rq: dict[str, list[Section]] = {}
         for q in rqs:
             sections_by_rq[q.id] = [analytics.compute_module(m, q, rows_by_rq[q.id], base,
-                                                             extraction.get((q.id, m.get("entity_kind"))))
+                                                             extraction.get((q.id, m.get("entity_kind"))), brands)
                                     for m in plans[q.id]["modules"]]
             tagged = tag_insights.tag_section(q, rows_by_rq[q.id], tag_schemas.get(q.id))
             if tagged:               # the question answered from its own tags leads its chapter
@@ -643,6 +658,10 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
             plan_input.citation_brands = _citation_brands(registry, rows, brands)
             plan_input.brand_share = sum(1 for r in rows if evidence.row_brands(r, brands)) / max(1, len(rows))
             plan_input.mixed_media = len({analytics._channel(r) for r in rows} - {""}) > 1
+            plan_input.repair_context = repair_context.build(
+                rqs, {**sections_by_rq, BRAND_KEY: brand_secs}, rows_by_rq, rows, brands,
+                {**{q.id: _relevant_urls(rows_by_rq[q.id], answer_tags[q.id], brands) for q in rqs},
+                 BRAND_KEY: {r.article.norm_url for r in brand_evidence}})
             studio = run_studio(run, project_id, llm, plan_input,
                                 inp.brand_colors, inp.brand_image, inp.logos, out_dir,
                                 on_fix=lambda sid, action, kind: agent_memory.remember(

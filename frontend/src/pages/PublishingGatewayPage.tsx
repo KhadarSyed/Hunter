@@ -1,3 +1,4 @@
+import { formatDateTime } from "../utils/format";
 import { useState, useEffect, useCallback } from "react";
 import { intelApi as api } from "../services/intel-api";
 import { useActiveProjectId, useProject } from "../context/project-context";
@@ -46,7 +47,7 @@ function severityBadge(s: string) {
 }
 
 function formatTime(ts: number) {
-  return new Date(ts * 1000).toLocaleString();
+  return formatDateTime(ts * 1000);
 }
 
 function formatBytes(b: number) {

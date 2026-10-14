@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 
 SHARED = 0                      # agent-memory scope shared by every project
 MEMORY_KIND = "entity_relevance"
-ENTITY_SECTIONS = re.compile(r"-(brands|products|retailers)$")
+# entity charts, and a question's own breakdown of brands ('Competitor brand': where a keyword can pull in 'Gym')
+ENTITY_SECTIONS = re.compile(r"-(brands|products|retailers)$|question_breakdown-\w*(brand|competitor|retailer|product)")
 MAX_NAMES = 60                  # names judged in one call
 _BRAND_FACT = re.compile(r"^Brand (.+): (\d+) of (\d+) brand mentions")
 
