@@ -14,6 +14,7 @@ __pycache__/
 node_modules/
 frontend/dist/
 frontend/tsconfig.tsbuildinfo
+frontend/.vite/
 backend/static/
 
 # Runtime data (databases, uploads, rendered deliverables, local settings)
