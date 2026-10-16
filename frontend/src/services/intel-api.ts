@@ -21,8 +21,12 @@ async function json<T>(res: Response): Promise<T> {
     throw new Error("Backend not reachable — restart the backend server");
   }
   if (!res.ok) {
-    const text = await res.text().catch(() => res.statusText);
-    throw new Error(`${res.status}: ${text}`);
+    // keep the "<status>: " prefix (callers check it), but show FastAPI's readable detail, not the raw JSON body
+    const body = await res.json().catch(() => null);
+    const detail = typeof body?.detail === "string" ? body.detail
+      : Array.isArray(body?.detail) ? body.detail.map((d: { msg?: string }) => d.msg).filter(Boolean).join("; ")
+      : res.statusText;
+    throw new Error(`${res.status}: ${detail}`);
   }
   return res.json();
 }
@@ -1615,6 +1619,8 @@ export interface DeliverableRun {
   stages: Record<string, "running" | "done" | "failed">; pptx_path: string | null; docx_path: string | null;
   studio_pptx_path?: string | null; html_path?: string | null; pdf_path?: string | null;
   error: string | null;
+  /** False on runs made before repairs were saved with the deck: those need one regenerate before Fix works. */
+  repairable?: boolean;
 }
 export interface DeliverableCard { headline: string; text: string; citations: number[] }
 /** What the Fix button repairs: the open deck checks, the brief's open asks, or both. */

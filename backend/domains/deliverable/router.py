@@ -31,6 +31,15 @@ def _owned_run(project_id: int, run_id: int) -> dict:
     return run
 
 
+def _payload(run_id: int) -> dict:
+    """The run with its sections, plus whether its Fix buttons can work (older runs need one regenerate first)."""
+    payload = engine.run_payload(run_id)
+    run = payload["run"]
+    if not run:
+        return payload
+    return {**payload, "run": {**run, "repairable": repair_run.has_repair_context(run)}}
+
+
 @router.post("/deliverable/{project_id}/run", response_model=DeliverableRunStarted)
 def start(project_id: ProjectId, _: Access):
     try:
@@ -56,13 +65,13 @@ def repair(project_id: ProjectId, run_id: RunId, _: Access,
 @router.get("/deliverable/{project_id}/latest", response_model=DeliverableRunPayload)
 def latest(project_id: ProjectId, _: Access):
     run = store.get_latest_deliverable_run(project_id)
-    return engine.run_payload(run["id"]) if run else {"run": None, "sections": []}
+    return _payload(run["id"]) if run else {"run": None, "sections": []}
 
 
 @router.get("/deliverable/{project_id}/runs/{run_id}", response_model=DeliverableRunPayload)
 def get_run(project_id: ProjectId, run_id: RunId, _: Access):
     _owned_run(project_id, run_id)
-    return engine.run_payload(run_id)
+    return _payload(run_id)
 
 
 @router.get("/deliverable/{project_id}/runs/{run_id}/download/{kind}", response_class=FileResponse)

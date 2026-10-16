@@ -211,7 +211,7 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
       setPayload((p) => (p.run?.id === current.id ? { ...p, run: { ...p.run, status: "running", stage: "repair" } } : p));
       setTab("log");                      // the repair streams where the run did
     } catch (e) {
-      setStartError(e instanceof Error ? e.message : "Could not start the repair");
+      setStartError(e instanceof Error ? e.message.replace(/^\d+:\s*/, "") : "Could not start the repair");
     }
   };
 
@@ -295,7 +295,8 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
           {tab === "presentation" && (
             <TabPanel id="presentation">
               {studio && run.status !== "failed" ? (
-                <StudioDeckCard projectId={projectId} runId={run.id} studio={studio} isRepairing={repairing} onRepair={repair} />
+                <StudioDeckCard projectId={projectId} runId={run.id} studio={studio} isRepairing={repairing}
+                  canRepair={run.repairable !== false} onRepair={repair} />
               ) : (
                 <p className="rounded-xl border border-dashed border-slate-200 p-6 text-sm text-slate-500">
                   {running ? "The presentation appears here when the run reaches the deck." : "No presentation for this run."}

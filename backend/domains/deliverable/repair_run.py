@@ -14,11 +14,16 @@ from . import engine
 logger = logging.getLogger(__name__)
 
 
+def has_repair_context(run: dict) -> bool:
+    """Whether the Fix button can work on this run: runs from before repairs were saved with the deck cannot."""
+    return bool(run.get("deck_dir")) and (Path(run["deck_dir"]) / fixer.CONTEXT_FILE).exists()
+
+
 def start(project_id: int, run_id: int, scope: str, *, llm=None, threaded: bool = True) -> None:
     run = store.get_deliverable_run(run_id) or {}
     if run.get("status") != "completed":
         raise engine.RunBusy("Only a finished deliverable can be repaired")
-    if not run.get("deck_dir") or not (Path(run["deck_dir"]) / fixer.CONTEXT_FILE).exists():
+    if not has_repair_context(run):
         raise FileNotFoundError("This run was made before repairs were saved with the deck; regenerate it once")
     with engine._lock:
         if store.get_active_deliverable_run(project_id):

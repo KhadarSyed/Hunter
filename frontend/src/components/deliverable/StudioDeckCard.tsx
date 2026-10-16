@@ -27,6 +27,16 @@ function FixButton({ label, isRepairing, onClick }: FixButtonProps) {
   );
 }
 
+/** In place of a Fix button on runs made before repairs were saved with the deck: those need one regenerate first. */
+function RegenerateHint() {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800"
+      title="Quick fixes need the repair notes saved with newer decks. Regenerate this deliverable once and Fix will work on it.">
+      <Icon icon="lucide:info" width={14} /> Regenerate once to enable Fix
+    </span>
+  );
+}
+
 /** The deck in an iframe, with a loading state until it has loaded (a 100-slide deck takes a few seconds). */
 function DeckPreview({ src }: { src: string }) {
   const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
@@ -50,11 +60,13 @@ type Props = {
   runId: number;
   studio: DeliverableSection;
   isRepairing: boolean;
+  /** False on runs made before repairs were saved with the deck: Fix would be refused, so a hint shows instead. */
+  canRepair: boolean;
   onRepair: (scope: RepairScope) => void;
 };
 
 /** The brand-led presentation: live preview, why this design, how well it answers the brief, downloads. */
-export function StudioDeckCard({ projectId, runId, studio, isRepairing, onRepair }: Props) {
+export function StudioDeckCard({ projectId, runId, studio, isRepairing, canRepair, onRepair }: Props) {
   const deckUrl = intelApi.deliverableDeckUrl(projectId, runId, "deck.html");
   const score = studio.scorecard ?? { covered: 0, partial: 0, missing: 0 };
   const gaps = (studio.checklist ?? []).filter((r) => r.status !== "covered");
@@ -93,10 +105,10 @@ export function StudioDeckCard({ projectId, runId, studio, isRepairing, onRepair
           <div>
             <div className="mb-2 flex items-center justify-between gap-3">
               <p className="text-sm font-semibold text-slate-800">Did we answer the brief?</p>
-              {gaps.length > 0 && (
+              {gaps.length > 0 && (canRepair ? (
                 <FixButton label={`Fix ${gaps.length} brief gap${gaps.length > 1 ? "s" : ""}`} isRepairing={isRepairing}
                   onClick={() => onRepair("brief")} />
-              )}
+              ) : <RegenerateHint />)}
             </div>
             <div className="flex flex-wrap gap-2">
               {(["covered", "partial", "missing"] as const).map((k) => (
@@ -117,10 +129,10 @@ export function StudioDeckCard({ projectId, runId, studio, isRepairing, onRepair
             <div>
               <div className="mb-2 flex items-center justify-between gap-3">
                 <p className="text-sm font-semibold text-slate-800">Deck checks</p>
-                {openChecks.length > 0 && (
+                {openChecks.length > 0 && (canRepair ? (
                   <FixButton label={`Fix ${openChecks.length} open check${openChecks.length > 1 ? "s" : ""}`}
                     isRepairing={isRepairing} onClick={() => onRepair("checks")} />
-                )}
+                ) : <RegenerateHint />)}
               </div>
               <div className="flex flex-wrap gap-2">
                 {(["pass", "warn", "fail"] as const).map((k) => (
