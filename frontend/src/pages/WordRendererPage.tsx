@@ -486,9 +486,6 @@ export function WordRendererPage({ onNavigate }: Props) {
         <button onClick={() => onNavigate("powerpoint-renderer")} className="px-4 py-2.5 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
           Back to PowerPoint Renderer
         </button>
-        <button onClick={() => onNavigate("pipeline-orchestrator")} className="px-5 py-2.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm">
-          Proceed to Pipeline
-        </button>
       </div>
     </div>
   );

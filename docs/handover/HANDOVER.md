@@ -80,9 +80,9 @@ Each stage is a backend module + a frontend page. Stages run sequentially per pr
 | 3 | **Background Research** | `background_brief_service.py` + `web_research_adapter.py` | `BackgroundResearch.tsx` | Working — DuckDuckGo search, LLM or rule-based composition |
 | 4 | **Search Strategy** | `intelligence_api.py` (`_build_deterministic_strategy`) + `agents/meltwater_query_builder.py` | `SearchStrategy.tsx` | Working — deterministic fallback just fixed |
 | 5 | **Data Sources** | `intelligence_api.py` (data source endpoints) | `DataSources.tsx` | UI exists |
-| 6 | **Research Execution** | `research.py` + `executor_service.py` | `ResearchExecution.tsx` | UI exists |
+| 6 | **Research Execution** | `research.py` + `executor_service.py` | — | UI removed 2026-10-16 (deck engine analyses datasets directly) |
 | 7 | **Evidence Library** | `evidence_library.py` | `EvidenceLibrary.tsx` | UI exists |
-| 8 | **Analysis & Insights** | `insight_generator.py` + `sov_analyzer.py` + `theme_classifier.py` | `AnalysisPage.tsx` + `InsightsPage.tsx` | UI exists |
+| 8 | **Analysis & Insights** | `insight_generator.py` + `sov_analyzer.py` + `theme_classifier.py` | `InsightsPage.tsx` | Analysis page removed 2026-10-16; deck insights show on Deliverables |
 | 9 | **Storyline** | `storyline_builder.py` | `StorylinePage.tsx` | UI exists |
 | 10 | **Slide Intelligence** | `slide_intelligence.py` | `SlideIntelligencePage.tsx` | UI exists |
 | 11 | **Presentation Composer** | `presentation_composer.py` | `PresentationComposerPage.tsx` | UI exists |
@@ -91,7 +91,6 @@ Each stage is a backend module + a frontend page. Stages run sequentially per pr
 
 **Additional pages (not in the linear pipeline):**
 - `QueryEvaluation.tsx` → `agents/query_evaluator.py`
-- `PipelineOrchestratorPage.tsx` → `pipeline_orchestrator.py`
 - `PublishingGatewayPage.tsx` → `publishing_gateway.py`
 - QC flow: `QCUpload.tsx` → `QCFieldMapping.tsx` → `QCResults.tsx` → `QCExport.tsx` (uses `qc_service.py`, `qc_parser.py`, `qc_export.py`)
 

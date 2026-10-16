@@ -1,4 +1,4 @@
-import type { Insight, InsightDetail, InsightsSummary, InsightValidation, InsightEvidence, Storyline, StorylineDetail, StorylineSummary, StorylineValidation, StoryNodeEnriched, StoryNode, SIDashboard, SIPresentation, SISlide, SITemplateFamily, SIDetectedProject, SIRecommendation, PCPresentation, PCSlide, PCPresentationDetail, PCPresentationSummary, PCValidation, RenderJob, RenderResult, RenderSummary, RenderTheme, RenderValidation, RenderMetric, RenderHistory, PipelineRunDetail, PipelineProjectStatus, PipelineTimelineEntry, PipelineLog, PipelinePerformance, PipelineCacheMetrics, PipelineDependencyNode, PipelineStageStatus, WordRenderResult, WordRenderJob, WordDocument, WordRenderMetric, WordRenderHistory, WordRenderSummary, WordValidation, PubValidationResult, PubValidation, PubDiffReport, PubVersion, PubPackage, PubPackageResult, PubApproval, PubApprovalResult, PubReadinessSummary, PubAuditEntry, PubDownload, PubVersionResult } from "../types/contracts";
+import type { Insight, InsightDetail, InsightsSummary, InsightValidation, InsightEvidence, Storyline, StorylineDetail, StorylineSummary, StorylineValidation, StoryNodeEnriched, StoryNode, SIDashboard, SIPresentation, SISlide, SITemplateFamily, SIDetectedProject, SIRecommendation, PCPresentation, PCSlide, PCPresentationDetail, PCPresentationSummary, PCValidation, RenderJob, RenderResult, RenderSummary, RenderTheme, RenderValidation, RenderMetric, RenderHistory, WordRenderResult, WordRenderJob, WordDocument, WordRenderMetric, WordRenderHistory, WordRenderSummary, WordValidation, PubValidationResult, PubValidation, PubDiffReport, PubVersion, PubPackage, PubPackageResult, PubApproval, PubApprovalResult, PubReadinessSummary, PubAuditEntry, PubDownload, PubVersionResult } from "../types/contracts";
 
 // Empty by default (relative paths), matching same-origin deploys where the backend
 // serves the built SPA directly. Set VITE_API_BASE_URL (e.g. "https://api.example.com")
@@ -985,69 +985,6 @@ export const intelApi = {
       prerequisites: Record<string, { status: string; message: string }>;
     }>("/plan/validate", { project_id: projectId }),
 
-  // Research Execution
-  startExecution: (projectId: number) =>
-    post<{ job_id: string; project_id: number }>("/execution/start", {
-      project_id: projectId,
-    }),
-
-  getExecutionStatus: (projectId: number) =>
-    get<{
-      run_id: number;
-      project_id: number;
-      plan_id: number;
-      status: string;
-      total_units: number;
-      completed_units: number;
-      failed_units: number;
-      skipped_units: number;
-      total_evidence: number;
-      elapsed_seconds: number | null;
-      started_at: number | null;
-      finished_at: number | null;
-      units: {
-        id: number;
-        unit_id: string;
-        objective_id: string;
-        method: string;
-        status: string;
-        progress_pct: number;
-        records_processed: number;
-        coverage_volume?: number | null;
-        evidence_count: number;
-        error: string | null;
-      }[];
-      logs: {
-        level: string;
-        message: string;
-        unit_id: string | null;
-        created_at: number;
-      }[];
-    } | null>(`/execution/${projectId}`),
-
-  pauseExecution: (runId: number) =>
-    post<{ ok: boolean }>(`/execution/${runId}/pause`),
-
-  resumeExecution: (runId: number, projectId: number) =>
-    post<{ job_id: string }>(`/execution/${runId}/resume`, {
-      project_id: projectId,
-    }),
-
-  cancelExecution: (runId: number) =>
-    post<{ ok: boolean }>(`/execution/${runId}/cancel`),
-
-  retryUnit: (runId: number, unitId: string, projectId: number) =>
-    post<{ status: string; evidence_count?: number }>(
-      `/execution/${runId}/retry/${unitId}`,
-      { project_id: projectId },
-    ),
-
-  getEvidence: (runId: number, unitId?: string) =>
-    get<unknown[]>(`/execution/${runId}/evidence${unitId ? `?unit_id=${unitId}` : ""}`),
-
-  getExecutionLogs: (runId: number, limit = 100) =>
-    get<unknown[]>(`/execution/${runId}/logs?limit=${limit}`),
-
   // Evidence Library
   ingestEvidence: (projectId: number, runId: number) =>
     post<{ ingested: number; skipped: number; duplicates_found: number; total: number }>(
@@ -1379,56 +1316,6 @@ export const intelApi = {
 
   rendererMetrics: (jobId: string) =>
     get<RenderMetric[]>(`/renderer/metrics/${jobId}`),
-
-  // ── Pipeline Orchestrator ─────────────────────────────────────────
-
-  pipelineStart: (projectId: number, mode = "full", startStage?: string, singleStage?: string) =>
-    post<any>("/pipeline/start", { project_id: projectId, mode, start_stage: startStage, single_stage: singleStage }),
-
-  pipelinePause: (runId: string) =>
-    post<any>(`/pipeline/${runId}/pause`, {}),
-
-  pipelineResume: (runId: string) =>
-    post<any>(`/pipeline/${runId}/resume`, {}),
-
-  pipelineCancel: (runId: string) =>
-    post<any>(`/pipeline/${runId}/cancel`, {}),
-
-  pipelineRetry: (runId: string, stageId: string) =>
-    post<any>(`/pipeline/${runId}/retry`, { stage_id: stageId }),
-
-  pipelineRunStage: (projectId: number, stageId: string) =>
-    post<any>("/pipeline/run-stage", { project_id: projectId, single_stage: stageId }),
-
-  pipelineRunFrom: (projectId: number, stageId: string) =>
-    post<any>("/pipeline/run-from", { project_id: projectId, start_stage: stageId }),
-
-  pipelineStatus: (runId: string) =>
-    get<PipelineRunDetail>(`/pipeline/status/${runId}`),
-
-  pipelineProjectStatus: (projectId: number) =>
-    get<PipelineProjectStatus>(`/pipeline/project/${projectId}`),
-
-  pipelineTimeline: (runId: string) =>
-    get<PipelineTimelineEntry[]>(`/pipeline/timeline/${runId}`),
-
-  pipelineLogs: (runId: string, stageId?: string) =>
-    get<PipelineLog[]>(`/pipeline/logs/${runId}${stageId ? `?stage_id=${stageId}` : ""}`),
-
-  pipelineMetrics: (projectId: number) =>
-    get<PipelinePerformance>(`/pipeline/metrics/${projectId}`),
-
-  pipelineCache: (projectId: number) =>
-    get<PipelineCacheMetrics>(`/pipeline/cache/${projectId}`),
-
-  pipelineClearCache: (projectId: number, stageId?: string) =>
-    post<{ cleared: number }>(`/pipeline/cache/${projectId}/clear`, { stage_id: stageId }),
-
-  pipelineGraph: () =>
-    get<Record<string, PipelineDependencyNode>>("/pipeline/graph"),
-
-  pipelineStages: (projectId: number) =>
-    get<Record<string, PipelineStageStatus>>(`/pipeline/stages/${projectId}`),
 
   // ── Word Report Renderer ─────────────────────────────────────────
 

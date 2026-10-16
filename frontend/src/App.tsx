@@ -19,11 +19,8 @@ import { BackgroundResearch } from "./pages/BackgroundResearch";
 import { SearchStrategy } from "./pages/SearchStrategy";
 import { QueryEvaluation } from "./pages/QueryEvaluation";
 import { DataSources } from "./pages/DataSources";
-import { WorkflowOverview } from "./pages/WorkflowOverview";
 import { ResearchPlan } from "./pages/ResearchPlan";
-import { ResearchExecution } from "./pages/ResearchExecution";
 import { EvidenceLibrary } from "./pages/EvidenceLibrary";
-import { AnalysisPage } from "./pages/AnalysisPage";
 import { InsightsPage } from "./pages/InsightsPage";
 import { StorylinePage } from "./pages/StorylinePage";
 import { SlideIntelligencePage } from "./pages/SlideIntelligencePage";
@@ -31,7 +28,6 @@ import { PresentationComposerPage } from "./pages/PresentationComposerPage";
 import { PowerPointRendererPage } from "./pages/PowerPointRendererPage";
 import { WordRendererPage } from "./pages/WordRendererPage";
 import { PublishingGatewayPage } from "./pages/PublishingGatewayPage";
-import { PipelineOrchestratorPage } from "./pages/PipelineOrchestratorPage";
 import { DeliverablesPage } from "./pages/DeliverablesPage";
 import { QCUpload } from "./pages/QCUpload";
 import { QCFieldMapping } from "./pages/QCFieldMapping";
@@ -56,11 +52,8 @@ const PAGES = {
   "search-strategy": SearchStrategy,
   "query-evaluation": QueryEvaluation,
   "data-sources": DataSources,
-  workflow: WorkflowOverview,
   "research-plan": ResearchPlan,
-  "research-execution": ResearchExecution,
   "evidence-library": EvidenceLibrary,
-  analysis: AnalysisPage,
   insights: InsightsPage,
   storyline: StorylinePage,
   "slide-intelligence": SlideIntelligencePage,
@@ -68,7 +61,6 @@ const PAGES = {
   "powerpoint-renderer": PowerPointRendererPage,
   "word-renderer": WordRendererPage,
   "publishing-gateway": PublishingGatewayPage,
-  "pipeline-orchestrator": PipelineOrchestratorPage,
   deliverables: DeliverablesPage,
   "qc-upload": QCUpload,
   "qc-field-mapping": QCFieldMapping,
