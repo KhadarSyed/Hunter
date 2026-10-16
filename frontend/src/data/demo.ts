@@ -103,19 +103,6 @@ export const DEMO_ANALYSIS_STEPS = [
   { label: "Running validation", status: "completed" as const },
 ];
 
-export const DEMO_WORKFLOW_STAGES = [
-  { id: "understanding", label: "Understanding", status: "completed" as const, progress: 100, owner: "Brief & Scope Agent", inputs: "Client brief (1,162 chars)", outputs: "Project Specification", approval: "Gate 1 — Approved" },
-  { id: "background", label: "Background", status: "completed" as const, progress: 100, owner: "Brand Intelligence", inputs: "Approved Specification", outputs: "Brand & Issue Research", approval: "Approved" },
-  { id: "search-strategy", label: "Search Strategy", status: "completed" as const, progress: 100, owner: "Query Builder", inputs: "Spec + Brand Intelligence", outputs: "Meltwater Queries", approval: "Gate — Approved" },
-  { id: "data-collection", label: "Data Collection", status: "completed" as const, progress: 100, owner: "Data Source Manager", inputs: "Approved Queries", outputs: "Meltwater Dataset", approval: "Dataset Validated" },
-  { id: "planning", label: "Planning", status: "completed" as const, progress: 100, owner: "Research Planner", inputs: "Spec + Dataset + Background", outputs: "Research Plan (10 objectives)", approval: "Gate — Approved" },
-  { id: "researching", label: "Researching", status: "pending" as const, progress: 0, owner: "Research Executor", inputs: "Research Plan + Dataset", outputs: "Evidence Collection", approval: "Pending" },
-  { id: "synthesizing", label: "Synthesizing", status: "pending" as const, progress: 0, owner: "Insight Agent", inputs: "Evidence Collection", outputs: "Insights & Themes", approval: "Pending" },
-  { id: "storylining", label: "Storylining", status: "pending" as const, progress: 0, owner: "Storyline Agent", inputs: "Insights & Themes", outputs: "Narrative Structure", approval: "Pending" },
-  { id: "designing", label: "Designing", status: "pending" as const, progress: 0, owner: "Deck Builder", inputs: "Narrative Structure", outputs: "Presentation Deck", approval: "Pending" },
-  { id: "quality", label: "Quality Review", status: "pending" as const, progress: 0, owner: "QA Agent", inputs: "Final Deck", outputs: "Approved Deliverable", approval: "Pending" },
-];
-
 export const DEMO_RECENT_ACTIVITY = [
   { time: "2 mins ago", action: "Research Plan approved", detail: "10 objectives across 6 platforms" },
   { time: "12 mins ago", action: "Research Plan generated", detail: "Planner completed in 6m 12s" },

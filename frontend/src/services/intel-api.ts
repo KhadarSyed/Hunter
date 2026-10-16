@@ -985,69 +985,6 @@ export const intelApi = {
       prerequisites: Record<string, { status: string; message: string }>;
     }>("/plan/validate", { project_id: projectId }),
 
-  // Research Execution
-  startExecution: (projectId: number) =>
-    post<{ job_id: string; project_id: number }>("/execution/start", {
-      project_id: projectId,
-    }),
-
-  getExecutionStatus: (projectId: number) =>
-    get<{
-      run_id: number;
-      project_id: number;
-      plan_id: number;
-      status: string;
-      total_units: number;
-      completed_units: number;
-      failed_units: number;
-      skipped_units: number;
-      total_evidence: number;
-      elapsed_seconds: number | null;
-      started_at: number | null;
-      finished_at: number | null;
-      units: {
-        id: number;
-        unit_id: string;
-        objective_id: string;
-        method: string;
-        status: string;
-        progress_pct: number;
-        records_processed: number;
-        coverage_volume?: number | null;
-        evidence_count: number;
-        error: string | null;
-      }[];
-      logs: {
-        level: string;
-        message: string;
-        unit_id: string | null;
-        created_at: number;
-      }[];
-    } | null>(`/execution/${projectId}`),
-
-  pauseExecution: (runId: number) =>
-    post<{ ok: boolean }>(`/execution/${runId}/pause`),
-
-  resumeExecution: (runId: number, projectId: number) =>
-    post<{ job_id: string }>(`/execution/${runId}/resume`, {
-      project_id: projectId,
-    }),
-
-  cancelExecution: (runId: number) =>
-    post<{ ok: boolean }>(`/execution/${runId}/cancel`),
-
-  retryUnit: (runId: number, unitId: string, projectId: number) =>
-    post<{ status: string; evidence_count?: number }>(
-      `/execution/${runId}/retry/${unitId}`,
-      { project_id: projectId },
-    ),
-
-  getEvidence: (runId: number, unitId?: string) =>
-    get<unknown[]>(`/execution/${runId}/evidence${unitId ? `?unit_id=${unitId}` : ""}`),
-
-  getExecutionLogs: (runId: number, limit = 100) =>
-    get<unknown[]>(`/execution/${runId}/logs?limit=${limit}`),
-
   // Evidence Library
   ingestEvidence: (projectId: number, runId: number) =>
     post<{ ingested: number; skipped: number; duplicates_found: number; total: number }>(

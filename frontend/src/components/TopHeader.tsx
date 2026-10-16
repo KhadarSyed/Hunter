@@ -8,8 +8,6 @@ const PAGE_LABELS: Partial<Record<Page, string>> = {
   "brief-scope-review": "Brief & Scope",
   "background-research": "Background Research",
   "search-strategy": "Search Strategy",
-  workflow: "Workflow",
-  "research-execution": "Research Execution",
 };
 
 export function TopHeader({

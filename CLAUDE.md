@@ -124,9 +124,9 @@ not scaffolding.
 | Brief & Scope | `brief/parser.py`, `agents/brief_scope.py`, `spec/service.py`, `spec/renderer.py` | `NewProject.tsx`, `BriefScopeReview.tsx` |
 | Background Research | `research/service.py`, `research/web_research.py`, `research/news_search.py`, `agents/brand_intelligence.py` | `BackgroundResearch.tsx` |
 | Search Strategy + dataset evaluation | `strategy/router.py` (`_build_deterministic_strategy()`), `agents/meltwater_query_builder.py`, `agents/query_evaluator.py` | `SearchStrategy.tsx`, `QueryEvaluation.tsx` |
-| Research Plan / Execution | `plan/service.py`, `execution/service.py`, `tools/` (12 pluggable deterministic analysis methods, decorator-registered) | `ResearchPlan.tsx`, `ResearchExecution.tsx` |
+| Research Plan / Execution | `plan/service.py`, `execution/service.py`, `tools/` (12 pluggable deterministic analysis methods, decorator-registered) | `ResearchPlan.tsx` (Execution page removed 2026-10-16: the deck engine analyses datasets itself) |
 | Evidence Library | `library/service.py` | `EvidenceLibrary.tsx` |
-| Analysis & Insights | `insights/service.py`, `insights/sov_analyzer.py`, `insights/theme_classifier.py` | `AnalysisPage.tsx`, `InsightsPage.tsx` |
+| Analysis & Insights | `insights/service.py`, `insights/sov_analyzer.py`, `insights/theme_classifier.py` | `InsightsPage.tsx` (Analysis page removed 2026-10-16; deck insights show on `DeliverablesPage.tsx`) |
 | Storyline | `storyline/service.py` | `StorylinePage.tsx` |
 | Slide Intelligence | `slides/extractor.py`, `slides/retrieval.py`, `slides/service.py` | `SlideIntelligencePage.tsx` |
 | Presentation Composer | `composer/service.py` | `PresentationComposerPage.tsx` |

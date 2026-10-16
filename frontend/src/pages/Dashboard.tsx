@@ -28,7 +28,6 @@ interface ProjectStats {
   backgroundApproved: boolean;
   strategyApproved: boolean;
   datasetApproved: boolean;
-  executionCompleted: boolean;
 }
 
 const QUICK_ACTIONS = [
@@ -36,7 +35,6 @@ const QUICK_ACTIONS = [
   { page: "background-research", label: "Background Research", desc: "AI-synthesized competitive intelligence", icon: "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" },
   { page: "search-strategy", label: "Search Strategy", desc: "Build and refine Meltwater queries", icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" },
   { page: "data-sources", label: "Data Sources", desc: "Upload datasets per research question", icon: "M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" },
-  { page: "analysis", label: "Analysis", desc: "AI-generated insights and storyline", icon: "M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" },
   { page: "deliverables", label: "Deliverables", desc: "Generate and download PPTX & Word", icon: "M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" },
 ];
 
@@ -78,7 +76,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
     insightsCount: 0, avgConfidence: 0, storylineNodes: 0,
     slidesComposed: 0, pptxReady: false, wordReady: false, researchType: "Research Project",
     briefApproved: false, backgroundApproved: false, strategyApproved: false,
-    datasetApproved: false, executionCompleted: false,
+    datasetApproved: false,
   });
   const [stages, setStages] = useState<StageInfo[]>([]);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
@@ -89,8 +87,6 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
       { id: "background", label: "Background", page: "background-research", status: "pending" },
       { id: "strategy", label: "Strategy", page: "search-strategy", status: "pending" },
       { id: "data", label: "Data Sources", page: "data-sources", status: "pending" },
-      { id: "execution", label: "Execution", page: "research-execution", status: "pending" },
-      { id: "analysis", label: "Analysis", page: "analysis", status: "pending", detail: s.insightsCount > 0 ? `${s.insightsCount} insights` : undefined },
       { id: "deliverables", label: "Deliverables", page: "deliverables", status: "pending", detail: s.pptxReady || s.wordReady ? "Downloads ready" : undefined },
     ];
 
@@ -98,9 +94,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
     if (s.backgroundApproved) result[1].status = "completed";
     if (s.strategyApproved) result[2].status = "completed";
     if (s.datasetApproved) result[3].status = "completed";
-    if (s.executionCompleted) result[4].status = "completed";
-    if (s.insightsCount > 0) result[5].status = "completed";
-    if (s.pptxReady || s.wordReady) result[6].status = "completed";
+    if (s.pptxReady || s.wordReady) result[4].status = "completed";
 
     let foundPending = false;
     for (const stage of result) {
@@ -121,7 +115,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
         insightsCount: 0, avgConfidence: 0, storylineNodes: 0,
         slidesComposed: 0, pptxReady: false, wordReady: false, researchType: "Research Project",
         briefApproved: false, backgroundApproved: false, strategyApproved: false,
-        datasetApproved: false, executionCompleted: false,
+        datasetApproved: false,
       };
 
       try {
@@ -180,7 +174,6 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
           if (run.status === "completed") {
             s.pptxReady = s.pptxReady || !!(run.pptx_path || run.studio_pptx_path);
             s.wordReady = s.wordReady || !!run.docx_path;
-            s.executionCompleted = true;
           }
           const lines = d.sections.find((x) => x.id === "log")?.lines ?? [];
           runActivity = lines.slice(-10).reverse().map((l) => ({
