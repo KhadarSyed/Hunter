@@ -1,4 +1,4 @@
-import type { Insight, InsightDetail, InsightsSummary, InsightValidation, InsightEvidence, Storyline, StorylineDetail, StorylineSummary, StorylineValidation, StoryNodeEnriched, StoryNode, SIDashboard, SIPresentation, SISlide, SITemplateFamily, SIDetectedProject, SIRecommendation, PCPresentation, PCSlide, PCPresentationDetail, PCPresentationSummary, PCValidation, RenderJob, RenderResult, RenderSummary, RenderTheme, RenderValidation, RenderMetric, RenderHistory, PipelineRunDetail, PipelineProjectStatus, PipelineTimelineEntry, PipelineLog, PipelinePerformance, PipelineCacheMetrics, PipelineDependencyNode, PipelineStageStatus, WordRenderResult, WordRenderJob, WordDocument, WordRenderMetric, WordRenderHistory, WordRenderSummary, WordValidation, PubValidationResult, PubValidation, PubDiffReport, PubVersion, PubPackage, PubPackageResult, PubApproval, PubApprovalResult, PubReadinessSummary, PubAuditEntry, PubDownload, PubVersionResult } from "../types/contracts";
+import type { Insight, InsightDetail, InsightsSummary, InsightValidation, InsightEvidence, Storyline, StorylineDetail, StorylineSummary, StorylineValidation, StoryNodeEnriched, StoryNode, SIDashboard, SIPresentation, SISlide, SITemplateFamily, SIDetectedProject, SIRecommendation, PCPresentation, PCSlide, PCPresentationDetail, PCPresentationSummary, PCValidation, RenderJob, RenderResult, RenderSummary, RenderTheme, RenderValidation, RenderMetric, RenderHistory, WordRenderResult, WordRenderJob, WordDocument, WordRenderMetric, WordRenderHistory, WordRenderSummary, WordValidation, PubValidationResult, PubValidation, PubDiffReport, PubVersion, PubPackage, PubPackageResult, PubApproval, PubApprovalResult, PubReadinessSummary, PubAuditEntry, PubDownload, PubVersionResult } from "../types/contracts";
 
 // Empty by default (relative paths), matching same-origin deploys where the backend
 // serves the built SPA directly. Set VITE_API_BASE_URL (e.g. "https://api.example.com")
@@ -1379,56 +1379,6 @@ export const intelApi = {
 
   rendererMetrics: (jobId: string) =>
     get<RenderMetric[]>(`/renderer/metrics/${jobId}`),
-
-  // ── Pipeline Orchestrator ─────────────────────────────────────────
-
-  pipelineStart: (projectId: number, mode = "full", startStage?: string, singleStage?: string) =>
-    post<any>("/pipeline/start", { project_id: projectId, mode, start_stage: startStage, single_stage: singleStage }),
-
-  pipelinePause: (runId: string) =>
-    post<any>(`/pipeline/${runId}/pause`, {}),
-
-  pipelineResume: (runId: string) =>
-    post<any>(`/pipeline/${runId}/resume`, {}),
-
-  pipelineCancel: (runId: string) =>
-    post<any>(`/pipeline/${runId}/cancel`, {}),
-
-  pipelineRetry: (runId: string, stageId: string) =>
-    post<any>(`/pipeline/${runId}/retry`, { stage_id: stageId }),
-
-  pipelineRunStage: (projectId: number, stageId: string) =>
-    post<any>("/pipeline/run-stage", { project_id: projectId, single_stage: stageId }),
-
-  pipelineRunFrom: (projectId: number, stageId: string) =>
-    post<any>("/pipeline/run-from", { project_id: projectId, start_stage: stageId }),
-
-  pipelineStatus: (runId: string) =>
-    get<PipelineRunDetail>(`/pipeline/status/${runId}`),
-
-  pipelineProjectStatus: (projectId: number) =>
-    get<PipelineProjectStatus>(`/pipeline/project/${projectId}`),
-
-  pipelineTimeline: (runId: string) =>
-    get<PipelineTimelineEntry[]>(`/pipeline/timeline/${runId}`),
-
-  pipelineLogs: (runId: string, stageId?: string) =>
-    get<PipelineLog[]>(`/pipeline/logs/${runId}${stageId ? `?stage_id=${stageId}` : ""}`),
-
-  pipelineMetrics: (projectId: number) =>
-    get<PipelinePerformance>(`/pipeline/metrics/${projectId}`),
-
-  pipelineCache: (projectId: number) =>
-    get<PipelineCacheMetrics>(`/pipeline/cache/${projectId}`),
-
-  pipelineClearCache: (projectId: number, stageId?: string) =>
-    post<{ cleared: number }>(`/pipeline/cache/${projectId}/clear`, { stage_id: stageId }),
-
-  pipelineGraph: () =>
-    get<Record<string, PipelineDependencyNode>>("/pipeline/graph"),
-
-  pipelineStages: (projectId: number) =>
-    get<Record<string, PipelineStageStatus>>(`/pipeline/stages/${projectId}`),
 
   // ── Word Report Renderer ─────────────────────────────────────────
 

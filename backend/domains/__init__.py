@@ -26,7 +26,6 @@ from .exclusions.router import router as exclusions
 from .execution.router import router as execution
 from .insights.router import router as insights
 from .library.router import router as library
-from .pipeline.router import router as pipeline
 from .plan.router import router as plan
 from .projects.router import router as projects
 from .publishing.router import router as publishing
@@ -47,7 +46,7 @@ router = APIRouter(
 # matters within a domain router (literal paths before parameterised ones).
 for domain_router in (
     projects, research, brief, spec, strategy, plan, execution, library,
-    insights, storyline, slides, composer, rendering, pipeline, publishing, qc,
+    insights, storyline, slides, composer, rendering, publishing, qc,
     datasources, deliverable, agent_router, exclusions,
 ):
     router.include_router(domain_router)

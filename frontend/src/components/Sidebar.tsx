@@ -17,7 +17,6 @@ interface NavItem {
 
 const RESEARCH_NAV: NavItem[] = [
   { page: "dashboard", label: "Dashboard", icon: "grid" },
-  { page: "pipeline-orchestrator", label: "Pipeline Orchestrator", icon: "settings" },
 ];
 
 const QC_NAV: NavItem[] = [

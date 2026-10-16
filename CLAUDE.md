@@ -132,12 +132,11 @@ not scaffolding.
 | Presentation Composer | `composer/service.py` | `PresentationComposerPage.tsx` |
 | PPTX / Word Renderers | `rendering/pptx.py`, `rendering/word.py` | `PowerPointRendererPage.tsx`, `WordRendererPage.tsx` |
 | Publishing Gateway | `publishing/service.py` | `PublishingGatewayPage.tsx` |
-| Pipeline Orchestrator (cross-stage) | `pipeline/service.py` — dependency graph, topological sort, caching, 5 execution modes | `PipelineOrchestratorPage.tsx` |
 | QC flow (separate from the pipeline) | `qc/parser.py`, `qc/service.py`, `qc/export.py`, `qc/source_retrieval.py` | `QCUpload.tsx` → `QCFieldMapping.tsx` → `QCResults.tsx` → `QCExport.tsx` |
 
-Note: 11 pages (`ResearchPlan`, `EvidenceLibrary`, `InsightsPage`, `StorylinePage`,
+Note: 10 pages (`ResearchPlan`, `EvidenceLibrary`, `InsightsPage`, `StorylinePage`,
 `SlideIntelligencePage`, `PresentationComposerPage`, `PowerPointRendererPage`, `WordRendererPage`,
-`PublishingGatewayPage`, `PipelineOrchestratorPage`, `QueryEvaluation`) and 4 components
+`PublishingGatewayPage`, `QueryEvaluation`) and 4 components
 (`LiveFeed`, `RunStatus`, `SettingsPanel`, `TopHeader`) exist but are not rendered from `App.tsx`.
 
 ## Critical Patterns
@@ -187,6 +186,6 @@ Note: 11 pages (`ResearchPlan`, `EvidenceLibrary`, `InsightsPage`, `StorylinePag
 - `docs/handover/HANDOVER.md` — architecture, bug history, environment variables, DB schema reference.
 - `docs/CURRENT_STATUS.md` — authoritative per-stage completion status, endpoint/table/test counts,
   sprint-by-sprint change log. Check this before assuming a stage is unbuilt.
-- `docs/PRODUCT_SPEC.md`, `docs/PIPELINE_ORCHESTRATOR.md`, `docs/PRESENTATION_COMPOSER.md`,
+- `docs/PRODUCT_SPEC.md`, `docs/PRESENTATION_COMPOSER.md`,
   `docs/POWERPOINT_RENDERER.md`, `docs/WORD_RENDERER.md`, `docs/PUBLISHING_GATEWAY.md`,
   `docs/SLIDE_INTELLIGENCE_GUIDE.md` — per-subsystem deep dives.

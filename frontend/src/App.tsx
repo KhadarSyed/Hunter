@@ -31,7 +31,6 @@ import { PresentationComposerPage } from "./pages/PresentationComposerPage";
 import { PowerPointRendererPage } from "./pages/PowerPointRendererPage";
 import { WordRendererPage } from "./pages/WordRendererPage";
 import { PublishingGatewayPage } from "./pages/PublishingGatewayPage";
-import { PipelineOrchestratorPage } from "./pages/PipelineOrchestratorPage";
 import { DeliverablesPage } from "./pages/DeliverablesPage";
 import { QCUpload } from "./pages/QCUpload";
 import { QCFieldMapping } from "./pages/QCFieldMapping";
@@ -68,7 +67,6 @@ const PAGES = {
   "powerpoint-renderer": PowerPointRendererPage,
   "word-renderer": WordRendererPage,
   "publishing-gateway": PublishingGatewayPage,
-  "pipeline-orchestrator": PipelineOrchestratorPage,
   deliverables: DeliverablesPage,
   "qc-upload": QCUpload,
   "qc-field-mapping": QCFieldMapping,

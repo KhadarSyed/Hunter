@@ -91,7 +91,6 @@ Each stage is a backend module + a frontend page. Stages run sequentially per pr
 
 **Additional pages (not in the linear pipeline):**
 - `QueryEvaluation.tsx` → `agents/query_evaluator.py`
-- `PipelineOrchestratorPage.tsx` → `pipeline_orchestrator.py`
 - `PublishingGatewayPage.tsx` → `publishing_gateway.py`
 - QC flow: `QCUpload.tsx` → `QCFieldMapping.tsx` → `QCResults.tsx` → `QCExport.tsx` (uses `qc_service.py`, `qc_parser.py`, `qc_export.py`)
 
