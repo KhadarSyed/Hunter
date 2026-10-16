@@ -244,7 +244,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
               <div className="flex items-center gap-3 mb-1">
                 {activeProject?.brand ? (
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-white shadow-sm ring-1 ring-slate-200 shrink-0">
-                    <BrandLogo brandName={activeProject.brand} size={28} rounded="lg" />
+                    <BrandLogo brandName={activeProject.brand} projectId={activeProject.id} size={28} rounded="lg" />
                   </div>
                 ) : (
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm"

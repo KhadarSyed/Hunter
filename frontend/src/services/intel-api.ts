@@ -867,6 +867,12 @@ export const intelApi = {
 
   // Brandfetch logo lookup
   // The logo is served by this API (Brandfetch refuses hotlinked images), so its path takes the API's origin
+  /** The project's own logo: its client brand's logo, else a photo of its brief's main theme (no client brand). */
+  getProjectLogo: (projectId: number) =>
+    get<{ logo_url: string | null; is_light?: boolean; source: "brand" | "theme" | "none"; brand: string | null; theme: string | null }>(
+      `/projects/${projectId}/logo`,
+    ).then((res) => ({ ...res, logo_url: res.logo_url?.startsWith("/api/") ? `${API_ORIGIN}${res.logo_url}` : res.logo_url })),
+
   getBrandLogo: (brandName: string) =>
     get<{ brand_name: string; logo_url: string | null; is_light?: boolean }>(
       `/brandfetch/logo?brand_name=${encodeURIComponent(brandName)}`,

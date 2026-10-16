@@ -74,11 +74,27 @@ def _save_png(data: bytes, path: Path) -> Image.Image | None:
     return img
 
 
+def public_logo(brand_name: str, image_path: str) -> dict:
+    """The brand's logo for the page: the cached PNG served by this app (image_path is its route), else a direct
+    non-Brandfetch URL (an SVG from Google cannot become a PNG), else none. Brandfetch's CDN refuses hotlinks."""
+    info = brandfetch_client.resolve_logo(brand_name)
+    found = logo_file(brand_name)
+    if found:
+        return {**info, "logo_url": image_path, "is_light": found[1]}
+    direct = info.get("logo_url") or ""
+    hotlinkable = direct.startswith("https://") and not direct.startswith(CDN)
+    return {**info, "logo_url": direct if hotlinkable else None, "is_light": False}
+
+
 def logo_file(brand_name: str) -> tuple[Path, bool] | None:
     """(the cached PNG, white?) for a brand, fetched once; None when no usable logo exists."""
     png, meta = _paths(brand_name)
     if png.exists() and meta.exists():
-        return png, bool(json.loads(meta.read_text("utf-8")).get("light"))
+        saved = json.loads(meta.read_text("utf-8"))
+        source = saved.get("source") or ""
+        # a Google image cached under the older, looser match rule is fetched again, not served
+        if source.startswith(CDN) or brandfetch_client.is_plausible_logo(brand_name, source):
+            return png, bool(saved.get("light"))
     info = brandfetch_client.resolve_logo(brand_name)
     for url in _candidates(info):
         try:

@@ -26,7 +26,7 @@ from ...core.auth import require_project_access
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from . import article_extractor
-from . import brandfetch as brandfetch_client
+from . import brandfetch as brandfetch_client  # noqa: F401  (Brandfetch: first logo lookup, via logo_files)
 from . import logo_files
 from . import multi_source as multi_source_module
 from . import pexels as pexels_client
@@ -332,16 +332,7 @@ def approve_news_item(research_id: Annotated[int, Path(ge=1)], req: NewsApproval
 def get_brand_logo_route(brand_name: str):
     """Logo for a brand/product: saved brand_logos table first, then Brandfetch, then Google. The image itself is
     served from this app (see logo_files): Brandfetch no longer serves hotlinked images to the page."""
-    info = brandfetch_client.resolve_logo(brand_name)
-    found = logo_files.logo_file(brand_name)
-    if found:
-        return {**info, "logo_url": f"/api/intel/brandfetch/logo/image?brand_name={quote(brand_name)}",
-                "is_light": found[1]}
-    # No PNG could be made (e.g. an SVG from Google): the browser loads it directly, as it did before logo_files.
-    # Brandfetch's CDN refuses hotlinks, so only other hosts are passed through.
-    direct = info.get("logo_url") or ""
-    hotlinkable = direct.startswith("https://") and not direct.startswith(logo_files.CDN)
-    return {**info, "logo_url": direct if hotlinkable else None, "is_light": False}
+    return logo_files.public_logo(brand_name, f"/api/intel/brandfetch/logo/image?brand_name={quote(brand_name)}")
 
 
 @router.get("/brandfetch/logo/image", response_class=FileResponse)

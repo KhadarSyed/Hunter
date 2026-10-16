@@ -522,7 +522,7 @@ export function SearchStrategy({ onNavigate }: Props) {
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-3">
             {(activeProject?.brand || activeProject?.name) && (
-              <BrandLogo brandName={activeProject?.brand || activeProject?.name || ""} size={36} rounded="lg" className="shadow-lg shrink-0" />
+              <BrandLogo brandName={activeProject?.brand || activeProject?.name || ""} projectId={activeProject?.id} size={36} rounded="lg" className="shadow-lg shrink-0" />
             )}
             <div>
               <h1 className="text-xl font-semibold text-white" style={{ textShadow: "0 1px 4px rgba(0,0,0,0.6)" }}>Search Strategy</h1>

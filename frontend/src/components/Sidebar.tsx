@@ -104,7 +104,7 @@ export function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavi
             className="block"
           >
             {activeProject.brand ? (
-              <BrandLogo brandName={activeProject.brand} size={32} rounded="lg" className="bg-white ring-1 ring-slate-200" />
+              <BrandLogo brandName={activeProject.brand} projectId={activeProject.id} size={32} rounded="lg" className="bg-white ring-1 ring-slate-200" />
             ) : (
               <div
                 className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold shrink-0"

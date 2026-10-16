@@ -539,6 +539,7 @@ function findMentionedProduct(sectionContent: string, productNames: string[]): s
 function SectionVideoBanner({ activeTab, brandName, category, sectionContent, productNames }: {
   activeTab: string; brandName: string; category: string; sectionContent: string; productNames: string[];
 }) {
+  const projectId = useActiveProjectId();
   const [embedUrl, setEmbedUrl] = useState<string | null>(null);
   const [pexelsImage, setPexelsImage] = useState<string | null>(null);
   const [pexelsVideo, setPexelsVideo] = useState<string | null>(null);
@@ -600,14 +601,14 @@ function SectionVideoBanner({ activeTab, brandName, category, sectionContent, pr
         // logo on a plain dark banner, so a section never collapses to an empty gap.
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="rounded-xl bg-white p-3 shadow-lg">
-            <BrandLogo brandName={brandName} size={56} rounded="lg" />
+            <BrandLogo brandName={brandName} projectId={projectId} size={56} rounded="lg" />
           </div>
         </div>
       )}
       {hasMedia && <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />}
       {brandName && hasMedia && (
         <div className="absolute bottom-3 left-4 flex items-center gap-2">
-          <span className="rounded-md bg-white p-1 shadow-lg"><BrandLogo brandName={brandName} size={22} rounded="lg" /></span>
+          <span className="rounded-md bg-white p-1 shadow-lg"><BrandLogo brandName={brandName} projectId={projectId} size={22} rounded="lg" /></span>
           <span className="text-white text-xs font-semibold" style={{ textShadow: "0 1px 3px rgba(0,0,0,0.6)" }}>
             {brandName}
           </span>

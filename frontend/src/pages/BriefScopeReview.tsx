@@ -708,7 +708,7 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
         <div className="relative px-6 py-5">
           {/* Row 1: logo + title + project name */}
           <div className="flex items-center gap-3 min-w-0">
-            <BrandLogo brandName={client || activeProject?.name || "?"} size={HEADER_LOGO_SIZE} rounded="lg" />
+            <BrandLogo brandName={client || activeProject?.name || "?"} projectId={activeProjectId} size={HEADER_LOGO_SIZE} rounded="lg" />
             <div className="min-w-0">
               <h1 className="text-xl font-semibold text-slate-900">Brief & Scope</h1>
               <p className="text-sm text-slate-500 mt-0.5 truncate">{activeProject?.name}</p>
@@ -962,7 +962,8 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
                         >
                           <span className="inline-flex items-center gap-2.5">
                             {LOGO_ENTITY_TYPES.has(type) ? (
-                              <BrandLogo brandName={e.name} size={LOGO_SIZE} />
+                              <BrandLogo brandName={e.name} size={LOGO_SIZE}
+                                projectId={type === "brand" && e.name === client ? activeProjectId : undefined} />
                             ) : FLAG_ENTITY_TYPES.has(type) ? (
                               <CountryFlag country={e.name} size={LOGO_SIZE} />
                             ) : (
