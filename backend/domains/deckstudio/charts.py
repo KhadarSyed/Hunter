@@ -89,7 +89,9 @@ def _line(c, t, w, h):
     ys = [pt + (h - pt - pb) * (1 - v / top) for v in vals]
     step = max(1, -(-len(cats) // MAX_X_LABELS))
     points = " ".join(f"{x:.1f},{y:.1f}" for x, y in zip(xs, ys))
+    area = f"{xs[0]:.1f},{h - pb} {points} {xs[-1]:.1f},{h - pb}"
     out = [f'<line x1="{pl}" y1="{h - pb}" x2="{w - 30}" y2="{h - pb}" stroke="#{t.muted}" stroke-opacity=".35"/>',
+           f'<polygon points="{area}" fill="#{t.series[0]}" fill-opacity=".12"/>',
            f'<polyline points="{points}" fill="none" stroke="#{t.series[0]}" stroke-width="4" stroke-linejoin="round"/>']
     out += [f'<text class="xlab" style="font-size:18px" x="{xs[i]:.1f}" y="{h - pb + 28}" text-anchor="middle">{escape(_short(cats[i]))}</text>'
             for i in range(0, len(cats), step)]
@@ -97,6 +99,132 @@ def _line(c, t, w, h):
         if 0 <= p < len(vals):
             out.append(f'<circle cx="{xs[p]:.1f}" cy="{ys[p]:.1f}" r="8" fill="#{t.primary}"/>')
             out.append(f'<text class="peak" style="font-size:21px" x="{xs[p]:.1f}" y="{ys[p] - 16:.1f}" text-anchor="middle">{_fmt(vals[p], "count")}</text>')
+    return out
+
+
+# sentiment reads as green / grey / red whatever the brand's colours are (a red brand must not colour "Positive")
+SENTIMENT_COLORS = {"positive": "2E9E5B", "neutral": "9AA0A6", "mixed": "C9A227", "negative": "D64545"}
+
+
+def _colors(cats, t) -> list[str]:
+    if cats and all(str(c).strip().lower() in SENTIMENT_COLORS for c in cats):
+        return [SENTIMENT_COLORS[str(c).strip().lower()] for c in cats]
+    return [t.series[i % len(t.series)] for i in range(len(cats))]
+
+
+def _on(color: str) -> str:
+    """White or near-black text, whichever reads on the fill."""
+    r, g, b = (int(color[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    return "1A1A1A" if 0.299 * r + 0.587 * g + 0.114 * b > 0.62 else "FFFFFF"
+
+
+def _worst(row: list[float], short: float) -> float:
+    s = sum(row)
+    return max(max(a * short * short / (s * s), s * s / (short * short * a)) for a in row if a > 0) if s else 1.0
+
+
+def _squarify(vals: list[float], x: float, y: float, w: float, h: float) -> list[tuple[float, float, float, float]]:
+    """Rectangles with areas proportional to `vals` (sorted descending), each as close to square as the
+    strip it sits in allows (the squarified treemap of Bruls, Huizing and van Wijk)."""
+    total = sum(vals) or 1
+    scaled = [v * w * h / total for v in vals]
+    rects, i = [], 0
+    while i < len(scaled):
+        short = min(w, h)
+        row, j = [scaled[i]], i + 1
+        while j < len(scaled) and _worst(row + [scaled[j]], short) <= _worst(row, short):
+            row.append(scaled[j])
+            j += 1
+        s = sum(row)
+        if w >= h:                       # the strip is a column on the left
+            cw, cy = (s / h if h else 0), y
+            for a in row:
+                rects.append((x, cy, cw, a / cw if cw else 0))
+                cy += a / cw if cw else 0
+            x, w = x + cw, w - cw
+        else:                            # the strip is a row along the top
+            rh, cx = (s / w if w else 0), x
+            for a in row:
+                rects.append((cx, y, a / rh if rh else 0, rh))
+                cx += a / rh if rh else 0
+            y, h = y + rh, h - rh
+        i = j
+    return rects
+
+
+TREEMAP_GAP = 4
+
+
+def _neutral(color: str) -> bool:
+    r, g, b = (int(color[i:i + 2], 16) for i in (0, 2, 4))
+    return max(r, g, b) - min(r, g, b) < 30
+
+
+def _treemap(c, t, w, h):
+    pairs = sorted(((str(cat), float(v)) for cat, v in zip(c["categories"], c["values"]) if float(v) > 0),
+                   key=lambda p: -p[1])
+    out, unit = [], c.get("unit", "count")
+    # tiles in the deck's hues only: a white tile vanishes into the slide and a black one reads as a hole
+    fills = [f for f in t.series if not _neutral(f)] or list(t.series)
+    for i, ((cat, v), (x, y, rw, rh)) in enumerate(zip(pairs, _squarify([v for _, v in pairs], 0, 0, w, h))):
+        fill = fills[i % len(fills)]
+        out.append(f'<rect x="{x + TREEMAP_GAP / 2:.1f}" y="{y + TREEMAP_GAP / 2:.1f}" width="{max(rw - TREEMAP_GAP, 1):.1f}" '
+                   f'height="{max(rh - TREEMAP_GAP, 1):.1f}" rx="6" fill="#{fill}" fill-opacity="{0.95 - 0.06 * min(i, 8):.2f}"/>')
+        if rw < 90 or rh < 48:           # too small to label legibly: the cards and the data table carry it
+            continue
+        size = 24 if rw > 260 and rh > 110 else 19
+        ink = _on(fill)
+        out.append(f'<text x="{x + 14:.1f}" y="{y + 14 + size:.1f}" style="font:600 {size}px var(--chrome);fill:#{ink}">'
+                   f'{escape(_fit(cat, rw - 28, size))}</text>')
+        out.append(f'<text x="{x + 14:.1f}" y="{y + 22 + size * 2:.1f}" style="font:400 {size - 3}px var(--chrome);fill:#{ink};opacity:.9">'
+                   f'{_fmt(v, unit)}</text>')
+    return out
+
+
+STACK_LABEL_W = 300
+STACK_MIN_LABEL = 7          # a segment narrower than this share (in %) carries no number of its own
+
+
+def _stacked(c, t, w, h, logos, light=frozenset()):
+    """100% bars, one per group (a brand), split into the breakdown's stacks (positive / neutral / negative): the
+    whole split per brand, where a single bar could show only one share of it."""
+    cats = c["breakdown"]["stacks"]
+    colors = _colors(cats, t)
+    rows = [(g["name"], [float(v) for v in g["values"]], g.get("n")) for g in c["breakdown"]["groups"]]
+    marked = any(name in logos for name, _, _ in rows)
+    label_w = STACK_LABEL_W - (LOGO_W + 14 if marked else 0)
+    legend_h = 44
+    row = min(80, (h - legend_h - 10) / max(1, len(rows)))
+    out, lx = [], STACK_LABEL_W + 6
+    for cat, col in zip(cats, colors):
+        out.append(f'<rect x="{lx}" y="6" width="18" height="18" rx="4" fill="#{col}"/>')
+        out.append(f'<text class="ylab" style="font-size:20px" x="{lx + 26}" y="22">{escape(_short(cat))}</text>')
+        lx += 46 + int(len(str(cat)) * 20 * GLYPH_EM)
+    bar_w = w - STACK_LABEL_W - 20
+    for r, (name, vals, n) in enumerate(rows):
+        y = legend_h + r * row
+        label = f"{name} (n={n})" if n else name
+        out.append(f'<text class="ylab" style="font-size:20px" x="{label_w - 8}" y="{y + row * .6:.1f}" '
+                   f'text-anchor="end">{escape(_fit(label, label_w - 14, 20))}</text>')
+        if name in logos:
+            lx0, ly0 = STACK_LABEL_W - LOGO_W - 4, y + row / 2 - LOGO_H / 2
+            if name in light:
+                out.append(f'<rect x="{lx0 - 2}" y="{ly0 - 2:.1f}" width="{LOGO_W + 4}" height="{LOGO_H + 4}" rx="6" '
+                           f'fill="#{_dark_chip(t)}"/>')
+            out.append(f'<image href="{escape(logos[name])}" x="{lx0}" y="{ly0:.1f}" width="{LOGO_W}" height="{LOGO_H}" '
+                       f'preserveAspectRatio="xMidYMid meet"/>')
+        elif marked:
+            out += _badge(name, STACK_LABEL_W - 4 - LOGO_W / 2, y + row / 2, t)
+        total, x = sum(vals) or 1, STACK_LABEL_W + 6
+        for v, col in zip(vals, colors):
+            seg = bar_w * v / total
+            if seg <= 0:
+                continue
+            out.append(f'<rect x="{x:.1f}" y="{y + row * .16:.1f}" width="{seg:.1f}" height="{row * .68:.1f}" fill="#{col}"/>')
+            if 100 * v / total >= STACK_MIN_LABEL:
+                out.append(f'<text x="{x + seg / 2:.1f}" y="{y + row * .6:.1f}" text-anchor="middle" '
+                           f'style="font:600 18px var(--chrome);fill:#{_on(col)}">{_fmt(100 * v / total, "percent")}</text>')
+            x += seg
     return out
 
 
@@ -111,14 +239,14 @@ def _doughnut(c, t, w, h):
     size = h if side else min(w, h - LEGEND_ROW * len(cats) - 20)
     cx, cy = (size / 2, size / 2) if side else (w / 2, size / 2)
     r = (size / 2 - 12) / 1.21       # the ring's stroke (0.42 r) reaches 1.21 r: keep the whole ring in the box
-    out, a0 = [], -math.pi / 2
+    out, a0, colors = [], -math.pi / 2, _colors(cats, t)
     for i, (cat, v) in enumerate(zip(cats, vals)):
         a1 = a0 + 2 * math.pi * v / total - 1e-4
         x0, y0, x1, y1 = cx + r * math.cos(a0), cy + r * math.sin(a0), cx + r * math.cos(a1), cy + r * math.sin(a1)
         out.append(f'<path d="M{x0:.1f},{y0:.1f} A{r:.1f},{r:.1f} 0 {1 if a1 - a0 > math.pi else 0} 1 {x1:.1f},{y1:.1f}" '
-                   f'fill="none" stroke="#{t.series[i % 6]}" stroke-width="{r * .42:.1f}"/>')
+                   f'fill="none" stroke="#{colors[i]}" stroke-width="{r * .42:.1f}"/>')
         lx, ly = (size + 30, 40 + i * LEGEND_ROW) if side else (max(20, w / 2 - 120), size + 20 + i * LEGEND_ROW)
-        out.append(f'<rect x="{lx:.0f}" y="{ly:.0f}" width="18" height="18" rx="4" fill="#{t.series[i % 6]}"/>')
+        out.append(f'<rect x="{lx:.0f}" y="{ly:.0f}" width="18" height="18" rx="4" fill="#{colors[i]}"/>')
         out.append(f'<text class="ylab" style="font-size:22px" x="{lx + 28:.0f}" y="{ly + 16:.0f}">{escape(_short(cat))} · '
                    f'{_fmt(v, c.get("unit", "count"))}</text>')
         a0 = a1 + 1e-4
@@ -135,7 +263,11 @@ def chart_svg(chart: dict, tokens: DeckTokens, logos: dict[str, str], width: int
               light: set[str] = frozenset()) -> str:
     """`light`: labels whose logo is white (drawn on a dark chip)."""
     kind = chart.get("kind")
-    if kind in ("bar", "treemap"):
+    if (chart.get("breakdown") or {}).get("groups"):
+        body = _stacked(chart, tokens, width, height, logos, light)
+    elif kind == "treemap":
+        body = _treemap(chart, tokens, width, height)
+    elif kind == "bar":
         body = _bars(chart, tokens, logos, width, height, light)
     elif kind in ("line_peaks", "column"):
         body = _line(chart, tokens, width, height)

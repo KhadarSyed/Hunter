@@ -45,17 +45,20 @@ def _sentiment(named_rows, brands: list[Brand]) -> Section:
                        skipped="No sentiment in the data")
     primary = next((b.name for b in brands if b.primary), "")
     order = sorted(rated, key=lambda n: (n != primary, -sum(rated[n].values()), n))
-    rows, facts = [], []
+    rows, facts, groups = [], [], []
     for n in order:
         known = sum(rated[n][s] for s in SENTIMENTS)
         shares = [_pct(rated[n][s], known) for s in SENTIMENTS]
         rows.append([n] + [f"{v}%" for v in shares] + [str(known)])
+        groups.append({"name": _label(n), "n": known, "values": shares})
         facts.append(f"Sentiment for {n}: {shares[0]}% positive, {shares[1]}% neutral, {shares[2]}% negative "
                      f"of {known} articles")
     return Section(id="brand-sentiment", rq_id=None, module="brand_sentiment", title="Sentiment: brand vs competitors",
                    chart={"kind": "bar", "categories": [_label(n) for n in order],
                           "values": [_pct(rated[n]["Positive"], sum(rated[n][s] for s in SENTIMENTS)) for n in order],
-                          "unit": "percent", "peaks": [], "series_label": "Positive share"},
+                          "unit": "percent", "peaks": [], "series_label": "Positive share",
+                          # drawn as one 100% bar per brand: the whole positive / neutral / negative split
+                          "breakdown": {"by": "brand", "stacks": list(SENTIMENTS), "groups": groups}},
                    table={"header": ["Brand", "Positive", "Neutral", "Negative", "Articles"], "rows": rows,
                           "col_widths": [3.0, 1.6, 1.6, 1.6, 1.4]},
                    facts=facts, notes=["logos"], segment_urls=_by_brand(named_rows, order))
