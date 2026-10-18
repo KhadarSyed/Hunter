@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -469,11 +470,22 @@ def load(deck_dir: Path) -> tuple[DeckSpec, dict]:
     return spec, (json.loads(path.read_text(encoding="utf-8")) if path.exists() else {})
 
 
+REPLACE_ATTEMPTS = 6
+REPLACE_WAIT_S = 0.25
+
+
 def _write(path: Path, data) -> None:
     """Written whole or not at all: a crash mid-write never leaves a half spec behind."""
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, default=str), encoding="utf-8")
-    tmp.replace(path)
+    for attempt in range(REPLACE_ATTEMPTS):
+        try:
+            tmp.replace(path)
+            return
+        except PermissionError:     # Windows: a reader or the virus scanner holds the target for a moment
+            if attempt == REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(REPLACE_WAIT_S * (attempt + 1))
 
 
 def save(r: Repair) -> None:
