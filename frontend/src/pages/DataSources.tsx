@@ -980,7 +980,9 @@ export function DataSources({ onNavigate }: Props) {
 
       {/* RQ cards */}
       {researchQuestions.length > 0 && (
-        <div className="flex-1 min-h-0 overflow-y-auto px-8 py-6">
+        <div className="relative flex-1 min-h-0 overflow-y-auto px-8 py-6">
+          {/* relative: the dropzones' hidden absolute file inputs stay inside this scroll panel instead of stretching
+              the page, which gave the page a second scrollbar and made scrolling jump between the two */}
           <div className="max-w-3xl mx-auto space-y-4">
             {researchQuestions.map((rq) => (
               <RQCard
