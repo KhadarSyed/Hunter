@@ -17,6 +17,17 @@ CHECKLIST_ROWS_PER_SLIDE = 9
 CITES_PER_SLIDE = 14
 VERBATIM_TITLE = "{topic} (Verbatims)"
 COMPETITOR_VERBATIM_TITLE = "{topic}: competitors (Verbatims)"
+NAMED_RIVALS_TITLE = "What coverage says about {names}"
+
+
+def _rivals_title(kicker: str, items: list[dict], inp) -> str:
+    """The competitors' wall names the competitors its posts are about ('BYD, Rivian and Ford'), not 'competitors'."""
+    text = " ".join(f"{v.get('title', '')} {v.get('text', '')}" for v in items).casefold()
+    named = [b for b in inp.brands if b and b != inp.title and re.search(rf"\b{re.escape(b.casefold())}\b", text)]
+    if not named:
+        return COMPETITOR_VERBATIM_TITLE.format(topic=kicker)
+    names = named[0] if len(named) == 1 else f"{', '.join(named[:-1])} and {named[-1]}"
+    return NAMED_RIVALS_TITLE.format(names=names)
 WALL_CELLS = 8                    # a 4 x 2 wall of whole posts
 KEY_INSIGHTS = 3                  # a question's insight cards, side by side on its own slide
 SEGMENT_CARDS = 5                 # a breakdown chart beside one explanation card per segment ("S" layout)
@@ -218,7 +229,7 @@ def build_deck_spec(inp: PlanInput) -> DeckSpec:
         if rivals:                    # competitors' voices on their own slide, never mixed with the brand's
             slides.append(SlideSpec(
                 id=f"{rq.id.lower()}-competitors-verbatims", type="verbatim_wall", treatment="plain", kicker=kicker,
-                title=COMPETITOR_VERBATIM_TITLE.format(topic=kicker), question=rq.question,
+                title=_rivals_title(kicker, rivals[:WALL_CELLS], inp), question=rq.question,
                 cards=[{"headline": v["outlet"], "text": v["date"], "url": _link(v["url"]), "image": v.get("image")}
                        for v in rivals[:WALL_CELLS]],
                 facts_allowed=_facts(sections) + [v["date"] for v in rivals], notes="\n".join(v["url"] for v in rivals)))

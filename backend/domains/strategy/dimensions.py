@@ -6,7 +6,9 @@ reachable. The LLM is asked about every question, so one with no keyword lists c
 """
 from __future__ import annotations
 
+import dataclasses
 import hashlib
+import re
 
 from ...agents import question_dimensions as qd
 from ...core import store
@@ -21,6 +23,25 @@ def _brand_terms(project: dict, queries: list[str]) -> list[str]:
     groups = [{frozenset(g) for g in qd.query_groups(q, [])} for q in queries if q]
     shared = set.intersection(*groups) if len(groups) > 1 else set()
     return [n for n in names if n] + [t for g in shared for t in g]
+
+
+_GROUP_NAME = re.compile(r"^(other )?(competitors?|rivals?|other brands?|competing brands?|challengers?)$", re.I)
+
+
+def _named_competitors(dims: list[qd.Dimension], brands: list[str]) -> list[qd.Dimension]:
+    """A brand dimension whose rivals were lumped into one value ("Competitor": ford OR hyundai OR byd) split into
+    one value per brand, so a question asked 'for each brand' is answered brand by brand, with the brands' names."""
+    proper = {b.casefold(): b for b in brands if b}
+    out = []
+    for d in dims:
+        values = []
+        for v in d.values:
+            if _GROUP_NAME.match(v.name.strip()) and len(v.terms) > 1:
+                values += [qd.Value(name=proper.get(t.casefold(), t.title()), terms=(t,)) for t in v.terms]
+            else:
+                values.append(v)
+        out.append(dataclasses.replace(d, values=tuple(values)) if len(values) != len(d.values) else d)
+    return out
 
 
 def _signature(question: str, query: str, brands: list[str]) -> str:
@@ -40,11 +61,11 @@ def project_dimensions(project_id: int, llm=None) -> dict[str, list[qd.Dimension
         sig = _signature(question, query, brands)
         cached = stored.get(rq_id)
         if cached and cached["signature"] == sig and (cached["source"] == "llm" or not llm_ok):
-            out[rq_id] = qd.from_json(cached["dimensions"])
+            out[rq_id] = _named_competitors(qd.from_json(cached["dimensions"]), brands)
             continue
         dims, source = qd.derive_with_source(llm if llm_ok else None, question, query, brands)
         store.save_question_dimensions(project_id, rq_id, sig, qd.to_json(dims), source)
-        out[rq_id] = dims
+        out[rq_id] = _named_competitors(dims, brands)
     return out
 
 

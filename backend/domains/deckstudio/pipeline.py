@@ -54,7 +54,10 @@ def _article_urls(slide, plan_input: PlanInput) -> list[str]:
     return [v["url"] for v in plan_input.verbatims_by_rq.get(rq_id, [])][:assets.MAX_ARTICLES]
 
 
-def _judge(llm, subjects, label: str, checks: dict, exact: bool = False):
+BRAND_BOOKENDS = ("cover", "closing")      # slides that wear the client: their photo must be recognisably its own
+
+
+def _judge(llm, subjects, label: str, checks: dict, exact: bool = False, own_brand: str = ""):
     """Vision check per candidate photo while the slide's and the run's budgets last; None afterwards (text gate)."""
     mine = {"n": 0}
 
@@ -64,7 +67,7 @@ def _judge(llm, subjects, label: str, checks: dict, exact: bool = False):
                 return None
             checks["n"] += 1
             mine["n"] += 1
-        return vision.matches(llm, data, subjects, label, exact=exact)
+        return vision.matches(llm, data, subjects, label, exact=exact, own_brand=own_brand)
     return judge
 
 
@@ -177,7 +180,9 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
         return assets.find_photo(" ".join(image_brief.queries(subjects)[:1]) or s.image["query"], role,
                                  deck_dir / "photos", used, brand_image if s.type == "cover" else None,
                                  subjects=subjects, article_urls=_article_urls(s, plan_input),
-                                 judge=_judge(llm, subjects, label, checks))
+                                 judge=_judge(llm, subjects, label, checks,
+                                              own_brand=plan_input.title if s.type in BRAND_BOOKENDS
+                                              and not plan_input.is_category else ""))
 
     # Each slide's photo search is independent (30-75s of search and vision checks), so several run at once;
     # threads only search, the run log is written here
