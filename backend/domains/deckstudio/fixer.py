@@ -400,6 +400,9 @@ def recheck_brief(r: Repair) -> list[str]:
             row.update(status="covered", note=f"slide {slide}: {str(v.get('why') or '')[:120]}")
             out.append(f"Brief: {row['ask'][:60]} - covered on slide {slide}")
             moved = r.changed = True
+        elif v.get("covered"):      # the agent named a slide, but its quote is not there: not taken on its word
+            out.append(f"Brief: {row['ask'][:60]} - still {row['status']}: the agent pointed to slide {slide}, "
+                       "but the words it quoted are not on that slide")
         else:
             out.append(f"Brief: {row['ask'][:60]} - still {row['status']}: {str(v.get('why') or row.get('note'))[:120]}")
     if moved:
