@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import time
 from typing import Callable, Optional
 
@@ -24,25 +25,54 @@ class AzureOpenAIError(RuntimeError):
 
 ATTEMPTS = 3
 BACKOFF_S = (2, 6)                   # waits before the 2nd and 3rd attempt
-_RETRY_STATUS = {429, 500, 502, 503, 504}
+_RETRY_STATUS = {500, 502, 503, 504}
+# A rate limit (429) is waited out rather than given up after ~8 s: work done in parallel (enrichment batches,
+# brief summaries) would otherwise come back blank. Azure says how long to wait; each wait is capped. Rate-limit
+# retries are counted apart from the other retries, so neither kind ever gets fewer tries than before.
+RATE_LIMIT_ATTEMPTS = 8
+MAX_RATE_WAIT_S = 60.0
+
+
+def _rate_limit_wait(r: requests.Response, retry: int) -> float:
+    """Seconds to wait after a 429: Azure's retry-after-ms / Retry-After, else exponential, plus a little jitter so
+    parallel calls do not all retry at the same instant."""
+    wait = None
+    for header, scale in (("retry-after-ms", 0.001), ("Retry-After", 1.0)):
+        try:
+            wait = float(r.headers.get(header, "")) * scale
+            break
+        except ValueError:
+            continue
+    if wait is None:
+        wait = 2.0 * (2 ** retry)
+    return min(MAX_RATE_WAIT_S, wait) + random.uniform(0, 1.0)
 
 
 def _post(url: str, headers: dict, payload: dict, timeout: int = 180) -> requests.Response:
     """A request that survives a dropped connection (a proxy's TLS reset), a rate limit or a server hiccup: a
     long run makes hundreds of calls, and one transient failure must not fail it."""
-    for attempt in range(ATTEMPTS):
+    failures = rate_limited = 0
+    while True:
         try:
             r = requests.post(url, headers=headers, json=payload, timeout=timeout)
         except (requests.ConnectionError, requests.Timeout) as e:
-            if attempt == ATTEMPTS - 1:
+            if failures == ATTEMPTS - 1:
                 raise
             logger.warning("Azure OpenAI call retried after %s", type(e).__name__)
-        else:
-            if r.status_code not in _RETRY_STATUS or attempt == ATTEMPTS - 1:
-                return r
-            logger.warning("Azure OpenAI call retried after HTTP %s", r.status_code)
-        time.sleep(BACKOFF_S[attempt])
-    raise AzureOpenAIError("unreachable")
+            time.sleep(BACKOFF_S[failures])
+            failures += 1
+            continue
+        if r.status_code == 429 and rate_limited < RATE_LIMIT_ATTEMPTS - 1:
+            wait = _rate_limit_wait(r, rate_limited)
+            logger.warning("Azure OpenAI rate limited; retrying in %.1fs (%d)", wait, rate_limited + 1)
+            time.sleep(wait)
+            rate_limited += 1
+            continue
+        if r.status_code not in _RETRY_STATUS or failures == ATTEMPTS - 1:
+            return r
+        logger.warning("Azure OpenAI call retried after HTTP %s", r.status_code)
+        time.sleep(BACKOFF_S[failures])
+        failures += 1
 
 
 class AzureOpenAIClient:
