@@ -202,7 +202,7 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
         subjects = image_brief.Subjects([plan_input.title], [name], plan_input.category, f"{name} product packshot")
         # the current model: the year and "new" steer the search away from vintage and earlier generations
         return assets.find_photo(f"{plan_input.title} {name} {date.today().year} new", "panel", deck_dir / "photos", used,
-                                 subjects=subjects,
+                                 subjects=subjects, fallback=False,
                                  judge=_judge(llm, subjects, f"{name} by {plan_input.title}", checks)).path
     attach_product(spec, plan_input.brand_products, product_photo)
     if spec.product_image:
