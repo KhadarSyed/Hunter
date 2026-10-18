@@ -182,7 +182,8 @@ def _treemap(c, t, w, h):
 
 
 STACK_LABEL_W = 300
-STACK_MIN_LABEL = 7          # a segment narrower than this share (in %) carries no number of its own
+STACK_LABEL_SHARE = 0.4
+STACK_MIN_LABEL_PX = 64      # a segment narrower than this carries no number of its own (the table has it)
 
 
 def _stacked(c, t, w, h, logos, light=frozenset()):
@@ -192,36 +193,38 @@ def _stacked(c, t, w, h, logos, light=frozenset()):
     colors = _colors(cats, t)
     rows = [(g["name"], [float(v) for v in g["values"]], g.get("n")) for g in c["breakdown"]["groups"]]
     marked = any(name in logos for name, _, _ in rows)
-    label_w = STACK_LABEL_W - (LOGO_W + 14 if marked else 0)
+    col_w = min(STACK_LABEL_W, int(w * STACK_LABEL_SHARE))      # a narrow panel keeps most of its width for the bars
+    label_w = col_w - (LOGO_W + 14 if marked else 0)
+    legend_w = sum(46 + int(len(str(cat)) * 20 * GLYPH_EM) for cat in cats)
     legend_h = 44
     row = min(80, (h - legend_h - 10) / max(1, len(rows)))
-    out, lx = [], STACK_LABEL_W + 6
+    out, lx = [], max(0, min(col_w + 6, w - legend_w))
     for cat, col in zip(cats, colors):
         out.append(f'<rect x="{lx}" y="6" width="18" height="18" rx="4" fill="#{col}"/>')
         out.append(f'<text class="ylab" style="font-size:20px" x="{lx + 26}" y="22">{escape(_short(cat))}</text>')
         lx += 46 + int(len(str(cat)) * 20 * GLYPH_EM)
-    bar_w = w - STACK_LABEL_W - 20
+    bar_w = w - col_w - 20
     for r, (name, vals, n) in enumerate(rows):
         y = legend_h + r * row
         label = f"{name} (n={n})" if n else name
         out.append(f'<text class="ylab" style="font-size:20px" x="{label_w - 8}" y="{y + row * .6:.1f}" '
                    f'text-anchor="end">{escape(_fit(label, label_w - 14, 20))}</text>')
         if name in logos:
-            lx0, ly0 = STACK_LABEL_W - LOGO_W - 4, y + row / 2 - LOGO_H / 2
+            lx0, ly0 = col_w - LOGO_W - 4, y + row / 2 - LOGO_H / 2
             if name in light:
                 out.append(f'<rect x="{lx0 - 2}" y="{ly0 - 2:.1f}" width="{LOGO_W + 4}" height="{LOGO_H + 4}" rx="6" '
                            f'fill="#{_dark_chip(t)}"/>')
             out.append(f'<image href="{escape(logos[name])}" x="{lx0}" y="{ly0:.1f}" width="{LOGO_W}" height="{LOGO_H}" '
                        f'preserveAspectRatio="xMidYMid meet"/>')
         elif marked:
-            out += _badge(name, STACK_LABEL_W - 4 - LOGO_W / 2, y + row / 2, t)
-        total, x = sum(vals) or 1, STACK_LABEL_W + 6
+            out += _badge(name, col_w - 4 - LOGO_W / 2, y + row / 2, t)
+        total, x = sum(vals) or 1, col_w + 6
         for v, col in zip(vals, colors):
             seg = bar_w * v / total
             if seg <= 0:
                 continue
             out.append(f'<rect x="{x:.1f}" y="{y + row * .16:.1f}" width="{seg:.1f}" height="{row * .68:.1f}" fill="#{col}"/>')
-            if 100 * v / total >= STACK_MIN_LABEL:
+            if seg >= STACK_MIN_LABEL_PX:      # a number only where it fits inside its segment
                 out.append(f'<text x="{x + seg / 2:.1f}" y="{y + row * .6:.1f}" text-anchor="middle" '
                            f'style="font:600 18px var(--chrome);fill:#{_on(col)}">{_fmt(100 * v / total, "percent")}</text>')
             x += seg
