@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback, type ComponentType } from "react";
-import { AgentDrawer } from "./components/agent/AgentDrawer";
 import { Sidebar } from "./components/Sidebar";
 import { IconRailSidebar } from "./components/IconRailSidebar";
 import { AuthProvider, useAuth } from "./context/auth-context";
@@ -193,7 +192,6 @@ function AppShell() {
           </main>
         </div>
       </div>
-      {activeProject && !BROWSING_PAGES.has(page) && <AgentDrawer projectId={activeProject.id} />}
     </>
   );
 }

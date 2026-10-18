@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { intelApi, type AgentState, type CopilotReply } from "../../services/intel-api";
 import { agentSocket } from "../../services/ws";
 
@@ -9,7 +10,7 @@ const STATE_CLS: Record<string, string> = {
   todo: "bg-slate-50 text-slate-500 border-slate-200",
 };
 
-/** Hunter's autopilot status and the copilot chat for the active project, in a drawer on the right. */
+/** Hunter's autopilot status and the copilot chat for the active project: a sidebar button opening a drawer on the right. */
 export function AgentDrawer({ projectId }: { projectId: number }) {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<AgentState | null>(null);
@@ -51,11 +52,20 @@ export function AgentDrawer({ projectId }: { projectId: number }) {
   const ap = state?.autopilot;
   return (
     <>
+      {/* A sidebar button: as a floating pill it covered page buttons in the bottom-right corner */}
       <button onClick={() => setOpen(!open)} aria-expanded={open}
-        className="fixed bottom-5 right-5 z-40 rounded-full bg-[#5B2C9D] px-4 py-2 text-sm font-medium text-white shadow-lg">
-        Hunter{ap?.status === "running" ? " · driving" : ""}
+        title={ap?.status === "running" ? "Hunter agent (driving)" : "Hunter agent"} aria-label="Hunter agent"
+        className={`relative w-10 h-10 flex items-center justify-center rounded-lg text-[#5B2C9D] transition-colors ${
+          open ? "bg-[#5B2C9D]/10" : "hover:bg-[#5B2C9D]/10"}`}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z" />
+          <path d="M19 15l.8 1.9 1.9.8-1.9.8L19 20.4l-.8-1.9-1.9-.8 1.9-.8z" />
+        </svg>
+        {ap?.status === "running" && (
+          <span className="absolute right-1.5 top-1.5 h-2 w-2 animate-pulse rounded-full bg-emerald-500" aria-hidden="true" />
+        )}
       </button>
-      {open && (
+      {open && createPortal(
         <aside className="fixed right-0 top-0 z-40 flex h-full w-[380px] flex-col border-l border-slate-200 bg-white shadow-xl"
           aria-label="Hunter agent">
           <header className="border-b border-slate-200 p-4">
@@ -103,7 +113,8 @@ export function AgentDrawer({ projectId }: { projectId: number }) {
               className="min-w-0 flex-1 rounded border px-2 py-1.5 text-sm" aria-label="Message Hunter" />
             <button disabled={busy || !draft.trim()} className="rounded bg-[#5B2C9D] px-3 py-1.5 text-sm text-white disabled:opacity-50">Send</button>
           </form>
-        </aside>
+        </aside>,
+        document.body,
       )}
     </>
   );
