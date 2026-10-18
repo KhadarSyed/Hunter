@@ -93,8 +93,8 @@ def start_background_research(req: StartResearchRequest):
                     "research_validating_dates": ("Validating publication dates", 80),
                     "research_classifying_sources": ("Classifying source quality", 85),
                     "research_complete": ("Research complete", 95),
-                    # Brand/competitive intelligence — the LLM step that runs after web
-                    # research (see "Stage 3: LLM enrichment" below). Streamed like
+                    # Brand/competitive intelligence — the LLM step that runs alongside web
+                    # research (collected in "Stage 3: LLM enrichment" below). Streamed like
                     # brief_scope.py's agent so the UI shows real progress instead of
                     # sitting frozen on a single static message during the LLM call.
                     "brand_intelligence_started": ("Starting competitive/brand intelligence analysis", 90),
@@ -116,6 +116,8 @@ def start_background_research(req: StartResearchRequest):
                                 "progress_pct": last_pct, "message": msg})
                 elif event_type in msg_map:
                     msg, pct = msg_map[event_type]
+                    if event_type.startswith("brand_intelligence"):
+                        pct = None   # runs alongside web research now: its messages show, the bar follows the web stages
                     if event_type == "fetching_topic":
                         idx = payload.get("index", 0)
                         total = payload.get("total", 1)
@@ -137,6 +139,25 @@ def start_background_research(req: StartResearchRequest):
 
             def on_source_result(source: str, ok: bool, error: str | None) -> None:
                 ds_service.record_result(org_id, source, ok, error)
+
+            # The brand-intelligence LLM step reads only the specification (web_adapter=None), so it starts now and
+            # runs alongside web research instead of after it; its result is still collected after the web results
+            # are saved (Stage 3), with the full timeout from then on, so it never gets less time than before.
+            llm_client = get_llm_client()
+            llm_pool = llm_future = None
+            if llm_client and llm_client.is_reachable():
+                def _run_llm():
+                    loop = asyncio.new_event_loop()
+                    try:
+                        bi_result = loop.run_until_complete(
+                            run_bi(spec, emit=on_event, llm_client=llm_client, web_adapter=None)
+                        )
+                    finally:
+                        loop.close()
+                    return bi_result.get("brand_intelligence")
+
+                llm_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                llm_future = llm_pool.submit(_run_llm)
 
             logger.info("[research:%s] Stage 1 — executing web research", job_id)
             web_result = adapter.run_full_research(
@@ -165,25 +186,13 @@ def start_background_research(req: StartResearchRequest):
             _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
                          "progress_pct": 90, "message": "LLM enrichment (optional)"})
 
-            llm_client = get_llm_client()
             llm_output = None
             enrichment_status = "web_only"
 
-            if llm_client and llm_client.is_reachable():
-                logger.info("[research:%s] LLM reachable — attempting enrichment (timeout=%ss)", job_id, LLM_ENRICHMENT_TIMEOUT)
-
-                def _run_llm():
-                    loop = asyncio.new_event_loop()
-                    bi_result = loop.run_until_complete(
-                        run_bi(spec, emit=on_event, llm_client=llm_client, web_adapter=None)
-                    )
-                    loop.close()
-                    return bi_result.get("brand_intelligence")
-
-                pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-                future = pool.submit(_run_llm)
+            if llm_future is not None:
+                logger.info("[research:%s] LLM reachable — collecting enrichment (timeout=%ss)", job_id, LLM_ENRICHMENT_TIMEOUT)
                 try:
-                    llm_output = future.result(timeout=LLM_ENRICHMENT_TIMEOUT)
+                    llm_output = llm_future.result(timeout=LLM_ENRICHMENT_TIMEOUT)
                     if llm_output and not isinstance(llm_output, dict):
                         llm_output = None
                         enrichment_status = "web_only"
@@ -201,7 +210,7 @@ def start_background_research(req: StartResearchRequest):
                     llm_output = {"_error": str(e)}
                     enrichment_status = "web_only"
                     logger.error("[research:%s] LLM enrichment failed: %s", job_id, e)
-                pool.shutdown(wait=False)
+                llm_pool.shutdown(wait=False)
             else:
                 logger.warning("[research:%s] LLM not reachable — completing with web_only", job_id)
 
