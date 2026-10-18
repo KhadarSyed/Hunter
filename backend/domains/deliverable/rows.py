@@ -244,4 +244,11 @@ def ingest_summary(project_id: int, rows: list[EngineRow]) -> dict:
         for q in r.rq_ids:
             by_rq[q] = by_rq.get(q, 0) + 1
     return {"files": len(_approved_datasets(project_id)), "unique_urls": len(rows),
-            "stories": len({r.story_key for r in rows}), "base_n": base_n(rows), "by_rq": dict(sorted(by_rq.items()))}
+            "stories": len({r.story_key for r in rows}), "base_n": total_results(by_rq) or base_n(rows),
+            "total_results": total_results(by_rq), "by_rq": dict(sorted(by_rq.items()))}
+
+
+def total_results(by_rq: dict[str, int]) -> int:
+    """The deck's total: every question's result volume added up -- an article that answers several questions counts
+    once in each, as each question's search returned it (the unique-article count is reported beside it)."""
+    return sum(by_rq.values())

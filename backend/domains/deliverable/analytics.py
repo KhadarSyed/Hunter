@@ -6,7 +6,7 @@ from collections import Counter
 
 from ...agents import question_dimensions as qd
 from . import extract as extract_mod
-from .labels import canon, unify
+from .labels import canon, theme_key, unify
 from .engine_types import RQ, EngineRow, Section
 from .metrics import TOP_PEAKS, month_label
 
@@ -74,7 +74,7 @@ def _share_kpi(module, rq, rows, base_n, _):
     stories = len({r.story_key for r in rows})
     return _section(module, rq, chart={"kind": "kpi", "categories": ["Share of coverage"], "values": [share],
                                        "unit": "percent", "peaks": [], "series_label": rq.id},
-                    facts=[f"{rq.id}: {n} of {base_n} articles ({share}%) answer this question",
+                    facts=[f"{rq.id}: {n} of {base_n} total results ({share}%) answer this question",
                            f"{rq.id}: {stories} unique stories ({n - stories} syndicated copies)"],
                     candidate_urls=[r.article.norm_url for r in rows[:12]])
 
@@ -158,10 +158,10 @@ def _themes(module, rq, rows, base_n, _):
     display: dict[str, str] = {}
     counts: Counter = Counter()
     for r in rows:
-        for key in {canon(t) for t in r.themes if t and t.strip()}:   # merge case, spelling and plural variants
+        for key in {theme_key(t) for t in r.themes if t and t.strip()}:   # merge case, plural and wording variants
             counts[key] += 1
         for t in r.themes:
-            display.setdefault(canon(t), t.strip())
+            display.setdefault(theme_key(t), t.strip())
     top = [(display[k], c) for k, c in counts.most_common(TOP_N)]
     if not top:
         return _section(module, rq, skipped="No themes in the data")
@@ -169,7 +169,7 @@ def _themes(module, rq, rows, base_n, _):
                                        "unit": "count", "peaks": [], "series_label": "Articles"},
                     facts=[f"Theme \"{t}\": {c} of {len(rows)} articles" for t, c in top],
                     segment_urls=_segments((display[k], r) for r in rows
-                                           for k in {canon(t) for t in r.themes if t and t.strip()}
+                                           for k in {theme_key(t) for t in r.themes if t and t.strip()}
                                            if display.get(k) in {t for t, _ in top}))
 
 
@@ -445,6 +445,8 @@ def compute_module(module: dict, rq: RQ, rows: list[EngineRow], base_n: int,
         # the chart's own base (this question's articles), printed as its "N =": the deck-wide base is not what
         # a question's percentages are out of (45 of 72 is 62.5%, shown beside N = 500 it misleads)
         section.chart = {**section.chart, "n": len(rows)}
+    if section.table is not None and "n" not in section.table:
+        section.table = {**section.table, "n": len(rows)}    # a table's N is its question's articles too
     return section
 
 

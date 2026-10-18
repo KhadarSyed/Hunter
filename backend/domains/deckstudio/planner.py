@@ -197,7 +197,7 @@ def build_deck_spec(inp: PlanInput) -> DeckSpec:
                   facts_allowed=all_facts + [inp.objective] + [v for _, v in _scope_rows(inp)] + [q.question for q in inp.rqs],
                   reference=pick_reference("objectives", family)),
         SlideSpec(id="executive-summary", type="executive_summary", treatment="A", title="What the coverage says",
-                  so_what=f"Base: {inp.base_n} unique articles across {len(inp.rqs)} questions",
+                  so_what=f"Base: {inp.base_n} results across {len(inp.rqs)} questions",
                   cards=[{"headline": a["value"], "text": a["question"], "note": a["answer"],
                           "citations": (next(iter(inp.insights_by_rq.get(a["rq_id"]) or []), {}) or {}).get("citations", [])}
                          for a in inp.answers],

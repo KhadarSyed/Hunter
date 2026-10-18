@@ -157,3 +157,24 @@ def list_reference_decks() -> list[dict]:
     conn.close()
     return [{"path": r["path"], "text": r["text"] or "",
              "embedding": json.loads(r["embedding_json"]) if r["embedding_json"] else None} for r in rows]
+
+
+def get_deliverable_plans(project_id: int) -> dict[str, dict]:
+    """rq_id -> {signature, plan, source}: each question's last analysis plan (see engine's plan stage)."""
+    conn = _conn()
+    rows = conn.execute("SELECT rq_id, signature, plan_json, source FROM intel_deliverable_plans WHERE project_id = ?",
+                        (project_id,)).fetchall()
+    conn.close()
+    return {r["rq_id"]: {"signature": r["signature"], "plan": json.loads(r["plan_json"]), "source": r["source"]}
+            for r in rows}
+
+
+def save_deliverable_plan(project_id: int, rq_id: str, signature: str, plan: dict, source: str) -> None:
+    conn = _conn()
+    conn.execute("INSERT INTO intel_deliverable_plans (project_id, rq_id, signature, plan_json, source, updated_at) "
+                 "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, rq_id) DO UPDATE SET "
+                 "signature = excluded.signature, plan_json = excluded.plan_json, source = excluded.source, "
+                 "updated_at = excluded.updated_at",
+                 (project_id, rq_id, signature, json.dumps(plan), source, time.time()))
+    conn.commit()
+    conn.close()

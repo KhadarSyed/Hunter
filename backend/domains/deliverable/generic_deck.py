@@ -168,7 +168,7 @@ def _cover(prs, inp: DeckInput):
 
 def _exec_summary(prs, inp: DeckInput):
     s = _slide(prs, inp, "EXECUTIVE SUMMARY", "What the coverage says",
-               f"Base: {inp.base_n} unique articles across {len(inp.rqs)} questions", inp.icons.get("overview"))
+               f"Base: {inp.base_n} results across {len(inp.rqs)} questions", inp.icons.get("overview"))
     tiles = [{"value": a["value"], "label": a["rq_id"], "note": a["answer"]} for a in inp.answers[:MAX_TILES]]
     blocks.add_kpi_tiles(s, style.MARGIN, CHART_TOP, style.SLIDE_W - 2 * style.MARGIN, 2.4, tiles)
     rows = [[a["rq_id"], _shorten(a["question"], QUESTION_CHARS), a["answer"]] for a in inp.answers]

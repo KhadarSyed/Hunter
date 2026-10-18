@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import logging
 import re
@@ -241,9 +242,10 @@ def _theme_subtitle(brand: str, project: dict, llm) -> str:
 def _methodology(summary: dict, rqs) -> list[str]:
     files, urls, stories, base = summary["files"], summary["unique_urls"], summary["stories"], summary["base_n"]
     return ([f"{files} approved files; {urls} unique article URLs; {stories} unique stories; "
-             f"base {base} unique articles.",
-             "Articles are counted once per URL; syndicated copies (same headline) are grouped into stories.",
-             "Shares are of the base unless a chart says otherwise."]
+             f"base {base} results (the questions' result volumes added up).",
+             "Within a question an article counts once per URL; an article that answers several questions counts in "
+             "each. Syndicated copies (same headline) are grouped into stories.",
+             "A question's share is of the total results; a chart's percentages are of its own N."]
             + [f"{q.id} query: {q.query}" for q in rqs if q.query])
 
 
@@ -385,6 +387,21 @@ def _makers(llm, names: list[str], brands: list[str]) -> dict[str, str]:
         return {}
     makers = (reply or {}).get("makers") or {}
     return {n: makers[n] for n in names if makers.get(n) in brands}
+
+
+def _question_plan(project_id: int, llm, q: RQ, rows, stored: dict, log) -> dict:
+    """The question's analysis plan: the stored one while the question, its query and its articles are unchanged
+    (a regenerated deck draws the same analyses), else a new one from the planner, stored for next time."""
+    signature = hashlib.sha1("\n".join([q.question, q.query, *sorted(r.article.norm_url for r in rows)])
+                             .encode("utf-8")).hexdigest()
+    llm_ok = llm is not None and getattr(llm, "is_reachable", lambda: False)()
+    cached = stored.get(q.id)
+    if cached and cached["signature"] == signature and (cached["source"] == "llm" or not llm_ok):
+        log(f"{q.id}: analysis plan reused (question and articles unchanged)")
+        return cached["plan"]
+    plan, source = catalog.plan_rq(llm, q, rows)
+    store.save_deliverable_plan(project_id, q.id, signature, plan, source)
+    return plan
 
 
 def _fit_chart(section: Section, question: str) -> Section:
@@ -583,14 +600,16 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         current = "routing"
         run.stage("routing", "running")
         rows = R.assign_stories(R.route(rows, rqs))
-        base = R.base_n(rows)
+        unique = R.base_n(rows)
         rows_by_rq = {q.id: R.rq_rows(rows, q.id) for q in rqs}
+        # the total is the questions' result volumes added up (an article answering two questions counts in both)
+        base = R.total_results({k: len(rs) for k, rs in rows_by_rq.items()}) or unique
         summary = R.ingest_summary(project_id, rows)
         run.section({"id": "data-collection", "rq_id": None, "module": "data_collection", "title": "Data collection",
-                     "data": summary, "facts": [f"Base: {base} unique articles across all questions"]})
+                     "data": summary, "facts": [f"Base: {base} results across all questions ({unique} unique articles)"]})
         for q in rqs:
             run.log(f"{_rq_label(q)}: {len(rows_by_rq[q.id])} articles")
-        run.stage("routing", "done", f"base N = {base}")
+        run.stage("routing", "done", f"base N = {base} results ({unique} unique articles)")
 
         current = "plan"
         run.stage("plan", "running")
@@ -610,8 +629,10 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         # the brief's own words count too: "look at both social and editorial" asks for the split even when the
         # brief analysis did not list it as an expected analysis
         asks = [text for _, text in brief_asks(project_id)] + [(project.get("spec") or {}).get("raw_brief") or ""]
+        stored_plans = store.get_deliverable_plans(project_id)
         plans = {q.id: catalog.with_brief_asks(
-                     catalog.with_breakdowns(catalog.plan_rq(llm, q, rows_by_rq[q.id])[0], q, dims_by_rq.get(q.id, [])), asks)
+                     catalog.with_breakdowns(_question_plan(project_id, llm, q, rows_by_rq[q.id], stored_plans, run.log),
+                                             q, dims_by_rq.get(q.id, [])), asks)
                  for q in rqs}
         for q in rqs:
             run.log(f"{_rq_label(q)}: " + ", ".join(m["module"] for m in plans[q.id]["modules"]))

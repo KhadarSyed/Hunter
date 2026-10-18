@@ -1,5 +1,5 @@
 {% set bg = ("url('" ~ image ~ "')") if image else ("linear-gradient(135deg,#" ~ t.accent ~ ",#" ~ t.primary ~ ")") %}
-{% set n_label = ((s.charts[0].get('n') if s.charts else none) or base_n) %}{# a chart's own base; the deck base for others #}
+{% set n_label = ((s.charts[0].get('n') if s.charts else none) or (s.tables[0].get('n') if s.tables else none) or base_n) %}{# a chart's own base; the deck base for others #}
 <section class="slide" style="--chip-dark:{{ marks.chip_dark or 'var(--text)' }}" data-id="{{ s.id }}" data-type="{{ s.type }}" data-treatment="{{ s.treatment }}">
 {% if s.type == "objectives" %}
   <div class="photo" style="right:56px;top:46px;bottom:70px;width:560px;border-radius:{{ t.radius }}px;background-image:{{ bg }}"></div>

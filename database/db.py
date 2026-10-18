@@ -1413,6 +1413,14 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             created_by INTEGER, created_at REAL NOT NULL)""",
         "CREATE INDEX IF NOT EXISTS idx_intel_exclusions_org ON intel_exclusions(org_id)",
     ]),
+    # Each question's analysis plan, reused while the question, its query and its articles are unchanged, so
+    # regenerating a deck draws the same analyses (the LLM planner otherwise varies the deck run to run).
+    (27, "deliverable analysis plans", [
+        """CREATE TABLE IF NOT EXISTS intel_deliverable_plans (
+            project_id INTEGER NOT NULL, rq_id TEXT NOT NULL, signature TEXT NOT NULL,
+            plan_json TEXT NOT NULL, source TEXT NOT NULL, updated_at REAL NOT NULL,
+            PRIMARY KEY (project_id, rq_id))""",
+    ]),
 ]
 
 
