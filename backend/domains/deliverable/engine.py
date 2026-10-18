@@ -575,7 +575,8 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         rows = R.load_rows(project_id, rqs)
         if not rows:
             raise StageFailed("ingest", "The approved datasets have no usable rows")
-        run.stage("ingest", "done", f"{len(rows)} unique articles")
+        note = R.country_note(project_id)
+        run.stage("ingest", "done", f"{len(rows)} unique articles" + (f" ({note})" if note else ""))
 
         current = "routing"
         run.stage("routing", "running")
