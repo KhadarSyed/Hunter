@@ -72,7 +72,7 @@ def choose(chart: dict | None, question: str = "") -> dict | None:
     elif rel == SINGLE and kind not in ("kpi", "gauge") and parts == 1 and chart.get("n"):
         # a one-bar chart compares nothing: the figure itself, as a share of the question's articles
         share = round(100 * float(chart["values"][0]) / int(chart["n"]), 1)
-        return {**chart, "kind": "kpi", "values": [share], "unit": "percent",
+        return {**chart, "kind": "kpi", "values": [share], "unit": "percent", "counts": chart["values"],
                 "choice": f"{SINGLE}: only {chart['categories'][0]} is named, shown as its share"}
     else:
         why = "one figure" if rel == SINGLE else f"{len(chart['breakdown']['groups'])} groups"
