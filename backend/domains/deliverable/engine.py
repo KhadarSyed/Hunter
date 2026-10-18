@@ -1,6 +1,7 @@
 """Deliverable engine: ten persisted stages, each broadcast on /ws; a failed stage stops the run visibly."""
 from __future__ import annotations
 
+import dataclasses
 import logging
 import re
 import threading
@@ -15,7 +16,7 @@ from ...core import config, store, writing_locale
 from ...core.events import broadcast
 from . import (analytics, brand_kit, catalog, engine_insights, extract, factcheck, generic_deck, templates_index,
                visuals, word_brief)
-from . import brand_analytics, entity_relevance, evidence, repair_context, tag_insights
+from . import brand_analytics, chart_choice, entity_relevance, evidence, repair_context, tag_insights
 from ...agents import question_tag_schema
 from . import rows as R
 from .citations import CitationRegistry, domain_of
@@ -360,6 +361,13 @@ def _logo_judge(llm, category: str):
     return lambda data, name, domain="": vision.is_logo_of(llm, data, name, category=category, domain=domain)
 
 
+def _fit_chart(section: Section, question: str) -> Section:
+    """The section drawn as the chart its data and question call for (see chart_choice)."""
+    if section.skipped or not section.chart:
+        return section
+    return dataclasses.replace(section, chart=chart_choice.choose(section.chart, question))
+
+
 def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_rq, answers, takeaways,
                 methodology, registry, base, out_dir: Path, rq_titles: dict[str, str],
                 llm=None) -> generic_deck.DeckInput:
@@ -579,9 +587,10 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
 
         current = "compute"
         run.stage("compute", "running")
-        overview = analytics.overview_section(rqs, rows_by_rq, base)
+        overview = _fit_chart(analytics.overview_section(rqs, rows_by_rq, base), "")
         run.section(overview.to_dict())
-        brand_secs = brand_analytics.brand_sections(rows, brands)       # client vs competitors, all questions
+        # client vs competitors, all questions: the chapter's own title is the comparison it answers
+        brand_secs = [_fit_chart(s, s.title) for s in brand_analytics.brand_sections(rows, brands)]
         for s in brand_secs:
             run.section(s.to_dict())
         sections_by_rq: dict[str, list[Section]] = {}
@@ -596,9 +605,12 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
             sections_by_rq[q.id] = entity_relevance.prune(sections_by_rq[q.id], llm,
                                                           _category(project, (project.get("brand") or "")),
                                                           q.question, run.log)
+            sections_by_rq[q.id] = [_fit_chart(s, q.question) for s in sections_by_rq[q.id]]
             for s in sections_by_rq[q.id]:
                 run.section(s.to_dict())
             drawn = [s for s in sections_by_rq[q.id] if not s.skipped]
+            run.log(f"{_rq_label(q)} charts: " + "; ".join(f"{s.title} - {s.chart['kind']} ({s.chart['choice']})"
+                                                           for s in drawn if s.chart and s.chart.get("choice")))
             run.log(f"{_rq_label(q)}: {len(drawn)} of {len(sections_by_rq[q.id])} analyses ready")
         run.stage("compute", "done")
 

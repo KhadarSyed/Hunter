@@ -118,7 +118,7 @@ def tag_section(rq: RQ, rows: list[EngineRow], schema: TagSchema | None) -> Sect
     return Section(id=f"{rq.id.lower()}-tag_share-{lead.tag_name}", rq_id=rq.id, module="tag_share",
                    title=f"{label}: share of tagged coverage",
                    chart={"kind": "bar", "categories": order, "values": [counts[v] for v in order], "unit": "count",
-                          "peaks": [], "series_label": "Articles"},
+                          "peaks": [], "series_label": "Articles", "n": len(tagged)},     # out of the tagged articles
                    facts=facts, candidate_urls=list(dict.fromkeys(cite_first)),
                    notes=[f"Base: {len(tagged)} articles tagged for this question"],
                    segment_urls={v: [r.article.norm_url for r in tagged if v in vals[id(r)]][:8]

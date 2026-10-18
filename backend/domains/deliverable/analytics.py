@@ -421,8 +421,9 @@ def _crosstab(module, rq, rows, base_n, _):
         table_rows.append([name] + [f"{_pct(counts[c], len(within))}%" for c in cols] + [str(len(within))])
         facts += [f"{rq.id}: {_pct(counts[c], len(within))}% of {name} articles mention {c} ({counts[c]} of {len(within)})"
                   for c in cols if counts[c]]
+    # a heatmap table: two dimensions of shares that overlap are read cell by cell, shaded by size
     return _section(module, rq, table={"header": [row_dim.label] + cols + ["Articles"], "rows": table_rows,
-                                       "col_widths": [3.0] + [1.6] * len(cols) + [1.2]},
+                                       "col_widths": [3.0] + [1.6] * len(cols) + [1.2], "heat": True},
                     facts=facts)
 
 

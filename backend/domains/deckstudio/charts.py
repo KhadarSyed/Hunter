@@ -231,6 +231,25 @@ def _stacked(c, t, w, h, logos, light=frozenset()):
     return out
 
 
+def _columns(c, t, w, h):
+    """Vertical columns for a short time series (under six points a line implies a trend it cannot show)."""
+    cats, vals = c["categories"], [float(v) for v in c["values"]]
+    top, pl, pb, pt = (max(vals) or 1), 40, 46, 44
+    slot = (w - pl - 20) / max(1, len(vals))
+    out = [f'<line x1="{pl}" y1="{h - pb}" x2="{w - 20}" y2="{h - pb}" stroke="#{t.muted}" stroke-opacity=".35"/>']
+    for i, (cat, v) in enumerate(zip(cats, vals)):
+        bh = (h - pt - pb) * v / top
+        x = pl + i * slot + slot * .18
+        out.append(f'<rect x="{x:.1f}" y="{h - pb - bh:.1f}" width="{slot * .64:.1f}" height="{max(bh, 2):.1f}" rx="4" '
+                   f'fill="#{t.primary if i in (c.get("peaks") or []) else t.series[0]}" '
+                   f'opacity="{1 if i in (c.get("peaks") or []) else .75}"/>')
+        out.append(f'<text class="val" style="font-size:21px" x="{x + slot * .32:.1f}" y="{h - pb - bh - 10:.1f}" '
+                   f'text-anchor="middle">{_fmt(v, c.get("unit", "count"))}</text>')
+        out.append(f'<text class="xlab" style="font-size:18px" x="{x + slot * .32:.1f}" y="{h - pb + 28}" '
+                   f'text-anchor="middle">{escape(_fit(cat, slot - 8, 18))}</text>')
+    return out
+
+
 LEGEND_W = 260          # room a side legend needs; a narrower chart puts the legend under the ring
 LEGEND_ROW = 40
 
@@ -272,7 +291,9 @@ def chart_svg(chart: dict, tokens: DeckTokens, logos: dict[str, str], width: int
         body = _treemap(chart, tokens, width, height)
     elif kind == "bar":
         body = _bars(chart, tokens, logos, width, height, light)
-    elif kind in ("line_peaks", "column"):
+    elif kind == "column":
+        body = _columns(chart, tokens, width, height)
+    elif kind == "line_peaks":
         body = _line(chart, tokens, width, height)
     elif kind == "doughnut":
         body = _doughnut(chart, tokens, width, height)
