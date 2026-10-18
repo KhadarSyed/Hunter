@@ -308,7 +308,9 @@ def _page_visuals(project: dict, sections_by_rq, verified: dict[str, Path]) -> d
              if s.module in ("brand_sov", "entities") and s.chart and s.id.endswith(("brand_sov", "brands"))
              for c in s.chart["categories"]]
     logos, shown = {}, set()
-    for n in dict.fromkeys([brand] + competitors + named):
+    # the banner's strip is the competitive set: the client already heads the page, and products ("Tesla Robotaxi")
+    # are not competitors; with no competitors in the brief, the brands the charts name stand in
+    for n in dict.fromkeys(competitors or [c for c in named if c != brand]):
         path = visuals.find_logo(n, verified)
         # one mark per logo: "BYD Dolphin" and "BYD" share BYD's logo, which the banner shows once
         if not path or visuals.is_badge(path) or Path(path).resolve() in shown:
