@@ -237,6 +237,16 @@ def retry_logos(r: Repair, _row: dict) -> str:
                      for c in ch.get("categories") or [] if str(c) in s.logos and visuals.is_badge(s.logos[str(c)])})
     if not badged:
         raise Unfixable("no brand shown as an initial")
+    # a product shown as an initial carries its maker's verified logo (Model 3 -> Tesla), as a new run does
+    from ..deliverable.engine import _makers
+    study = {**r.spec.logo_strip, **({r.spec.title: r.spec.brand_logo} if r.spec.brand_logo else {})}
+    by_maker = {n: study[m] for n, m in _makers(r.llm, badged, list(study)).items() if study.get(m)}
+    for s in r.spec.slides:
+        s.logos.update({n: p for n, p in by_maker.items() if n in s.logos})
+    badged = [n for n in badged if n not in by_maker]
+    if by_maker and not badged:
+        r.changed = True
+        return f"maker's logo used for {', '.join(by_maker)}"
     category = r.context.get("category") or ""
     judge = (lambda data, name, domain="": vision.is_logo_of(r.llm, data, name, category=category, domain=domain)) \
         if r.llm is not None else None

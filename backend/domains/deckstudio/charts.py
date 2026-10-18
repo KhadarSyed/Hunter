@@ -215,7 +215,7 @@ def _stacked(c, t, w, h, logos, light=frozenset()):
     bar_w = w - col_w - 20
     for r, (name, vals, n) in enumerate(rows):
         y = legend_h + r * row
-        label = f"{name} (n={n})" if n else name
+        label = f"{name} ({n})" if n else name
         size = _size_to_fit(label, label_w - 14, 20, 15)
         out.append(f'<text class="ylab" style="font-size:{size}px" x="{label_w - 8}" y="{y + row * .6:.1f}" '
                    f'text-anchor="end">{escape(_fit(label, label_w - 14, size))}</text>')

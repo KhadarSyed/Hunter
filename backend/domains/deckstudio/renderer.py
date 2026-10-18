@@ -83,8 +83,9 @@ def _mark(path: str | None, out_dir: Path) -> tuple[str, bool] | None:
 
 def _marks(spec: DeckSpec, out_dir: Path) -> dict:
     """The client's logo (cover and footers) and the competitive set (cover), copied into assets/."""
-    strip = [(name, *mark) for name, p in list(spec.logo_strip.items())[:MAX_STRIP_LOGOS]
-             if (mark := _mark(p, out_dir))]
+    # the client's logo already heads the cover: the strip shows the competitors, never the client a second time
+    rivals = [(n, p) for n, p in spec.logo_strip.items() if not (spec.brand_logo and (n == spec.title or p == spec.brand_logo))]
+    strip = [(name, *mark) for name, p in rivals[:MAX_STRIP_LOGOS] if (mark := _mark(p, out_dir))]
     cites = {n: {"outlet": m.get("outlet") or "", "icon": _asset(m.get("icon"), out_dir), "url": m.get("url") or ""}
              for n, m in (spec.citation_meta or {}).items()}
     brand = _mark(spec.brand_logo, out_dir)

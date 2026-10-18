@@ -307,9 +307,15 @@ def _page_visuals(project: dict, sections_by_rq, verified: dict[str, Path]) -> d
     named = [c for secs in sections_by_rq.values() for s in secs
              if s.module in ("brand_sov", "entities") and s.chart and s.id.endswith(("brand_sov", "brands"))
              for c in s.chart["categories"]]
-    logos = {n: uri for n in dict.fromkeys([brand] + competitors + named)
-             if (path := visuals.find_logo(n, verified)) and not visuals.is_badge(path)
-             and (uri := visuals.logo_data_uri(path))}
+    logos, shown = {}, set()
+    for n in dict.fromkeys([brand] + competitors + named):
+        path = visuals.find_logo(n, verified)
+        # one mark per logo: "BYD Dolphin" and "BYD" share BYD's logo, which the banner shows once
+        if not path or visuals.is_badge(path) or Path(path).resolve() in shown:
+            continue
+        if (uri := visuals.logo_data_uri(path)):
+            logos[n] = uri
+            shown.add(Path(path).resolve())
     hero = _hero_info(f"{brand} {industry}".strip())
     photographer = hero.get("photographer") or "Pexels"
     country = (spec.get("included_scope") or {}).get("geography") or spec.get("geography") or ""
