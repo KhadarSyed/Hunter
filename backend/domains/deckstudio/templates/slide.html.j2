@@ -1,4 +1,5 @@
 {% set bg = ("url('" ~ image ~ "')") if image else ("linear-gradient(135deg,#" ~ t.accent ~ ",#" ~ t.primary ~ ")") %}
+{% set n_label = ((s.charts[0].get('n') if s.charts else none) or base_n) %}{# a chart's own base; the deck base for others #}
 <section class="slide" style="--chip-dark:{{ marks.chip_dark or 'var(--text)' }}" data-id="{{ s.id }}" data-type="{{ s.type }}" data-treatment="{{ s.treatment }}">
 {% if s.type == "objectives" %}
   <div class="photo" style="right:56px;top:46px;bottom:70px;width:560px;border-radius:{{ t.radius }}px;background-image:{{ bg }}"></div>
@@ -39,7 +40,7 @@
   </div>
   {% if (charts or (s.tables and s.type != 'scorecard')) and s.cards %}<div class="cards reveal" style="position:absolute;left:1190px;right:70px;top:320px;grid-template-columns:1fr">
     {% for c in s.cards[:3] %}<div class="card build" style="background:rgba(255,255,255,.94)">{% if c.thumb %}<img class="thumb" src="{{ c.thumb }}" alt="">{% endif %}<h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}</p>{% if c.citations and marks.cites %}<div class="cites">{% for n in c.citations[:3] %}{% set m = marks.cites.get(n|string) %}{% if m %}{% if m.url %}<a class="cite" href="{{ m.url }}">{% else %}<span class="cite">{% endif %}{% if m.icon %}<img src="{{ m.icon }}" alt="">{% endif %}{{ m.outlet }}{% if m.url %}</a>{% else %}</span>{% endif %}{% endif %}{% endfor %}</div>{% endif %}</div>{% endfor %}</div>{% endif %}
-  {% if charts %}<div class="nlabel" style="position:absolute;right:80px;top:280px;color:var(--on-dark)">N = {{ base_n }}</div>{% endif %}
+  {% if charts %}<div class="nlabel" style="position:absolute;right:80px;top:280px;color:var(--on-dark)">N = {{ n_label }}</div>{% endif %}
 {% elif s.treatment == "S" %}
   <div style="position:absolute;left:70px;right:70px;top:48px">
     {% if s.kicker %}<div class="kicker">{{ s.kicker }}</div>{% endif %}
@@ -47,7 +48,7 @@
     {% if s.question and s.title %}<div class="kicker" style="margin-top:10px;color:var(--muted)">{{ s.title }}</div>{% endif %}
   </div>
   <div class="panel reveal" style="left:70px;top:240px;width:680px;height:760px;overflow:hidden">
-    <div class="nlabel" style="text-align:right">N = {{ base_n }}</div>
+    <div class="nlabel" style="text-align:right">N = {{ n_label }}</div>
     {% if charts %}{{ charts[0] | safe }}{% elif s.tables %}{% include "table.html.j2" %}{% endif %}
   </div>
   <div class="segs reveal">
@@ -62,7 +63,7 @@
     <div class="title clamp" style="margin-top:10px;font-size:40px">{{ s.question or s.title }}</div>
     {% if s.question and s.title %}<div class="kicker" style="margin-top:14px;color:var(--muted)">{{ s.title }}</div>{% endif %}
   </div>
-  <div class="nlabel" style="position:absolute;right:80px;top:290px">N = {{ base_n }}</div>
+  <div class="nlabel" style="position:absolute;right:80px;top:290px">N = {{ n_label }}</div>
   <div class="reveal" style="position:absolute;left:740px;right:70px;top:330px;height:{{ 380 if s.cards else 660 }}px;overflow:hidden">
     {% if charts %}{{ charts[0] | safe }}{% elif s.tables %}{% include "table.html.j2" %}{% endif %}
   </div>

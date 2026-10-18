@@ -70,4 +70,8 @@ def _by_brand(named_rows, order: list[str]) -> dict[str, list[str]]:
 
 def brand_sections(rows: list[EngineRow], brands: list[Brand]) -> list[Section]:
     named = _mentions(rows, brands)
-    return [_sov(named, brands), _sentiment(named, brands)]
+    sections = [_sov(named, brands), _sentiment(named, brands)]
+    for s in sections:            # the chart's own base: the articles that name a brand, not the deck-wide base
+        if s.chart is not None and "n" not in s.chart:
+            s.chart = {**s.chart, "n": len(named)}
+    return sections

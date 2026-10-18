@@ -48,14 +48,25 @@ SEGMENT_URLS = 20   # articles kept per chart category, best first, for its insi
 
 
 def _segments(pairs) -> dict[str, list[str]]:
-    """{category: its articles' URLs, most-read first} from (category, row) pairs."""
+    """{category: its articles' URLs, distinct stories first} from (category, row) pairs. Each story (syndicated
+    copies of one headline) is ranked by its audience -- the reach of all its copies in the category -- with the
+    articles the tagger read first, and offered once: a category's insight is written from several different stories,
+    not from five copies of one. The other copies follow, so every article is still listed."""
     out: dict[str, list] = {}
     for cat, r in pairs:
         out.setdefault(cat, []).append(r)
-    # articles the tagger read come first (that is where relevance was judged), then the most-read
-    return {c: list(dict.fromkeys(r.article.norm_url for r in sorted(
-                rs, key=lambda r: (not r.dynamic_tags, -r.copies, -r.article.reach))))[:SEGMENT_URLS]
-            for c, rs in out.items()}
+    ranked: dict[str, list[str]] = {}
+    for c, rs in out.items():
+        stories: dict[str, list] = {}
+        for r in rs:
+            stories.setdefault(r.story_key or r.article.norm_url, []).append(r)
+        order = sorted(stories.values(), key=lambda copies: (all(not r.dynamic_tags for r in copies),
+                                                             -sum(r.article.reach or 0 for r in copies)))
+        leads = [max(copies, key=lambda r: (bool(r.dynamic_tags), r.article.reach or 0)) for copies in order]
+        lead_ids = {id(r) for r in leads}
+        rest = [r for copies in order for r in copies if id(r) not in lead_ids]
+        ranked[c] = list(dict.fromkeys(r.article.norm_url for r in leads + rest))[:SEGMENT_URLS]
+    return ranked
 
 
 def _share_kpi(module, rq, rows, base_n, _):
@@ -426,8 +437,14 @@ def compute_module(module: dict, rq: RQ, rows: list[EngineRow], base_n: int,
     if not rows:
         return _section(module, rq, skipped=NO_ROWS)
     if module["module"] == "top_articles":      # ranked by being about the study's brands first
-        return _top_articles(module, rq, rows, base_n, extraction, brands)
-    return _HANDLERS[module["module"]](module, rq, rows, base_n, extraction)
+        section = _top_articles(module, rq, rows, base_n, extraction, brands)
+    else:
+        section = _HANDLERS[module["module"]](module, rq, rows, base_n, extraction)
+    if section.chart is not None and "n" not in section.chart:
+        # the chart's own base (this question's articles), printed as its "N =": the deck-wide base is not what
+        # a question's percentages are out of (45 of 72 is 62.5%, shown beside N = 500 it misleads)
+        section.chart = {**section.chart, "n": len(rows)}
+    return section
 
 
 def overview_section(rqs: list[RQ], rows_by_rq: dict[str, list[EngineRow]], base_n: int) -> Section:
