@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.responses import FileResponse
 
 from ...agents.brand_intelligence import run as run_bi
-from ...core import store
+from ...core import store, writing_locale
 from ..datasources import repository as ds_repo
 from ..exclusions import service as exclusions
 from ..datasources import service as ds_service
@@ -26,7 +26,7 @@ from ...core.auth import require_project_access
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from . import article_extractor
-from . import brandfetch as brandfetch_client
+from . import brandfetch as brandfetch_client  # noqa: F401  (Brandfetch: first logo lookup, via logo_files)
 from . import logo_files
 from . import multi_source as multi_source_module
 from . import pexels as pexels_client
@@ -93,8 +93,8 @@ def start_background_research(req: StartResearchRequest):
                     "research_validating_dates": ("Validating publication dates", 80),
                     "research_classifying_sources": ("Classifying source quality", 85),
                     "research_complete": ("Research complete", 95),
-                    # Brand/competitive intelligence — the LLM step that runs after web
-                    # research (see "Stage 3: LLM enrichment" below). Streamed like
+                    # Brand/competitive intelligence — the LLM step that runs alongside web
+                    # research (collected in "Stage 3: LLM enrichment" below). Streamed like
                     # brief_scope.py's agent so the UI shows real progress instead of
                     # sitting frozen on a single static message during the LLM call.
                     "brand_intelligence_started": ("Starting competitive/brand intelligence analysis", 90),
@@ -116,6 +116,8 @@ def start_background_research(req: StartResearchRequest):
                                 "progress_pct": last_pct, "message": msg})
                 elif event_type in msg_map:
                     msg, pct = msg_map[event_type]
+                    if event_type.startswith("brand_intelligence"):
+                        pct = None   # runs alongside web research now: its messages show, the bar follows the web stages
                     if event_type == "fetching_topic":
                         idx = payload.get("index", 0)
                         total = payload.get("total", 1)
@@ -137,6 +139,25 @@ def start_background_research(req: StartResearchRequest):
 
             def on_source_result(source: str, ok: bool, error: str | None) -> None:
                 ds_service.record_result(org_id, source, ok, error)
+
+            # The brand-intelligence LLM step reads only the specification (web_adapter=None), so it starts now and
+            # runs alongside web research instead of after it; its result is still collected after the web results
+            # are saved (Stage 3), with the full timeout from then on, so it never gets less time than before.
+            llm_client = writing_locale.with_locale(get_llm_client(), writing_locale.project_geography(project_for_org))
+            llm_pool = llm_future = None
+            if llm_client and llm_client.is_reachable():
+                def _run_llm():
+                    loop = asyncio.new_event_loop()
+                    try:
+                        bi_result = loop.run_until_complete(
+                            run_bi(spec, emit=on_event, llm_client=llm_client, web_adapter=None)
+                        )
+                    finally:
+                        loop.close()
+                    return bi_result.get("brand_intelligence")
+
+                llm_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                llm_future = llm_pool.submit(_run_llm)
 
             logger.info("[research:%s] Stage 1 — executing web research", job_id)
             web_result = adapter.run_full_research(
@@ -165,25 +186,13 @@ def start_background_research(req: StartResearchRequest):
             _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
                          "progress_pct": 90, "message": "LLM enrichment (optional)"})
 
-            llm_client = get_llm_client()
             llm_output = None
             enrichment_status = "web_only"
 
-            if llm_client and llm_client.is_reachable():
-                logger.info("[research:%s] LLM reachable — attempting enrichment (timeout=%ss)", job_id, LLM_ENRICHMENT_TIMEOUT)
-
-                def _run_llm():
-                    loop = asyncio.new_event_loop()
-                    bi_result = loop.run_until_complete(
-                        run_bi(spec, emit=on_event, llm_client=llm_client, web_adapter=None)
-                    )
-                    loop.close()
-                    return bi_result.get("brand_intelligence")
-
-                pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-                future = pool.submit(_run_llm)
+            if llm_future is not None:
+                logger.info("[research:%s] LLM reachable — collecting enrichment (timeout=%ss)", job_id, LLM_ENRICHMENT_TIMEOUT)
                 try:
-                    llm_output = future.result(timeout=LLM_ENRICHMENT_TIMEOUT)
+                    llm_output = llm_future.result(timeout=LLM_ENRICHMENT_TIMEOUT)
                     if llm_output and not isinstance(llm_output, dict):
                         llm_output = None
                         enrichment_status = "web_only"
@@ -201,7 +210,7 @@ def start_background_research(req: StartResearchRequest):
                     llm_output = {"_error": str(e)}
                     enrichment_status = "web_only"
                     logger.error("[research:%s] LLM enrichment failed: %s", job_id, e)
-                pool.shutdown(wait=False)
+                llm_pool.shutdown(wait=False)
             else:
                 logger.warning("[research:%s] LLM not reachable — completing with web_only", job_id)
 
@@ -332,16 +341,7 @@ def approve_news_item(research_id: Annotated[int, Path(ge=1)], req: NewsApproval
 def get_brand_logo_route(brand_name: str):
     """Logo for a brand/product: saved brand_logos table first, then Brandfetch, then Google. The image itself is
     served from this app (see logo_files): Brandfetch no longer serves hotlinked images to the page."""
-    info = brandfetch_client.resolve_logo(brand_name)
-    found = logo_files.logo_file(brand_name)
-    if found:
-        return {**info, "logo_url": f"/api/intel/brandfetch/logo/image?brand_name={quote(brand_name)}",
-                "is_light": found[1]}
-    # No PNG could be made (e.g. an SVG from Google): the browser loads it directly, as it did before logo_files.
-    # Brandfetch's CDN refuses hotlinks, so only other hosts are passed through.
-    direct = info.get("logo_url") or ""
-    hotlinkable = direct.startswith("https://") and not direct.startswith(logo_files.CDN)
-    return {**info, "logo_url": direct if hotlinkable else None, "is_light": False}
+    return logo_files.public_logo(brand_name, f"/api/intel/brandfetch/logo/image?brand_name={quote(brand_name)}")
 
 
 @router.get("/brandfetch/logo/image", response_class=FileResponse)

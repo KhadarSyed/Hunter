@@ -53,9 +53,29 @@ backend/tests/
 Baby-Skincare_Category/
 Band-Aid/
 Planet-Fitness/
+Mazda/
+Tesla/
 PPT Templates/
 ui-*.png
 
 # HyperFrames video guide: render output and working files (the served copy lives in frontend/public/videos/)
 docs/video-guide/renders/
 docs/video-guide/.hyperframes/
+
+# Test code and step-by-step scripts stay on the workstation (never pushed)
+tests/
+**/tests/
+test_*.py
+*_test.py
+conftest.py
+pytest.ini
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+e2e/
+playwright-report/
+test-results/
+docs/superpowers/plans/
+.superpowers/
+scratch/

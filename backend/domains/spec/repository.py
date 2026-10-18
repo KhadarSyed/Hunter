@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import time
 from typing import Any, Optional
 
@@ -500,7 +499,7 @@ def _compute_readiness(spec: dict) -> dict:
     }
 
 
-def _recompute_and_save_readiness(conn: sqlite3.Connection, spec_id: int, now: float):
+def _recompute_and_save_readiness(conn, spec_id: int, now: float):
     row = conn.execute(
         "SELECT spec_json FROM intel_research_specifications WHERE id = ?", (spec_id,)
     ).fetchone()

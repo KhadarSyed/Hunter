@@ -6,7 +6,6 @@ sidebar can list, replay, and reopen prior work after a restart.
 from __future__ import annotations
 
 import json
-import sqlite3
 import threading
 import time
 from contextlib import contextmanager
@@ -14,7 +13,6 @@ from typing import Optional
 
 from database import db
 
-from ..core import config
 
 _local = threading.local()
 
@@ -67,16 +65,11 @@ CREATE INDEX IF NOT EXISTS idx_chat_run_id ON chat_messages(run_id);
 """
 
 
-def get_conn() -> sqlite3.Connection:
+def get_conn():
+    """This thread's Postgres connection -- the same database as the Intelligence Platform."""
     conn = getattr(_local, "conn", None)
-    if conn is None and db.using_postgres():                  # same database as the Intelligence Platform
-        conn = _local.conn = db._conn()
     if conn is None:
-        conn = sqlite3.connect(str(config.MEMORY_DB_PATH), check_same_thread=False, timeout=30)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=30000")
-        _local.conn = conn
+        conn = _local.conn = db._conn()
     return conn
 
 

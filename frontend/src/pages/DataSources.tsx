@@ -111,6 +111,7 @@ function RQCard({
   onEnrich,
   enrichingIds,
   enrichLogs,
+  sharedArticles,
 }: {
   rq: RQ;
   /** Every file uploaded for this RQ, not just the latest — a research question can
@@ -127,6 +128,8 @@ function RQCard({
   onEnrich: (datasetId: number) => void;
   enrichingIds: Set<number>;
   enrichLogs: Record<number, EnrichLogEntry[]>;
+  /** Articles from other approved uploads whose text matches this question's query (the engine routes them here). */
+  sharedArticles?: number;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState(false);
@@ -280,6 +283,16 @@ function RQCard({
             <div className="w-5 h-5 rounded-full border-2 border-blue-200 border-t-blue-600 animate-spin shrink-0" />
             <span className="text-xs text-blue-700">Processing upload... detecting columns, mapping fields, computing statistics</span>
           </div>
+        )}
+
+        {/* No upload of its own: say what still reaches it, so the question does not look unfinished */}
+        {!hasData && !isProcessing && sharedArticles !== undefined && (
+          <p className={`mt-4 rounded-lg border px-3 py-2 text-xs ${sharedArticles > 0
+            ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+            {sharedArticles > 0
+              ? `No upload of its own: ${sharedArticles.toLocaleString()} articles from your other approved datasets match this question's query and will answer it. Upload a dedicated export only if you want more.`
+              : "No data yet: no upload of its own, and no article in your other approved datasets matches this question's query."}
+          </p>
         )}
 
         {/* Upload zone — stays visible even once files exist, so a research question
@@ -600,6 +613,27 @@ export function DataSources({ onNavigate }: Props) {
     setShowProceedConfirm(true);
   };
 
+  // What each question will get from the approved datasets, counted as the deliverable engine routes them
+  const [coverage, setCoverage] = useState<Record<string, { hasOwn: boolean; shared: number | null }>>({});
+  // until the first answer arrives the header does not claim "0/n questions have data"
+  const [coverageReady, setCoverageReady] = useState(false);
+  // the project whose datasets are loaded: coverage is asked once they are, not first with an empty list
+  const [loadedProjectId, setLoadedProjectId] = useState<number | null>(null);
+  const approvedKey = Object.values(datasets).flat().filter((d) => d.approval_status === "approved").map((d) => d.id).sort().join(",");
+  useEffect(() => {
+    if (!projectId || loadedProjectId !== projectId) return;
+    let cancelled = false;
+    setCoverageReady(false);       // approvals changed: the old count is not shown while the new one is worked out
+    intelApi.deliverableCoverage(projectId)
+      .then((c) => {
+        if (cancelled) return;
+        setCoverage(Object.fromEntries(c.rqs.map((r) => [r.rq_id, { hasOwn: r.has_own_upload, shared: r.shared }])));
+        setCoverageReady(true);
+      })
+      .catch(() => { if (!cancelled) setCoverage({}); });
+    return () => { cancelled = true; };
+  }, [projectId, loadedProjectId, approvedKey]);
+
   const groupByRQ = (allDatasets: DatasetRecord[]): Record<string, DatasetRecord[]> => {
     const grouped: Record<string, DatasetRecord[]> = {};
     for (const ds of allDatasets) {
@@ -613,10 +647,14 @@ export function DataSources({ onNavigate }: Props) {
     return grouped;
   };
 
+  // Each load is numbered: a slower load for a project the page has since left must not overwrite the newer one
+  const loadSeq = useRef(0);
   const loadData = async () => {
-    if (!projectId) return;
+    if (!projectId) { setLoading(false); return; }
+    const seq = ++loadSeq.current;
     try {
       const stratResult = await intelApi.getStrategy(projectId);
+      if (seq !== loadSeq.current) return;
       if (stratResult?.strategy_id) setStrategyId(stratResult.strategy_id as number);
       const strat = (stratResult?.strategy ?? {}) as Record<string, any>;
       const stratRQs: any[] = strat.research_question_queries || [];
@@ -629,19 +667,29 @@ export function DataSources({ onNavigate }: Props) {
       setResearchQuestions(rqs);
 
       const allDatasets: DatasetRecord[] = await intelApi.getAllDatasets(projectId);
+      if (seq !== loadSeq.current) return;
       const grouped = groupByRQ(allDatasets);
       setDatasets(grouped);
+      setLoadedProjectId(projectId);
 
       const anyApproved = rqs.some((rq) => grouped[rq.id]?.some((d) => d.approval_status === "approved"));
       if (anyApproved) demo.setDatasetApproved(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load data sources");
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
   };
 
-  useEffect(() => { loadData(); }, [projectId]);
+  useEffect(() => {
+    // another project: drop the previous one's questions, datasets and coverage so its counts are never shown here
+    setResearchQuestions([]);
+    setDatasets({});
+    setCoverage({});
+    setCoverageReady(false);
+    setLoading(true);
+    loadData();
+  }, [projectId]);
   // Loaded eagerly (not only on first Review-tab visit) so the proceed-to-Research-Execution
   // gate below has real approved/disapproved counts even if the analyst never opened Review.
   useEffect(() => { loadReview(); }, [projectId]);
@@ -874,8 +922,12 @@ export function DataSources({ onNavigate }: Props) {
   const uploadedCount = researchQuestions.filter((rq) => (datasets[rq.id] || []).some((d) => d.processing_status === "done")).length;
   const approvedCount = researchQuestions.filter((rq) => (datasets[rq.id] || []).some((d) => d.approval_status === "approved")).length;
   const allUploaded = totalRQs > 0 && uploadedCount === totalRQs;
-  const allApproved = totalRQs > 0 && approvedCount === totalRQs;
+  // every uploaded dataset approved: a question may rightly have no upload of its own (another upload answers it)
+  const allApproved = uploadedCount > 0 && approvedCount === uploadedCount;
   const canApproveAll = uploadedCount > approvedCount;
+  const doneFiles = Object.values(datasets).flat().filter((d) => d.processing_status === "done");
+  const approvedFiles = doneFiles.filter((d) => d.approval_status === "approved").length;
+  const coveredCount = researchQuestions.filter((rq) => coverage[rq.id]?.hasOwn || (coverage[rq.id]?.shared ?? 0) > 0).length;
 
   if (loading) {
     return (
@@ -907,15 +959,19 @@ export function DataSources({ onNavigate }: Props) {
                   const rqDatasets = datasets[rq.id] || [];
                   const isApp = rqDatasets.some((d) => d.approval_status === "approved");
                   const hasD = rqDatasets.some((d) => d.processing_status === "done");
+                  const shared = !hasD ? coverage[rq.id]?.shared ?? 0 : 0;
+                  const articles = !hasD ? coverage[rq.id]?.shared ?? undefined : undefined;
                   return (
                     <div key={rq.id} className={`w-2.5 h-2.5 rounded-full transition-colors ${
-                      isApp ? "bg-emerald-500" : hasD ? "bg-violet-400" : "bg-slate-200"
-                    }`} title={`${rq.id}: ${isApp ? "Approved" : hasD ? "Uploaded" : "No data"}`} />
+                      isApp ? "bg-emerald-500" : hasD ? "bg-violet-400" : shared > 0 ? "bg-emerald-200 ring-1 ring-emerald-400" : "bg-slate-200"
+                    }`} title={`${rq.id}: ${isApp ? "Own dataset approved" : hasD ? "Uploaded, not approved yet"
+                      : shared > 0 ? "Answered by other uploads that match its query" : "No data"}${articles !== undefined ? ` (${articles} articles)` : ""}`} />
                   );
                 })}
               </div>
-              <span className="text-xs font-medium tabular-nums" style={{ color: allApproved ? "#059669" : V }}>
-                {approvedCount}/{totalRQs} approved
+              <span className="text-xs font-medium tabular-nums" style={{ color: allApproved && coveredCount === totalRQs ? "#059669" : V }}
+                title="Datasets approved, and research questions the approved data answers (own upload or query match)">
+                {approvedFiles}/{doneFiles.length} datasets approved{coverageReady ? ` · ${coveredCount}/${totalRQs} questions have data` : ""}
               </span>
             </div>
           </div>
@@ -980,7 +1036,9 @@ export function DataSources({ onNavigate }: Props) {
 
       {/* RQ cards */}
       {researchQuestions.length > 0 && (
-        <div className="flex-1 min-h-0 overflow-y-auto px-8 py-6">
+        <div className="relative flex-1 min-h-0 overflow-y-auto px-8 py-6">
+          {/* relative: the dropzones' hidden absolute file inputs stay inside this scroll panel instead of stretching
+              the page, which gave the page a second scrollbar and made scrolling jump between the two */}
           <div className="max-w-3xl mx-auto space-y-4">
             {researchQuestions.map((rq) => (
               <RQCard
@@ -998,6 +1056,7 @@ export function DataSources({ onNavigate }: Props) {
                 onEnrich={(datasetId) => handleEnrich(rq.id, datasetId)}
                 enrichingIds={enrichingIds}
                 enrichLogs={enrichLogs}
+                sharedArticles={coverage[rq.id]?.shared ?? undefined}
               />
             ))}
             {strategyId && <AddRQCard nextId={nextRqId(researchQuestions)} onAdd={handleAddRQ} />}

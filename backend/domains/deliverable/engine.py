@@ -1,6 +1,9 @@
 """Deliverable engine: ten persisted stages, each broadcast on /ws; a failed stage stops the run visibly."""
 from __future__ import annotations
 
+import dataclasses
+import hashlib
+import json
 import logging
 import re
 import threading
@@ -11,11 +14,11 @@ from pathlib import Path
 
 from pptx import Presentation
 
-from ...core import config, store
+from ...core import config, store, writing_locale
 from ...core.events import broadcast
 from . import (analytics, brand_kit, catalog, engine_insights, extract, factcheck, generic_deck, templates_index,
                visuals, word_brief)
-from . import brand_analytics, entity_relevance, evidence, repair_context, tag_insights
+from . import brand_analytics, chart_choice, entity_relevance, evidence, repair_context, tag_insights
 from ...agents import question_tag_schema
 from . import rows as R
 from .citations import CitationRegistry, domain_of
@@ -206,12 +209,43 @@ def _subtitle(title: str, project_name: str) -> str:
     return name or "Media Analysis"
 
 
+_THEME_PROMPT = ("Write the subtitle for the cover of a research deck, from the client brief below. Name the theme of the "
+                 "study the way the brief frames it (what is being analysed and why), in 4 to 10 words, title case. Do "
+                 "not repeat the brand name \"{brand}\", and write no dates or numbers. Reply with the subtitle only.\n\n"
+                 "Research objective: {objective}\n\nBrief:\n{brief}")
+
+
+def _theme_subtitle(brand: str, project: dict, llm) -> str:
+    """The cover subtitle from the brief's theme ("Media & Reputation Analysis: Who Is Winning the Conversation"),
+    not the project name with the brand cut off ("Brand & Competitors"); the project-name form when no LLM answers."""
+    fallback = _subtitle(brand, project.get("project_name") or "")
+    spec = project.get("spec") or {}
+    brief = str(spec.get("raw_brief") or "").strip()
+    if llm is None or not brief:
+        return fallback
+    objective = spec.get("research_objective") or spec.get("deliverable_objective") or ""
+    if isinstance(objective, dict):
+        objective = objective.get("description") or objective.get("text") or ""
+    try:
+        reply = llm.chat([{"role": "user", "content": _THEME_PROMPT.format(
+            brand=brand, objective=str(objective)[:400], brief=brief[:1500])}])
+    except Exception as e:        # the cover still opens on the project-name subtitle
+        logger.warning("cover subtitle from the brief failed (%s); using the project name", type(e).__name__)
+        return fallback
+    text = " ".join(str(reply or "").strip().strip('"').split())
+    words = text.split()
+    if not 3 <= len(words) <= 12 or any(ch.isdigit() for ch in text) or brand.lower() in text.lower():
+        return fallback
+    return text
+
+
 def _methodology(summary: dict, rqs) -> list[str]:
     files, urls, stories, base = summary["files"], summary["unique_urls"], summary["stories"], summary["base_n"]
     return ([f"{files} approved files; {urls} unique article URLs; {stories} unique stories; "
-             f"base {base} unique articles.",
-             "Articles are counted once per URL; syndicated copies (same headline) are grouped into stories.",
-             "Shares are of the base unless a chart says otherwise."]
+             f"base {base} results (the questions' result volumes added up).",
+             "Within a question an article counts once per URL; an article that answers several questions counts in "
+             "each. Syndicated copies (same headline) are grouped into stories.",
+             "A question's share is of the total results; a chart's percentages are of its own N."]
             + [f"{q.id} query: {q.query}" for q in rqs if q.query])
 
 
@@ -275,9 +309,17 @@ def _page_visuals(project: dict, sections_by_rq, verified: dict[str, Path]) -> d
     named = [c for secs in sections_by_rq.values() for s in secs
              if s.module in ("brand_sov", "entities") and s.chart and s.id.endswith(("brand_sov", "brands"))
              for c in s.chart["categories"]]
-    logos = {n: uri for n in dict.fromkeys([brand] + competitors + named)
-             if (path := visuals.find_logo(n, verified)) and not visuals.is_badge(path)
-             and (uri := visuals.logo_data_uri(path))}
+    logos, shown = {}, set()
+    # the banner's strip is the competitive set: the client already heads the page, and products ("Tesla Robotaxi")
+    # are not competitors; with no competitors in the brief, the brands the charts name stand in
+    for n in dict.fromkeys(competitors or [c for c in named if c != brand]):
+        path = visuals.find_logo(n, verified)
+        # one mark per logo: "BYD Dolphin" and "BYD" share BYD's logo, which the banner shows once
+        if not path or visuals.is_badge(path) or Path(path).resolve() in shown:
+            continue
+        if (uri := visuals.logo_data_uri(path)):
+            logos[n] = uri
+            shown.add(Path(path).resolve())
     hero = _hero_info(f"{brand} {industry}".strip())
     photographer = hero.get("photographer") or "Pexels"
     country = (spec.get("included_scope") or {}).get("geography") or spec.get("geography") or ""
@@ -330,6 +372,45 @@ def _logo_judge(llm, category: str):
     return lambda data, name, domain="": vision.is_logo_of(llm, data, name, category=category, domain=domain)
 
 
+def _makers(llm, names: list[str], brands: list[str]) -> dict[str, str]:
+    """{product name: the study brand that makes it} for chart labels with no logo of their own, so a product carries
+    its maker's verified logo instead of a letter badge. Names no study brand makes, or no LLM, stay unmapped."""
+    if llm is None or not names or not brands:
+        return {}
+    prompt = ("For each name, say which one of these brands makes or owns it, or null if none of them does or you "
+              f"are not sure. BRANDS: {json.dumps(brands)}\nNAMES: {json.dumps(names)}\n"
+              'Return JSON {"makers": {"<name>": "<brand or null>"}}')
+    try:
+        reply = json.loads(llm.chat([{"role": "user", "content": prompt}], format_json=True))
+    except Exception as e:      # no mapping: the labels keep their letter badges
+        logger.warning("product makers not resolved: %s", type(e).__name__)
+        return {}
+    makers = (reply or {}).get("makers") or {}
+    return {n: makers[n] for n in names if makers.get(n) in brands}
+
+
+def _question_plan(project_id: int, llm, q: RQ, rows, stored: dict, log) -> dict:
+    """The question's analysis plan: the stored one while the question, its query and its articles are unchanged
+    (a regenerated deck draws the same analyses), else a new one from the planner, stored for next time."""
+    signature = hashlib.sha1("\n".join([q.question, q.query, *sorted(r.article.norm_url for r in rows)])
+                             .encode("utf-8")).hexdigest()
+    llm_ok = llm is not None and getattr(llm, "is_reachable", lambda: False)()
+    cached = stored.get(q.id)
+    if cached and cached["signature"] == signature and (cached["source"] == "llm" or not llm_ok):
+        log(f"{q.id}: analysis plan reused (question and articles unchanged)")
+        return cached["plan"]
+    plan, source = catalog.plan_rq(llm, q, rows)
+    store.save_deliverable_plan(project_id, q.id, signature, plan, source)
+    return plan
+
+
+def _fit_chart(section: Section, question: str) -> Section:
+    """The section drawn as the chart its data and question call for (see chart_choice)."""
+    if section.skipped or not section.chart:
+        return section
+    return dataclasses.replace(section, chart=chart_choice.choose(section.chart, question))
+
+
 def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_rq, answers, takeaways,
                 methodology, registry, base, out_dir: Path, rq_titles: dict[str, str],
                 llm=None) -> generic_deck.DeckInput:
@@ -353,8 +434,19 @@ def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_
     logo_map = {**visuals.logos([n for n in names if n not in retailers], out_dir / "logos", judge=judge, hint=category),
                 **visuals.logos([n for n in names if n in retailers], out_dir / "logos", judge=shop_judge, hint="store")}
     logo_map = {**_label_icons(sections_by_rq, rows, out_dir, kit.accent), **logo_map}   # brand logos win
+    # the client's own products (Model Y, Cybertruck) named in a brand chart carry the client's verified logo
+    own_products = {visuals.plain_name(e["name"]).casefold() for e in spec.get("validated_entities") or []
+                    if isinstance(e, dict) and e.get("type") == "product" and e.get("name")}
+    unplaced = [n for n in dict.fromkeys(sov_brands) if not visuals.find_logo(n, logo_map)
+                and visuals.plain_name(n).casefold() not in own_products]
+    makers = _makers(llm, unplaced, [brand] + competitors)      # "Model 3" -> Tesla, "Mustang Mach-E" -> Ford
     for name in dict.fromkeys(sov_brands):     # every brand drawn in a chart shows a mark beside its label
-        mark = visuals.find_logo(name, logo_map) or visuals.letter_badge_png(name, out_dir / "logos", kit.accent)
+        key = visuals.plain_name(name).casefold()
+        is_own = key in own_products or key.removeprefix(brand.casefold() + " ") in own_products
+        maker = makers.get(name)
+        mark = (visuals.find_logo(name, logo_map) or (kit.logo if (is_own or maker == brand) and kit.logo else None)
+                or (visuals.find_logo(maker, logo_map) if maker else None)
+                or visuals.letter_badge_png(name, out_dir / "logos", kit.accent))
         if mark:
             logo_map[name] = mark
     if kit.logo:
@@ -371,7 +463,7 @@ def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_
     period = f"{dates[0]:%b %Y} - {dates[-1]:%b %Y}" if dates else str(spec.get("time_period") or "")
     palette = kit.palette if kit.colors else visuals.palette_from_logo(kit.logo)
     return generic_deck.DeckInput(
-        title=brand, subtitle=_subtitle(brand, project.get("project_name") or ""), date_label=f"{date.today():%B %Y}",
+        title=brand, subtitle=_theme_subtitle(brand, project, llm), date_label=f"{date.today():%B %Y}",
         period_label=period, rqs=rqs, overview=overview, sections_by_rq=sections_by_rq,
         insights_by_rq=insights_by_rq, answers=answers, takeaways=takeaways, methodology=methodology,
         citations=_deck_citations(registry.entries()), base_n=base, palette=palette, accent=kit.accent, title_font=kit.title_font,
@@ -483,6 +575,8 @@ def _brands(project: dict, rqs) -> list:
 
 def run_engine(run_id: int, project_id: int, llm) -> None:
     run = _Run(run_id, project_id)
+    # every drafting call writes in the project's country/region language (Global: US English)
+    llm = writing_locale.with_locale(llm, writing_locale.project_geography(store.get_project(project_id)))
     current = "gate"
     try:
         run.stage("gate", "running")
@@ -500,19 +594,22 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         rows = R.load_rows(project_id, rqs)
         if not rows:
             raise StageFailed("ingest", "The approved datasets have no usable rows")
-        run.stage("ingest", "done", f"{len(rows)} unique articles")
+        note = R.country_note(project_id)
+        run.stage("ingest", "done", f"{len(rows)} unique articles" + (f" ({note})" if note else ""))
 
         current = "routing"
         run.stage("routing", "running")
         rows = R.assign_stories(R.route(rows, rqs))
-        base = R.base_n(rows)
+        unique = R.base_n(rows)
         rows_by_rq = {q.id: R.rq_rows(rows, q.id) for q in rqs}
+        # the total is the questions' result volumes added up (an article answering two questions counts in both)
+        base = R.total_results({k: len(rs) for k, rs in rows_by_rq.items()}) or unique
         summary = R.ingest_summary(project_id, rows)
         run.section({"id": "data-collection", "rq_id": None, "module": "data_collection", "title": "Data collection",
-                     "data": summary, "facts": [f"Base: {base} unique articles across all questions"]})
+                     "data": summary, "facts": [f"Base: {base} results across all questions ({unique} unique articles)"]})
         for q in rqs:
             run.log(f"{_rq_label(q)}: {len(rows_by_rq[q.id])} articles")
-        run.stage("routing", "done", f"base N = {base}")
+        run.stage("routing", "done", f"base N = {base} results ({unique} unique articles)")
 
         current = "plan"
         run.stage("plan", "running")
@@ -532,8 +629,10 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         # the brief's own words count too: "look at both social and editorial" asks for the split even when the
         # brief analysis did not list it as an expected analysis
         asks = [text for _, text in brief_asks(project_id)] + [(project.get("spec") or {}).get("raw_brief") or ""]
+        stored_plans = store.get_deliverable_plans(project_id)
         plans = {q.id: catalog.with_brief_asks(
-                     catalog.with_breakdowns(catalog.plan_rq(llm, q, rows_by_rq[q.id])[0], q, dims_by_rq.get(q.id, [])), asks)
+                     catalog.with_breakdowns(_question_plan(project_id, llm, q, rows_by_rq[q.id], stored_plans, run.log),
+                                             q, dims_by_rq.get(q.id, [])), asks)
                  for q in rqs}
         for q in rqs:
             run.log(f"{_rq_label(q)}: " + ", ".join(m["module"] for m in plans[q.id]["modules"]))
@@ -547,9 +646,10 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
 
         current = "compute"
         run.stage("compute", "running")
-        overview = analytics.overview_section(rqs, rows_by_rq, base)
+        overview = _fit_chart(analytics.overview_section(rqs, rows_by_rq, base), "")
         run.section(overview.to_dict())
-        brand_secs = brand_analytics.brand_sections(rows, brands)       # client vs competitors, all questions
+        # client vs competitors, all questions: the chapter's own title is the comparison it answers
+        brand_secs = [_fit_chart(s, s.title) for s in brand_analytics.brand_sections(rows, brands)]
         for s in brand_secs:
             run.section(s.to_dict())
         sections_by_rq: dict[str, list[Section]] = {}
@@ -564,9 +664,12 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
             sections_by_rq[q.id] = entity_relevance.prune(sections_by_rq[q.id], llm,
                                                           _category(project, (project.get("brand") or "")),
                                                           q.question, run.log)
+            sections_by_rq[q.id] = [_fit_chart(s, q.question) for s in sections_by_rq[q.id]]
             for s in sections_by_rq[q.id]:
                 run.section(s.to_dict())
             drawn = [s for s in sections_by_rq[q.id] if not s.skipped]
+            run.log(f"{_rq_label(q)} charts: " + "; ".join(f"{s.title} - {s.chart['kind']} ({s.chart['choice']})"
+                                                           for s in drawn if s.chart and s.chart.get("choice")))
             run.log(f"{_rq_label(q)}: {len(drawn)} of {len(sections_by_rq[q.id])} analyses ready")
         run.stage("compute", "done")
 

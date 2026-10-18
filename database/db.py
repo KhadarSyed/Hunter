@@ -9,7 +9,6 @@ import hashlib
 import logging
 import os
 import re
-import sqlite3
 import time
 from typing import Optional
 
@@ -1413,6 +1412,14 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             created_by INTEGER, created_at REAL NOT NULL)""",
         "CREATE INDEX IF NOT EXISTS idx_intel_exclusions_org ON intel_exclusions(org_id)",
     ]),
+    # Each question's analysis plan, reused while the question, its query and its articles are unchanged, so
+    # regenerating a deck draws the same analyses (the LLM planner otherwise varies the deck run to run).
+    (27, "deliverable analysis plans", [
+        """CREATE TABLE IF NOT EXISTS intel_deliverable_plans (
+            project_id INTEGER NOT NULL, rq_id TEXT NOT NULL, signature TEXT NOT NULL,
+            plan_json TEXT NOT NULL, source TEXT NOT NULL, updated_at REAL NOT NULL,
+            PRIMARY KEY (project_id, rq_id))""",
+    ]),
 ]
 
 
@@ -1496,43 +1503,30 @@ CREATE TABLE IF NOT EXISTS qc_exports (
 """
 
 
-def using_postgres() -> bool:
-    """DATABASE_URL set means Postgres (core/pg.py); otherwise the SQLite file under DATA_DIR."""
-    return bool(os.environ.get("DATABASE_URL", "").strip())
+MISSING_DATABASE = ("DATABASE_URL is not set. Hunter runs on Postgres only: start the local database with "
+                    "`docker compose -f database/docker-compose.postgres.yml up -d` and set DATABASE_URL in .env.")
 
 
-def _conn() -> sqlite3.Connection:
-    """Open a connection. Cheap (SQLite is in-process; Postgres connections are pooled), so repositories open
-    one per call; WAL mode is persistent and set once in init_intelligence_db()."""
-    if using_postgres():
-        conn = pg.connect(os.environ["DATABASE_URL"].strip())
-        if os.environ.get("HUNTER_PG_SCHEMA_PER_DB"):        # tests: each throwaway DB path is its own schema
-            conn.use_schema("t_" + hashlib.sha1(str(config.MEMORY_DB_PATH).encode()).hexdigest()[:16])
-        return conn
-    conn = sqlite3.connect(str(config.MEMORY_DB_PATH), check_same_thread=False, timeout=30)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA busy_timeout=30000")
-    conn.execute("PRAGMA synchronous=NORMAL")  # safe with WAL; avoids an fsync per commit
-    # Foreign keys are declared but deliberately NOT enforced: existing code paths (and
-    # tests) insert child rows before/without their parents. Deleting a project cleans
-    # up its children explicitly (projects/repository.delete_project) instead.
+def _conn() -> pg.Connection:
+    """Open a Postgres connection (pooled, so repositories open one per call). Foreign keys are declared but not
+    enforced; deleting a project cleans up its children explicitly (projects/repository.delete_project)."""
+    url = os.environ.get("DATABASE_URL", "").strip()
+    if not url:
+        raise RuntimeError(MISSING_DATABASE)
+    conn = pg.connect(url)
+    if os.environ.get("HUNTER_PG_SCHEMA_PER_DB"):        # tests: each throwaway DB path is its own schema
+        conn.use_schema("t_" + hashlib.sha1(str(config.MEMORY_DB_PATH).encode()).hexdigest()[:16])
     return conn
 
 
 def table_names(conn) -> list[str]:
-    """The database's tables, on either SQLite or Postgres."""
-    if using_postgres():
-        sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()"
-    else:
-        sql = "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+    sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()"
     return [r[0] for r in conn.execute(sql)]
 
 
 def table_columns(conn, table: str) -> list[str]:
-    if using_postgres():
-        return [r[0] for r in conn.execute("SELECT column_name FROM information_schema.columns "
-                                           "WHERE table_schema = current_schema() AND table_name = ?", (table,))]
-    return [r[1] for r in conn.execute(f"PRAGMA table_info('{table}')")]
+    return [r[0] for r in conn.execute("SELECT column_name FROM information_schema.columns "
+                                       "WHERE table_schema = current_schema() AND table_name = ?", (table,))]
 
 
 _FK_INLINE = re.compile(r"^\s*(\w+)\s+\w+[^,\n]*?\bREFERENCES\s+(\w+)\s*\(", re.I | re.M)
@@ -1554,7 +1548,7 @@ def declared_foreign_keys() -> list[tuple[str, str, str]]:
     return sorted(out)
 
 
-def _apply_migrations(conn: sqlite3.Connection) -> list[int]:
+def _apply_migrations(conn: pg.Connection) -> list[int]:
     conn.execute(
         "CREATE TABLE IF NOT EXISTS schema_migrations "
         "(version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at REAL NOT NULL)"
@@ -1564,13 +1558,9 @@ def _apply_migrations(conn: sqlite3.Connection) -> list[int]:
     for version, name, statements in MIGRATIONS:
         if version in done:
             continue
-        with conn:  # one transaction per migration
+        with conn:  # one transaction per migration (pg.py makes ADD COLUMN idempotent: IF NOT EXISTS)
             for sql in statements:
-                try:
-                    conn.execute(sql)
-                except sqlite3.OperationalError as e:       # Postgres uses ADD COLUMN IF NOT EXISTS instead
-                    if "duplicate column name" not in str(e):
-                        raise
+                conn.execute(sql)
             conn.execute("INSERT INTO schema_migrations VALUES (?, ?, ?)", (version, name, time.time()))
         applied.append(version)
     return applied
@@ -1610,7 +1600,6 @@ def _relocate_data_paths(conn) -> bool:
 def init_intelligence_db() -> None:
     conn = _conn()
     try:
-        conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(INTELLIGENCE_SCHEMA)
         conn.executescript(QC_SCHEMA)
         applied = _apply_migrations(conn) + ([_RELOCATE_VERSION] if _relocate_data_paths(conn) else [])

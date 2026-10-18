@@ -17,10 +17,12 @@ from .schemas import (
     DeleteProjectResponse,
     JobResponse,
     ProjectListItem,
+    ProjectLogoResponse,
     ProjectResponse,
     UpdateProjectRequest,
     _require_project_fields,
 )
+from .logo import project_logo
 
 router = APIRouter()
 
@@ -55,6 +57,16 @@ def get_project_route(project_id: Annotated[int, Path(ge=1)],
     if not project:
         raise HTTPException(404, "Project not found")
     return project
+
+
+@router.get("/projects/{project_id}/logo", response_model=ProjectLogoResponse)
+def get_project_logo_route(project_id: Annotated[int, Path(ge=1)],
+                           _access: Annotated[dict, Depends(require_project_access)]):
+    """The client brand's logo, else a photo of the brief's main theme for a project with no client brand."""
+    logo = project_logo(project_id)
+    if logo is None:
+        raise HTTPException(404, "Project not found")
+    return logo
 
 
 @router.put("/projects/{project_id}", response_model=ProjectResponse)

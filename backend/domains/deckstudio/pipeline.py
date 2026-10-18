@@ -2,6 +2,8 @@
 tokens), find assets, compose (render + creative pass), export."""
 from __future__ import annotations
 
+from datetime import date
+
 import json
 import logging
 import threading
@@ -9,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from ...core import config
+from ..research import logo_files
 from . import data_tables, fixer, validate
 from . import (art_director, assets, checklist, creative, design_systems, exporter, image_brief, indexer, planner, renderer, verbatims,
                vision)
@@ -29,12 +32,15 @@ def reuse_photos(slides, log=lambda _m: None) -> None:
     """A photo slide whose search found nothing (search quota spent, no relevant image) reuses one found for another
     slide, never its neighbours', so no slide is left a bare gradient; with no photo at all, the gradient stays."""
     found = list(dict.fromkeys(s.image["path"] for s in slides if s.image.get("path")))
+    # the cover and closing reuse only each other's photo (checked as the client's own), never a category photo
+    own = list(dict.fromkeys(s.image["path"] for s in slides if s.image.get("path") and s.type in BRAND_BOOKENDS))
     k = 0
     for i, s in enumerate(slides):
-        if s.image.get("path") or not found:
+        pool = own if s.type in BRAND_BOOKENDS else found
+        if s.image.get("path") or not pool:
             continue
         near = {slides[j].image.get("path") for j in (i - 1, i + 1) if 0 <= j < len(slides)}
-        options = [found[(k + n) % len(found)] for n in range(len(found))]
+        options = [pool[(k + n) % len(pool)] for n in range(len(pool))]
         pick = next((p for p in options if p not in near), options[0])
         k = found.index(pick) + 1
         s.image["path"] = pick
@@ -51,7 +57,10 @@ def _article_urls(slide, plan_input: PlanInput) -> list[str]:
     return [v["url"] for v in plan_input.verbatims_by_rq.get(rq_id, [])][:assets.MAX_ARTICLES]
 
 
-def _judge(llm, subjects, label: str, checks: dict):
+BRAND_BOOKENDS = ("cover", "closing")      # slides that wear the client: their photo must be recognisably its own
+
+
+def _judge(llm, subjects, label: str, checks: dict, exact: bool = False, own_brand: str = ""):
     """Vision check per candidate photo while the slide's and the run's budgets last; None afterwards (text gate)."""
     mine = {"n": 0}
 
@@ -61,7 +70,7 @@ def _judge(llm, subjects, label: str, checks: dict):
                 return None
             checks["n"] += 1
             mine["n"] += 1
-        return vision.matches(llm, data, subjects, label)
+        return vision.matches(llm, data, subjects, label, exact=exact, own_brand=own_brand)
     return judge
 
 
@@ -77,11 +86,16 @@ def attach_product(spec, products: list[str], find) -> None:
             return
 
 
+UNMARKED_CHARTS = ("theme_clusters",)
+
+
 def add_chart_logos(slide, logos: dict[str, Path]) -> None:
     """Logos beside chart labels, added to what the planner already put on the slide (e.g. source icons)."""
     outlet_cols = [[i for i, h in enumerate(t.get("header") or []) if str(h).strip().lower() in ("outlet", "source")]
                    for t in slide.tables]
-    names = [c for ch in slide.charts for c in ch.get("categories", [])] + \
+    # themes are ideas, not organisations: a letter badge or a brand logo beside "Safety investigation" adds noise
+    unmarked = any(k in slide.id for k in UNMARKED_CHARTS)
+    names = [c for ch in slide.charts if not unmarked for c in ch.get("categories", [])] + \
             [str(row[0]) for t in slide.tables for row in t.get("rows", []) if row] + \
             [str(row[i]) for t, cols in zip(slide.tables, outlet_cols) for row in t.get("rows", []) for i in cols
              if len(row) > i and row[i]]
@@ -99,6 +113,10 @@ def attach_logos(spec, logos: dict[str, Path], client: str, brands: list[str] | 
     """A client deck carries the client's logo on the cover and every footer, and the competitive set on the
     cover (client first) -- the brief's brands only, never the outlet icons or chart-label icons also in `logos`."""
     spec.brand_logo = str(logos[client]) if client in logos else ""
+    # The emblem the app shows for the brand (Brandfetch icon, cached by logo_files) goes beside the wordmark on the
+    # cover: a wordmark alone ("MAZDA" in letters) reads as the brand name typed out, not as its logo
+    symbol = logo_files.logo_file(client) if client else None
+    spec.brand_symbol = str(symbol[0]) if symbol and str(symbol[0]) != spec.brand_logo else ""
     names = list(dict.fromkeys([client] + list(brands if brands is not None else logos)))
     found = {n: _brand_logo(n, logos) for n in names}
     spec.logo_strip = {n: str(p) for n, p in found.items() if p}
@@ -165,7 +183,9 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
         return assets.find_photo(" ".join(image_brief.queries(subjects)[:1]) or s.image["query"], role,
                                  deck_dir / "photos", used, brand_image if s.type == "cover" else None,
                                  subjects=subjects, article_urls=_article_urls(s, plan_input),
-                                 judge=_judge(llm, subjects, label, checks))
+                                 judge=_judge(llm, subjects, label, checks,
+                                              own_brand=plan_input.title if s.type in BRAND_BOOKENDS
+                                              and not plan_input.is_category else ""))
 
     # Each slide's photo search is independent (30-75s of search and vision checks), so several run at once;
     # threads only search, the run log is written here
@@ -193,8 +213,10 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
 
     def product_photo(name: str):
         subjects = image_brief.Subjects([plan_input.title], [name], plan_input.category, f"{name} product packshot")
-        return assets.find_photo(f"{plan_input.title} {name}", "panel", deck_dir / "photos", used, subjects=subjects,
-                                 judge=_judge(llm, subjects, f"{name} by {plan_input.title}", checks)).path
+        # the current model: the year and "new" steer the search away from vintage and earlier generations
+        return assets.find_photo(f"{plan_input.title} {name} {date.today().year} new", "panel", deck_dir / "photos", used,
+                                 subjects=subjects, fallback=False,
+                                 judge=_judge(llm, subjects, f"{name} by {plan_input.title}", checks, exact=True)).path
     attach_product(spec, plan_input.brand_products, product_photo)
     if spec.product_image:
         run.log(f"Cover product: {spec.product_name}")

@@ -15,6 +15,34 @@ from .ingest import Article, infer_date_order, normalize_url, parse_date
 logger = logging.getLogger(__name__)
 
 
+_COUNTRY_ALIASES = {"us": "united states", "usa": "united states", "united states of america": "united states",
+                    "uk": "united kingdom", "gb": "united kingdom", "great britain": "united kingdom",
+                    "england": "united kingdom", "uae": "united arab emirates"}
+_ANY_COUNTRY = {"", "global", "worldwide", "international"}
+# project_id -> (articles dropped for another country, articles kept with no country, the project's country)
+COUNTRY_FILTER: dict[int, tuple[int, int, str]] = {}
+
+
+def _country_key(value) -> str:
+    key = " ".join(str(value or "").lower().replace(".", "").split())
+    return _COUNTRY_ALIASES.get(key, key)
+
+
+def _country_of(project_id: int) -> str:
+    """The country the deck is about; '' for a Global project (every country's coverage counts)."""
+    from ...core import writing_locale
+    key = _country_key(writing_locale.project_geography(store.get_project(project_id)))
+    return "" if key in _ANY_COUNTRY else key
+
+
+def country_note(project_id: int) -> str:
+    """The ingest log's line on the country filter ('' when nothing was filtered or unstated)."""
+    dropped, blank, country = COUNTRY_FILTER.get(project_id, (0, 0, ""))
+    parts = [f"{dropped} from outside {country.title()} left out"] if dropped else []
+    parts += [f"{blank} with no country kept"] if blank else []
+    return "; ".join(parts)
+
+
 def load_rqs(project_id: int) -> list[RQ]:
     strategy = (store.get_latest_strategy(project_id) or {}).get("strategy") or {}
     return [RQ(id=q.get("question_id") or f"RQ{i}", question=q.get("question") or "", query=q.get("query") or "")
@@ -95,17 +123,42 @@ def load_rows(project_id: int, rqs: list[RQ]) -> list[EngineRow]:
                                     [r.get("date") for r in enriched if r.get("dataset_id") == did])
               for did in approved}
     excluded: set[str] = set()
+    # the deck is about the project's country: an article from another country never reaches it (Global: all count);
+    # an article whose export states no country is kept, and counted in the run log
+    country = _country_of(project_id)
+    foreign: set[str] = set()
+    unstated: set[str] = set()
+
+    def in_country(rec: dict) -> bool:
+        url = normalize_url(str(rec.get("url") or ""))
+        stated = _country_key(rec.get("country"))
+        if not country:
+            return True
+        if not stated:
+            unstated.add(url)
+            return True
+        if stated != country:
+            foreign.add(url)
+            return False
+        return True
+
     for i, rec in enumerate(enriched):
-        if _is_excluded(rec):
+        if _is_excluded(rec) or not in_country(rec):
             excluded.add(normalize_url(str(rec.get("url") or "")))
         else:
             add(_row(rec, rec.get("research_question_id"), rec.get("dataset_file_name") or "", i,
                      orders.get(rec.get("dataset_id"), "ymd")))
     for ds in datasets:
         for i, rec in enumerate(file_records.get(ds["id"], [])):
+            if not in_country(rec):
+                continue
             row = _row(rec, ds.get("research_question_id"), ds.get("file_name") or "", i, orders[ds["id"]])
             if row is not None and row.article.norm_url not in excluded:
                 add(row)
+    kept = {r for r in merged}
+    COUNTRY_FILTER[project_id] = (len(foreign - kept), len(unstated & kept), country)
+    if foreign:
+        logger.info("project %s: %d articles from outside %s left out", project_id, len(foreign - kept), country)
     return _without_excluded(project_id, list(merged.values()))
 
 
@@ -155,10 +208,47 @@ def rq_rows(rows: list[EngineRow], rq_id: str) -> list[EngineRow]:
     return [r for r in rows if rq_id in r.rq_ids]
 
 
+_COVERAGE_CACHE: dict[tuple, dict] = {}
+_COVERAGE_CACHE_MAX = 64
+
+
+def coverage(project_id: int) -> dict:
+    """Per question: does it have an approved upload of its own, and if not, how many articles from the other
+    approved uploads match its Meltwater query (the engine's routing will send exactly those to it). Only questions
+    without an upload are matched, and the answer is cached per (approved datasets, questions): routing every
+    article for every question took minutes on a large project and starved the server."""
+    rqs = load_rqs(project_id)
+    datasets = _approved_datasets(project_id)
+    with_upload = {d.get("research_question_id") for d in datasets}
+    missing = [q for q in rqs if q.id not in with_upload]
+    key = (project_id, tuple(sorted(d["id"] for d in datasets)), tuple((q.id, q.query) for q in rqs))
+    if key in _COVERAGE_CACHE:
+        return _COVERAGE_CACHE[key]
+    shared = {q.id: 0 for q in missing}
+    if missing and datasets:
+        for row in load_rows(project_id, rqs):
+            text = f"{row.article.title}\n{row.article.text}"
+            for q in missing:
+                if q.query and matches(q.query, text):
+                    shared[q.id] += 1
+    result = {"rqs": [{"rq_id": q.id, "has_own_upload": q.id in with_upload, "shared": shared.get(q.id)} for q in rqs]}
+    if len(_COVERAGE_CACHE) >= _COVERAGE_CACHE_MAX:
+        _COVERAGE_CACHE.pop(next(iter(_COVERAGE_CACHE)))
+    _COVERAGE_CACHE[key] = result
+    return result
+
+
 def ingest_summary(project_id: int, rows: list[EngineRow]) -> dict:
     by_rq: dict[str, int] = {}
     for r in rows:
         for q in r.rq_ids:
             by_rq[q] = by_rq.get(q, 0) + 1
     return {"files": len(_approved_datasets(project_id)), "unique_urls": len(rows),
-            "stories": len({r.story_key for r in rows}), "base_n": base_n(rows), "by_rq": dict(sorted(by_rq.items()))}
+            "stories": len({r.story_key for r in rows}), "base_n": total_results(by_rq) or base_n(rows),
+            "total_results": total_results(by_rq), "by_rq": dict(sorted(by_rq.items()))}
+
+
+def total_results(by_rq: dict[str, int]) -> int:
+    """The deck's total: every question's result volume added up -- an article that answers several questions counts
+    once in each, as each question's search returned it (the unique-article count is reported beside it)."""
+    return sum(by_rq.values())

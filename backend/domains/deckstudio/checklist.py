@@ -10,7 +10,7 @@ from .spec import DeckSpec
 
 ASK_MODULES = [
     (r"theme|topic", {"theme_clusters"}), (r"expert", {"entities:experts"}), (r"affiliat", {"entities:experts"}),
-    (r"celebrit", {"entities:celebrities"}), (r"brand|share of voice|competitor", {"brand_sov", "entities:brands"}),
+    (r"celebrit", {"entities:celebrities"}), (r"brand|share of voice|competit|benchmark", {"brand_sov", "brand_sentiment", "entities:brands"}),
     (r"sentiment|tone", {"sentiment_split", "brand_sentiment"}), (r"outlet|publication", {"outlet_ranking"}),
     (r"trend|over time|month|volume|spike|peak|driver|event|moment", {"volume_trend"}),
     (r"reach|audience", {"reach"}),
@@ -44,7 +44,8 @@ def _question_row(rq: RQ, sections: list[Section]) -> dict:
     if kpi is None or kpi.skipped:
         return {**row, "status": "missing", "note": (kpi.skipped if kpi else "") or "No articles for this question"}
     # an empty extra chart (experts on a parenting-advice question) does not short a question; one it asks for does
-    skipped = [s for s in sections if s.skipped and s.module != "share_kpi" and _asked(rq.question, s)]
+    skipped = [s for s in sections if s.skipped and s.module != "share_kpi" and _asked(rq.question, s)
+               and not _answered_elsewhere(s, sections)]
     # "affiliation not stated" only falls short of a question that asked about affiliation and has no tag answering it
     asks_affiliation = bool(re.search("affiliat", rq.question.lower()))
     unstated = next((f for s in sections for f in s.facts if NOT_STATED.search(f)), "") \
@@ -52,6 +53,13 @@ def _question_row(rq: RQ, sections: list[Section]) -> dict:
     if skipped or unstated:
         return {**row, "status": "partial", "note": unstated or "; ".join(f"{s.title}: {s.skipped}" for s in skipped)}
     return {**row, "status": "covered", "note": ""}
+
+
+def _answered_elsewhere(empty: Section, sections: list[Section]) -> bool:
+    """An empty chart whose subject another drawn chart of the question shows (an empty 'Theme' breakdown beside
+    the theme treemap): the question is answered, by the other chart."""
+    wanted = set().union(*[mods for pattern, mods in ASK_MODULES if re.search(pattern, empty.title.lower())])
+    return bool(wanted) and any(not s.skipped and (s.chart or s.table) and _keys(s) & wanted for s in sections)
 
 
 def _stems(text: str) -> set[str]:

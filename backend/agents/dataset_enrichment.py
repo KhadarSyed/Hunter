@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from typing import Any, Callable
@@ -31,6 +32,10 @@ EventFn = Callable[[str, dict], None]
 
 BATCH_SIZE = 8
 MAX_ROUNDS = 3
+# Batches tagged at once. Each batch is one LLM call that mostly waits on the model writing its reply, so more run
+# side by side without changing a batch's articles, prompt or repair rounds; a rate limit is waited out by the
+# Azure client. 3 took ~11 min for 500 articles (63 batches in 21 rounds).
+WORKERS = max(1, int(os.environ.get("HUNTER_ENRICH_WORKERS", "8") or 8))
 
 SENTIMENTS = ["Positive", "Neutral", "Negative"]
 BRAND_MENTIONS = ("literal", "figurative", "none")
@@ -321,7 +326,7 @@ def enrich_dataset(
     def worker(batch: list[dict]) -> list[dict]:
         return _tag_batch_with_repair(llm_client, batch, brand, competitors, dimensions, tag_schema)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS) as pool:
         futures = {pool.submit(worker, b): b for b in batches}
         for future in concurrent.futures.as_completed(futures):
             tags = future.result()

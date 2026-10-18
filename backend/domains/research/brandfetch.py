@@ -139,11 +139,20 @@ _GENERIC_WORDS = {"corp", "corporation", "company", "group", "brand", "brands", 
                   "limited", "ltd", "llc", "holdings", "international", "global", "the", "and"}
 
 
-def _is_plausible_image(query: str, url: str) -> bool:
-    """The image URL contains a distinctive word of the query (e.g. heineken-logo.svg)."""
+def _is_plausible_image(query: str, url: str, *, strict: bool = False) -> bool:
+    """The image URL contains a distinctive word of the query (e.g. heineken-logo.svg). Strict: every distinctive
+    word, so "Baby Skincare Category" is not matched by a babyfaceskincarespa.com logo."""
     path = _compact(url.split("?")[0])
     words = [w for w in (_compact(x) for x in query.split()) if w not in _GENERIC_WORDS]
+    if strict:
+        distinctive = [w for w in words if len(w) >= 3]
+        return _compact(query) in path or (bool(distinctive) and all(w in path for w in distinctive))
     return any(len(w) >= 4 and w in path for w in words + [_compact(query)])
+
+
+def is_plausible_logo(brand_name: str, url: str) -> bool:
+    """A Google logo URL still believable for the brand under the strict rule (cached ones are re-checked)."""
+    return _is_plausible_image(brand_name, url, strict=True)
 
 
 def _google_logo(brand_name: str) -> str | None:
@@ -161,7 +170,7 @@ def _google_logo(brand_name: str) -> str | None:
     except ValueError:
         return None
     urls = [u for u in (i.get("original") or "" for i in images)
-            if u.startswith("https://") and _is_plausible_image(brand_name, u)]
+            if u.startswith("https://") and _is_plausible_image(brand_name, u, strict=True)]
     svg = next((u for u in urls if u.lower().split("?")[0].endswith(".svg")), None)
     return svg or (urls[0] if urls else None)
 
@@ -194,6 +203,8 @@ def resolve_logo(brand_name: str) -> dict:
         return result
 
     saved = repository.get_brand_logo(key)
+    if saved and saved["source"] == "google" and saved["logo_url"] and not is_plausible_logo(name, saved["logo_url"]):
+        saved = None  # saved under the older, looser match rule: look the brand up again
     if saved and (saved["logo_url"] or time.time() - saved["fetched_at"] < NOT_FOUND_RETRY_S):
         return {**result, "logo_url": saved["logo_url"], "source": saved["source"],
                 "domain": saved["domain"], "cached": True}

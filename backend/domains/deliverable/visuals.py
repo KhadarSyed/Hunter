@@ -298,13 +298,18 @@ def is_badge(path: Path | str) -> bool:
     return Path(path).name.startswith(BADGE_PREFIX)
 
 
+def _full_opacity(img: Image.Image) -> Image.Image:
+    from ..deckstudio.logo_prep import _full_opacity as solid     # one rule for the deck and the page
+    return solid(img)
+
+
 def logo_data_uri(path: Path) -> str | None:
     """A small PNG data URI of a logo for the web page, which cannot read the run's files directly."""
     import base64
     import io
     try:
         with Image.open(path) as im:
-            im = im.convert("RGBA")
+            im = _full_opacity(im.convert("RGBA"))       # a logo saved semi-transparent (BYD) shown solid
             im.thumbnail((PAGE_LOGO_PX * 4, PAGE_LOGO_PX))
             buf = io.BytesIO()
             im.save(buf, format="PNG", optimize=True)

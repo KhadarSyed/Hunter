@@ -6,6 +6,7 @@ import hashlib
 import logging
 import os
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -199,23 +200,30 @@ def _accept(data: bytes, role: str, title: str, subjects: Subjects | None, judge
     verdict = judge(data) if judge else None
     if verdict is not None:
         return verdict, "vision: " + ("matches" if verdict else "off-topic")
+    if judge is not None:
+        # vision is available but could not look (its budget is spent): a photo nobody checked against the brief's
+        # product or category is not shown -- an off-topic or outdated image is worse than the brand gradient
+        return False, "not verified (vision budget used up)"
     ok = text_relevant(title, subjects)
     return ok, "text: " + ("names the subject" if ok else "does not name the subject")
 
 
-def _plan(query: str, subjects: Subjects | None, article_urls) -> list[tuple[str, list[dict]]]:
-    """Sources in order: the slide's own articles, then per query brand/product shots, licensed stock, Google."""
+def _plan(query: str, subjects: Subjects | None, article_urls) -> Iterator[tuple[str, list[dict]]]:
+    """Sources in order: the slide's own articles, then per query brand/product shots, licensed stock, Google.
+    Lazy: each search runs only when find_photo reaches it, so a photo accepted early skips the searches it would
+    never have used (up to 12 per slide). The groups, their order and their contents are what the eager list was."""
     leads = [u for u in (article_image(a) for a in list(article_urls)[:MAX_ARTICLES]) if u]
-    plan = [("article", [{"url": u, "width": 10 ** 6, "title": ""} for u in leads])]
+    yield "article", [{"url": u, "width": 10 ** 6, "title": ""} for u in leads]
     for q in (brief_queries(subjects) if subjects else [query]):
-        brand_shots = _ddg_images(q) if subjects and subjects.brands else []
-        plan += [("web", brand_shots), ("licensed", _pexels(q)), ("web", _serpapi(q))]
-    return plan
+        yield "web", (_ddg_images(q) if subjects and subjects.brands else [])
+        yield "licensed", _pexels(q)
+        yield "web", _serpapi(q)
 
 
 def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image: Path | None = None, *,
-               subjects: Subjects | None = None, article_urls=(), judge=None) -> Photo:
-    """The first candidate that is big enough and on-topic; no photo rather than an off-topic one."""
+               subjects: Subjects | None = None, article_urls=(), judge=None, fallback: bool = True) -> Photo:
+    """The first candidate that is big enough and on-topic; no photo rather than an off-topic one. `fallback=False`
+    (a named product's shot) never widens to the category: a generic category image labelled as the product misleads."""
     slug = hashlib.sha1(f"{query}|{role}".encode()).hexdigest()[:12]
     if brand_image and brand_image.exists() and str(brand_image) not in used:
         with Image.open(brand_image) as im:
@@ -243,7 +251,7 @@ def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image:
             raw.write_bytes(data)
             used.add(cand["url"])
             return Photo(crop_to(raw, role, folder / f"{slug}.jpg"), cand["url"], licence, why)
-    found = _fallback(query, role, folder, used, subjects, judge, slug)
+    found = _fallback(query, role, folder, used, subjects, judge, slug) if fallback else None
     return found or Photo(None, "", "none", f"no relevant photo ({rejected} candidates rejected)")
 
 

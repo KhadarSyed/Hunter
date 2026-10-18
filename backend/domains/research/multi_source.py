@@ -12,6 +12,7 @@ import re
 import json as _json
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from urllib.parse import urlparse
@@ -272,6 +273,7 @@ def fetch_and_persist(
 
 BATCH_SIZE = 18  # items per map-step LLM call; sized to stay comfortably under a typical
                  # prompt-token budget for ~18 title+300-char-content items
+MAP_WORKERS = 6  # map-step batches summarised at once (results kept in batch order)
 
 _REDUCE_KEYS = [
     "company_introduction", "executive_summary", "brand_developments",
@@ -449,12 +451,19 @@ def summarize_map_reduce(project_id: int, spec: dict, llm_client, emit=None, dat
     brand_name = (spec.get("commissioning_brand") or {}).get("name", "the brand")
     competitors = _entities_by_type(spec, "competitor")
     batches = _batch_items(items, BATCH_SIZE)
-    batch_summaries = []
-    for i, batch in enumerate(batches):
-        _emit("summarizing_batch", {"index": i + 1, "total": len(batches)})
+    # Batches are independent LLM calls: summarised side by side, kept in batch order (pool.map), so the combining
+    # prompt is exactly what the one-at-a-time loop produced. A rate limit is waited out by the Azure client.
+    done = 0
+
+    def summarise(batch):
+        nonlocal done
         summary = _map_batch(llm_client, batch, source_lookup)
-        if summary:
-            batch_summaries.append(summary)
+        done += 1
+        _emit("summarizing_batch", {"index": done, "total": len(batches)})
+        return summary
+
+    with ThreadPoolExecutor(max_workers=MAP_WORKERS) as pool:
+        batch_summaries = [s for s in pool.map(summarise, batches) if s]
 
     if not batch_summaries:
         return {}

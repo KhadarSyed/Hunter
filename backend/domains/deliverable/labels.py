@@ -18,6 +18,16 @@ def canon(text: str) -> str:
     return key[:-1] if len(key) > 3 and key.endswith("s") and not key.endswith("ss") else key
 
 
+_FILLER = {"and", "of", "the", "a", "an", "in", "on", "for", "to", "with"}
+
+
+def theme_key(text: str) -> str:
+    """One key for a theme's wordings: 'Awards and recognition', 'Award recognition' and 'Recognition & awards' are
+    the same theme (each word folded as in `canon`, filler words dropped, order ignored); 'Safety awards' is not."""
+    words = {canon(w) for w in re.findall(r"[A-Za-z0-9]+", str(text)) if w.lower() not in _FILLER}
+    return " ".join(sorted(w for w in words if w)) or canon(text)
+
+
 def unify(values: Iterable[str], preferred: Iterable[str] = ()) -> dict[str, str]:
     """{raw value: its group's display label}. A preferred spelling (a question's own value names) wins, else the
     group's most frequent spelling, capitalised forms first on a tie."""

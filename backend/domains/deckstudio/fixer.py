@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -236,6 +237,16 @@ def retry_logos(r: Repair, _row: dict) -> str:
                      for c in ch.get("categories") or [] if str(c) in s.logos and visuals.is_badge(s.logos[str(c)])})
     if not badged:
         raise Unfixable("no brand shown as an initial")
+    # a product shown as an initial carries its maker's verified logo (Model 3 -> Tesla), as a new run does
+    from ..deliverable.engine import _makers
+    study = {**r.spec.logo_strip, **({r.spec.title: r.spec.brand_logo} if r.spec.brand_logo else {})}
+    by_maker = {n: study[m] for n, m in _makers(r.llm, badged, list(study)).items() if study.get(m)}
+    for s in r.spec.slides:
+        s.logos.update({n: p for n, p in by_maker.items() if n in s.logos})
+    badged = [n for n in badged if n not in by_maker]
+    if by_maker and not badged:
+        r.changed = True
+        return f"maker's logo used for {', '.join(by_maker)}"
     category = r.context.get("category") or ""
     judge = (lambda data, name, domain="": vision.is_logo_of(r.llm, data, name, category=category, domain=domain)) \
         if r.llm is not None else None
@@ -399,6 +410,9 @@ def recheck_brief(r: Repair) -> list[str]:
             row.update(status="covered", note=f"slide {slide}: {str(v.get('why') or '')[:120]}")
             out.append(f"Brief: {row['ask'][:60]} - covered on slide {slide}")
             moved = r.changed = True
+        elif v.get("covered"):      # the agent named a slide, but its quote is not there: not taken on its word
+            out.append(f"Brief: {row['ask'][:60]} - still {row['status']}: the agent pointed to slide {slide}, "
+                       "but the words it quoted are not on that slide")
         else:
             out.append(f"Brief: {row['ask'][:60]} - still {row['status']}: {str(v.get('why') or row.get('note'))[:120]}")
     if moved:
@@ -469,11 +483,22 @@ def load(deck_dir: Path) -> tuple[DeckSpec, dict]:
     return spec, (json.loads(path.read_text(encoding="utf-8")) if path.exists() else {})
 
 
+REPLACE_ATTEMPTS = 6
+REPLACE_WAIT_S = 0.25
+
+
 def _write(path: Path, data) -> None:
     """Written whole or not at all: a crash mid-write never leaves a half spec behind."""
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, default=str), encoding="utf-8")
-    tmp.replace(path)
+    for attempt in range(REPLACE_ATTEMPTS):
+        try:
+            tmp.replace(path)
+            return
+        except PermissionError:     # Windows: a reader or the virus scanner holds the target for a moment
+            if attempt == REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(REPLACE_WAIT_S * (attempt + 1))
 
 
 def save(r: Repair) -> None:

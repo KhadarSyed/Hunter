@@ -103,7 +103,7 @@ export function ProjectSwitcher({ onNavigate }: { onNavigate: (page: string) => 
                 }`}
               >
                 {p.brand ? (
-                  <BrandLogo brandName={p.brand} size={28} rounded="lg" className="shrink-0 bg-white ring-1 ring-slate-200" />
+                  <BrandLogo brandName={p.brand} projectId={p.id} size={28} rounded="lg" className="shrink-0 bg-white ring-1 ring-slate-200" />
                 ) : (
                   <div className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center text-xs font-bold shrink-0">
                     {p.project_name.charAt(0).toUpperCase() || "?"}

@@ -1,4 +1,5 @@
 {% set bg = ("url('" ~ image ~ "')") if image else ("linear-gradient(135deg,#" ~ t.accent ~ ",#" ~ t.primary ~ ")") %}
+{% set n_label = ((s.charts[0].get('n') if s.charts else none) or (s.tables[0].get('n') if s.tables else none) or base_n) %}{# a chart's own base; the deck base for others #}
 <section class="slide" style="--chip-dark:{{ marks.chip_dark or 'var(--text)' }}" data-id="{{ s.id }}" data-type="{{ s.type }}" data-treatment="{{ s.treatment }}">
 {% if s.type == "objectives" %}
   <div class="photo" style="right:56px;top:46px;bottom:70px;width:560px;border-radius:{{ t.radius }}px;background-image:{{ bg }}"></div>
@@ -18,9 +19,9 @@
     {% if s.so_what %}<div class="sowhat clamp" style="margin-top:22px;opacity:.95">{{ s.so_what }}</div>{% endif %}
     {% if s.type == 'cover' and s.notes %}<div class="kicker" style="margin-top:26px;color:var(--on-dark);opacity:.8">{{ s.notes }}</div>{% endif %}
   </div>
-  {% if s.type == 'cover' and marks.brand %}<div class="logo-chip cover{% if marks.brand_light %} dark{% endif %}" style="position:absolute;left:110px;top:90px"><img class="brand-logo" src="{{ marks.brand }}" alt="{{ marks.name }}" style="height:120px;max-width:440px;object-fit:contain"></div>{% endif %}
+  {% if s.type == 'cover' and marks.brand %}<div class="logo-chip cover{% if marks.brand_light %} dark{% endif %}" style="position:absolute;left:110px;top:90px;display:flex;align-items:center;gap:24px">{% if marks.symbol %}<img class="brand-symbol" src="{{ marks.symbol }}" alt="" style="height:120px;width:120px;object-fit:contain;border-radius:18px">{% endif %}<img class="brand-logo" src="{{ marks.brand }}" alt="{{ marks.name }}" style="height:120px;max-width:440px;object-fit:contain"></div>{% endif %}
   {% if s.type == 'cover' and marks.product %}<div class="product-card" style="position:absolute;right:110px;top:90px;width:420px"><img class="product-shot" src="{{ marks.product }}" alt="{{ marks.product_name }}"><div class="kicker" style="margin-top:12px">{{ marks.product_name }}</div></div>{% endif %}
-  {% if s.type == 'cover' and marks.strip %}<div style="position:absolute;left:110px;right:110px;bottom:64px;display:flex;align-items:center;gap:16px;flex-wrap:wrap"><span class="kicker" style="color:var(--on-dark);opacity:.85;margin-right:6px">Brand and competitive set</span>{% for name, rel, light in marks.strip %}<span class="logo-chip{% if light %} dark{% endif %}"><img src="{{ rel }}" alt="{{ name }}" style="height:40px;max-width:150px;object-fit:contain"></span>{% endfor %}</div>{% endif %}
+  {% if s.type == 'cover' and marks.strip %}<div style="position:absolute;left:110px;right:110px;bottom:64px;display:flex;align-items:center;gap:16px;flex-wrap:wrap"><span class="kicker" style="color:var(--on-dark);opacity:.85;margin-right:6px">Competitive set</span>{% for name, rel, light in marks.strip %}<span class="logo-chip{% if light %} dark{% endif %}"><img src="{{ rel }}" alt="{{ name }}" style="height:40px;max-width:150px;object-fit:contain"></span>{% endfor %}</div>{% endif %}
 {% elif s.treatment == "A" %}
   <div class="photo" style="inset:0;background-image:{{ bg }}"></div><div class="overlay"></div>
   <div style="position:absolute;left:70px;top:56px;width:1120px;color:var(--on-dark)">
@@ -39,7 +40,7 @@
   </div>
   {% if (charts or (s.tables and s.type != 'scorecard')) and s.cards %}<div class="cards reveal" style="position:absolute;left:1190px;right:70px;top:320px;grid-template-columns:1fr">
     {% for c in s.cards[:3] %}<div class="card build" style="background:rgba(255,255,255,.94)">{% if c.thumb %}<img class="thumb" src="{{ c.thumb }}" alt="">{% endif %}<h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}</p>{% if c.citations and marks.cites %}<div class="cites">{% for n in c.citations[:3] %}{% set m = marks.cites.get(n|string) %}{% if m %}{% if m.url %}<a class="cite" href="{{ m.url }}">{% else %}<span class="cite">{% endif %}{% if m.icon %}<img src="{{ m.icon }}" alt="">{% endif %}{{ m.outlet }}{% if m.url %}</a>{% else %}</span>{% endif %}{% endif %}{% endfor %}</div>{% endif %}</div>{% endfor %}</div>{% endif %}
-  {% if charts %}<div class="nlabel" style="position:absolute;right:80px;top:280px;color:var(--on-dark)">N = {{ base_n }}</div>{% endif %}
+  {% if charts %}<div class="nlabel" style="position:absolute;right:80px;top:280px;color:var(--on-dark)">N = {{ n_label }}</div>{% endif %}
 {% elif s.treatment == "S" %}
   <div style="position:absolute;left:70px;right:70px;top:48px">
     {% if s.kicker %}<div class="kicker">{{ s.kicker }}</div>{% endif %}
@@ -47,7 +48,7 @@
     {% if s.question and s.title %}<div class="kicker" style="margin-top:10px;color:var(--muted)">{{ s.title }}</div>{% endif %}
   </div>
   <div class="panel reveal" style="left:70px;top:240px;width:680px;height:760px;overflow:hidden">
-    <div class="nlabel" style="text-align:right">N = {{ base_n }}</div>
+    <div class="nlabel" style="text-align:right">N = {{ n_label }}</div>
     {% if charts %}{{ charts[0] | safe }}{% elif s.tables %}{% include "table.html.j2" %}{% endif %}
   </div>
   <div class="segs reveal">
@@ -62,7 +63,7 @@
     <div class="title clamp" style="margin-top:10px;font-size:40px">{{ s.question or s.title }}</div>
     {% if s.question and s.title %}<div class="kicker" style="margin-top:14px;color:var(--muted)">{{ s.title }}</div>{% endif %}
   </div>
-  <div class="nlabel" style="position:absolute;right:80px;top:290px">N = {{ base_n }}</div>
+  <div class="nlabel" style="position:absolute;right:80px;top:290px">N = {{ n_label }}</div>
   <div class="reveal" style="position:absolute;left:740px;right:70px;top:330px;height:{{ 380 if s.cards else 660 }}px;overflow:hidden">
     {% if charts %}{{ charts[0] | safe }}{% elif s.tables %}{% include "table.html.j2" %}{% endif %}
   </div>

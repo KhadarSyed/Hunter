@@ -31,7 +31,7 @@ frontend/        React SPA (Vite); `npm run build` writes into backend/static/
 backend/         FastAPI app — main.py, core/, domains/<stage>/, deck/, supervisor.py, requirements.txt
   agents/        LLM agents (brief scope, query builder, enrichment, tag schemas, …)
   tools/         pluggable deterministic analysis methods (decorator-registered executors)
-database/        db.py (connection, schema, migrations), pg.py (Postgres adapter), pg_migrate.py,
+database/        db.py (connection, schema, migrations), pg.py (Postgres adapter),
                  docker-compose.postgres.yml (local Postgres)
 data/            runtime data (gitignored) + the shipped house templates
 deploy/          Dockerfile (build from the repo root), render.yaml (reference), start.ps1
@@ -86,10 +86,11 @@ never import a `router.py`. Frontend (`frontend/src/`): `pages/` · `components/
 - **Frontend:** React 18 + TypeScript + Vite 5 + Tailwind CSS 4 (`frontend/src/`). The page is
   chosen by a `useState<Page>` in `App.tsx`, mirrored into the URL path. ~27 page components in
   `frontend/src/pages/`, one per pipeline stage or QC step.
-- **Database:** one database for both products. With `DATABASE_URL` set (local Docker Postgres, or
-  Render Postgres in production) everything runs on Postgres through `database/pg.py`, which
-  translates the SQLite-dialect SQL; without it, SQLite at `config.MEMORY_DB_PATH`
-  (`data/memory.db`). Older docs describing a separate `intelligence.db` are out of date. Both
+- **Database:** Postgres only, one database for both products: local Docker Postgres or Render
+  Postgres in production, via `DATABASE_URL` (required — the server refuses to start without it).
+  Repositories write SQLite-style SQL (`?` placeholders, `INSERT OR IGNORE`), which `database/pg.py`
+  translates; there is no SQLite fallback. Older docs describing `intelligence.db` or
+  `data/memory.db` are out of date. Both
   Brief-to-Deck tables (runs/events/chat/slide_index) and every Intelligence Platform table
   (projects/specs/strategies/jobs/evidence/insights/storylines/renders/QC, 60+ tables) live there.
   Uploaded dataset files are also kept in `intel_dataset_files`, since a hosted server's disk may

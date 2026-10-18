@@ -867,6 +867,12 @@ export const intelApi = {
 
   // Brandfetch logo lookup
   // The logo is served by this API (Brandfetch refuses hotlinked images), so its path takes the API's origin
+  /** The project's own logo: its client brand's logo, else a photo of its brief's main theme (no client brand). */
+  getProjectLogo: (projectId: number) =>
+    get<{ logo_url: string | null; is_light?: boolean; source: "brand" | "theme" | "none"; brand: string | null; theme: string | null }>(
+      `/projects/${projectId}/logo`,
+    ).then((res) => ({ ...res, logo_url: res.logo_url?.startsWith("/api/") ? `${API_ORIGIN}${res.logo_url}` : res.logo_url })),
+
   getBrandLogo: (brandName: string) =>
     get<{ brand_name: string; logo_url: string | null; is_light?: boolean }>(
       `/brandfetch/logo?brand_name=${encodeURIComponent(brandName)}`,
@@ -1480,6 +1486,8 @@ export const intelApi = {
   deliverableRepair: (projectId: number, runId: number, scope: RepairScope) =>
     post<{ run_id: number; scope: RepairScope }>(`/deliverable/${projectId}/runs/${runId}/repair?scope=${scope}`, {}),
   deliverableLatest: (projectId: number) => get<DeliverablePayload>(`/deliverable/${projectId}/latest`),
+  /** Articles per question from the approved datasets, counted as the deliverable engine will (own + query-matched). */
+  deliverableCoverage: (projectId: number) => get<DataCoverage>(`/deliverable/${projectId}/coverage`),
   agentState: (projectId: number) => get<AgentState>(`/agent/${projectId}`),
   agentStart: (projectId: number, inputFolder?: string) =>
     post<AgentState["autopilot"]>(`/agent/${projectId}/autopilot/start`, { input_folder: inputFolder || null }),
@@ -1550,4 +1558,6 @@ export type AgentFix = { id: number; issue_id: number; branch: string; tier: "au
 export type AgentEvent = { id: number; actor: string; action: string; detail: Record<string, unknown> | null; at: number; run_id: number | null };
 export interface DeliverableLogLine { ts: number; message: string }
 export interface DeliverableCitation { n: number; outlet: string; title: string; url: string; date: string; domain: string }
+/** Per question: articles uploaded for it (own) and in total once other uploads matching its query are routed in. */
+export interface DataCoverage { rqs: { rq_id: string; has_own_upload: boolean; shared: number | null }[] }
 export interface DeliverablePayload { run: DeliverableRun | null; sections: DeliverableSection[] }

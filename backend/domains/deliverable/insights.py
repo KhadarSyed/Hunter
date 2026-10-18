@@ -288,12 +288,29 @@ def _rescue(section: str, facts: list[str], arts: list[dict], local: dict[int, A
     return [v for i, v in enumerate(found) if i in supported][:k]
 
 
+# Product and model names with digits in them: 'CX-70', 'MX-5', 'RAV4', 'bZ4X', 'EV9' (attached), 'Ioniq 5', 'Model 3'
+# (a capitalised word and a short number)
+_ATTACHED_NAME = re.compile(r"\b[A-Za-z]+[-‐]?\d+[A-Za-z0-9]*\b")
+_SPACED_NAME = re.compile(r"\b[A-Z][A-Za-z]+ \d{1,3}\b")
+
+
+def _source_names(local: dict[int, Article]) -> set[str]:
+    """Digit-bearing names the candidate articles themselves print (models, products), so a card naming the
+    'Mazda CX-70' is not rejected for the unsupported statistic '70'. Only names a source contains are exempt."""
+    out: set[str] = set()
+    for a in local.values():
+        source = f"{a.title}\n{a.text or ''}"
+        out |= set(_ATTACHED_NAME.findall(source)) | set(_SPACED_NAME.findall(source))
+    return out
+
+
 def _without_names(text: str, local: dict[int, Article], names: list[str] | None = None) -> str:
-    """The text with candidate outlets' names taken out, so the digits of 'Law360' or '9to5Mac' are not read as a
-    statistic the facts don't state."""
-    named = {a.outlet for a in local.values() if a.outlet} | set(names or ())
+    """The text with names taken out, so their digits are not read as a statistic the facts don't state: candidate
+    outlets ('Law360', '9to5Mac'), the given names, and the model/product names the candidate articles print
+    ('CX-70', 'RAV4', 'Ioniq 5'). Stand-alone figures ('62%', '45 articles') are still checked."""
+    named = {a.outlet for a in local.values() if a.outlet} | set(names or ()) | _source_names(local)
     for name in sorted((n for n in named if any(ch.isdigit() for ch in n)), key=len, reverse=True):
-        text = re.sub(re.escape(name), " ", text, flags=re.IGNORECASE)
+        text = re.sub(r"(?<![A-Za-z0-9])" + re.escape(name) + r"(?![A-Za-z0-9])", " ", text, flags=re.IGNORECASE)
     return text
 
 
@@ -397,7 +414,7 @@ def _screen(section: str, parsed: dict, allowed: set[str], pairs: set, local: di
             rejected.append((text, reason))
         else:
             valid.append((headline, text, cites))
-            taken |= _figures(f"{headline} {text}")
+            taken |= _figures(checked)        # names stripped: 'CX-50' must not block a later, real '50%'
     return valid, rejected
 
 

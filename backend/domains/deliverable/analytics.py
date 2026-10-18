@@ -6,7 +6,7 @@ from collections import Counter
 
 from ...agents import question_dimensions as qd
 from . import extract as extract_mod
-from .labels import canon, unify
+from .labels import canon, theme_key, unify
 from .engine_types import RQ, EngineRow, Section
 from .metrics import TOP_PEAKS, month_label
 
@@ -48,14 +48,25 @@ SEGMENT_URLS = 20   # articles kept per chart category, best first, for its insi
 
 
 def _segments(pairs) -> dict[str, list[str]]:
-    """{category: its articles' URLs, most-read first} from (category, row) pairs."""
+    """{category: its articles' URLs, distinct stories first} from (category, row) pairs. Each story (syndicated
+    copies of one headline) is ranked by its audience -- the reach of all its copies in the category -- with the
+    articles the tagger read first, and offered once: a category's insight is written from several different stories,
+    not from five copies of one. The other copies follow, so every article is still listed."""
     out: dict[str, list] = {}
     for cat, r in pairs:
         out.setdefault(cat, []).append(r)
-    # articles the tagger read come first (that is where relevance was judged), then the most-read
-    return {c: list(dict.fromkeys(r.article.norm_url for r in sorted(
-                rs, key=lambda r: (not r.dynamic_tags, -r.copies, -r.article.reach))))[:SEGMENT_URLS]
-            for c, rs in out.items()}
+    ranked: dict[str, list[str]] = {}
+    for c, rs in out.items():
+        stories: dict[str, list] = {}
+        for r in rs:
+            stories.setdefault(r.story_key or r.article.norm_url, []).append(r)
+        order = sorted(stories.values(), key=lambda copies: (all(not r.dynamic_tags for r in copies),
+                                                             -sum(r.article.reach or 0 for r in copies)))
+        leads = [max(copies, key=lambda r: (bool(r.dynamic_tags), r.article.reach or 0)) for copies in order]
+        lead_ids = {id(r) for r in leads}
+        rest = [r for copies in order for r in copies if id(r) not in lead_ids]
+        ranked[c] = list(dict.fromkeys(r.article.norm_url for r in leads + rest))[:SEGMENT_URLS]
+    return ranked
 
 
 def _share_kpi(module, rq, rows, base_n, _):
@@ -63,7 +74,7 @@ def _share_kpi(module, rq, rows, base_n, _):
     stories = len({r.story_key for r in rows})
     return _section(module, rq, chart={"kind": "kpi", "categories": ["Share of coverage"], "values": [share],
                                        "unit": "percent", "peaks": [], "series_label": rq.id},
-                    facts=[f"{rq.id}: {n} of {base_n} articles ({share}%) answer this question",
+                    facts=[f"{rq.id}: {n} of {base_n} total results ({share}%) answer this question",
                            f"{rq.id}: {stories} unique stories ({n - stories} syndicated copies)"],
                     candidate_urls=[r.article.norm_url for r in rows[:12]])
 
@@ -147,10 +158,10 @@ def _themes(module, rq, rows, base_n, _):
     display: dict[str, str] = {}
     counts: Counter = Counter()
     for r in rows:
-        for key in {canon(t) for t in r.themes if t and t.strip()}:   # merge case, spelling and plural variants
+        for key in {theme_key(t) for t in r.themes if t and t.strip()}:   # merge case, plural and wording variants
             counts[key] += 1
         for t in r.themes:
-            display.setdefault(canon(t), t.strip())
+            display.setdefault(theme_key(t), t.strip())
     top = [(display[k], c) for k, c in counts.most_common(TOP_N)]
     if not top:
         return _section(module, rq, skipped="No themes in the data")
@@ -158,7 +169,7 @@ def _themes(module, rq, rows, base_n, _):
                                        "unit": "count", "peaks": [], "series_label": "Articles"},
                     facts=[f"Theme \"{t}\": {c} of {len(rows)} articles" for t, c in top],
                     segment_urls=_segments((display[k], r) for r in rows
-                                           for k in {canon(t) for t in r.themes if t and t.strip()}
+                                           for k in {theme_key(t) for t in r.themes if t and t.strip()}
                                            if display.get(k) in {t for t, _ in top}))
 
 
@@ -410,8 +421,9 @@ def _crosstab(module, rq, rows, base_n, _):
         table_rows.append([name] + [f"{_pct(counts[c], len(within))}%" for c in cols] + [str(len(within))])
         facts += [f"{rq.id}: {_pct(counts[c], len(within))}% of {name} articles mention {c} ({counts[c]} of {len(within)})"
                   for c in cols if counts[c]]
+    # a heatmap table: two dimensions of shares that overlap are read cell by cell, shaded by size
     return _section(module, rq, table={"header": [row_dim.label] + cols + ["Articles"], "rows": table_rows,
-                                       "col_widths": [3.0] + [1.6] * len(cols) + [1.2]},
+                                       "col_widths": [3.0] + [1.6] * len(cols) + [1.2], "heat": True},
                     facts=facts)
 
 
@@ -426,8 +438,16 @@ def compute_module(module: dict, rq: RQ, rows: list[EngineRow], base_n: int,
     if not rows:
         return _section(module, rq, skipped=NO_ROWS)
     if module["module"] == "top_articles":      # ranked by being about the study's brands first
-        return _top_articles(module, rq, rows, base_n, extraction, brands)
-    return _HANDLERS[module["module"]](module, rq, rows, base_n, extraction)
+        section = _top_articles(module, rq, rows, base_n, extraction, brands)
+    else:
+        section = _HANDLERS[module["module"]](module, rq, rows, base_n, extraction)
+    if section.chart is not None and "n" not in section.chart:
+        # the chart's own base (this question's articles), printed as its "N =": the deck-wide base is not what
+        # a question's percentages are out of (45 of 72 is 62.5%, shown beside N = 500 it misleads)
+        section.chart = {**section.chart, "n": len(rows)}
+    if section.table is not None and "n" not in section.table:
+        section.table = {**section.table, "n": len(rows)}    # a table's N is its question's articles too
+    return section
 
 
 def overview_section(rqs: list[RQ], rows_by_rq: dict[str, list[EngineRow]], base_n: int) -> Section:

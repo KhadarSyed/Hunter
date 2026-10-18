@@ -10,7 +10,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import requests
+from PIL import Image
 
+from ..research import logo_files
 from ..research.brandfetch import resolve_brand_domain
 from . import style
 
@@ -119,10 +121,7 @@ def fetch_kit(brand_name: str, folder: Path, judge=None) -> BrandKit:
     kit.domain = domain
     colors = sorted((c for c in data.get("colors") or [] if re.fullmatch(r"#?[0-9A-Fa-f]{6}", c.get("hex") or "")),
                     key=lambda c: _COLOR_ORDER.get(c.get("type"), 9))
-    kit.colors = [c["hex"].lstrip("#").upper() for c in colors]
-    kit.palette = tints(kit.colors)
-    kit.accent = next((c for c in kit.colors if c not in _NEAR_BLACK
-                       and contrast_ratio(c, style.WHITE) >= MIN_HEADING_CONTRAST), style.VIOLET)
+    listed = [c["hex"].lstrip("#").upper() for c in colors]
     for f in data.get("fonts") or []:
         if f.get("type") == "title":
             kit.title_font = safe_font(f.get("name") or "", f.get("origin"))
@@ -133,7 +132,49 @@ def fetch_kit(brand_name: str, folder: Path, judge=None) -> BrandKit:
     if banner:
         kit.banner = _download_image(banner, folder / f"{slug}_banner.png")
     kit.logo = _verified_logo(data.get("logos") or [], brand_name, folder, slug, judge)
+    # The brand's own hues come from its emblem first (Tesla's red T): Brandfetch's list can hold only a website
+    # colour (tesla.com: a button blue, black, white), and the deck must wear the brand's identity
+    emblem = logo_files.logo_file(brand_name)
+    own = logo_colors(emblem[0] if emblem else None) or logo_colors(kit.logo)
+    kit.colors = list(dict.fromkeys(own + [c for c in listed if not any(_near(c, o) for o in own)]))
+    kit.palette = tints(kit.colors)
+    kit.accent = next((c for c in kit.colors if c not in _NEAR_BLACK
+                       and contrast_ratio(c, style.WHITE) >= MIN_HEADING_CONTRAST), style.VIOLET)
     return kit
+
+
+def _near(a: str, b: str, tolerance: int = 40) -> bool:
+    return sum(abs(int(a[i:i + 2], 16) - int(b[i:i + 2], 16)) for i in (0, 2, 4)) <= tolerance
+
+
+def logo_colors(path, limit: int = 2) -> list[str]:
+    """The emblem's own brand hues, most-used first: exact colours of its saturated pixels (not white, grey, black
+    or transparent background), near-duplicates merged."""
+    if not path or not Path(path).exists():
+        return []
+    try:
+        img = Image.open(path).convert("RGBA").resize((96, 96))
+    except Exception:
+        return []
+    counts: dict[tuple, int] = {}
+    for r, g, b, a in img.getdata():
+        if a < 200:
+            continue
+        h, l, s = colorsys.rgb_to_hls(r / 255, g / 255, b / 255)
+        if s > 0.35 and 0.15 < l < 0.85:
+            key = (r // 16 * 16, g // 16 * 16, b // 16 * 16)
+            counts[key] = counts.get(key, 0) + 1
+    total = sum(counts.values())
+    out: list[str] = []
+    for (r, g, b), n in sorted(counts.items(), key=lambda kv: -kv[1]):
+        if n < 0.05 * total:
+            break
+        hexed = f"{min(255, r + 8):02X}{min(255, g + 8):02X}{min(255, b + 8):02X}"
+        if not any(_near(hexed, o, 60) for o in out):
+            out.append(hexed)
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _logo_srcs(entries: list[dict]) -> list[str]:

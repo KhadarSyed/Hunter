@@ -11,7 +11,18 @@ logger = logging.getLogger(__name__)
 THUMB_PX = 512
 _PROMPT = ("Answer YES or NO first. Is this photo a good, on-topic image for a presentation slide about {label}, "
            "for the {category} category{brands}{products}? Say NO for logos alone, charts, screenshots of text, "
-           "watermarked stock, unrelated scenes, or a different brand's product.")
+           "watermarked stock, unrelated scenes, a different brand's product, or an older generation or vintage model "
+           "instead of the current one.")
+# the cover's product box names one product: on-topic is not enough, it must be that product and recognisably so
+_EXACT_PROMPT = ("Answer YES or NO first. Does this photo clearly show the {product} by {brand} itself -- that exact "
+                 "product or model, current generation? Say NO when it shows a different model or product of the same "
+                 "brand (for a car: another body style or model line), when the product cannot be identified from "
+                 "the photo, or for logos alone, screenshots, renders of text or watermarked stock.")
+# the client's cover and closing slides wear the client: a generic or another brand's product is not theirs
+_OWN_BRAND_PROMPT = ("Answer YES or NO first. Is this photo recognisably about {brand} -- a {brand} product, store or "
+                     "asset, identifiable as {brand} by its logo, badge or distinctive design? Say NO when it shows "
+                     "another brand's product, an unbranded or generic scene that could belong to any brand, a vintage "
+                     "model, logos alone, screenshots or watermarked stock.")
 
 
 def _thumb(data: bytes) -> str:
@@ -23,12 +34,19 @@ def _thumb(data: bytes) -> str:
     return base64.b64encode(out.getvalue()).decode("ascii")
 
 
-def matches(llm, image_bytes: bytes, s, slide_label: str) -> bool | None:
+def matches(llm, image_bytes: bytes, s, slide_label: str, exact: bool = False, own_brand: str = "") -> bool | None:
+    """`exact`: the photo must show the subjects' first product itself (the cover's product box), not merely fit.
+    `own_brand`: the photo must be recognisably that brand's (the deck's opening and closing slides)."""
     if llm is None or not getattr(llm, "is_reachable", lambda: False)():
         return None
-    text = _PROMPT.format(label=slide_label, category=s.category,
-                          brands=f", brands {', '.join(s.brands)}" if s.brands else "",
-                          products=f", products {', '.join(s.products[:3])}" if s.products else "")
+    if own_brand:
+        text = _OWN_BRAND_PROMPT.format(brand=own_brand)
+    elif exact and s.products:
+        text = _EXACT_PROMPT.format(product=s.products[0], brand=", ".join(s.brands) or s.category)
+    else:
+        text = _PROMPT.format(label=slide_label, category=s.category,
+                              brands=f", brands {', '.join(s.brands)}" if s.brands else "",
+                              products=f", products {', '.join(s.products[:3])}" if s.products else "")
     try:
         reply = llm.chat([{"role": "user", "content": [
             {"type": "text", "text": text},

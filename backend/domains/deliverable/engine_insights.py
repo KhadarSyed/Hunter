@@ -118,7 +118,7 @@ def section_summaries(rq: RQ, sections: list[Section], rows: list[EngineRow], re
 # brand, outlet and people charts: their cards name brands and people by design (see deckstudio.validate)
 _NAMED_THINGS = re.compile(r"brand|competitor|retailer|product|outlet|expert|celebrit|people|person|entities")
 SEGMENT_MAX = 5
-SEGMENT_ARTICLES = 3          # a category's own articles offered for its card
+SEGMENT_ARTICLES = 5          # a category's own articles offered for its card (distinct stories, by reach)
 _NOT_SEGMENTS = {"unknown", "none", "other", "not stated", "n/a"}
 
 

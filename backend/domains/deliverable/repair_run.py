@@ -6,7 +6,7 @@ import logging
 import threading
 from pathlib import Path
 
-from ...core import store
+from ...core import store, writing_locale
 from ...core.events import broadcast
 from ..deckstudio import fixer
 from . import engine
@@ -35,6 +35,7 @@ def start(project_id: int, run_id: int, scope: str, *, llm=None, threaded: bool 
             llm = get_llm_client()
         except Exception as e:      # the agent still repairs what needs no drafting (logos, icons, screenshots)
             logger.warning("[repair:%s] no LLM: %s", run_id, type(e).__name__)
+    llm = writing_locale.with_locale(llm, writing_locale.project_geography(store.get_project(project_id)))
     if threaded:
         threading.Thread(target=_repair, args=(project_id, run_id, scope, llm), daemon=True).start()
     else:

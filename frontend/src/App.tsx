@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback, type ComponentType } from "react";
-import { AgentDrawer } from "./components/agent/AgentDrawer";
 import { Sidebar } from "./components/Sidebar";
 import { IconRailSidebar } from "./components/IconRailSidebar";
 import { AuthProvider, useAuth } from "./context/auth-context";
@@ -118,10 +117,14 @@ function AppShell() {
 
   const [page, setPageState] = useState<Page>(() => parseUrl(window.location.pathname).page ?? "landing");
   const [hydrated, setHydrated] = useState(false);
+  // The project named in the URL while it is being fetched: until it lands no page renders and the URL is not
+  // rewritten, or the previously active project's data would show (and load) under the requested URL.
+  const [openingProjectId, setOpeningProjectId] = useState<number | null>(null);
   const pushNext = useRef(false);
 
   const hydrateProjectFromUrl = useCallback((projectId: number) => {
     if (projectId === activeProjectRef.current?.id) return;
+    setOpeningProjectId(projectId);
     intelApi.getProject(projectId).then((p) => {
       if (p.archived_at) {           // an archived project in an old URL or bookmark is not reopened
         window.history.replaceState(null, "", buildUrl(null, "projects"));
@@ -133,7 +136,8 @@ function AppShell() {
         project_type: (p.project_type as ProjectType) || "research",
         brand: p.brand ?? null,
       });
-    }).catch(() => { /* stale/invalid project id in the URL — keep whatever page was requested */ });
+    }).catch(() => { /* stale/invalid project id in the URL — keep whatever page was requested */ })
+      .finally(() => setOpeningProjectId((id) => (id === projectId ? null : id)));
   }, [setActiveProject]);
 
   // Hydrate once on mount: a deep-linked/refreshed URL wins over the persisted project.
@@ -160,14 +164,14 @@ function AppShell() {
   // page/project drifts from it, e.g. once setActiveProject's async update lands after
   // an onNavigate() call that fired before it (see navigate() below).
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || openingProjectId !== null) return;
     const url = buildUrl(activeProject?.id ?? null, page);
     if (window.location.pathname !== url) {
       if (pushNext.current) window.history.pushState(null, "", url);
       else window.history.replaceState(null, "", url);
     }
     pushNext.current = false;
-  }, [page, activeProject?.id, hydrated]);
+  }, [page, activeProject?.id, hydrated, openingProjectId]);
 
   // Push only after the project switch that usually accompanies a navigation has landed, so the new URL carries
   // the new project (building it here would read the previous project from this render's closure).
@@ -189,11 +193,17 @@ function AppShell() {
         )}
         <div className="flex-1 flex flex-col min-w-0">
           <main className="flex-1 overflow-auto bg-slate-50/50">
-            <CurrentPage onNavigate={navigate} />
+            {openingProjectId !== null ? (
+              <div role="status" className="flex h-full items-center justify-center gap-3 text-sm text-slate-500">
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-[#5B2C9D]" />
+                Opening project...
+              </div>
+            ) : (
+              <CurrentPage onNavigate={navigate} />
+            )}
           </main>
         </div>
       </div>
-      {activeProject && !BROWSING_PAGES.has(page) && <AgentDrawer projectId={activeProject.id} />}
     </>
   );
 }

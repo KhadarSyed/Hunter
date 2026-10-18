@@ -147,7 +147,7 @@ function ProjectCard({ project, onOpen, onEdit, onDelete, selected, onToggleSele
         <div className="absolute inset-0 flex items-center justify-center">
           {brand ? (
             <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-white shadow-lg transition-transform group-hover:scale-105">
-              <BrandLogo brandName={brand} size={48} rounded="lg" />
+              <BrandLogo brandName={brand} projectId={project.id} size={48} rounded="lg" />
             </div>
           ) : (
             <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/20 text-white backdrop-blur">

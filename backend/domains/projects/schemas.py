@@ -69,6 +69,16 @@ class ProjectResponse(ApiModel):
     archived_at: float | None = None
 
 
+class ProjectLogoResponse(ApiModel):
+    """The project's logo: its client brand's logo, else a photo of the brief's main theme (no client brand)."""
+
+    logo_url: str | None = None
+    is_light: bool = False  # a white logo: the page sets it on a dark chip
+    source: str = "none"  # brand | theme | none
+    brand: str | None = None
+    theme: str | None = None
+
+
 class ProjectListItem(ApiModel):
     """Project-list card: row columns plus display fields derived from the spec."""
 
