@@ -6,6 +6,7 @@ import hashlib
 import logging
 import os
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -203,14 +204,16 @@ def _accept(data: bytes, role: str, title: str, subjects: Subjects | None, judge
     return ok, "text: " + ("names the subject" if ok else "does not name the subject")
 
 
-def _plan(query: str, subjects: Subjects | None, article_urls) -> list[tuple[str, list[dict]]]:
-    """Sources in order: the slide's own articles, then per query brand/product shots, licensed stock, Google."""
+def _plan(query: str, subjects: Subjects | None, article_urls) -> Iterator[tuple[str, list[dict]]]:
+    """Sources in order: the slide's own articles, then per query brand/product shots, licensed stock, Google.
+    Lazy: each search runs only when find_photo reaches it, so a photo accepted early skips the searches it would
+    never have used (up to 12 per slide). The groups, their order and their contents are what the eager list was."""
     leads = [u for u in (article_image(a) for a in list(article_urls)[:MAX_ARTICLES]) if u]
-    plan = [("article", [{"url": u, "width": 10 ** 6, "title": ""} for u in leads])]
+    yield "article", [{"url": u, "width": 10 ** 6, "title": ""} for u in leads]
     for q in (brief_queries(subjects) if subjects else [query]):
-        brand_shots = _ddg_images(q) if subjects and subjects.brands else []
-        plan += [("web", brand_shots), ("licensed", _pexels(q)), ("web", _serpapi(q))]
-    return plan
+        yield "web", (_ddg_images(q) if subjects and subjects.brands else [])
+        yield "licensed", _pexels(q)
+        yield "web", _serpapi(q)
 
 
 def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image: Path | None = None, *,
