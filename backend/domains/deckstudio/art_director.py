@@ -62,6 +62,27 @@ def _guard(t: DeckTokens) -> DeckTokens:
     return t
 
 
+def _hls(h: str) -> tuple[float, float, float]:
+    return colorsys.rgb_to_hls(*(int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)))
+
+
+def _brand_hue(color: str, brand: list[str]) -> bool:
+    """The colour is one of the brand's own hues (or a shade/tint of one): an art direction may darken or lighten the
+    brand, never bring in a foreign hue (Tesla's deck got a teal accent no Tesla asset carries)."""
+    if not color:
+        return False
+    h, l, s = _hls(color)
+    for b in brand:
+        bh, bl, bs = _hls(b)
+        if bs < 0.15 or s < 0.15:                 # greys/black/white: only a near-identical neutral counts
+            if abs(l - bl) < 0.15 and abs(s - bs) < 0.15:
+                return True
+            continue
+        if min(abs(h - bh), 1 - abs(h - bh)) <= 0.04:
+            return True
+    return False
+
+
 def fallback_tokens(brand_colors: list[str]) -> DeckTokens:
     colors = [c for c in (_hex(c, "") for c in brand_colors) if c]
     t = DeckTokens()
@@ -110,6 +131,9 @@ def _apply_design(t: DeckTokens, design: dict, brand_colors: list[str]) -> DeckT
                     "weight": int(hero.get("fontWeight") or 700)}
     colors = [c for c in (_hex(str(v).lstrip("#"), "") for v in (design.get("colors") or {}).values()) if c]
     light = sorted(colors, key=lambda c: -contrast_ratio(c, "000000"))
+    # the design system's paper only when it is a neutral: a tinted paper (beige, mint) is a colour the brand
+    # does not carry; the brand's own hues carry the identity
+    light = [c for c in light if _hls(c)[2] < 0.25 or not brand_colors]
     if light and contrast_ratio(light[0], "000000") >= 12:
         t.background = light[0]
         t.surface = light[1] if len(light) > 1 and contrast_ratio(light[1], "000000") >= 12 else t.surface
@@ -142,10 +166,17 @@ def _choose_base(llm, brand_colors: list[str], intent: str, rules: dict) -> tupl
     if not isinstance(raw, dict):
         return fallback_tokens(brand_colors), "fallback"
     base = fallback_tokens(brand_colors)
+    brand = [c for c in (_hex(c, "") for c in brand_colors) if c]
+    primary, accent = _hex(raw.get("primary"), base.primary), _hex(raw.get("accent"), base.accent)
+    if brand:                                     # primary and accent wear the brand's own hues
+        primary = primary if _brand_hue(primary, brand) else base.primary
+        accent = accent if _brand_hue(accent, brand) else base.accent
+    series = [c for c in (_hex(c, "") for c in raw.get("series") or []) if c]
+    series = [c for c in brand if _hls(c)[2] >= 0.15] + series if brand else series
     t = DeckTokens(background=_hex(raw.get("background"), base.background), surface=_hex(raw.get("surface"), base.surface),
-                   primary=_hex(raw.get("primary"), base.primary), accent=_hex(raw.get("accent"), base.accent),
+                   primary=primary, accent=accent,
                    text=_hex(raw.get("text"), base.text), muted=_hex(raw.get("muted"), base.muted),
-                   series=_series([c for c in (_hex(c, "") for c in raw.get("series") or []) if c] or base.series),
+                   series=_series(series or base.series),
                    title_font=str(raw.get("title_font") or ""), body_font=str(raw.get("body_font") or ""),
                    mood=[str(m) for m in raw.get("mood") or []][:5])
     return _guard(t), "llm"
