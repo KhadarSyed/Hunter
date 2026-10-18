@@ -11,7 +11,7 @@ from pathlib import Path
 
 from pptx import Presentation
 
-from ...core import config, store
+from ...core import config, store, writing_locale
 from ...core.events import broadcast
 from . import (analytics, brand_kit, catalog, engine_insights, extract, factcheck, generic_deck, templates_index,
                visuals, word_brief)
@@ -513,6 +513,8 @@ def _brands(project: dict, rqs) -> list:
 
 def run_engine(run_id: int, project_id: int, llm) -> None:
     run = _Run(run_id, project_id)
+    # every drafting call writes in the project's country/region language (Global: US English)
+    llm = writing_locale.with_locale(llm, writing_locale.project_geography(store.get_project(project_id)))
     current = "gate"
     try:
         run.stage("gate", "running")

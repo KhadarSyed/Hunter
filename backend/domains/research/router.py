@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.responses import FileResponse
 
 from ...agents.brand_intelligence import run as run_bi
-from ...core import store
+from ...core import store, writing_locale
 from ..datasources import repository as ds_repo
 from ..exclusions import service as exclusions
 from ..datasources import service as ds_service
@@ -143,7 +143,7 @@ def start_background_research(req: StartResearchRequest):
             # The brand-intelligence LLM step reads only the specification (web_adapter=None), so it starts now and
             # runs alongside web research instead of after it; its result is still collected after the web results
             # are saved (Stage 3), with the full timeout from then on, so it never gets less time than before.
-            llm_client = get_llm_client()
+            llm_client = writing_locale.with_locale(get_llm_client(), writing_locale.project_geography(project_for_org))
             llm_pool = llm_future = None
             if llm_client and llm_client.is_reachable():
                 def _run_llm():
