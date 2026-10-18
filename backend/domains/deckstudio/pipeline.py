@@ -2,6 +2,8 @@
 tokens), find assets, compose (render + creative pass), export."""
 from __future__ import annotations
 
+from datetime import date
+
 import json
 import logging
 import threading
@@ -9,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from ...core import config
+from ..research import logo_files
 from . import data_tables, fixer, validate
 from . import (art_director, assets, checklist, creative, design_systems, exporter, image_brief, indexer, planner, renderer, verbatims,
                vision)
@@ -99,6 +102,10 @@ def attach_logos(spec, logos: dict[str, Path], client: str, brands: list[str] | 
     """A client deck carries the client's logo on the cover and every footer, and the competitive set on the
     cover (client first) -- the brief's brands only, never the outlet icons or chart-label icons also in `logos`."""
     spec.brand_logo = str(logos[client]) if client in logos else ""
+    # The emblem the app shows for the brand (Brandfetch icon, cached by logo_files) goes beside the wordmark on the
+    # cover: a wordmark alone ("MAZDA" in letters) reads as the brand name typed out, not as its logo
+    symbol = logo_files.logo_file(client) if client else None
+    spec.brand_symbol = str(symbol[0]) if symbol and str(symbol[0]) != spec.brand_logo else ""
     names = list(dict.fromkeys([client] + list(brands if brands is not None else logos)))
     found = {n: _brand_logo(n, logos) for n in names}
     spec.logo_strip = {n: str(p) for n, p in found.items() if p}
@@ -193,7 +200,9 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
 
     def product_photo(name: str):
         subjects = image_brief.Subjects([plan_input.title], [name], plan_input.category, f"{name} product packshot")
-        return assets.find_photo(f"{plan_input.title} {name}", "panel", deck_dir / "photos", used, subjects=subjects,
+        # the current model: the year and "new" steer the search away from vintage and earlier generations
+        return assets.find_photo(f"{plan_input.title} {name} {date.today().year} new", "panel", deck_dir / "photos", used,
+                                 subjects=subjects,
                                  judge=_judge(llm, subjects, f"{name} by {plan_input.title}", checks)).path
     attach_product(spec, plan_input.brand_products, product_photo)
     if spec.product_image:

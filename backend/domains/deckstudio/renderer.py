@@ -88,8 +88,10 @@ def _marks(spec: DeckSpec, out_dir: Path) -> dict:
     cites = {n: {"outlet": m.get("outlet") or "", "icon": _asset(m.get("icon"), out_dir), "url": m.get("url") or ""}
              for n, m in (spec.citation_meta or {}).items()}
     brand = _mark(spec.brand_logo, out_dir)
+    symbol = _mark(getattr(spec, "brand_symbol", ""), out_dir)
     tokens = spec.tokens or DeckTokens()
     return {"brand": brand[0] if brand else None, "brand_light": bool(brand and brand[1]),
+            "symbol": symbol[0] if symbol else None,
             "chip_dark": f"#{_dark_enough(tokens.primary, tokens.text)}",
             "name": spec.title, "strip": strip, "cites": cites,
             "product": _asset(spec.product_image, out_dir), "product_name": spec.product_name}

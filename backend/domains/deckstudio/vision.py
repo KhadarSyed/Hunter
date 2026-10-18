@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 THUMB_PX = 512
 _PROMPT = ("Answer YES or NO first. Is this photo a good, on-topic image for a presentation slide about {label}, "
            "for the {category} category{brands}{products}? Say NO for logos alone, charts, screenshots of text, "
-           "watermarked stock, unrelated scenes, or a different brand's product.")
+           "watermarked stock, unrelated scenes, a different brand's product, or an older generation or vintage model "
+           "instead of the current one.")
 
 
 def _thumb(data: bytes) -> str:
