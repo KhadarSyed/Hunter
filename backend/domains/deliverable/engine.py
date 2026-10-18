@@ -206,6 +206,36 @@ def _subtitle(title: str, project_name: str) -> str:
     return name or "Media Analysis"
 
 
+_THEME_PROMPT = ("Write the subtitle for the cover of a research deck, from the client brief below. Name the theme of the "
+                 "study the way the brief frames it (what is being analysed and why), in 4 to 10 words, title case. Do "
+                 "not repeat the brand name \"{brand}\", and write no dates or numbers. Reply with the subtitle only.\n\n"
+                 "Research objective: {objective}\n\nBrief:\n{brief}")
+
+
+def _theme_subtitle(brand: str, project: dict, llm) -> str:
+    """The cover subtitle from the brief's theme ("Media & Reputation Analysis: Who Is Winning the Conversation"),
+    not the project name with the brand cut off ("Brand & Competitors"); the project-name form when no LLM answers."""
+    fallback = _subtitle(brand, project.get("project_name") or "")
+    spec = project.get("spec") or {}
+    brief = str(spec.get("raw_brief") or "").strip()
+    if llm is None or not brief:
+        return fallback
+    objective = spec.get("research_objective") or spec.get("deliverable_objective") or ""
+    if isinstance(objective, dict):
+        objective = objective.get("description") or objective.get("text") or ""
+    try:
+        reply = llm.chat([{"role": "user", "content": _THEME_PROMPT.format(
+            brand=brand, objective=str(objective)[:400], brief=brief[:1500])}])
+    except Exception as e:        # the cover still opens on the project-name subtitle
+        logger.warning("cover subtitle from the brief failed (%s); using the project name", type(e).__name__)
+        return fallback
+    text = " ".join(str(reply or "").strip().strip('"').split())
+    words = text.split()
+    if not 3 <= len(words) <= 12 or any(ch.isdigit() for ch in text) or brand.lower() in text.lower():
+        return fallback
+    return text
+
+
 def _methodology(summary: dict, rqs) -> list[str]:
     files, urls, stories, base = summary["files"], summary["unique_urls"], summary["stories"], summary["base_n"]
     return ([f"{files} approved files; {urls} unique article URLs; {stories} unique stories; "
@@ -371,7 +401,7 @@ def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_
     period = f"{dates[0]:%b %Y} - {dates[-1]:%b %Y}" if dates else str(spec.get("time_period") or "")
     palette = kit.palette if kit.colors else visuals.palette_from_logo(kit.logo)
     return generic_deck.DeckInput(
-        title=brand, subtitle=_subtitle(brand, project.get("project_name") or ""), date_label=f"{date.today():%B %Y}",
+        title=brand, subtitle=_theme_subtitle(brand, project, llm), date_label=f"{date.today():%B %Y}",
         period_label=period, rqs=rqs, overview=overview, sections_by_rq=sections_by_rq,
         insights_by_rq=insights_by_rq, answers=answers, takeaways=takeaways, methodology=methodology,
         citations=_deck_citations(registry.entries()), base_n=base, palette=palette, accent=kit.accent, title_font=kit.title_font,
