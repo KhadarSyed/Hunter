@@ -32,12 +32,15 @@ def reuse_photos(slides, log=lambda _m: None) -> None:
     """A photo slide whose search found nothing (search quota spent, no relevant image) reuses one found for another
     slide, never its neighbours', so no slide is left a bare gradient; with no photo at all, the gradient stays."""
     found = list(dict.fromkeys(s.image["path"] for s in slides if s.image.get("path")))
+    # the cover and closing reuse only each other's photo (checked as the client's own), never a category photo
+    own = list(dict.fromkeys(s.image["path"] for s in slides if s.image.get("path") and s.type in BRAND_BOOKENDS))
     k = 0
     for i, s in enumerate(slides):
-        if s.image.get("path") or not found:
+        pool = own if s.type in BRAND_BOOKENDS else found
+        if s.image.get("path") or not pool:
             continue
         near = {slides[j].image.get("path") for j in (i - 1, i + 1) if 0 <= j < len(slides)}
-        options = [found[(k + n) % len(found)] for n in range(len(found))]
+        options = [pool[(k + n) % len(pool)] for n in range(len(pool))]
         pick = next((p for p in options if p not in near), options[0])
         k = found.index(pick) + 1
         s.image["path"] = pick

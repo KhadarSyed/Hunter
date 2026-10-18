@@ -13,6 +13,7 @@ AREA_PX = {("A", False): 580, ("A", True): 580, ("C", False): 640, ("C", True): 
            ("S", False): 660, ("S", True): 660}
 PLAIN_AREA_PX = 780
 MIN_ROWS = 3
+ORPHAN_ROWS = 2             # rows over the cap that stay on the slide instead of starting a continuation
 # slides with their own pagination or a fixed layout (brief checklist, sources, query table, scope)
 OWN_LAYOUT = ("checklist", "citations", "scorecard", "methodology", "objectives")
 
@@ -22,6 +23,12 @@ def rows_cap(slide: SlideSpec) -> int:
     return max(MIN_ROWS, (area - HEADER_PX) // ROW_PX)
 
 
+def render_cap(slide: SlideSpec) -> int:
+    """Rows drawn: the cap, plus the orphan rows `paginate` kept on an evidence table's slide."""
+    paginated = slide.tables and not slide.charts and slide.type not in OWN_LAYOUT
+    return rows_cap(slide) + (ORPHAN_ROWS if paginated else 0)
+
+
 def paginate(slides: list[SlideSpec]) -> list[SlideSpec]:
     """Each evidence table longer than its slide holds continues on the next slide (the insight cards stay with the
     first part, the rest carry the remaining rows); nothing is dropped and nothing is clipped."""
@@ -29,7 +36,8 @@ def paginate(slides: list[SlideSpec]) -> list[SlideSpec]:
     for s in slides:
         table = s.tables[0] if s.tables and not s.charts and s.type not in OWN_LAYOUT else None
         cap = rows_cap(s) if table else 0
-        if not table or len(table.get("rows") or []) <= cap:
+        # one or two rows left over stay on the slide (the cap keeps a margin) rather than a near-empty continuation
+        if not table or len(table.get("rows") or []) <= cap + ORPHAN_ROWS:
             out.append(s)
             continue
         rows, links = table["rows"], table.get("links") or []

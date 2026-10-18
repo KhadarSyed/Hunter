@@ -55,7 +55,7 @@ def render_slide(slide: SlideSpec, tokens: DeckTokens, n: int, total: int, base_
     charts = [chart_svg(c, tokens, logos, w, h, light=light) for c in slide.charts]
     return _env.get_template("slide.html.j2").render(s=slide, t=tokens, n=n, total=total, base_n=base_n, period=period,
                                                      source=source, image=image, charts=charts, logos=logos,
-                                                     light_logos=light, table_cap=tables.rows_cap(slide),
+                                                     light_logos=light, table_cap=tables.render_cap(slide),
                                                      marks=marks or {"brand": None, "name": "", "strip": [], "cites": {}})
 
 
