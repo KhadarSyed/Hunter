@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from ...core import config
-from database.db import _conn, using_postgres
+from database.db import _conn
 
 logger = logging.getLogger(__name__)
 
@@ -139,13 +139,10 @@ def get_strategy_project_id(strategy_id: int) -> int | None:
 
 def add_research_question(strategy_id: int, question: str, query: str) -> str | None:
     """Append an analyst-added RQ numbered after the highest existing RQn; returns its id (None if no strategy).
-    The write lock is taken before the read (SQLite: BEGIN IMMEDIATE; Postgres: the row, FOR UPDATE), so two
-    concurrent adds can't pick the same RQn."""
+    The row is locked before the read (FOR UPDATE), so two concurrent adds can't pick the same RQn."""
     conn = _conn()
-    if not using_postgres():
-        conn.execute("BEGIN IMMEDIATE")
-    row = conn.execute("SELECT strategy_json FROM intel_search_strategies WHERE id = ?"
-                       + (" FOR UPDATE" if using_postgres() else ""), (strategy_id,)).fetchone()
+    row = conn.execute("SELECT strategy_json FROM intel_search_strategies WHERE id = ? FOR UPDATE",
+                       (strategy_id,)).fetchone()
     if not row:
         conn.close()
         return None

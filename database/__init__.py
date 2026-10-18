@@ -1,2 +1,1 @@
-"""Database layer: SQLite/Postgres connection, schema and migrations (db), the Postgres adapter (pg) and the
-SQLite-to-Postgres copier (pg_migrate)."""
+"""Database layer: the Postgres connection, schema and migrations (db) and the Postgres adapter (pg)."""
