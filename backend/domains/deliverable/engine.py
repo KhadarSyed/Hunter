@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import logging
 import re
 import threading
@@ -361,6 +362,23 @@ def _logo_judge(llm, category: str):
     return lambda data, name, domain="": vision.is_logo_of(llm, data, name, category=category, domain=domain)
 
 
+def _makers(llm, names: list[str], brands: list[str]) -> dict[str, str]:
+    """{product name: the study brand that makes it} for chart labels with no logo of their own, so a product carries
+    its maker's verified logo instead of a letter badge. Names no study brand makes, or no LLM, stay unmapped."""
+    if llm is None or not names or not brands:
+        return {}
+    prompt = ("For each name, say which one of these brands makes or owns it, or null if none of them does or you "
+              f"are not sure. BRANDS: {json.dumps(brands)}\nNAMES: {json.dumps(names)}\n"
+              'Return JSON {"makers": {"<name>": "<brand or null>"}}')
+    try:
+        reply = json.loads(llm.chat([{"role": "user", "content": prompt}], format_json=True))
+    except Exception as e:      # no mapping: the labels keep their letter badges
+        logger.warning("product makers not resolved: %s", type(e).__name__)
+        return {}
+    makers = (reply or {}).get("makers") or {}
+    return {n: makers[n] for n in names if makers.get(n) in brands}
+
+
 def _fit_chart(section: Section, question: str) -> Section:
     """The section drawn as the chart its data and question call for (see chart_choice)."""
     if section.skipped or not section.chart:
@@ -394,10 +412,15 @@ def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_
     # the client's own products (Model Y, Cybertruck) named in a brand chart carry the client's verified logo
     own_products = {visuals.plain_name(e["name"]).casefold() for e in spec.get("validated_entities") or []
                     if isinstance(e, dict) and e.get("type") == "product" and e.get("name")}
+    unplaced = [n for n in dict.fromkeys(sov_brands) if not visuals.find_logo(n, logo_map)
+                and visuals.plain_name(n).casefold() not in own_products]
+    makers = _makers(llm, unplaced, [brand] + competitors)      # "Model 3" -> Tesla, "Mustang Mach-E" -> Ford
     for name in dict.fromkeys(sov_brands):     # every brand drawn in a chart shows a mark beside its label
         key = visuals.plain_name(name).casefold()
         is_own = key in own_products or key.removeprefix(brand.casefold() + " ") in own_products
-        mark = (visuals.find_logo(name, logo_map) or (kit.logo if is_own and kit.logo else None)
+        maker = makers.get(name)
+        mark = (visuals.find_logo(name, logo_map) or (kit.logo if (is_own or maker == brand) and kit.logo else None)
+                or (visuals.find_logo(maker, logo_map) if maker else None)
                 or visuals.letter_badge_png(name, out_dir / "logos", kit.accent))
         if mark:
             logo_map[name] = mark

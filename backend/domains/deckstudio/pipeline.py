@@ -80,11 +80,16 @@ def attach_product(spec, products: list[str], find) -> None:
             return
 
 
+UNMARKED_CHARTS = ("theme_clusters",)
+
+
 def add_chart_logos(slide, logos: dict[str, Path]) -> None:
     """Logos beside chart labels, added to what the planner already put on the slide (e.g. source icons)."""
     outlet_cols = [[i for i, h in enumerate(t.get("header") or []) if str(h).strip().lower() in ("outlet", "source")]
                    for t in slide.tables]
-    names = [c for ch in slide.charts for c in ch.get("categories", [])] + \
+    # themes are ideas, not organisations: a letter badge or a brand logo beside "Safety investigation" adds noise
+    unmarked = any(k in slide.id for k in UNMARKED_CHARTS)
+    names = [c for ch in slide.charts if not unmarked for c in ch.get("categories", [])] + \
             [str(row[0]) for t in slide.tables for row in t.get("rows", []) if row] + \
             [str(row[i]) for t, cols in zip(slide.tables, outlet_cols) for row in t.get("rows", []) for i in cols
              if len(row) > i and row[i]]

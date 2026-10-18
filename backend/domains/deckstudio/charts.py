@@ -19,6 +19,7 @@ def _short(s) -> str:
 
 
 LABEL_PT = 22
+MIN_LABEL_PT = 16          # a long label shrinks to this before it is cut
 GLYPH_EM = 0.53            # average glyph width of the label font, for fitting a label to its room
 BADGE_R = 15
 
@@ -72,8 +73,9 @@ def _bars(c, t, logos, w, h, light=frozenset()):
         y = 5 + i * row
         bw = (w - LABEL_W - 110) * v / top
         label_x = LABEL_W - (LOGO_W + 14 if marked else 8)
-        out.append(f'<text class="ylab" style="font-size:{LABEL_PT}px" x="{label_x}" y="{y + row * .62:.1f}" '
-                   f'text-anchor="end">{escape(_fit(cat, label_x - 6))}</text>')
+        size = _size_to_fit(cat, label_x - 6, LABEL_PT, MIN_LABEL_PT)
+        out.append(f'<text class="ylab" style="font-size:{size}px" x="{label_x}" y="{y + row * .62:.1f}" '
+                   f'text-anchor="end">{escape(_fit(cat, label_x - 6, size))}</text>')
         if cat in logos:
             if cat in light:            # a white logo on its dark chip, or it vanishes into the white chart
                 out.append(f'<rect x="{LABEL_W - LOGO_W - 6}" y="{y + row / 2 - LOGO_H / 2 - 2:.1f}" width="{LOGO_W + 4}" '

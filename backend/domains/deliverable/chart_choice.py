@@ -44,6 +44,8 @@ def relation(chart: dict) -> str:
         return PART
     if unit == "count" and chart.get("n") and round(total) == int(chart["n"]):
         return PART                  # every article counted once: the categories split the whole
+    if unit == "count" and _fixed_split(chart) and (not chart.get("n") or total <= int(chart["n"])):
+        return PART                  # one label per article (sentiment): the labelled articles are the whole
     return RANK
 
 
@@ -67,6 +69,11 @@ def choose(chart: dict | None, question: str = "") -> dict | None:
         why = f"{parts} exclusive parts of one whole"
     elif rel == RANK:
         kind, why = "bar", f"{parts} categories that overlap (not one whole)"
+    elif rel == SINGLE and kind not in ("kpi", "gauge") and parts == 1 and chart.get("n"):
+        # a one-bar chart compares nothing: the figure itself, as a share of the question's articles
+        share = round(100 * float(chart["values"][0]) / int(chart["n"]), 1)
+        return {**chart, "kind": "kpi", "values": [share], "unit": "percent",
+                "choice": f"{SINGLE}: only {chart['categories'][0]} is named, shown as its share"}
     else:
         why = "one figure" if rel == SINGLE else f"{len(chart['breakdown']['groups'])} groups"
     return {**chart, "kind": kind, "choice": f"{rel}: {why}"}
