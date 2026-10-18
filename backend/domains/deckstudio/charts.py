@@ -30,6 +30,13 @@ def _fit(s, room_px: float, size: int = LABEL_PT) -> str:
     return s if len(s) <= chars else s[:chars - 1].rstrip() + "…"
 
 
+def _size_to_fit(s, room_px: float, size: int, smallest: int) -> int:
+    """The largest font size, down to `smallest`, at which the whole label fits its room (an ellipsis only after)."""
+    while size > smallest and len(str(s)) * size * GLYPH_EM > room_px:
+        size -= 1
+    return size
+
+
 def _badge(cat, cx: float, cy: float, t) -> list[str]:
     """A round initial standing in for a missing logo or icon, so every label in a marked chart has a mark."""
     initial = next((ch for ch in str(cat) if ch.isalnum()), "?").upper()
@@ -207,8 +214,9 @@ def _stacked(c, t, w, h, logos, light=frozenset()):
     for r, (name, vals, n) in enumerate(rows):
         y = legend_h + r * row
         label = f"{name} (n={n})" if n else name
-        out.append(f'<text class="ylab" style="font-size:20px" x="{label_w - 8}" y="{y + row * .6:.1f}" '
-                   f'text-anchor="end">{escape(_fit(label, label_w - 14, 20))}</text>')
+        size = _size_to_fit(label, label_w - 14, 20, 15)
+        out.append(f'<text class="ylab" style="font-size:{size}px" x="{label_w - 8}" y="{y + row * .6:.1f}" '
+                   f'text-anchor="end">{escape(_fit(label, label_w - 14, size))}</text>')
         if name in logos:
             lx0, ly0 = col_w - LOGO_W - 4, y + row / 2 - LOGO_H / 2
             if name in light:

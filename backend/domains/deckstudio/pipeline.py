@@ -54,7 +54,7 @@ def _article_urls(slide, plan_input: PlanInput) -> list[str]:
     return [v["url"] for v in plan_input.verbatims_by_rq.get(rq_id, [])][:assets.MAX_ARTICLES]
 
 
-def _judge(llm, subjects, label: str, checks: dict):
+def _judge(llm, subjects, label: str, checks: dict, exact: bool = False):
     """Vision check per candidate photo while the slide's and the run's budgets last; None afterwards (text gate)."""
     mine = {"n": 0}
 
@@ -64,7 +64,7 @@ def _judge(llm, subjects, label: str, checks: dict):
                 return None
             checks["n"] += 1
             mine["n"] += 1
-        return vision.matches(llm, data, subjects, label)
+        return vision.matches(llm, data, subjects, label, exact=exact)
     return judge
 
 
@@ -203,7 +203,7 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
         # the current model: the year and "new" steer the search away from vintage and earlier generations
         return assets.find_photo(f"{plan_input.title} {name} {date.today().year} new", "panel", deck_dir / "photos", used,
                                  subjects=subjects, fallback=False,
-                                 judge=_judge(llm, subjects, f"{name} by {plan_input.title}", checks)).path
+                                 judge=_judge(llm, subjects, f"{name} by {plan_input.title}", checks, exact=True)).path
     attach_product(spec, plan_input.brand_products, product_photo)
     if spec.product_image:
         run.log(f"Cover product: {spec.product_name}")

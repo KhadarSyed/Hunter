@@ -391,8 +391,14 @@ def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_
     logo_map = {**visuals.logos([n for n in names if n not in retailers], out_dir / "logos", judge=judge, hint=category),
                 **visuals.logos([n for n in names if n in retailers], out_dir / "logos", judge=shop_judge, hint="store")}
     logo_map = {**_label_icons(sections_by_rq, rows, out_dir, kit.accent), **logo_map}   # brand logos win
+    # the client's own products (Model Y, Cybertruck) named in a brand chart carry the client's verified logo
+    own_products = {visuals.plain_name(e["name"]).casefold() for e in spec.get("validated_entities") or []
+                    if isinstance(e, dict) and e.get("type") == "product" and e.get("name")}
     for name in dict.fromkeys(sov_brands):     # every brand drawn in a chart shows a mark beside its label
-        mark = visuals.find_logo(name, logo_map) or visuals.letter_badge_png(name, out_dir / "logos", kit.accent)
+        key = visuals.plain_name(name).casefold()
+        is_own = key in own_products or key.removeprefix(brand.casefold() + " ") in own_products
+        mark = (visuals.find_logo(name, logo_map) or (kit.logo if is_own and kit.logo else None)
+                or visuals.letter_badge_png(name, out_dir / "logos", kit.accent))
         if mark:
             logo_map[name] = mark
     if kit.logo:

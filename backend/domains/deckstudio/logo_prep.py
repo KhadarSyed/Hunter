@@ -37,6 +37,19 @@ def is_light(img: Image.Image) -> bool:
     return bool(lumas) and sum(v >= LIGHT_LUMA for v in lumas) / len(lumas) >= LIGHT_SHARE
 
 
+FAINT_ALPHA = 200          # a logo whose most opaque pixel is fainter than this was saved semi-transparent
+
+
+def _full_opacity(img: Image.Image) -> Image.Image:
+    """A logo saved at a fraction of its opacity (BYD's file peaks at 22%) shown at full strength: stretched so its
+    most opaque pixel is solid, its anti-aliased edges kept in proportion."""
+    top = img.getchannel("A").getextrema()[1]
+    if not 0 < top < FAINT_ALPHA:
+        return img
+    r, g, b, a = img.split()
+    return Image.merge("RGBA", (r, g, b, a.point(lambda v: min(255, round(v * 255 / top)))))
+
+
 @lru_cache(maxsize=4096)
 def prepare(path: str | None, out_dir: Path) -> tuple[str, bool] | None:
     """(the trimmed copy's path, light?) or None when the file is missing or unreadable."""
@@ -44,7 +57,7 @@ def prepare(path: str | None, out_dir: Path) -> tuple[str, bool] | None:
         return None
     try:
         with Image.open(path) as raw:
-            img = raw.convert("RGBA")
+            img = _full_opacity(raw.convert("RGBA"))
         box = _content_box(img)
         if box:
             l, t, r, b = box
