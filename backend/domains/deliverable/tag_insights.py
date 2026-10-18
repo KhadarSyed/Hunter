@@ -127,12 +127,21 @@ def tag_section(rq: RQ, rows: list[EngineRow], schema: TagSchema | None) -> Sect
 
 def tag_answer(rq: RQ, section: Section) -> dict:
     """The executive-summary answer: the tagged share and what leads it."""
-    cats, vals = section.chart["categories"], section.chart["values"]
-    total = sum(vals)
+    # the counts as tagged (a one-value chart drawn as a percentage keeps them under "counts")
+    cats, vals = section.chart["categories"], section.chart.get("counts") or section.chart["values"]
+    total = section.chart.get("n") or sum(vals)
     yes = next((c for c in cats if c in POSITIVE), cats[0])
     n = vals[cats.index(yes)]
     pct = _pct(n, total)
-    label = section.title.split(":")[0].lower()
+    label = section.title.split(":")[0]
     lead = next((f.split(": ", 2)[2] for f in section.facts if " outlets leading " in f), "")
-    text = f"{n} of {total} tagged articles ({pct}%) are {label}" + (f"; led by {lead}" if lead else "")
+    # worded as the facts are ("Sentiment: Positive in 65 of 127 tagged articles (51.2%)"): a Yes/No tag reads
+    # "Autonomy coverage: Yes in ...", a tag with several values lists each of them, the one the outlets lead first
+    if yes in POSITIVE:
+        text = f"{label}: {yes} in {n} of {total} tagged articles ({pct}%)" + (f"; led by {lead}" if lead else "")
+    else:
+        order = [yes] + sorted((c for c in cats if c != yes), key=lambda c: -vals[cats.index(c)])
+        parts = [f"{c} {vals[cats.index(c)]} ({_pct(vals[cats.index(c)], total)}%)" for c in order]
+        text = (f"{label} across {total} tagged articles: " + ", ".join(parts)
+                + (f"; {yes} coverage led by {lead}" if lead else ""))
     return {"rq_id": rq.id, "question": rq.question, "value": f"{pct}%", "answer": text}
