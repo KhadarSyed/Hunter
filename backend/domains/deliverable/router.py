@@ -11,7 +11,8 @@ from ...core import store
 from ...core.auth import require_project_access
 from ..deckstudio import data_tables
 from . import engine, repair_run
-from .schemas import DeliverableRunPayload, DeliverableRunStarted
+from . import rows as engine_rows
+from .schemas import DataCoverageResponse, DeliverableRunPayload, DeliverableRunStarted
 
 router = APIRouter()
 _MEDIA = {"pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -60,6 +61,13 @@ def repair(project_id: ProjectId, run_id: RunId, _: Access,
     except FileNotFoundError as e:
         raise HTTPException(409, str(e))
     return {"run_id": run_id, "scope": scope}
+
+
+@router.get("/deliverable/{project_id}/coverage", response_model=DataCoverageResponse)
+def coverage(project_id: ProjectId, _: Access):
+    """Articles per question from the approved datasets, counted as the engine will: a question with no upload of its
+    own is still answered by other uploads that match its query (Data Sources shows this instead of 'not approved')."""
+    return engine_rows.coverage(project_id)
 
 
 @router.get("/deliverable/{project_id}/latest", response_model=DeliverableRunPayload)

@@ -1486,6 +1486,8 @@ export const intelApi = {
   deliverableRepair: (projectId: number, runId: number, scope: RepairScope) =>
     post<{ run_id: number; scope: RepairScope }>(`/deliverable/${projectId}/runs/${runId}/repair?scope=${scope}`, {}),
   deliverableLatest: (projectId: number) => get<DeliverablePayload>(`/deliverable/${projectId}/latest`),
+  /** Articles per question from the approved datasets, counted as the deliverable engine will (own + query-matched). */
+  deliverableCoverage: (projectId: number) => get<DataCoverage>(`/deliverable/${projectId}/coverage`),
   agentState: (projectId: number) => get<AgentState>(`/agent/${projectId}`),
   agentStart: (projectId: number, inputFolder?: string) =>
     post<AgentState["autopilot"]>(`/agent/${projectId}/autopilot/start`, { input_folder: inputFolder || null }),
@@ -1556,4 +1558,6 @@ export type AgentFix = { id: number; issue_id: number; branch: string; tier: "au
 export type AgentEvent = { id: number; actor: string; action: string; detail: Record<string, unknown> | null; at: number; run_id: number | null };
 export interface DeliverableLogLine { ts: number; message: string }
 export interface DeliverableCitation { n: number; outlet: string; title: string; url: string; date: string; domain: string }
+/** Per question: articles uploaded for it (own) and in total once other uploads matching its query are routed in. */
+export interface DataCoverage { rqs: { rq_id: string; has_own_upload: boolean; shared: number | null }[] }
 export interface DeliverablePayload { run: DeliverableRun | null; sections: DeliverableSection[] }

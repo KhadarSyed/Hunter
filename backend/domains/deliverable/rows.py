@@ -155,6 +155,36 @@ def rq_rows(rows: list[EngineRow], rq_id: str) -> list[EngineRow]:
     return [r for r in rows if rq_id in r.rq_ids]
 
 
+_COVERAGE_CACHE: dict[tuple, dict] = {}
+_COVERAGE_CACHE_MAX = 64
+
+
+def coverage(project_id: int) -> dict:
+    """Per question: does it have an approved upload of its own, and if not, how many articles from the other
+    approved uploads match its Meltwater query (the engine's routing will send exactly those to it). Only questions
+    without an upload are matched, and the answer is cached per (approved datasets, questions): routing every
+    article for every question took minutes on a large project and starved the server."""
+    rqs = load_rqs(project_id)
+    datasets = _approved_datasets(project_id)
+    with_upload = {d.get("research_question_id") for d in datasets}
+    missing = [q for q in rqs if q.id not in with_upload]
+    key = (project_id, tuple(sorted(d["id"] for d in datasets)), tuple((q.id, q.query) for q in rqs))
+    if key in _COVERAGE_CACHE:
+        return _COVERAGE_CACHE[key]
+    shared = {q.id: 0 for q in missing}
+    if missing and datasets:
+        for row in load_rows(project_id, rqs):
+            text = f"{row.article.title}\n{row.article.text}"
+            for q in missing:
+                if q.query and matches(q.query, text):
+                    shared[q.id] += 1
+    result = {"rqs": [{"rq_id": q.id, "has_own_upload": q.id in with_upload, "shared": shared.get(q.id)} for q in rqs]}
+    if len(_COVERAGE_CACHE) >= _COVERAGE_CACHE_MAX:
+        _COVERAGE_CACHE.pop(next(iter(_COVERAGE_CACHE)))
+    _COVERAGE_CACHE[key] = result
+    return result
+
+
 def ingest_summary(project_id: int, rows: list[EngineRow]) -> dict:
     by_rq: dict[str, int] = {}
     for r in rows:

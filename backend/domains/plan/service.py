@@ -116,10 +116,13 @@ def validate_prerequisites(project_id: int) -> dict:
                 ds_by_rq[rqid] = ds
         approved_count = sum(1 for rid in rq_ids if rid and ds_by_rq.get(rid, {}).get("approval_status") == "approved")
         uploaded_count = sum(1 for rid in rq_ids if rid and ds_by_rq.get(rid, {}).get("processing_status") == "done")
+        # count datasets, not questions: a question may have no upload of its own when another upload answers it
+        done_files = [d for d in all_datasets if d.get("processing_status") == "done"]
+        approved_files = sum(1 for d in done_files if d.get("approval_status") == "approved")
         if approved_count > 0:
-            prereqs["dataset"] = {"status": "approved", "message": f"{approved_count}/{len(rq_ids)} datasets approved"}
+            prereqs["dataset"] = {"status": "approved", "message": f"{approved_files}/{len(done_files)} datasets approved"}
         elif uploaded_count > 0:
-            prereqs["dataset"] = {"status": "pending", "message": f"0/{len(rq_ids)} datasets approved, {uploaded_count}/{len(rq_ids)} uploaded"}
+            prereqs["dataset"] = {"status": "pending", "message": f"0/{len(done_files)} datasets approved"}
         else:
             prereqs["dataset"] = {"status": "missing", "message": "No datasets uploaded — upload a Meltwater export for at least one research question"}
     elif dataset and dataset.get("approval_status") == "approved":
