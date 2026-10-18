@@ -623,6 +623,7 @@ export function DataSources({ onNavigate }: Props) {
   useEffect(() => {
     if (!projectId || loadedProjectId !== projectId) return;
     let cancelled = false;
+    setCoverageReady(false);       // approvals changed: the old count is not shown while the new one is worked out
     intelApi.deliverableCoverage(projectId)
       .then((c) => {
         if (cancelled) return;
