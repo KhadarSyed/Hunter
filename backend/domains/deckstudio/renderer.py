@@ -98,7 +98,8 @@ def _marks(spec: DeckSpec, out_dir: Path) -> dict:
             "product": _asset(spec.product_image, out_dir), "product_name": spec.product_name}
 
 
-def render_deck(spec: DeckSpec, out_dir: Path, slide_html: dict[str, str] | None = None, source: str = "Meltwater") -> Path:
+def render_deck(spec: DeckSpec, out_dir: Path, slide_html: dict[str, str] | None = None, source: str = "Meltwater",
+                name: str = "deck.html") -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     tokens = spec.tokens or DeckTokens()
     marks = _marks(spec, out_dir)
@@ -107,7 +108,7 @@ def render_deck(spec: DeckSpec, out_dir: Path, slide_html: dict[str, str] | None
              for n, s in enumerate(spec.slides, start=1)]
     html = _env.get_template("deck.html.j2").render(spec=spec, t=tokens, fonts=fonts_href(tokens), slides=parts,
                                                      frontend_css=FRONTEND_CSS)
-    path = out_dir / "deck.html"
+    path = out_dir / name
     path.write_text(html, encoding="utf-8")
     return path
 

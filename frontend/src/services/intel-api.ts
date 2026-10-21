@@ -1537,7 +1537,21 @@ export const intelApi = {
     `${API_BASE}/deliverable/${projectId}/runs/${runId}/deck/${path}`,
   deliverableThumbUrl: (projectId: number, runId: number, n: number) =>
     `${API_BASE}/deliverable/${projectId}/runs/${runId}/thumbnail/${n}`,
+  // Deck colours on a finished run: preview re-renders the HTML only (seconds); apply/reset re-export PPTX + PDF (~1 min)
+  deckDesign: (projectId: number, runId: number) =>
+    get<DeckDesign>(`/deliverable/${projectId}/runs/${runId}/design`),
+  deckDesignPreview: (projectId: number, runId: number, change: DeckDesignChange) =>
+    post<DeckDesignResult>(`/deliverable/${projectId}/runs/${runId}/design/preview`, change),
+  deckDesignApply: (projectId: number, runId: number, change: DeckDesignChange) =>
+    post<DeckDesignResult>(`/deliverable/${projectId}/runs/${runId}/design`, change),
+  deckDesignReset: (projectId: number, runId: number) =>
+    post<DeckDesignResult>(`/deliverable/${projectId}/runs/${runId}/design/reset`, {}),
 };
+
+/** Deck colours are 6 hex digits without '#'. */
+export interface DeckDesignChange { primary?: string; accent?: string }
+export interface DeckDesign { primary: string; accent: string; swatches: string[]; can_reset: boolean }
+export interface DeckDesignResult { applied: string[]; rejected: Record<string, string>; html: string }
 
 export interface DeliverableRun {
   id: number; project_id: number; status: "running" | "completed" | "failed"; stage: string | null;

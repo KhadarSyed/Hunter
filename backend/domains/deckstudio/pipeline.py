@@ -152,6 +152,7 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     plan_input.checklist = rows
     spec = planner.build_deck_spec(plan_input)
     attach_logos(spec, logos, plan_input.title, plan_input.brands)
+    spec.brand_colors = list(brand_colors)
     rows = checklist.attach_slide_numbers(spec, rows)
     entry, design_why = design_systems.choose(llm, plan_input.scope_text, [])
     design = {**(entry.get("design") or design_systems.load(entry["slug"])), "slug": entry["slug"]}

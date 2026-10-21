@@ -1,5 +1,6 @@
-"""Slide photos: licensed (Pexels) and brand-owned first, SerpAPI Google Images as fallback; never the same
-image twice; cropped to the slide treatment. Keys come from the environment and are never logged."""
+"""Slide photos: licensed (Pexels) and brand-owned first, SerpAPI Google Images as fallback, then SearXNG images
+when SerpAPI finds nothing on-topic; every candidate passes the same relevance check against the brief's subjects;
+never the same image twice; cropped to the slide treatment. Keys come from the environment and are never logged."""
 from __future__ import annotations
 
 import hashlib
@@ -72,6 +73,28 @@ def _serpapi(query: str) -> list[dict]:
                  "page": i.get("link") or ""} for i in results if i.get("original")]
     except (requests.RequestException, ValueError, AttributeError, TypeError) as e:
         logger.warning("serpapi image search failed: %s", type(e).__name__)
+        return []
+
+
+_DIGITS = re.compile(r"\d+")
+
+
+def _searxng_images(query: str) -> list[dict]:
+    """SearXNG's image engines (self-hosted, SEARXNG_URL): when SerpAPI is out of searches or finds nothing usable.
+    Its results carry the image, the page it sits on and a 'W×H' resolution."""
+    base = os.environ.get("SEARXNG_URL", "").strip().rstrip("/")
+    if not base:
+        return []
+    try:
+        r = requests.get(f"{base}/search", params={"q": query, "categories": "images", "format": "json",
+                                                    "language": "en", "safesearch": 1}, timeout=TIMEOUT_S)
+        r.raise_for_status()
+        results = r.json().get("results") or []
+        return [{"url": i["img_src"], "title": i.get("title") or "", "page": i.get("url") or "",
+                 "width": int((_DIGITS.findall(i.get("resolution") or "") or [0])[0])}
+                for i in results if i.get("img_src")]
+    except (requests.RequestException, ValueError, KeyError, AttributeError, TypeError) as e:
+        logger.warning("searxng image search failed: %s", type(e).__name__)
         return []
 
 
@@ -218,6 +241,7 @@ def _plan(query: str, subjects: Subjects | None, article_urls) -> Iterator[tuple
         yield "web", (_ddg_images(q) if subjects and subjects.brands else [])
         yield "licensed", _pexels(q)
         yield "web", _serpapi(q)
+        yield "web", _searxng_images(q)       # reached only when SerpAPI gave nothing on-topic for this query
 
 
 def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image: Path | None = None, *,
@@ -264,8 +288,9 @@ def _fallback(query: str, role: str, folder: Path, used: set[str], subjects: Sub
     each result's image or, when it cannot be downloaded (hot-link blocked), the lead image its page declares."""
     loose = Subjects([], [], subjects.category, subjects.scene) if subjects else None
     terms = [f"{subjects.category} {subjects.scene}".strip(), subjects.category] if subjects else [query]
-    for q in dict.fromkeys(t for t in terms if t):
-        for cand in _serpapi(q)[:FALLBACK_TRIES]:
+    searches = ((q, search) for q in dict.fromkeys(t for t in terms if t) for search in (_serpapi, _searxng_images))
+    for q, search in searches:      # lazy: SearXNG runs only when SerpAPI's results for this term all failed
+        for cand in search(q)[:FALLBACK_TRIES]:
             for url in (cand["url"], "page"):
                 if url == "page":
                     url = article_image(cand["page"]) if cand.get("page") else None

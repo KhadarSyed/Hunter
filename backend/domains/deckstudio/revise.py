@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import fields, replace
+from dataclasses import asdict, fields, replace
 from pathlib import Path
 
 from . import art_director, creative, exporter, guards, renderer
@@ -71,7 +71,53 @@ def revise_slide(deck_dir: Path, slide_ref: str, instructions: str, llm, check_l
     return {"slide_id": slide.id, "applied": True, "reason": "", **_export(spec, path, deck_dir)}
 
 
-def set_design(deck_dir: Path, changes: dict) -> dict:
+PREVIEW_HTML = "preview.html"
+_ORIGINAL = "tokens_original.json"      # the deck's design as generated, so a colour change can be undone
+
+
+def _recolor(tokens: DeckTokens, guarded: DeckTokens, applied: list[str]) -> DeckTokens:
+    """The applied tokens, plus what derives from them: the photo overlay follows the primary, and charts re-tone from
+    the new primary/accent (charts would otherwise keep the old palette)."""
+    out = replace(tokens, **{k: getattr(guarded, k) for k in applied})
+    if "primary" in applied:
+        out.overlay = guarded.overlay
+    if {"primary", "accent"} & set(applied):
+        base = [out.primary, out.accent]
+        out.series = art_director._series(art_director._brand_series(base) or base)
+    return out
+
+
+def design(deck_dir: Path, brand_name: str = "") -> dict:
+    """The deck's current colours, swatches from its brand (the Brandfetch palette the banner shows, then the
+    generated one) and whether there is a change to undo."""
+    from ..deliverable import brand_kit
+    spec, candidates = load(deck_dir)
+    if not spec.brand_colors and brand_name:        # decks built before the spec kept the palette: look it up once
+        spec.brand_colors = brand_kit.brand_colors(brand_name)
+        if spec.brand_colors:
+            _save(deck_dir, spec, candidates)
+    t = spec.tokens or DeckTokens()
+    swatches = spec.brand_colors + [t.primary, t.accent, *t.series]
+    return {"primary": t.primary, "accent": t.accent, "swatches": list(dict.fromkeys(s.upper() for s in swatches)),
+            "can_reset": (deck_dir / _ORIGINAL).exists()}
+
+
+def reset_design(deck_dir: Path) -> dict:
+    path = deck_dir / _ORIGINAL
+    if not path.exists():
+        raise ValueError("the deck still has its generated colours")
+    spec, candidates = load(deck_dir)
+    spec.tokens = DeckTokens(**json.loads(path.read_text(encoding="utf-8")))
+    html = renderer.render_deck(spec, deck_dir, candidates)
+    _save(deck_dir, spec, candidates)
+    path.unlink()
+    renderer.inline_assets(html)
+    return {"applied": ["primary", "accent"], "rejected": {}, **_export(spec, html, deck_dir)}
+
+
+def set_design(deck_dir: Path, changes: dict, preview: bool = False) -> dict:
+    """Preview renders the recoloured deck to preview.html only (seconds, nothing saved); otherwise the change is
+    saved and the PPTX/PDF re-exported."""
     spec, candidates = load(deck_dir)
     tokens = spec.tokens or DeckTokens()
     allowed = {f.name for f in fields(DeckTokens)} & (_COLOR_FIELDS | _FONT_FIELDS)
@@ -88,7 +134,13 @@ def set_design(deck_dir: Path, changes: dict) -> dict:
     guarded = art_director._guard(replace(tokens, **updates))
     applied = [k for k, v in updates.items() if getattr(guarded, k) == v]
     rejected.update({k: "fails the contrast guard" for k in updates if k not in applied})
-    spec.tokens = replace(tokens, **{k: updates[k] for k in applied})
+    spec.tokens = _recolor(tokens, guarded, applied)
+    if preview:
+        path = renderer.render_deck(spec, deck_dir, candidates, name=PREVIEW_HTML)
+        renderer.inline_assets(path)
+        return {"applied": applied, "rejected": rejected, "html": PREVIEW_HTML}
+    if applied and not (deck_dir / _ORIGINAL).exists():
+        (deck_dir / _ORIGINAL).write_text(json.dumps(asdict(tokens)), encoding="utf-8")
     path = renderer.render_deck(spec, deck_dir, candidates)
     _save(deck_dir, spec, candidates)
     renderer.inline_assets(path)
