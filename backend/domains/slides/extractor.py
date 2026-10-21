@@ -14,7 +14,7 @@ from collections import Counter, defaultdict
 
 from pptx import Presentation
 
-from ...core import store
+from ...core import jev_client, store
 
 # ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -324,7 +324,7 @@ def _extract_slide(slide, slide_number: int) -> dict:
 def _classify_slide(data: dict) -> dict:
     """Classify a slide by purpose, layout, visual type, narrative role, and report type."""
     return {
-        "slide_purpose": _classify_purpose(data),
+        "slide_purpose": _jev_purpose(data) or _classify_purpose(data),
         "layout_type": _classify_layout(data),
         "visual_type": _classify_visual_type(data),
         "narrative_role": _classify_narrative_role(data),
@@ -342,6 +342,55 @@ def _text_lower(data: dict) -> str:
         if data.get(k):
             parts.append(data[k])
     return " ".join(parts).lower()
+
+
+PURPOSE_DESCRIPTIONS = {
+    "cover": "Title slide opening the deck: report name, client, date",
+    "executive_summary": "Top-line findings or key takeaways of the whole report",
+    "methodology": "How the research was done: sources, approach, analytical framework",
+    "scope": "Objectives and scope of the work",
+    "key_finding": "A single data-backed finding, usually a chart or table with a headline insight",
+    "trend": "Change over time: growth, decline, month-over-month or year-over-year movement",
+    "theme": "A recurring topic or narrative in the coverage",
+    "sentiment": "Positive / neutral / negative tone of coverage or conversation",
+    "competitive": "Comparison with competitors: share of voice, benchmarks, versus",
+    "consumer_insight": "Audience, consumer or customer behaviour, demographics, personas",
+    "crisis": "An incident, controversy, backlash or negative-coverage event",
+    "timeline": "A chronology of events, milestones or phases",
+    "recommendation": "Recommended actions or next steps",
+    "opportunity": "Opportunities, potential upside or whitespace",
+    "risk": "Risks, threats or vulnerabilities to watch",
+    "conclusion": "Closing summary that wraps up the report",
+    "appendix": "Supplementary material after the main report",
+    "table_of_contents": "Agenda or table of contents",
+    "divider": "Section divider: a short section title with little or no content",
+    "thank_you": "Closing thank-you or questions slide",
+    "other": "None of the above",
+}
+assert set(PURPOSE_DESCRIPTIONS) == SLIDE_PURPOSES  # every purpose described, none invented
+JEV_PURPOSE_MIN_CONFIDENCE = 0.5
+_SLIDE_TEXT_CHARS = 3000
+
+
+def _jev_purpose(data: dict) -> str | None:
+    """The slide's purpose as Jev chooses it (constrained to SLIDE_PURPOSES), or None -- Jev not configured,
+    key rejected, API failing, or not confident -- so the keyword rules in _classify_purpose decide instead."""
+    if not jev_client.is_configured():
+        return None
+    facts = (f"[Slide: {data.get('shape_count', 0)} shapes, "
+             f"{data.get('chart_count', 0)} charts, {data.get('table_count', 0)} tables, "
+             f"{data.get('image_count', 0)} images]")
+    state = "\n".join(filter(None, [facts, f"Title: {data.get('title_text') or ''}", data.get("body_text") or "",
+                                    f"Speaker notes: {data['notes_text']}" if data.get("notes_text") else ""]))
+    try:
+        answer = jev_client.ask(state[:_SLIDE_TEXT_CHARS], {"purpose": jev_client.choice(
+            "What is this presentation slide's purpose in the report?", PURPOSE_DESCRIPTIONS)})["purpose"]
+    except jev_client.JevError:
+        return None
+    picked = answer.get("choice")
+    if picked not in SLIDE_PURPOSES or float(answer.get("confidence") or 0) < JEV_PURPOSE_MIN_CONFIDENCE:
+        return None
+    return picked
 
 
 def _classify_purpose(data: dict) -> str:

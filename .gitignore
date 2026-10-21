@@ -79,3 +79,6 @@ test-results/
 docs/superpowers/plans/
 .superpowers/
 scratch/
+
+# Standalone web-search POC (YouTube/Bluesky/HN/SearXNG), kept local until reviewed
+poc/
