@@ -91,6 +91,7 @@ def _searxng_images(query: str) -> list[dict]:
                                                     "language": "en", "safesearch": 1}, timeout=TIMEOUT_S)
         r.raise_for_status()
         results = r.json().get("results") or []
+        logger.info("searxng image fallback: %s results for %r", len(results), query)
         return [{"url": i["img_src"], "title": i.get("title") or "", "page": i.get("url") or "",
                  "width": int((_DIGITS.findall(i.get("resolution") or "") or [0])[0])}
                 for i in results if i.get("img_src")]
