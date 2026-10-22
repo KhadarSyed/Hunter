@@ -9,6 +9,7 @@ import os
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import date
 from io import BytesIO
 from pathlib import Path
 
@@ -277,6 +278,14 @@ def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image:
             return Photo(crop_to(raw, role, folder / f"{slug}.jpg"), cand["url"], licence, why)
     found = _fallback(query, role, folder, used, subjects, judge, slug) if fallback else None
     return found or Photo(None, "", "none", f"no relevant photo ({rejected} candidates rejected)")
+
+
+def product_photo(brand: str, name: str, category: str, folder: Path, used: set[str], make_judge=None) -> Photo:
+    """The client's product for the cover: the current model (the year and "new" steer the search away from vintage
+    and earlier generations), never widened to the category. `make_judge(subjects)` gives the vision check."""
+    subjects = Subjects([brand], [name], category, f"{name} product packshot")
+    return find_photo(f"{brand} {name} {date.today().year} new", "panel", folder, used, subjects=subjects,
+                      fallback=False, judge=make_judge(subjects) if make_judge else None)
 
 
 FALLBACK_TRIES = 8
