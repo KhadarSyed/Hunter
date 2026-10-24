@@ -256,11 +256,37 @@ export interface ResearchItem {
   published_date: number;
   keywords_matched: string[];
   relevant: boolean;
+  /** "free" opens for readers; "paid" = the site refuses readers or paywalls; null = not checked yet */
+  access: "free" | "paid" | null;
 }
 
 export interface ResearchItemsResult {
   items: ResearchItem[];
   total: number;
+}
+
+/** Related item ids, closest first. Syndicated: the same article by another publisher.
+ * Similar: a different article on the same theme, content or context. */
+export interface ItemRelations {
+  syndicated: number[];
+  similar: number[];
+}
+
+/** Jev's answers per item: probability it is about the brief's brand, and its tone toward the brand. */
+export interface ItemClassification {
+  about_brand: number | null;
+  sentiment: "positive" | "neutral" | "negative" | null;
+  sentiment_confidence: number | null;
+}
+
+export interface ResearchItemClassificationResult {
+  classifications: Record<string, ItemClassification>;
+  method: "jev" | "jev_partial" | "rules";
+}
+
+export interface ResearchItemRelationsResult {
+  relations: Record<string, ItemRelations>;
+  method: "embeddings" | "embeddings_partial" | "titles";
 }
 
 export interface StrategyResult {
@@ -686,6 +712,10 @@ export const intelApi = {
 
   getResearchItems: (projectId: number) =>
     get<ResearchItemsResult>(`/research/${projectId}/items`),
+  getResearchItemClassification: (projectId: number) =>
+    get<ResearchItemClassificationResult>(`/research/${projectId}/items/classification`),
+  getResearchItemRelations: (projectId: number) =>
+    get<ResearchItemRelationsResult>(`/research/${projectId}/items/relations`),
   getArticleFullText: (itemId: number, force = false) =>
     get<ArticleFullTextResponse>(`/research/items/${itemId}/full-text${force ? "?force=true" : ""}`),
 
@@ -1507,7 +1537,21 @@ export const intelApi = {
     `${API_BASE}/deliverable/${projectId}/runs/${runId}/deck/${path}`,
   deliverableThumbUrl: (projectId: number, runId: number, n: number) =>
     `${API_BASE}/deliverable/${projectId}/runs/${runId}/thumbnail/${n}`,
+  // Deck colours on a finished run: preview re-renders the HTML only (seconds); apply/reset re-export PPTX + PDF (~1 min)
+  deckDesign: (projectId: number, runId: number) =>
+    get<DeckDesign>(`/deliverable/${projectId}/runs/${runId}/design`),
+  deckDesignPreview: (projectId: number, runId: number, change: DeckDesignChange) =>
+    post<DeckDesignResult>(`/deliverable/${projectId}/runs/${runId}/design/preview`, change),
+  deckDesignApply: (projectId: number, runId: number, change: DeckDesignChange) =>
+    post<DeckDesignResult>(`/deliverable/${projectId}/runs/${runId}/design`, change),
+  deckDesignReset: (projectId: number, runId: number) =>
+    post<DeckDesignResult>(`/deliverable/${projectId}/runs/${runId}/design/reset`, {}),
 };
+
+/** Deck colours are 6 hex digits without '#'. */
+export interface DeckDesignChange { primary?: string; accent?: string }
+export interface DeckDesign { primary: string; accent: string; swatches: string[]; can_reset: boolean }
+export interface DeckDesignResult { applied: string[]; rejected: Record<string, string>; html: string }
 
 export interface DeliverableRun {
   id: number; project_id: number; status: "running" | "completed" | "failed"; stage: string | null;

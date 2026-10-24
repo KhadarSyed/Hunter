@@ -1,9 +1,11 @@
-"""Google News RSS + SerpAPI + Tavily search, normalized into social/traditional media buckets.
+"""Google News RSS + SerpAPI + Tavily (+ opt-in YouTube, Bluesky, SearXNG) search, normalized into
+social/traditional media buckets and deduplicated by canonical URL.
 
-Three independent sources feed `fetch_and_normalize()`:
+Three core sources feed `fetch_and_normalize()`:
   - SerpAPI's Google News engine (`SERP_API_KEY` env var) — richer metadata, rate-limited.
   - Tavily Search API (`TAVILY_API_KEY` env var) — general web/news search, rate-limited.
   - Google News RSS (`https://news.google.com/rss/search`) — keyless, no API limits.
+Callers can add YouTube, Bluesky and SearXNG per call via `extra_sources` (see extra_sources.py).
 
 Each source is queried and parsed independently via plain `requests` (matching
 `azure_openai_client.py`'s and `nvidia_embed_client.py`'s preference for raw HTTP clients over
@@ -27,11 +29,12 @@ import xml.etree.ElementTree as ET
 from datetime import date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Callable, TypedDict
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlparse, urlunparse
 
 import requests
 
 from ...core import serp_keys
+from . import extra_sources as extra_sources_module
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +53,8 @@ SOCIAL_DOMAINS = {
     "linkedin.com",
     "reddit.com",
     "quora.com",
+    "youtube.com",
+    "bsky.app",
 }
 
 DEFAULT_TIMEOUT = 15
@@ -62,8 +67,16 @@ SOCIAL_PLATFORM_DOMAINS = {
     "twitter.com": "twitter", "x.com": "twitter", "instagram.com": "instagram",
     "facebook.com": "facebook", "reddit.com": "reddit", "linkedin.com": "linkedin",
     "tiktok.com": "tiktok", "truthsocial.com": "truth_social",
+    "youtube.com": "youtube", "bsky.app": "bluesky",
 }
 MAX_RSS_RECENCY_HOURS = 24 * 365
+RSS_DECODE_WORKERS = 20
+RSS_DECODE_TIMEOUT_S = DEFAULT_TIMEOUT
+RSS_DECODE_ATTEMPTS = 2  # a decode that fails once (timeout, Google hiccup) gets one more try
+# Only a hung source ever hits this: every request has its own timeout, and sources are given the time
+# they need (every Google News link decoded, every SearXNG page vetted) rather than cut off early.
+FETCH_CEILING_S = 600
+EXTRA_SOURCES = {"youtube", "bluesky", "searxng"}  # opt-in per call, see fetch_and_normalize
 
 
 class SocialMediaItem(TypedDict):
@@ -315,7 +328,7 @@ def _decode_google_news_url(url: str) -> str:
     if "news.google.com" not in url:
         return url
     try:
-        page = requests.get(url, timeout=DEFAULT_TIMEOUT, headers={"User-Agent": "Mozilla/5.0"})
+        page = requests.get(url, timeout=RSS_DECODE_TIMEOUT_S, headers={"User-Agent": "Mozilla/5.0"})
         page.raise_for_status()
         html = page.text
         id_match = re.search(r'data-n-a-id="([^"]+)"', html)
@@ -336,7 +349,7 @@ def _decode_google_news_url(url: str) -> str:
             _GOOGLE_BATCHEXECUTE_URL,
             headers={"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
                      "User-Agent": "Mozilla/5.0"},
-            data={"f.req": f_req}, timeout=DEFAULT_TIMEOUT,
+            data={"f.req": f_req}, timeout=RSS_DECODE_TIMEOUT_S,
         )
         resp.raise_for_status()
         # Response is ")]}'\n\n" followed by a JSON array; the decoded URL is nested two levels
@@ -351,8 +364,17 @@ def _decode_google_news_url(url: str) -> str:
         return url
 
 
+def _decode_with_retry(url: str) -> str:
+    """The real article URL; the wrapper only if every attempt failed (it still opens the article)."""
+    for _ in range(RSS_DECODE_ATTEMPTS):
+        decoded = _decode_google_news_url(url)
+        if decoded != url:
+            return decoded
+    return url
+
+
 def _search_google_news_rss(query: str, recency_hours: int, country: str) -> list[dict]:
-    """Raw Google News RSS results (keyless). Returns [] on any failure."""
+    """Raw Google News RSS results (keyless), every item with its real article link. Returns [] on any failure."""
     full_query = query
     rss_url = GOOGLE_NEWS_RSS_URL
     final_query = f"when:{recency_hours}h {full_query}"
@@ -392,17 +414,20 @@ def _search_google_news_rss(query: str, recency_hours: int, country: str) -> lis
             "author": "",
         })
 
-    # Resolve every redirect concurrently — sequential resolution of up to max_results items
-    # (each a real network round-trip) would make this the slowest of the 3 sources by far.
+    # Decode every item's wrapper link to the real article (often 100 items, two round-trips each),
+    # concurrently and without a time budget: all links are translated, however long it takes.
     from concurrent.futures import ThreadPoolExecutor
 
-    links = [p["link"] for p in parsed if p["link"]]
+    links = list(dict.fromkeys(p["link"] for p in parsed if p["link"]))
     if links:
-        with ThreadPoolExecutor(max_workers=10) as pool:
-            resolved = dict(zip(links, pool.map(_decode_google_news_url, links)))
+        with ThreadPoolExecutor(max_workers=min(RSS_DECODE_WORKERS, len(links))) as pool:
+            resolved = dict(zip(links, pool.map(_decode_with_retry, links)))
+        undecoded = sum("news.google.com" in url for url in resolved.values())
+        if undecoded:
+            logger.warning("Google News: %s of %s links could not be decoded; their wrapper links are kept",
+                           undecoded, len(links))
         for p in parsed:
-            if p["link"] in resolved:
-                p["link"] = resolved[p["link"]]
+            p["link"] = resolved.get(p["link"], p["link"])
 
     return parsed
 
@@ -455,6 +480,49 @@ def _extract_domain(url: str) -> str:
     if netloc.startswith("www."):
         netloc = netloc[4:]
     return netloc
+
+
+# Query parameters that only track the click, never pick content, on any site (ref/si/feature can, so stay)
+_TRACKING_PARAM = re.compile(r"^(utm_\w+|fbclid|gclid|dclid|msclkid|mc_cid|mc_eid|igshid|guccounter)$", re.IGNORECASE)
+_YOUTUBE_VIDEO_ID = re.compile(r"(?:youtu\.be/|/shorts/|/embed/|/live/|[?&]v=)([A-Za-z0-9_-]{11})")
+
+
+def _bare_host(host: str) -> str:
+    """Host without a www./m. prefix, unless that would leave no domain (m.com stays m.com)."""
+    for prefix in ("www.", "m."):
+        rest = host.removeprefix(prefix)
+        if rest != host and "." in rest:
+            return rest
+    return host
+
+
+def canonical_url(url: str) -> str:
+    """The stored form of a link: tracking parameters and #fragment dropped, host lowercased, every YouTube
+    link form (youtu.be, shorts, embed, m.) made watch?v=ID. Still a working link: the rest of the query is
+    kept byte for byte, and path case and trailing slash are kept (some sites need them)."""
+    url = (url or "").strip()
+    try:
+        p = urlparse(url)
+    except ValueError:
+        return url
+    if not p.scheme or not p.netloc:
+        return url
+    host = p.netloc.lower()
+    if _bare_host(host) in ("youtube.com", "youtu.be"):
+        if m := _YOUTUBE_VIDEO_ID.search(url):
+            return f"https://www.youtube.com/watch?v={m.group(1)}"
+    query = "&".join(part for part in p.query.split("&") if part and not _TRACKING_PARAM.match(part.split("=", 1)[0]))
+    return urlunparse((p.scheme.lower(), host, p.path, p.params, query, ""))
+
+
+def dedupe_key(url: str) -> str:
+    """Two links to the same page share this key: canonical_url() minus scheme, a www./m. prefix and a
+    trailing slash. For comparing only -- never stored, since some sites only answer on www. or with the slash."""
+    canon = canonical_url(url)
+    p = urlparse(canon)
+    if not p.netloc:
+        return canon.lower()
+    return urlunparse(("", _bare_host(p.netloc), p.path.rstrip("/"), p.params, p.query, ""))
 
 
 def _is_social_domain(url: str) -> bool:
@@ -570,9 +638,16 @@ def fetch_and_normalize(
     include_domains: list[str] | None = None,
     api_keys: dict[str, str] | None = None,
     on_source_result: Callable[[str, bool, str | None], None] | None = None,
+    extra_sources: tuple[str, ...] = (),
 ) -> dict:
     """Search SerpAPI + Tavily + Google News RSS concurrently, normalize into social/traditional
     media buckets, dedupe by URL. Never raises — a down source just contributes nothing.
+
+    `extra_sources` adds any of "youtube", "bluesky", "searxng" (see extra_sources.py), each only when
+    configured (an unconfigured one is skipped and not listed in failed_sources). YouTube and Bluesky get the plain-language query (`tavily_query`), since neither reads
+    Google's Boolean/site: syntax; SearXNG gets `query`. Off by default so other callers are unchanged.
+    URLs are stored in canonical_url() form and deduped by dedupe_key(), so tracking-parameter, www/m.
+    and youtu.be/shorts variants of one page are a single item.
 
     `tavily_query`, when given, is sent to Tavily instead of `query` (Tavily favors natural
     language over raw Boolean operators; `query` still goes to SerpAPI/RSS, which are both
@@ -597,8 +672,20 @@ def fetch_and_normalize(
     if date_range is not None:
         recency_days = max(1, (date.today() - _coerce_datetime(date_range[0]).date()).days)
 
-    pool = ThreadPoolExecutor(max_workers=3)
-    results_by_source: dict[str, list[dict]] = {"serpapi": [], "tavily": [], "google_news_rss": []}
+    if unknown := set(extra_sources) - EXTRA_SOURCES:
+        logger.error("Ignoring unknown extra sources %s", sorted(unknown))
+    # an unconfigured source is skipped, not reported as failed on every run
+    extra_sources = tuple(s for s in extra_sources if s in EXTRA_SOURCES and extra_sources_module.is_configured(s))
+    natural_query = tavily_query or query
+    extra_calls = {
+        "youtube": lambda: extra_sources_module.search_youtube(natural_query, country, date_range, max_results),
+        "bluesky": lambda: extra_sources_module.search_bluesky(natural_query, date_range, max_results),
+        "searxng": lambda: extra_sources_module.search_searxng(query, country, date_range, max_results),
+    }
+
+    pool = ThreadPoolExecutor(max_workers=3 + len(extra_sources))
+    results_by_source: dict[str, list[dict]] = {"serpapi": [], "tavily": [], "google_news_rss": [],
+                                                **{name: [] for name in extra_sources}}
     try:
         api_keys = api_keys or {}
         on_serpapi_result = (lambda ok, error: on_source_result("serpapi", ok, error)) if on_source_result else None
@@ -610,9 +697,10 @@ def fetch_and_normalize(
                         include_domains, api_keys.get("tavily"), on_tavily_result): "tavily",
             pool.submit(_search_google_news_rss, query,
                         recency_hours=_recency_hours_for_range(date_range), country=country): "google_news_rss",
+            **{pool.submit(extra_calls[name]): name for name in extra_sources},
         }
         try:
-            for future in as_completed(futures, timeout=DEFAULT_TIMEOUT + 5):
+            for future in as_completed(futures, timeout=FETCH_CEILING_S):
                 source = futures[future]
                 try:
                     results_by_source[source] = future.result()
@@ -637,26 +725,29 @@ def fetch_and_normalize(
 
     serpapi_raw = results_by_source["serpapi"]
     tavily_raw = results_by_source["tavily"]
-    rss_raw = results_by_source["google_news_rss"][:max_results]
+    rss_raw = results_by_source["google_news_rss"]  # every feed item, not max_results: all are wanted
 
     normalized = [_normalize_serpapi_item(i) for i in serpapi_raw]
     normalized += [_normalize_tavily_item(i) for i in tavily_raw]
     normalized += [_normalize_rss_item(i) for i in rss_raw]
+    for name in extra_sources:  # already in the normalized shape
+        normalized += results_by_source[name]
 
     buckets: dict[str, list[dict]] = {"social_media": [], "traditional_media": []}
-    seen_urls: set[str] = set()
+    seen_keys: set[str] = set()
 
     for norm in normalized:
-        url = norm["published_url"]
+        url = canonical_url(norm["published_url"])
         if not url:
             logger.debug("Dropping %s result with no URL: %r", norm["_source"], norm.get("title"))
             continue
-        if url in seen_urls:
+        key = dedupe_key(url)
+        if key in seen_keys:
             continue
         if date_range is not None and not _within_range(norm["date"], date_range):
             continue
-        seen_urls.add(url)
-        bucket, item = _bucket_item(norm)
+        seen_keys.add(key)
+        bucket, item = _bucket_item({**norm, "published_url": url})
         buckets[bucket].append(item)
 
     failed_sources = []
@@ -666,6 +757,7 @@ def fetch_and_normalize(
         failed_sources.append("tavily")
     if not rss_raw:
         failed_sources.append("google_news_rss")
+    failed_sources += [name for name in extra_sources if not results_by_source[name]]
 
     return {
         **buckets,

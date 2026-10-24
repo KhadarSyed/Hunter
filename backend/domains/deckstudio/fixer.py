@@ -323,7 +323,31 @@ def redraft_off_topic(r: Repair, row: dict) -> str:
     return f"{len(off)} card(s) removed; " + explain_categories(r, row)
 
 
+def find_cover_product(r: Repair, _row: dict) -> str:
+    """No photo of the client's product on the cover: the product search runs again, as a new run does (Pexels,
+    SerpAPI, then SearXNG), each candidate vision-checked to show that very product."""
+    from . import assets
+    from .pipeline import attach_product
+    products = (r.context.get("validate") or {}).get("brand_products") or []
+    if not products:
+        raise Unfixable("the brief names no client product")
+    category = r.context.get("category") or ""
+
+    def make_judge(subjects):
+        name = subjects.products[0]
+        return (lambda data: vision.matches(r.llm, data, subjects, f"{name} by {r.spec.title}", exact=True)) \
+            if r.llm is not None else None
+
+    attach_product(r.spec, products, lambda name: assets.product_photo(
+        r.spec.title, name, category, r.deck_dir / "photos", set(), make_judge).path)
+    if not r.spec.product_image:
+        raise Unfixable(f"no photo found that shows {', '.join(products[:3])} itself")
+    r.changed = True
+    return f"cover shows the {r.spec.product_name}"
+
+
 REMEDIES = (
+    ("Client product on the cover", find_cover_product),
     ("Each category card explains its own category", redraft_off_topic),
     ("Every chart category has its own insight", explain_categories),
     ("Every chart slide has a cited summary", summarise_bare),

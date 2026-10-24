@@ -1420,6 +1420,23 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             plan_json TEXT NOT NULL, source TEXT NOT NULL, updated_at REAL NOT NULL,
             PRIMARY KEY (project_id, rq_id))""",
     ]),
+    # Whether a research item's site lets readers in ("free") or refuses / paywalls them ("paid"), and each item's
+    # text embedding for finding syndicated and similar articles. Vectors live in their own table so the many
+    # SELECT * reads of intel_research_items don't carry ~8 KB per row.
+    (28, "research item access and vectors", [
+        "ALTER TABLE intel_research_items ADD COLUMN access TEXT",
+        """CREATE TABLE IF NOT EXISTS intel_research_item_vectors (
+            item_id INTEGER PRIMARY KEY, model TEXT NOT NULL, dim INTEGER NOT NULL, vector BLOB NOT NULL,
+            created_at REAL NOT NULL)""",
+    ]),
+    # Jev's per-item answers: probability the item is really about the brief's brand (0-1), and the tone toward
+    # it. classified_for is the brand they were asked about, so a renamed brand is classified again.
+    (29, "research item jev classification", [
+        "ALTER TABLE intel_research_items ADD COLUMN about_brand REAL",
+        "ALTER TABLE intel_research_items ADD COLUMN sentiment TEXT",
+        "ALTER TABLE intel_research_items ADD COLUMN sentiment_confidence REAL",
+        "ALTER TABLE intel_research_items ADD COLUMN classified_for TEXT",
+    ]),
 ]
 
 

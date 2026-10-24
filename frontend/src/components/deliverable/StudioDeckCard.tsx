@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Icon } from "@iconify/react";
 import { intelApi } from "../../services/intel-api";
 import type { DeliverableSection, RepairScope } from "../../services/intel-api";
+import { DeckColorPanel } from "./DeckColorPanel";
 
 const STATUS_STYLE: Record<string, string> = {
   covered: "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -68,6 +69,10 @@ type Props = {
 /** The brand-led presentation: live preview, why this design, how well it answers the brief, downloads. */
 export function StudioDeckCard({ projectId, runId, studio, isRepairing, canRepair, onRepair }: Props) {
   const deckUrl = intelApi.deliverableDeckUrl(projectId, runId, "deck.html");
+  // Which deck file the preview shows, and a version that busts the browser cache after a recolour
+  const [shown, setShown] = useState({ file: "deck.html", version: 0 });
+  const previewUrl = shown.version
+    ? `${intelApi.deliverableDeckUrl(projectId, runId, shown.file)}?v=${shown.version}` : deckUrl;
   const score = studio.scorecard ?? { covered: 0, partial: 0, missing: 0 };
   const gaps = (studio.checklist ?? []).filter((r) => r.status !== "covered");
   const checks = studio.validation ?? [];
@@ -99,8 +104,10 @@ export function StudioDeckCard({ projectId, runId, studio, isRepairing, canRepai
             <Icon icon="lucide:external-link" width={16} /> Open HTML deck</a>
         </div>
       </div>
+      <DeckColorPanel projectId={projectId} runId={runId}
+        onShow={(file) => setShown((s) => ({ file, version: s.version + 1 }))} />
       <div className="grid gap-5 lg:grid-cols-3">
-        <DeckPreview src={deckUrl} />
+        <DeckPreview src={previewUrl} />
         <div className="space-y-5 lg:max-h-[34rem] lg:overflow-y-auto lg:pr-1">
           <div>
             <div className="mb-2 flex items-center justify-between gap-3">
