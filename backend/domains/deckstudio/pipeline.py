@@ -171,14 +171,17 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     found = []
     photo_slides = [s for s in spec.slides
                     if (s.treatment in ("A", "C", "full") or s.type == "objectives") and s.image.get("query")]
-    scene_by_id = image_brief.scenes(llm, photo_slides, plan_input.brands, plan_input.products, plan_input.category)
+    # the client's actual products (CX-50, CX-90) are what a photo can show; the scope's keyword hints ("Zoom-Zoom",
+    # "Kodo design") searched slogans, logos and merch, so vision rejected them and most slides had no photo of their own
+    shown = plan_input.brand_products or plan_input.products
+    scene_by_id = image_brief.scenes(llm, photo_slides, plan_input.brands, shown, plan_input.category)
     checks = {"n": 0}
     for s in spec.slides:
         add_chart_logos(s, logos)
 
     def photo_for(s):
         role = "panel" if s.treatment == "C" or s.type == "objectives" else "background"
-        subjects = image_brief.subjects_for(s, plan_input.brands, plan_input.products, plan_input.category,
+        subjects = image_brief.subjects_for(s, plan_input.brands, shown, plan_input.category,
                                             scene_by_id.get(s.id, ""))
         if not subjects.brands and not plan_input.is_category:
             # a slide naming no brand (takeaways, insights) searched its own words ("Did we answer the brief")
