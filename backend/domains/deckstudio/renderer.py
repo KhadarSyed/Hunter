@@ -10,7 +10,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup, escape
 
-from . import logo_prep, tables
+from . import amcharts, logo_prep, tables
 from .art_director import fonts_href
 from .charts import chart_svg
 from .spec import DeckSpec, DeckTokens, SlideSpec
@@ -41,16 +41,21 @@ def _asset(path: str | None, out_dir: Path) -> str | None:
     return f"assets/{target.name}"
 
 
+def _slide_logos(slide: SlideSpec, out_dir: Path) -> tuple[dict[str, str], set[str]]:
+    """Every mark beside a chart label or table cell, trimmed, and which are white (set on a dark chip, as on the
+    cover)."""
+    marked = {name: m for name, p in slide.logos.items() if (m := _mark(p, out_dir))}
+    return ({name: rel for name, (rel, _light) in marked.items()},
+            {name for name, (_rel, is_light) in marked.items() if is_light})
+
+
 def render_slide(slide: SlideSpec, tokens: DeckTokens, n: int, total: int, base_n: int, period: str, source: str,
                  out_dir: Path, marks: dict | None = None) -> str:
     slide = replace(slide, cards=[{**c, **({"image": _asset(c["image"], out_dir)} if c.get("image") else {}),
                                    **({"thumb": _asset(c["thumb"], out_dir)} if c.get("thumb") else {})}
                                   for c in slide.cards])
     image = _asset(slide.image.get("path"), out_dir)
-    # every mark beside a chart label or table cell is trimmed, and a white one is set on a dark chip (as on the cover)
-    marked = {name: m for name, p in slide.logos.items() if (m := _mark(p, out_dir))}
-    logos = {name: rel for name, (rel, _light) in marked.items()}
-    light = {name for name, (_rel, is_light) in marked.items() if is_light}
+    logos, light = _slide_logos(slide, out_dir)
     w, h = CHART_SIZE_WITH_CARDS["C"] if slide.treatment == "C" and slide.cards else CHART_SIZE.get(slide.treatment, (1000, 540))
     charts = [chart_svg(c, tokens, logos, w, h, light=light) for c in slide.charts]
     return _env.get_template("slide.html.j2").render(s=slide, t=tokens, n=n, total=total, base_n=base_n, period=period,
@@ -105,8 +110,12 @@ def render_deck(spec: DeckSpec, out_dir: Path, slide_html: dict[str, str] | None
     parts = [(slide_html or {}).get(s.id) or render_slide(s, tokens, n, len(spec.slides), spec.base_n, spec.period, source,
                                                           out_dir, marks)
              for n, s in enumerate(spec.slides, start=1)]
+    # the charts are drawn live by amCharts from these configs (built from the spec, so a re-tone reaches them even on
+    # a restyled slide); each slide's SVG chart stays as the fallback
+    configs = amcharts.deck_configs(spec.slides, tokens, lambda s: _slide_logos(s, out_dir))
+    maps = any(c and c["kind"] == "us_map" for cs in configs.values() for c in cs)
     html = _env.get_template("deck.html.j2").render(spec=spec, t=tokens, fonts=fonts_href(tokens), slides=parts,
-                                                     frontend_css=FRONTEND_CSS)
+                                                     frontend_css=FRONTEND_CSS, chart_scripts=amcharts.scripts(configs, maps))
     path = out_dir / "deck.html"
     path.write_text(html, encoding="utf-8")
     return path

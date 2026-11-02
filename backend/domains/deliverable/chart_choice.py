@@ -55,7 +55,7 @@ def _fixed_split(chart: dict) -> bool:
 
 def choose(chart: dict | None, question: str = "") -> dict | None:
     """The chart with the kind that fits its data and question, and the reason (shown in the run log)."""
-    if not chart:
+    if not chart or chart.get("kind") == "us_map":      # a map was chosen for its geography (its own "choice")
         return chart
     rel, parts = relation(chart), len(chart.get("categories") or [])
     kind = chart.get("kind")

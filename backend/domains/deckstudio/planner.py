@@ -33,12 +33,12 @@ KEY_INSIGHTS = 3                  # a question's insight cards, side by side on 
 SEGMENT_CARDS = 5                 # a breakdown chart beside one explanation card per segment ("S" layout)
 BRAND_KEY = "BRAND"                       # sections_by_rq key of the brand vs competitors chapter
 BRAND_KICKER = "Brand vs competitors"
-DENSE_KINDS = {"line_peaks", "column", "treemap"}
+DENSE_KINDS = {"line_peaks", "column", "treemap", "us_map"}
 _CODE_PREFIX = re.compile(r"\bRQ\d+\s*:\s*")
 _CODE = re.compile(r"\bRQ(\d+)\b")
 TYPE_FOR_CHART = {"kpi": "kpi_dashboard", "doughnut": "sentiment_split", "gauge": "kpi_dashboard",
                   "line_peaks": "trend_with_peaks", "column": "trend_with_peaks", "bar": "bar_with_cards",
-                  "treemap": "theme_cards"}
+                  "treemap": "theme_cards", "us_map": "bar_with_cards"}
 
 
 @dataclass

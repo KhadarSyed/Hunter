@@ -5,7 +5,7 @@ import re
 from collections import Counter
 
 from ...agents import question_dimensions as qd
-from . import extract as extract_mod
+from . import extract as extract_mod, us_locations
 from .labels import canon, theme_key, unify
 from .engine_types import RQ, EngineRow, Section
 from .metrics import TOP_PEAKS, month_label
@@ -427,10 +427,32 @@ def _crosstab(module, rq, rows, base_n, _):
                     facts=facts)
 
 
+def _us_map(module, rq, rows, base_n, _):
+    """Articles per US state (drilling down to counties in the HTML deck); a bar of the top states where a map
+    can not be drawn."""
+    agg = us_locations.aggregate(rows)
+    reason = us_locations.map_reason(agg)
+    if not reason:
+        return _section(module, rq, skipped=f"Only {agg['located']} of {agg['total']} articles carry a US location")
+    top = agg["states"].most_common(TOP_N)
+    names = us_locations.STATE_NAMES
+    located = {id(r): us_locations.locate(r.article.country, r.article.state, r.article.region)[0] for r in rows}
+    return _section(module, rq, chart={
+        "kind": "us_map", "categories": [names[s] for s, _ in top], "values": [c for _, c in top], "unit": "count",
+        "peaks": [], "series_label": "Articles", "choice": reason,
+        "states": [{"id": s, "name": names[s], "value": c} for s, c in agg["states"].most_common()],
+        "counties": [{"id": f, "name": us_locations.COUNTY_NAMES[f], "state": agg["county_state"][f], "value": c}
+                     for f, c in agg["counties"].most_common()]},
+        facts=[f"{rq.id}: {agg['located']} of {agg['total']} articles carry a US state or county"] +
+              [f"{rq.id} coverage from {names[s]}: {c} articles" for s, c in top],
+        segment_urls=_segments((names[located[id(r)]], r) for r in rows
+                               if located[id(r)] in {s for s, _ in top}))
+
+
 _HANDLERS = {"share_kpi": _share_kpi, "volume_trend": _trend, "outlet_ranking": _outlets,
              "sentiment_split": _sentiment, "reach": _reach, "theme_clusters": _themes, "brand_sov": _brand_sov,
              "top_articles": _top_articles, "entities": _entities, "question_breakdown": _breakdown,
-             "dimension_crosstab": _crosstab, "media_split": _media_split}
+             "dimension_crosstab": _crosstab, "media_split": _media_split, "us_map": _us_map}
 
 
 def compute_module(module: dict, rq: RQ, rows: list[EngineRow], base_n: int,

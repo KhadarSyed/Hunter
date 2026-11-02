@@ -113,7 +113,7 @@ def _draw_chart(slide, sec: Section, inp: DeckInput, work: Path, x, y, w, h):
     kind, cats, vals = c["kind"], c.get("categories", []), c.get("values", [])
     if kind == "line_peaks":
         blocks.add_line_chart_with_peaks(slide, x, y, w, h, cats, vals, c.get("peaks", []))
-    elif kind == "bar":
+    elif kind in ("bar", "us_map"):        # the map's top states as bars: PowerPoint has no native map
         fmt = blocks.PERCENT_FORMAT if c.get("unit") == "percent" else "0"
         blocks.add_bar_chart(slide, x, y, w, h, cats, vals, color=inp.palette[0], number_format=fmt)
     elif kind == "column":
