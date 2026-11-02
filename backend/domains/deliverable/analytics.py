@@ -317,6 +317,23 @@ def _channel(row: EngineRow) -> str:
     return ""
 
 
+_PLATFORMS = {"x.com": "X", "twitter.com": "X", "facebook.com": "Facebook", "instagram.com": "Instagram",
+              "tiktok.com": "TikTok", "reddit.com": "Reddit", "youtube.com": "YouTube", "threads.net": "Threads",
+              "pinterest.com": "Pinterest", "linkedin.com": "LinkedIn"}
+
+
+def platform(row: EngineRow) -> str:
+    """Where a post or article ran: the social platform its address names, else 'Social', else 'News'."""
+    host = row.article.url.split("//", 1)[-1].split("/", 1)[0].lower().removeprefix("www.")
+    named = next((p for h, p in _PLATFORMS.items() if host == h or host.endswith("." + h)), None)
+    return named or ("Social" if _channel(row) == "Social" else "News")
+
+
+def _breakdown_text(counts: Counter) -> str:
+    """'Facebook 8 · X 5 · News 7', biggest first: a map tooltip's channel mix."""
+    return " · ".join(f"{p} {n}" for p, n in counts.most_common())
+
+
 def _media_split(module, rq, rows, base_n, _):
     counts = Counter(c for c in (_channel(r) for r in rows) if c)
     known = sum(counts.values())
@@ -438,12 +455,20 @@ def _us_map(module, rq, rows, base_n, _):
         return _section(module, rq, skipped=f"Only {agg['located']} of {agg['total']} articles carry a US location")
     top = agg["states"].most_common(TOP_N)
     names = us_locations.STATE_NAMES
-    located = {id(r): us_locations.locate(r.article.country, r.article.state, r.article.region)[0] for r in rows}
+    places = {id(r): us_locations.locate(r.article.country, r.article.state, r.article.region) for r in rows}
+    located = {k: st for k, (st, _) in places.items()}
+    mix: dict[str, Counter] = {}               # state id / county FIPS -> articles per channel (tooltip)
+    for r in rows:
+        for area in places[id(r)]:
+            if area:
+                mix.setdefault(area, Counter())[platform(r)] += 1
     return _section(module, rq, chart={
         "kind": "us_map", "categories": [names[s] for s, _ in top], "values": [c for _, c in top], "unit": "count",
         "peaks": [], "series_label": "Articles", "choice": reason,
-        "states": [{"id": s, "name": names[s], "value": c} for s, c in agg["states"].most_common()],
-        "counties": [{"id": f, "name": us_locations.COUNTY_NAMES[f], "state": agg["county_state"][f], "value": c}
+        "states": [{"id": s, "name": names[s], "value": c, "channels": _breakdown_text(mix[s])}
+                   for s, c in agg["states"].most_common()],
+        "counties": [{"id": f, "name": us_locations.COUNTY_NAMES[f], "state": agg["county_state"][f], "value": c,
+                      "channels": _breakdown_text(mix[f])}
                      for f, c in agg["counties"].most_common()]},
         facts=[f"{rq.id}: {agg['located']} of {agg['total']} articles carry a US state or county"] +
               [f"{rq.id} coverage from {names[s]}: {c} articles" for s, c in top],

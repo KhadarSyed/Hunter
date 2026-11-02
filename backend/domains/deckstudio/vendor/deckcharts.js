@@ -198,8 +198,11 @@
     function polygons(geo, extra) {
       var s = chart.series.push(am5map.MapPolygonSeries.new(root, Object.assign({ geoJSON: geo, valueField: "value", calculateAggregates: true, tooltip: tooltip(root, cfg) }, extra)));
       s.mapPolygons.template.setAll({ tooltipText: "{name}: [bold]{value}[/] articles", fill: c("#E4E4EA"), stroke: c("#FFFFFF"), strokeWidth: 0.8, interactive: true });
+      // the total, then where it ran: "California: 23 articles — Facebook 8 · X 5 · News 7"
       s.mapPolygons.template.adapters.add("tooltipText", function (text, target) {
-        return target.dataItem && target.dataItem.get("value") != null ? text : "{name}: no articles";
+        var di = target.dataItem;
+        if (!di || di.get("value") == null) return "{name}: no articles";
+        return (di.dataContext || {}).channels ? text + " — {channels}" : text;
       });
       // hover outlines the area: a fill would read as "most articles" on this scale
       s.mapPolygons.template.states.create("hover", { stroke: c(cfg.text), strokeWidth: 2.5 });
