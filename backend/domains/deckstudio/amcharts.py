@@ -49,7 +49,7 @@ def chart_config(chart: dict, t: DeckTokens, logos: dict[str, str] | None = None
     if groups:
         stacks = [str(s) for s in chart["breakdown"]["stacks"]]
         names = [str(g["name"]) for g in groups]
-        rows = [{"category": f"{n} ({g['n']})" if g.get("n") else n, **m,
+        rows = [{"category": f"{n} ({g['n']})" if g.get("n") else n, "key": n, **m,
                  **{f"s{i}": float(v) for i, v in enumerate(g["values"])}}
                 for n, g, m in zip(names, groups, _marks(names, t, logos, light))]
         return {**base, "kind": "stacked", "data": rows,

@@ -32,6 +32,7 @@ class Article:
     country: str = ""          # where the export says it is from: Country, State, Region (a county: "New York County")
     state: str = ""
     region: str = ""
+    author: str = ""           # the journalist, or the social account (@handle) that posted it
 
 
 def normalize_url(url: str) -> str:

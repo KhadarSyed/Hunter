@@ -204,6 +204,11 @@
         if (!di || di.get("value") == null) return "{name}: no articles";
         return (di.dataContext || {}).channels ? text + " — {channels}" : text;
       });
+      // a click on a state or county also lists its articles
+      s.mapPolygons.template.events.on("click", function (ev) {
+        var d = ev.target.dataItem && ev.target.dataItem.dataContext;
+        if (d && d.value != null && cfg.pick) cfg.pick(d.id, d.name);
+      });
       // hover outlines the area: a fill would read as "most articles" on this scale
       s.mapPolygons.template.states.create("hover", { stroke: c(cfg.text), strokeWidth: 2.5 });
       s.set("heatRules", [{ target: s.mapPolygons.template, dataField: "value", min: low, max: high, key: "fill" }]);
@@ -333,6 +338,40 @@
                 line_peaks: line, doughnut: doughnut, treemap: treemap, stacked: stacked, us_map: usMap,
                 bubble: bubble, heatmap: heatmap, sankey: sankey };
 
+  // which part of each kind is clicked, and the key its articles are filed under (see renderer._drill_data)
+  function pickable(made, cfg) {
+    if (exportMode || !cfg.drill) return;
+    function on(template, key) {
+      template.setAll({ cursorOverStyle: "pointer" });
+      template.events.on("click", function (ev) {
+        var d = ev.target.dataItem && ev.target.dataItem.dataContext;
+        if (d) cfg.pick.apply(null, key(d));
+      });
+    }
+    var cat = function (d) { return [d.category, d.category]; };
+    var s = made[1];
+    if (cfg.kind === "bar" || cfg.kind === "column") on(s.columns.template, cat);
+    else if (cfg.kind === "doughnut") on(s.slices.template, cat);
+    else if (cfg.kind === "treemap") on(s.rectangles.template, cat);
+    else if (cfg.kind === "bubble") on(s.circles.template, cat);
+    else if (cfg.kind === "stacked") s.forEach(function (x) { on(x.columns.template, function (d) { return [d.key, d.key]; }); });
+    else if (cfg.kind === "heatmap") on(s.columns.template, function (d) { return [d.row + "\t" + d.col, d.row + " · " + d.col]; });
+    else if (cfg.kind === "sankey") {
+      on(s.links.template, function (d) { return [d.row + "\t" + d.col, d.row + " → " + d.col]; });
+      on(s.nodes.rectangles.template, function (d) { return [d.id, d.id]; });
+    } else if (cfg.kind === "line_peaks") {
+      // a line has no element per point: the click picks the category under the pointer
+      var chart = made[0], x = chart.xAxes.getIndex(0);
+      chart.plotContainer.set("cursorOverStyle", "pointer");
+      chart.plotContainer.events.on("click", function (ev) {
+        var p = chart.plotContainer.toLocal(ev.point);
+        var i = x.axisPositionToIndex(x.toAxisPosition(p.x / chart.plotContainer.width()));
+        var d = cfg.data[i];
+        if (d) cfg.pick(d.category, d.category);
+      });
+    }
+  }
+
   function animate(made) {
     if (exportMode) return;
     [].concat(made[1]).forEach(function (s) { s.appear(900, 100); });
@@ -372,7 +411,11 @@
     svg.parentNode.insertBefore(el, svg);
     try {
       var root = rootFor(el, cfg);
+      cfg.pick = function (key, label) {          // a click on a chart element lists its articles (drill.js)
+        if (!exportMode && window.deckDrill && cfg.drill) window.deckDrill.open(el.closest("section.slide"), cfg, String(key), label);
+      };
       var made = BUILD[cfg.kind](root, cfg);
+      pickable(made, cfg);
       animate(made);
       svg.style.display = "none";
       el.dataset.chartIndex = String(charts.length);

@@ -115,7 +115,8 @@ def download(project_id: ProjectId, run_id: RunId, kind: str, _: Access):
 _DECK_HEADERS = {
     # popups: article links open in a new tab (outside the sandbox); the deck still reaches no API (connect-src)
     "Content-Security-Policy": ("sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox; default-src 'none'; "
-                                "img-src data:; "
+                                # https images: an article's own picture in the click-through, linked from its site
+                                "img-src data: https:; "
                                 "style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
                                 "script-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'; "
                                 "frame-ancestors 'self'"),

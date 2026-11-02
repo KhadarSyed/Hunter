@@ -79,6 +79,8 @@ class PlanInput:
     repair_context: dict = field(default_factory=dict)                       # what the repair agent needs (fixer.py)
     latest24h: dict | None = None                                            # the stored "last 24h" refresh, if any
     latest24h_icons: dict[str, str] = field(default_factory=dict)            # its outlets' site icons (files)
+    articles: dict[str, dict] = field(default_factory=dict)                  # norm url -> what the click-through shows
+    article_icons: dict[str, str] = field(default_factory=dict)              # site domain -> its icon (file)
 
 
 def _link(url: str) -> str:
@@ -178,6 +180,9 @@ def _evidence(rq: RQ, kicker: str, sections: list[Section], family: str,
         matrix = (sec.table or {}).get("matrix")
         if matrix and not charts:          # a cross-tab is drawn (heatmap, flow or 100% bars), not tabled
             charts, tables = [chart_choice.matrix_chart(matrix, rq.question, tuple(matrix["dims"]))], []
+        # each chart element and table row carries its articles (the deck lists them on a click)
+        drill = {**sec.segment_urls, **sec.drill_urls}
+        charts, tables = [{**c, "drill": drill} for c in charts], [{**t, "drill": drill} for t in tables]
         slide_type = TYPE_FOR_CHART.get((sec.chart or {}).get("kind", ""), "comparison_table")
         cards = (summaries or {}).get(sec.id, [])[:SEGMENT_CARDS]   # its summary, or one card per segment
         out.append(SlideSpec(
@@ -219,16 +224,18 @@ def live_charts(refresh: dict | None) -> list[dict]:
     ranked = sorted(zip(share.get("categories") or [], share.get("values") or []), key=lambda p: -p[1])
     empty = {"categories": [], "values": [], "peaks": []}
     return [{**empty, "kind": "bar", "unit": "percent", "series_label": "Share of 24h coverage by brand",
-             "categories": [c for c, _ in ranked], "values": [v for _, v in ranked],
+             "categories": [c for c, _ in ranked], "values": [v for _, v in ranked], "drill": share.get("drill") or {},
              "choice": "share of voice: each brand's share of the day's brand mentions, ranked, beside its logo",
              "alternatives": "a doughnut (logos and close shares read better on a common axis)"},
             {**empty, "kind": "line_peaks", "unit": "count", "series_label": "Articles per hour (UTC)",
              **{k: (charts.get("timeline") or {}).get(k, v) for k, v in empty.items()},
              "categories": [hour_label(c) for c in (charts.get("timeline") or {}).get("categories") or []],
+             "drill": {hour_label(k): v for k, v in ((charts.get("timeline") or {}).get("drill") or {}).items()},
              "choice": "change over time: 24 hourly points as a line, the peak marked",
              "alternatives": "columns (24 bars crowd the slide)"},
             {**empty, "kind": "bar", "unit": "count", "series_label": "Top outlets in the last 24h",
              **{k: (charts.get("outlets") or {}).get(k, v) for k, v in empty.items()},
+             "drill": (charts.get("outlets") or {}).get("drill") or {},
              "choice": "ranking: the day's most active outlets as sorted bars",
              "alternatives": "a treemap (bars rank the outlets exactly)"}]
 
@@ -336,7 +343,8 @@ def build_deck_spec(inp: PlanInput) -> DeckSpec:
                     family=family, family_reason=why, tokens=None, slides=slides,
                     citation_meta={str(c["n"]): {"outlet": c.get("outlet") or c.get("domain", ""), "icon": c.get("icon") or "",
                                                  "url": _link(c.get("url", ""))}
-                                   for c in inp.citations})
+                                   for c in inp.citations},
+                    articles=inp.articles, article_icons=inp.article_icons)
 
 
 def _plain(text: str) -> str:

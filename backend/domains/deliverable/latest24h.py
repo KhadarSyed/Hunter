@@ -267,10 +267,17 @@ def build_charts(articles: list[dict], brands: list[str], now: datetime) -> dict
         if a["outlet"]:
             shown.setdefault(a["outlet"].casefold(), a["outlet"])
     outlets = [(shown[k], n) for k, n in Counter(a["outlet"].casefold() for a in articles if a["outlet"]).most_common(8)]
+    # each bar / hour's articles (by n), listed when the deck's chart element is clicked
+    share["drill"] = {b: [a["n"] for a in articles if b in a["brands"]] for b in share_brands}
+    timeline["drill"] = {h.strftime("%d %b %H:00"): [a["n"] for a in articles if (dt := parse_utc(a["date"]))
+                                                     and dt.replace(minute=0, second=0, microsecond=0) == h]
+                         for h in hours}
     charts = {"share": share, "timeline": timeline}
     if len(outlets) >= 3:
         charts["outlets"] = {"kind": "bar", "categories": [o for o, _ in outlets], "values": [n for _, n in outlets],
-                             "unit": "count", "series_label": "Top outlets in the last 24h"}
+                             "unit": "count", "series_label": "Top outlets in the last 24h",
+                             "drill": {o: [a["n"] for a in articles if (a["outlet"] or "").casefold() == o.casefold()]
+                                       for o, _ in outlets}}
     return charts
 
 

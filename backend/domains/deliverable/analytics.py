@@ -44,7 +44,8 @@ def _section(module: dict, rq: RQ, **kw) -> Section:
                    title=module.get("title") or module["module"], **kw)
 
 
-SEGMENT_URLS = 20   # articles kept per chart category, best first, for its insight (relevant ones are picked from these)
+SEGMENT_URLS = None  # every article of a chart category, best first: the deck lists them all on a click, the insight
+                    # writer takes its first few (relevant ones first)
 
 
 def _segments(pairs) -> dict[str, list[str]]:
@@ -87,6 +88,15 @@ def _months(first: str, last: str) -> list[str]:
     return out
 
 
+def _drill(pairs) -> dict[str, list[str]]:
+    """{chart element: its articles} from (element, row) pairs, for the deck's click-through (any order: the deck
+    sorts them by date)."""
+    out: dict[str, list[str]] = {}
+    for key, r in pairs:
+        out.setdefault(str(key), []).append(r.article.norm_url)
+    return {k: list(dict.fromkeys(v)) for k, v in out.items()}
+
+
 def _trend(module, rq, rows, base_n, _):
     dated = [r for r in rows if r.article.date]
     if not dated:
@@ -107,7 +117,8 @@ def _trend(module, rq, rows, base_n, _):
     facts += notes
     return _section(module, rq, chart={"kind": "line_peaks", "categories": [month_label(k) for k in series],
                                        "values": values, "peaks": sorted(top), "unit": "count", "series_label": "Articles"},
-                    facts=facts, candidate_urls=cands, notes=notes)
+                    facts=facts, candidate_urls=cands, notes=notes,
+                    drill_urls=_drill((month_label(r.article.date.strftime("%Y-%m")), r) for r in dated))
 
 
 def _outlets(module, rq, rows, base_n, _):
@@ -355,7 +366,7 @@ def _media_split(module, rq, rows, base_n, _):
                                        "values": [_pct(counts[k], known) for k in cats], "unit": "percent",
                                        "peaks": [], "series_label": "Source"},
                     facts=[f"{rq.id}: {counts[k]} of {known} articles are {k.lower()} ({_pct(counts[k], known)}%)"
-                           for k in cats] + notes, notes=notes)
+                           for k in cats] + notes, notes=notes, drill_urls=_drill((_channel(r), r) for r in rows))
 
 
 _NO_ANSWER = {"", "no", "none", "unknown", "n/a", "false"}
@@ -456,7 +467,11 @@ def _crosstab(module, rq, rows, base_n, _):
     return _section(module, rq, table={"header": [row_dim.label] + cols + ["Articles"], "rows": table_rows,
                                        "col_widths": [3.0] + [1.6] * len(cols) + [1.2], "heat": True,
                                        "matrix": matrix},       # the deck draws it as a heatmap or a flow
-                    facts=facts)
+                    facts=facts,
+                    # a row's articles, and a cell's ("row<TAB>column"), for the deck's click-through
+                    drill_urls=_drill([(v, r) for r, (rv, _) in zip(rows, per_row) for v in rv if v in row_names] +
+                                      [(f"{v}\t{c}", r) for r, (rv, cv) in zip(rows, per_row)
+                                       for v in rv if v in row_names for c in cv if c in cols]))
 
 
 def _us_map(module, rq, rows, base_n, _):
@@ -483,6 +498,7 @@ def _us_map(module, rq, rows, base_n, _):
         "counties": [{"id": f, "name": us_locations.COUNTY_NAMES[f], "state": agg["county_state"][f], "value": c,
                       "channels": _breakdown_text(mix[f])}
                      for f, c in agg["counties"].most_common()]},
+        drill_urls=_drill((area, r) for r in rows for area in places[id(r)] if area),     # "US-CA" / county FIPS
         facts=[f"{rq.id}: {agg['located']} of {agg['total']} articles carry a US state or county"] +
               [f"{rq.id} coverage from {names[s]}: {c} articles" for s, c in top],
         segment_urls=_segments((names[located[id(r)]], r) for r in rows

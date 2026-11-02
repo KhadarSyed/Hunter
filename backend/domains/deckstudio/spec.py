@@ -66,6 +66,8 @@ class DeckSpec:
     product_image: str = ""                                       # the client's product, shown on the cover
     product_name: str = ""
     brand_colors: list[str] = field(default_factory=list)          # Brandfetch + logo hues: the recolour swatches
+    articles: dict[str, dict] = field(default_factory=dict)        # norm url -> an article as a chart click lists it
+    article_icons: dict[str, str] = field(default_factory=dict)    # site domain -> its icon file
 
     def to_dict(self) -> dict:
         return asdict(self)

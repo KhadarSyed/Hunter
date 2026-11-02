@@ -72,6 +72,26 @@ def _to_float(v) -> float:
 _EXECUTABLE_URL = re.compile(r"^\s*(javascript|data|vbscript):", re.IGNORECASE)
 
 
+# the account in a social post's own address: facebook.com/<page>/..., x.com/<handle>/status/..., tiktok.com/@<handle>
+_ACCOUNT_URL = re.compile(r"^https?://(?:www\.|m\.)?(?:facebook\.com|x\.com|twitter\.com|instagram\.com|tiktok\.com|"
+                          r"youtube\.com|threads\.net)/(@?[A-Za-z0-9_.\-]+)", re.IGNORECASE)
+_NOT_ACCOUNTS = {"p", "reel", "reels", "watch", "status", "share", "story.php", "permalink.php", "groups", "video",
+                 "shorts", "channel", "user", "c", "i", "home", "hashtag", "explore"}
+
+
+def author_of(rec: dict, url: str) -> str:
+    """Who wrote or posted it: the export's author handle or name, else the account a social post's URL names (never
+    guessed beyond that)."""
+    named = str(rec.get("author_handle") or rec.get("author_name") or rec.get("author") or "").strip()
+    if named:
+        return named
+    m = _ACCOUNT_URL.match(url)
+    if m and m.group(1).lstrip("@").lower() not in _NOT_ACCOUNTS:
+        return m.group(1) if m.group(1).startswith("@") or "facebook.com" in url.lower() else "@" + m.group(1)
+    reddit = re.match(r"^https?://(?:www\.|old\.)?reddit\.com/(r|u|user)/([A-Za-z0-9_\-]+)", url, re.IGNORECASE)
+    return f"{'r' if reddit.group(1) == 'r' else 'u'}/{reddit.group(2)}" if reddit else ""
+
+
 def _row(rec: dict, rq: str | None, source_file: str, index: int, date_order: str = "ymd") -> EngineRow | None:
     url = str(rec.get("url") or "").strip()
     if url.lower().startswith("www."):
@@ -85,7 +105,8 @@ def _row(rec: dict, rq: str | None, source_file: str, index: int, date_order: st
                       sentiment=rec.get("overall_sentiment") or rec.get("sentiment") or None,
                       reach=_to_float(rec.get("reach")), source_file=source_file, row_index=index,
                       image=str(rec.get("image") or "").strip(), country=str(rec.get("country") or "").strip(),
-                      state=str(rec.get("state") or "").strip(), region=str(rec.get("region") or "").strip())
+                      state=str(rec.get("state") or "").strip(), region=str(rec.get("region") or "").strip(),
+                      author=author_of(rec, url))
     return EngineRow(article=article, rq_ids={rq} if rq else set(), media_type=str(rec.get("media_type") or ""),
                      themes=_theme_labels(rec.get("themes")), entities=rec.get("entities") or {},
                      tags=rec.get("question_tags") if isinstance(rec.get("question_tags"), dict) else {},
@@ -111,6 +132,7 @@ def load_rows(project_id: int, rqs: list[RQ]) -> list[EngineRow]:
             existing.tag_evidence = {**row.tag_evidence, **existing.tag_evidence}
             if not existing.article.image:      # an enriched record may lack the picture its export row carries
                 existing.article.image = row.article.image
+            existing.article.author = existing.article.author or row.article.author
             if not (existing.article.state or existing.article.region):   # nor the State / Region columns
                 a, b = existing.article, row.article
                 a.country, a.state, a.region = a.country or b.country, b.state, b.region

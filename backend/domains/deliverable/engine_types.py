@@ -43,8 +43,12 @@ class Section:
     skipped: str | None = None
     # chart category -> the articles counted in it, so each category's insight is written from its own articles
     segment_urls: dict[str, list[str]] = field(default_factory=dict)
+    # chart element -> its articles, where the element is not an insight segment (a month, a state, a table cell):
+    # the deck lists them when the element is clicked
+    drill_urls: dict[str, list[str]] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         d = asdict(self)
         d.pop("segment_urls")          # working data for the insight writer, not part of the stored section
+        d.pop("drill_urls")
         return d

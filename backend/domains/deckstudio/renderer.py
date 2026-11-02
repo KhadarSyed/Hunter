@@ -1,6 +1,7 @@
 """Renders a DeckSpec into one HTML deck (frontend-slides-style viewport-safe base) with an assets folder."""
 from __future__ import annotations
 
+import json
 import re
 import shutil
 from dataclasses import replace
@@ -133,7 +134,11 @@ def render_deck(spec: DeckSpec, out_dir: Path, slide_html: dict[str, str] | None
     # a restyled slide); each slide's SVG chart stays as the fallback
     configs = amcharts.deck_configs(spec.slides, tokens, lambda s: _slide_logos(s, out_dir))
     maps = any(c and c["kind"] == "us_map" for cs in configs.values() for c in cs)
+    drill = _drill_data(spec, out_dir, configs)            # before the configs are written into the page
     scripts = amcharts.scripts(configs, maps)
+    if drill:                                               # a click on a chart element or table row lists its articles
+        scripts = (f'<script type="application/json" id="deck-articles">{drill}</script>\n'
+                   f"<script>{amcharts._inline('drill.js')}</script>\n" + scripts)
     if any(s.type == "latest24h" for s in spec.slides):    # the live slides' text and their Refresh button
         scripts += f"\n<script>{amcharts._inline('live24h.js')}</script>"
     html = _env.get_template("deck.html.j2").render(spec=spec, t=tokens, fonts=fonts_href(tokens), slides=parts,
@@ -141,6 +146,48 @@ def render_deck(spec: DeckSpec, out_dir: Path, slide_html: dict[str, str] | None
     path = out_dir / name
     path.write_text(html, encoding="utf-8")
     return path
+
+
+ARTICLE_FIELDS = ("t", "u", "d", "dt", "a", "c", "o", "i", "s")    # title, url, domain, date, author, channel, outlet,
+                                                                    # image, summary (+ "f": the site icon's index)
+
+
+def _drill_data(spec: DeckSpec, out_dir: Path, configs: dict) -> str:
+    """The deck's articles once, as compact rows, with each chart element's and table row's article ids written
+    into its chart config / table map. '' when nothing in the deck can be clicked through."""
+    index: dict[str, int] = {}
+    rows: list[list] = []
+    icons: dict[str, int] = {}
+
+    def ids(urls) -> list[int]:
+        out = []
+        for u in urls:
+            a = spec.articles.get(u)
+            if a is None:
+                continue
+            if u not in index:
+                rel = _asset(spec.article_icons.get(a.get("d", "")), out_dir)
+                index[u] = len(rows)
+                rows.append([a.get(k, "") for k in ARTICLE_FIELDS] + [icons.setdefault(rel, len(icons)) if rel else -1])
+            out.append(index[u])
+        return out
+
+    tables = {}
+    for s in spec.slides:
+        live = s.type == "latest24h_dashboard"           # the 24h charts list the refresh's own articles (by n)
+        for c, cfg in zip(s.charts, configs.get(s.id) or []):
+            if cfg and c.get("drill"):
+                cfg["drill"] = dict(c["drill"]) if live else {k: v for k, urls in c["drill"].items() if (v := ids(urls))}
+                cfg["live"] = live
+        for t in s.tables:
+            keys = {str(r[0]) for r in t.get("rows") or [] if r}
+            found = {k: v for k, urls in (t.get("drill") or {}).items() if k in keys and (v := ids(urls))}
+            if found:
+                tables.setdefault(s.id, {}).update(found)
+    if not rows and not any(c and c.get("live") for cs in configs.values() for c in cs):
+        return ""
+    data = {"fields": list(ARTICLE_FIELDS) + ["f"], "rows": rows, "icons": list(icons), "tables": tables}
+    return json.dumps(data, separators=(",", ":")).replace("</", "<\\/")
 
 
 _ASSET = re.compile(r"assets/[\w.\-]+")

@@ -439,6 +439,28 @@ def _outlet_icon_files(refresh: dict | None, folder: Path) -> dict[str, str]:
     return {o: str(p) for o, p in found.items() if p}
 
 
+DRILL_SUMMARY_CHARS = 220    # an article's 1-2 line summary in the deck's click-through (the export's own text)
+DRILL_ICON_SITES = 400       # site icons fetched for it (cached on disk); the rest show the outlet's initial
+DRILL_ICON_WORKERS = 8
+
+
+def _drill_articles(rows, folder: Path) -> tuple[dict[str, dict], dict[str, str]]:
+    """Every article as the deck lists it when a chart element is clicked, and each site's icon file."""
+    articles = {}
+    for r in rows:
+        a = r.article
+        text = re.sub(r"\s+", " ", a.text or "").strip()
+        summary = text if len(text) <= DRILL_SUMMARY_CHARS else text[:DRILL_SUMMARY_CHARS].rsplit(" ", 1)[0] + "…"
+        articles[a.norm_url] = {"t": a.title, "u": a.url, "d": domain_of(a.url), "dt": a.date.isoformat() if a.date else "",
+                                "a": a.author, "c": analytics.platform(r), "o": a.outlet,
+                                "i": a.image if a.image.lower().startswith("https://") else "",
+                                "s": "" if summary == a.title else summary}
+    sites = list(dict.fromkeys(v["d"] for v in articles.values() if v["d"]))[:DRILL_ICON_SITES]
+    with ThreadPoolExecutor(max_workers=DRILL_ICON_WORKERS) as pool:
+        found = dict(zip(sites, pool.map(lambda d: visuals.favicon_png(d, folder), sites)))
+    return articles, {d: str(p) for d, p in found.items() if p}
+
+
 def _fit_chart(section: Section, question: str) -> Section:
     """The section drawn as the chart its data and question call for (see chart_choice)."""
     if section.skipped or not section.chart:
@@ -811,6 +833,7 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
                  BRAND_KEY: {r.article.norm_url for r in brand_evidence}})
             plan_input.latest24h = _latest24h(project_id, llm, run.log)
             plan_input.latest24h_icons = _outlet_icon_files(plan_input.latest24h, out_dir / "favicons")
+            plan_input.articles, plan_input.article_icons = _drill_articles(rows, out_dir / "favicons")
             studio = run_studio(run, project_id, llm, plan_input,
                                 inp.brand_colors, inp.brand_image, inp.logos, out_dir,
                                 on_fix=lambda sid, action, kind: agent_memory.remember(

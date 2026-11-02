@@ -13,7 +13,7 @@
   var slides = [].slice.call(document.querySelectorAll('section.slide[data-type^="latest24h"]'));
   if (!textSlide) return;
   var dataEl = textSlide.querySelector(".live-data");
-  var live = JSON.parse((dataEl && dataEl.textContent) || "{}");
+  var live = window.deckLive = JSON.parse((dataEl && dataEl.textContent) || "{}");   // the 24h charts' click-through reads it
   var btn = textSlide.querySelector(".live-btn");
   var box = textSlide.querySelector(".live-progress");
 
@@ -108,7 +108,7 @@
       var pairs = (chart.categories || []).map(function (k, i) { return [k, chart.values[i]]; })
         .sort(function (a, b) { return b[1] - a[1]; });
       var top = Math.max.apply(null, pairs.map(function (p) { return p[1]; }).concat([1]));
-      return Object.assign({}, tpl, { data: pairs.map(function (p) {
+      return Object.assign({}, tpl, { drill: chart.drill || {}, live: true, data: pairs.map(function (p) {
         var m = marks[p[0]] || {};
         return { category: p[0], value: p[1], color: tpl.accent, opacity: Math.round((0.45 + 0.55 * p[1] / top) * 100) / 100,
                  logo: logos[p[0]] || m.logo || "", chip: m.chip || "" };
@@ -116,9 +116,11 @@
     }
     var t = charts.timeline || {};
     var peaks = t.peaks || [];
+    var hours = {};                     // "02 Nov 14:00" -> "14:00", as the axis shows it
+    Object.keys(t.drill || {}).forEach(function (k) { hours[String(k).slice(-5)] = t.drill[k]; });
     return [
       old[0] && bars(old[0], charts.share || {}, {}),
-      old[1] && Object.assign({}, old[1], { data: (t.categories || []).map(function (k, i) {
+      old[1] && Object.assign({}, old[1], { drill: hours, live: true, data: (t.categories || []).map(function (k, i) {
         return { category: String(k).slice(-5), value: t.values[i], peak: peaks.indexOf(i) >= 0, color: old[1].accent };
       }) }),
       old[2] && bars(old[2], charts.outlets || {}, (charts.icons || {}))
@@ -166,6 +168,7 @@
       var r = m.refresh, charts = r.charts || {};
       live = { refresh_id: r.id, finished_at: r.finished_at, fetched: r.fetched, kept: r.kept, counts: r.counts || {},
                bullets: (r.summary || {}).bullets || [], articles: r.articles || [], icons: charts.icons || {} };
+      window.deckLive = live;
       state = null;
       meta();
       text();
