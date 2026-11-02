@@ -190,7 +190,9 @@
 
   function usMap(root, cfg) {
     var chart = root.container.children.push(am5map.MapChart.new(root, {
-      projection: am5map.geoAlbersUsa(), panX: "none", panY: "none", wheelX: "none", wheelY: "none", layout: root.horizontalLayout
+      // the wheel turns the deck's slides, so it never zooms the map; drag still pans a drilled-in state
+      projection: am5map.geoAlbersUsa(), panX: "translateX", panY: "translateY", wheelX: "none", wheelY: "none",
+      layout: root.horizontalLayout
     }));
     var low = am5.Color.lighten(c(cfg.color), 0.8), high = c(cfg.color);
     function polygons(geo, extra) {
@@ -214,36 +216,42 @@
     });
     if (exportMode) return [chart, states];
     // a click on a state zooms to it and shows its counties; the house button goes back to the states
-    var counties = polygons(am5geodata_usaCountiesLow, { visible: false, include: [] });
-    counties.data.setAll(cfg.counties);
-    var hint = chart.children.push(am5.Label.new(root, { text: "Click a state to see its counties", fontSize: 16, fill: c(cfg.muted), x: 0, y: am5.p100, centerY: am5.p100, isMeasured: false }));
-    var back = chart.children.push(am5.Button.new(root, {
-      x: 0, y: 0, visible: false, isMeasured: false, paddingTop: 10, paddingBottom: 10, interactiveChildren: false,
+    var counties = null;     // made on the first drill: an empty series makes the map's bounds NaN and zooming blanks it
+    var hint = root.container.children.push(am5.Label.new(root, { text: "Click a state to see its counties", fontSize: 16, fill: c(cfg.muted), x: 0, y: am5.p100, centerY: am5.p100 }));
+    var back = root.container.children.push(am5.Button.new(root, {
+      x: 0, y: 0, visible: false, paddingTop: 10, paddingBottom: 10, interactiveChildren: false,
       icon: am5.Graphics.new(root, { svgPath: "M16,8 L14,8 L14,16 L10,16 L10,10 L6,10 L6,16 L2,16 L2,8 L0,8 L8,0 L16,8 Z M16,8", fill: c("#FFFFFF") })
     }));
     back.get("background").setAll({ fill: c(cfg.primary) });
-    states.mapPolygons.template.events.on("click", function (ev) {
-      var code = String(ev.target.dataItem.get("id")).slice(3);
-      counties.set("include", am5geodata_usaCountiesLow.features
-        .filter(function (f) { return f.properties.STATE === code; })
-        .map(function (f) { return f.id || f.properties.id; }));
-      states.zoomToDataItem(ev.target.dataItem);
-      states.hide();
-      counties.show();
-      back.show();
+    // as amCharts' drill-down congressional map: zoom to the state, then swap the states for its counties (the
+    // state's part of the bundled county map, so it works offline)
+    function drillTo(dataItem) {
+      var code = String(dataItem.get("id")).slice(3);
       hint.hide();
-    });
+      states.zoomToDataItem(dataItem).waitForStop().then(function () {
+        var geo = { type: "FeatureCollection", features: am5geodata_usaCountiesLow.features
+          .filter(function (f) { return f.properties.STATE === code; }) };
+        // affectsBounds false: the map stays fitted to the states, so the zoom to the state frames its counties
+        if (counties) counties.set("geoJSON", geo);
+        else counties = polygons(geo, { visible: false, affectsBounds: false });
+        counties.data.setAll(cfg.counties.filter(function (k) { return k.state === "US-" + code; }));
+        counties.show();
+        states.hide(100);
+        back.show();
+      });
+    }
+    states.mapPolygons.template.events.on("click", function (ev) { drillTo(ev.target.dataItem); });
     back.events.on("click", function () {
       chart.goHome();
       states.show();
-      counties.hide();
+      if (counties) counties.hide();
       back.hide();
       hint.show();
     });
     api.drill = api.drill || [];
     api.drill.push(function (stateId) {      // for checks and screenshots: drill into a state by id ("US-NY")
       var di = states.getDataItemById(stateId);
-      if (di) states.mapPolygons.template.events.dispatch("click", { type: "click", target: di.get("mapPolygon") });
+      if (di) drillTo(di);
     });
     return [chart, states];
   }
@@ -320,12 +328,21 @@
 
   function start() {
     var pending = [];
-    document.querySelectorAll("section.slide").forEach(function (section) {
+    function drawSlide(section) {
       var list = configs[section.getAttribute("data-id")];
-      if (!list) return;
+      if (!list || section.dataset.chartsDrawn) return;
+      section.dataset.chartsDrawn = "1";
       section.querySelectorAll("svg.chart").forEach(function (svg, k) {
         if (list[k]) pending.push(sized(list[k]).then(function () { return draw(svg, list[k]); }));
       });
+    }
+    // a chart is drawn when its slide is shown: one made in a hidden slide fits its map to a 0x0 box (zooming then
+    // blanks it), and its entrance animation would play unseen
+    document.querySelectorAll("section.slide").forEach(function (section) {
+      if (exportMode || section.classList.contains("active")) drawSlide(section);
+      else new MutationObserver(function (_, obs) {
+        if (section.classList.contains("active")) { obs.disconnect(); drawSlide(section); }
+      }).observe(section, { attributes: true, attributeFilter: ["class"] });
     });
     // the first frame lays the chart out; the next ones draw its labels and bullets
     Promise.all(pending).then(function () { setTimeout(function () { api.ready = true; }, 600); });
