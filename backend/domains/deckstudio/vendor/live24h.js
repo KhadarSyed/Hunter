@@ -7,7 +7,7 @@
   var exportMode = new URLSearchParams(location.search).has("export");
   var framed = window.parent !== window && !exportMode;
   var SOURCES = { serpapi: "SerpAPI", tavily: "Tavily", google_news_rss: "Google News" };
-  var TOP_STORIES = 10, CITES = 3;
+  var TOP_STORIES = 10, CITES = 3, MAX_BULLETS = 5;     // what fits the slide without clipping
   var DASHBOARD = "latest24h-dashboard";
   var textSlide = document.querySelector('section.slide[data-type="latest24h"]');
   var slides = [].slice.call(document.querySelectorAll('section.slide[data-type^="latest24h"]'));
@@ -66,7 +66,7 @@
     var byN = {};
     live.articles.forEach(function (a) { byN[a.n] = a; });
     bullets.textContent = "";
-    (live.bullets || []).forEach(function (b) {
+    (live.bullets || []).slice(0, MAX_BULLETS).forEach(function (b) {
       var item = node("div", "live-bullet build", b.text);
       var cites = node("div", "cites");
       (b.citations || []).slice(0, CITES).forEach(function (n) {

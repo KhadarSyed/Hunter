@@ -299,7 +299,7 @@ def chart_svg(chart: dict, tokens: DeckTokens, logos: dict[str, str], width: int
         body = _stacked(chart, tokens, width, height, logos, light)
     elif kind == "treemap":
         body = _treemap(chart, tokens, width, height)
-    elif kind in ("bar", "us_map"):       # a map's fallback: its top states as bars
+    elif kind in ("bar", "us_map", "heatmap", "sankey"):   # a map's / cross-tab's fallback: its rows' totals as bars
         body = _bars(chart, tokens, logos, width, height, light)
     elif kind == "column":
         body = _columns(chart, tokens, width, height)

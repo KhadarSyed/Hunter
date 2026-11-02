@@ -81,21 +81,22 @@ def _view(chart: dict, question: str, section_id: str) -> dict:
 
 def matrix_chart(matrix: dict, question: str, dims: tuple[str, str]) -> dict:
     """A cross-tab (rows x columns of article counts) as the deck draws it: a flow (brand -> award) as a Sankey,
-    a fixed split (sentiment, social/editorial) as one 100% bar per row, anything else as a heatmap."""
+    a fixed split (sentiment, social/editorial) as one 100% bar per row, anything else as a heatmap. Its kind is that
+    drawing (not "bar"): a cross-tab's rows are not chart segments that each need their own insight card."""
     rows, cols, counts = matrix["rows"], matrix["cols"], matrix["counts"]
-    base = {"kind": "bar", "categories": rows, "values": [sum(r) for r in counts], "unit": "count", "peaks": [],
-            "series_label": "Articles", "matrix": matrix}
+    base = {"categories": rows, "values": [sum(r) for r in counts], "unit": "count", "peaks": [],
+            "series_label": "Articles", "matrix": matrix, **({"n": matrix["total"]} if matrix.get("total") else {})}
     label = f"{dims[1]} by {dims[0]}"
     if all(str(c).strip().lower() in _COMPOSITION for c in cols):
         groups = [{"name": r, "n": matrix["n"][i], "values": [round(100 * v / max(1, sum(counts[i])), 1) for v in counts[i]]}
                   for i, r in enumerate(rows)]
-        return {**base, "breakdown": {"by": dims[0], "stacks": cols, "groups": groups},
+        return {**base, "kind": "stacked", "breakdown": {"by": dims[0], "stacks": cols, "groups": groups},
                 "choice": f"{GROUPS}: {label}, a fixed split per {dims[0].lower()} as 100% bars",
                 "alternatives": ALTERNATIVES["stacked"]}
     if _FLOW.search(question) or _FLOW.search(" ".join(dims)):
-        return {**base, "view": "sankey", "choice": f"flow: {label}, each band as wide as its articles",
+        return {**base, "kind": "sankey", "choice": f"flow: {label}, each band as wide as its articles",
                 "alternatives": ALTERNATIVES["sankey"]}
-    return {**base, "view": "heatmap", "choice": f"two dimensions: {label}, each cell shaded by its share",
+    return {**base, "kind": "heatmap", "choice": f"two dimensions: {label}, each cell shaded by its share",
             "alternatives": ALTERNATIVES["heatmap"]}
 
 

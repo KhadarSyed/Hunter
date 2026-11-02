@@ -454,7 +454,7 @@ def _crosstab(module, rq, rows, base_n, _):
         return _section(module, rq, skipped=f"No article names both a {row_dim.label.lower()} and a "
                                             f"{col_dim.label.lower()}")
     table_rows, facts, matrix = [], [], {"rows": row_names, "cols": cols, "counts": [], "n": [],
-                                         "dims": [row_dim.label, col_dim.label]}
+                                         "dims": [row_dim.label, col_dim.label], "total": len(rows)}
     for name in row_names:
         within = [cv for rv, cv in per_row if name in rv]
         counts = Counter(c for cv in within for c in cv)

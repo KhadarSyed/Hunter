@@ -12,7 +12,7 @@ from .charts import _colors, _dark_chip, _neutral, _on
 from .spec import DeckTokens
 
 VENDOR = Path(__file__).parent / "vendor"
-DRAWN = {"bar", "column", "line_peaks", "doughnut", "treemap", "us_map"}     # a KPI stays the big number
+DRAWN = {"bar", "column", "line_peaks", "doughnut", "treemap", "us_map", "heatmap", "sankey"}  # a KPI stays the number
 # a theme bubble's colour by its articles' net sentiment (-1..1): negative, mixed, positive (the deck's status colours)
 _TONE_COLORS = {-1: "#C62828", 0: "#8A8A99", 1: "#2E7D32"}
 TONE_SPLIT = 0.15
@@ -58,7 +58,7 @@ def chart_config(chart: dict, t: DeckTokens, logos: dict[str, str] | None = None
     if kind == "us_map":
         return {**base, "color": f"#{t.series[0]}", "states": chart.get("states") or [],
                 "counties": chart.get("counties") or []}
-    view = chart.get("view")
+    view = chart.get("view") or kind
     if view in ("heatmap", "sankey"):
         m = chart["matrix"]
         cells = [{"row": r, "col": c, "value": round(100 * v / max(1, m["n"][i]), 1), "count": v}

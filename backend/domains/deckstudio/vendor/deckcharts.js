@@ -405,6 +405,7 @@
       var why = document.createElement("span");
       why.className = "chart-why";
       why.textContent = "i";
+      if (cfg.kind === "us_map") { why.style.right = "auto"; why.style.left = "4px"; }   // the heat legend is at the right
       why.title = "Why this chart: " + cfg.reason + (cfg.alternatives ? "\nAlso considered: " + cfg.alternatives : "");
       el.appendChild(why);
     }
