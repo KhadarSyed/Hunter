@@ -181,7 +181,8 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
 
     def photo_for(s):
         role = "panel" if s.treatment == "C" or s.type == "objectives" else "background"
-        subjects = image_brief.subjects_for(s, plan_input.brands, shown, plan_input.category,
+        k = photo_slides.index(s) % max(1, len(shown))      # each slide leads with the next product, so photos vary
+        subjects = image_brief.subjects_for(s, plan_input.brands, shown[k:] + shown[:k], plan_input.category,
                                             scene_by_id.get(s.id, ""))
         if not subjects.brands and not plan_input.is_category:
             # a slide naming no brand (takeaways, insights) searched its own words ("Did we answer the brief")
