@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 
 from ...agents import question_tag_schema as ts
 from ...core import store
@@ -24,7 +25,15 @@ def _signature(question: str, query: str, columns: list[dict]) -> str:
     return hashlib.sha1("\n".join([question, query, json.dumps(columns, sort_keys=True)]).encode("utf-8")).hexdigest()
 
 
+_locks: dict[int, threading.Lock] = {}   # one derivation per project at a time (see dimensions._locks)
+
+
 def project_tag_schemas(project_id: int, llm=None) -> dict[str, ts.TagSchema]:
+    with _locks.setdefault(project_id, threading.Lock()):
+        return _project_tag_schemas(project_id, llm)
+
+
+def _project_tag_schemas(project_id: int, llm=None) -> dict[str, ts.TagSchema]:
     strategy = (store.get_latest_strategy(project_id) or {}).get("strategy") or {}
     questions = strategy.get("research_question_queries") or []
     dims_by_rq = project_dimensions(project_id, llm)

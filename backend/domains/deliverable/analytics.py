@@ -360,7 +360,9 @@ def _tag_values(row: EngineRow, dim: qd.Dimension) -> list[str] | None:
     vals = [str(v).strip() for v in (raw if isinstance(raw, list) else [raw]) if v is not None]
     low = {v.lower() for v in vals}
     if low and low <= _NO_ANSWER | {"yes", "true"}:
-        return [dim.values[0].name] if low & {"yes", "true"} and len(dim.values) == 1 else []
+        if low & {"yes", "true"}:   # "Yes" names no value of a many-valued dimension: read the other tags for it
+            return [dim.values[0].name] if len(dim.values) == 1 else None
+        return []
     return [v for v in vals if v.lower() not in _NO_ANSWER]
 
 

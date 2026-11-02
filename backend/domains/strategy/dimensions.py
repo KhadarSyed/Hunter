@@ -9,6 +9,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import re
+import threading
 
 from ...agents import question_dimensions as qd
 from ...core import store
@@ -48,7 +49,17 @@ def _signature(question: str, query: str, brands: list[str]) -> str:
     return hashlib.sha1("\n".join([question, query, *sorted(brands)]).encode("utf-8")).hexdigest()
 
 
+# One derivation per project at a time: the dataset enrich jobs run side by side, and each deriving its own (differently
+# keyed) LLM copy left records tagged with keys the stored copy -- which the Review table and the deck read -- lacks.
+_locks: dict[int, threading.Lock] = {}
+
+
 def project_dimensions(project_id: int, llm=None) -> dict[str, list[qd.Dimension]]:
+    with _locks.setdefault(project_id, threading.Lock()):
+        return _project_dimensions(project_id, llm)
+
+
+def _project_dimensions(project_id: int, llm=None) -> dict[str, list[qd.Dimension]]:
     strategy = (store.get_latest_strategy(project_id) or {}).get("strategy") or {}
     questions = strategy.get("research_question_queries") or []
     brands = _brand_terms(store.get_project(project_id) or {}, [q.get("query") or "" for q in questions])
