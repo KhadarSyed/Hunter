@@ -25,6 +25,22 @@ def _md_bold(text) -> Markup:
 
 
 _env.filters["md_bold"] = _md_bold
+
+
+def _luminance(hex6: str, share: float = 1.0) -> float:
+    """WCAG relative luminance of `hex6` laid at `share` opacity over white."""
+    lin = lambda c: c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = (share * int(hex6[i:i + 2], 16) / 255 + 1 - share for i in (0, 2, 4))
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+
+
+def _dark_heat(primary: str, share: float, text: str) -> bool:
+    """Whether white text reads better than the deck's text colour on a heat cell (`share` of the brand colour)."""
+    bg = _luminance(primary, share)
+    return 1.05 / (bg + 0.05) > (bg + 0.05) / (_luminance(text) + 0.05)
+
+
+_env.filters["dark_heat"] = _dark_heat
 _TAG = re.compile(r"<[^>]+>")
 FRONTEND_CSS = (Path(__file__).parent / "frontend_slides" / "viewport-base.css").read_text(encoding="utf-8")
 CHART_SIZE = {"A": (1000, 540), "C": (1100, 600), "plain": (1600, 600), "full": (900, 420), "S": (620, 640)}

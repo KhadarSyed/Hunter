@@ -17,7 +17,9 @@ _BOOLEAN = {"or", "and", "not", "near"}
 _SECTION = re.compile(r'(<section class="slide[^"]*" data-id="([^"]+)".*?</section>)', re.S)
 _LAYOUT_JS = """() => {
   const out = [];
-  const rgb = s => (s.match(/[\\d.]+/g) || []).map(Number);
+  // color-mix() computes to color(srgb r g b / a) with channels 0-1; rgb() strings use 0-255
+  const rgb = s => { const n = (s.match(/[\\d.]+/g) || []).map(Number);
+                     return s.startsWith('color(') ? n.map((v, i) => i < 3 ? v * 255 : v) : n; };
   const lum = ([r, g, b]) => [r, g, b].map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; })
                                    .reduce((a, v, i) => a + v * [0.2126, 0.7152, 0.0722][i], 0);
   const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
@@ -31,7 +33,8 @@ _LAYOUT_JS = """() => {
     const behind = el => {
       for (let a = el; a && a !== slide.parentElement; a = a.parentElement) {
         const c = rgb(getComputedStyle(a).backgroundColor);
-        if (c.length >= 3 && (c.length < 4 || c[3] >= 0.5) && a !== slide) return c.slice(0, 3);
+        if (c.length >= 3 && (c.length < 4 || c[3] >= 0.5) && a !== slide)   // a tinted cell sits on the slide
+          return c.length < 4 ? c : c.slice(0, 3).map((v, i) => v * c[3] + slideBg[i] * (1 - c[3]));
       }
       const r = el.getBoundingClientRect(), photoSide = treatment === 'C' ? (r.left + r.width / 2 - box.left) < 672 : true;
       return (treatment === 'full' || treatment === 'A' || (treatment === 'C' && photoSide)) ? primary : slideBg.slice(0, 3);
