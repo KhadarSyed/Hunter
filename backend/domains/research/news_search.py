@@ -408,6 +408,7 @@ def _search_google_news_rss(query: str, recency_hours: int, country: str) -> lis
             "title": headline.strip(),
             "link": _xml_text(item.find("link")).strip(),
             "publisher": publisher.strip(),
+            "publisher_url": (source_el.get("url") or "").strip() if source_el is not None else "",
             "date": _xml_text(item.find("pubDate")).strip(),
             "snippet": _strip_html(description_raw),
             "thumbnail": _extract_first_img_src(description_raw),
@@ -458,6 +459,7 @@ def _extract_first_img_src(raw_html: str) -> str:
 def _normalize_rss_item(item: dict) -> dict:
     return {
         "publisher_name": item.get("publisher") or "",
+        "publisher_url": item.get("publisher_url") or "",   # the outlet's site: undecoded links stay on news.google.com
         "published_url": item.get("link") or "",
         "title": item.get("title") or "",
         "content": item.get("snippet") or "",

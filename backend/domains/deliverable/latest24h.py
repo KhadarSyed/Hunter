@@ -8,12 +8,13 @@ Sources (all three honour a time window at the API and every item carries a date
 """
 from __future__ import annotations
 
+import html
 import json
 import logging
 import re
 import threading
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from typing import Callable
@@ -23,6 +24,8 @@ from ...core import store
 from ...core.events import broadcast
 from ..exclusions.service import keep, rules_for_project
 from ..research import news_search
+from ..research.page_signals import publisher_country
+from ..research.web_research import _COUNTRY_ISO_CODES
 from ..research.multi_source import search_brand_term
 from .evidence import brand_set, mentions
 
@@ -36,6 +39,30 @@ LLM_TIMEOUT_S = 60
 SOURCE_LABELS = {"serpapi": "SerpAPI", "tavily": "Tavily", "google_news_rss": "Google News"}
 _STOP = set("what which when where how does did have has with from that this their they about into over than "
             "the and for are was were been will would could should brand brands media coverage".split())
+
+_TAG = re.compile(r"<!--.*?-->|<[^>]+>", re.DOTALL)
+# A brand whose name is also a person, place or venue ("Chandler's Ford", "Ford Field", "Aaron Ford") needs more than
+# its name: the story must also read as company or industry news, or name another brand or a product.
+_COMPANY_WORDS = ("company companies firm shares stock stocks investor investors earnings ceo executive executives "
+                  "sales revenue profit profits launch launches launched unveil unveils unveiled recall recalls "
+                  "recalled dealer dealers dealership factory plant customers inc corp motor motors automaker "
+                  "automakers automotive carmaker carmakers tariff tariffs price prices pricing").split()
+# shortcut: only the automotive vocabulary is built in; add an industry's words when a non-auto brand is a common word.
+_INDUSTRY_WORDS = {r"auto|vehicle|\bcars?\b|\bevs?\b": (
+    "car cars vehicle vehicles truck trucks suv suvs sedan sedans pickup pickups crossover ev evs electric hybrid "
+    "hybrids engine engines battery batteries charging charger chargers model models horsepower mpg range lineup "
+    "trim trims autopilot self-driving robotaxi drive drives driving driver drivers owner owners miles mph crash "
+    "crashes registrations deliveries mechanic warranty tire tires v6 v8 hypercar supercar").split()}
+_NOT_A_PRODUCT = _STOP | set("is are be has have had says said just also gets got to on in at of for by as it its will "
+                             "can may new now not no his her he she says set".split())
+_VENUE = set("field stadium arena center centre hall park parade holiday river foundation museum theatre theater "
+             "obituary memorial university college school library hospital church award awards prize street avenue "
+             "road county".split())
+# Outlet names written in a script that belongs to one country ("조선일보" is Korean).
+_SCRIPT_COUNTRY = ((r"[\uac00-\ud7af]", "KR"), (r"[\u3040-\u30ff]", "JP"), (r"[\u0e00-\u0e7f]", "TH"),
+                   (r"[\u0590-\u05ff]", "IL"), (r"[\u0370-\u03ff]", "GR"))
+COUNTRY_WORKERS = 8
+COUNTRY_BUDGET_S = 20       # an unreadable site (a 30s browser fetch) must not hold up the refresh
 
 _busy: set[int] = set()
 _busy_lock = threading.Lock()
@@ -96,6 +123,88 @@ def dedupe(items: list[dict]) -> list[dict]:
         for k in keys:
             index.setdefault(k, hit)
     return out
+
+
+def clean_text(text: str) -> str:
+    """Plain text from a source's title/snippet: tags and comments (Barron's '<!-- -->') gone, entities decoded."""
+    return re.sub(r"\s+", " ", html.unescape(_TAG.sub(" ", text or ""))).strip()
+
+
+def context_pattern(spec: dict, brands: list) -> re.Pattern:
+    """Words that make a brand mention company/industry news: company vocabulary, the industry's vocabulary, every
+    brand's spellings and products, and the scope's products and topics."""
+    industry = str((spec.get("industry") or {}).get("name") or "") if isinstance(spec.get("industry"), dict) else ""
+    words = list(_COMPANY_WORDS)
+    for pattern, vocab in _INDUSTRY_WORDS.items():
+        if re.search(pattern, industry, re.IGNORECASE):
+            words += vocab
+    words += [t for b in brands for t in b.terms]
+    words += [e["name"] for e in spec.get("validated_entities") or []
+              if isinstance(e, dict) and e.get("name") and e.get("type") in ("product", "product_group", "topic")]
+    alternation = "|".join(sorted({re.escape(w.lower()) for w in words if w}, key=len, reverse=True))
+    return re.compile(rf"(?<![\w-])(?:{alternation})(?![\w-])", re.IGNORECASE)
+
+
+def _uses(text: str, name: str) -> list[tuple[bool, bool, re.Match | None]]:
+    """Each mention of `name`: (a possessive before it, as in "Chandler's Ford" or "China's BYD"; a venue word in the
+    three words after it, as in 'Ford Field' or 'Ford Holiday River Parade'; those three words)."""
+    out = []
+    for m in re.finditer(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text, re.IGNORECASE):
+        after = re.match(r"\s+([A-Z0-9][\w-]*)(?:\s+([A-Za-z][\w-]*))?(?:\s+([A-Za-z][\w-]*))?", text[m.end():])
+        venue = bool(after and any(w and w.lower() in _VENUE for w in after.groups()))
+        out.append((bool(re.search(r"\w's\s*$", text[:m.start()])), venue, after))
+    return out
+
+
+def _text(article: dict) -> str:
+    return f"{article['title']}\n{article['snippet']}"
+
+
+def ambiguous_brands(articles: list[dict]) -> set[str]:
+    """Brands this batch shows naming a venue too (Ford: 'Ford Field', 'Ford Holiday River Parade'): their stories
+    need company/industry context. A brand never seen that way (Tesla, Rivian) is kept on its name alone."""
+    return {a["brands"][0] for a in articles if len(a["brands"]) == 1
+            and any(venue for _, venue, _ in _uses(_text(a), a["brands"][0]))}
+
+
+def in_context(article: dict, context: re.Pattern, ambiguous: set[str]) -> bool:
+    """An unambiguous brand, two brands, or an ambiguous one named alongside a context word other than its own
+    name, or as '<Brand> <Model>' ('Ford Mustang') rather than a place or venue ("Chandler's Ford", 'Ford Field')."""
+    if len(article["brands"]) > 1 or not article["brands"] or article["brands"][0] not in ambiguous:
+        return True
+    name, text = article["brands"][0].lower(), _text(article)
+    if any(m.group(0).lower() != name for m in context.finditer(text)):
+        return True
+    return any(not possessive and not venue and after and after.group(1).lower() not in _NOT_A_PRODUCT
+               for possessive, venue, after in _uses(text, name))
+
+
+def outlet_country(article: dict) -> str | None:
+    """The outlet's ISO country when it can be told: its name's script, else its site's ccTLD/address
+    (page_signals). None when unknown — an undecoded news.google.com link names no publisher."""
+    for pattern, code in _SCRIPT_COUNTRY:
+        if re.search(pattern, article.get("outlet") or ""):
+            return code
+    url = article["url"]
+    if "news.google.com" in urlparse(url).netloc:
+        url = article.get("site") or ""
+    return publisher_country(url) if url and "news.google.com" not in url else None
+
+
+def outlet_countries(articles: list[dict]) -> list[str | None]:
+    """outlet_country for each article, within COUNTRY_BUDGET_S: a site that has not answered by then counts as
+    unknown (kept). The lookups go on in the background and are cached per site for the next refresh."""
+    pool = ThreadPoolExecutor(max_workers=COUNTRY_WORKERS)
+    futures = [pool.submit(outlet_country, a) for a in articles]
+    wait(futures, timeout=COUNTRY_BUDGET_S)
+    pool.shutdown(wait=False)
+    return [f.result() if f.done() and not f.exception() else None for f in futures]
+
+
+def project_country(spec: dict) -> str:
+    """The project's ISO country for the outlet filter; '' for a global or unrecognised geography (no filter)."""
+    geo = str((spec.get("included_scope") or {}).get("geography") or spec.get("geography") or "").strip()
+    return geo.upper() if len(geo) == 2 else _COUNTRY_ISO_CODES.get(geo.lower(), "")
 
 
 def _rank(articles: list[dict]) -> list[dict]:
@@ -301,9 +410,10 @@ def run_refresh(refresh_id: int, project_id: int, llm=None, now: datetime | None
                 for name in names:
                     term = search_brand_term(name)
                     items = FETCHERS[source](f'"{term}"', f"{term} news", ctx["country"], keys, ok)
-                    fresh = [{"title": i["title"] or i["content"][:100], "url": i["published_url"],
+                    fresh = [{"title": clean_text(i["title"]) or clean_text(i["content"])[:100],
+                              "url": i["published_url"], "site": i.get("publisher_url") or "",
                               "outlet": i["publisher_name"] or _url_key(i["published_url"]).split("/")[0],
-                              "date": i["date"], "snippet": i["content"][:400], "source": source}
+                              "date": i["date"], "snippet": clean_text(i["content"])[:400], "source": source}
                              for i in items if i["published_url"] and within_window(i["date"], now)]
                     with lock:
                         fetched.extend(fresh)
@@ -323,7 +433,13 @@ def run_refresh(refresh_id: int, project_id: int, llm=None, now: datetime | None
         unique = dedupe(fetched)
         for a in unique:
             a["brands"] = mentions(f"{a['title']}\n{a['snippet']}", brands)
-        relevant = keep([a for a in unique if a["brands"]], rules_for_project(project_id))
+        named = [a for a in unique if a["brands"]]
+        context, ambiguous = context_pattern(project.get("spec") or {}, brands), ambiguous_brands(named)
+        on_topic = [a for a in named if in_context(a, context, ambiguous)]
+        country = project_country(project.get("spec") or {})
+        if country:
+            on_topic = [a for a, c in zip(on_topic, outlet_countries(on_topic)) if c in (None, country)]
+        relevant = keep(on_topic, rules_for_project(project_id))
         articles = [{**a, "n": i + 1} for i, a in enumerate(_rank(relevant))]
         emit(phase="filtered", total=len(fetched), unique=len(unique), kept=len(articles))
 
