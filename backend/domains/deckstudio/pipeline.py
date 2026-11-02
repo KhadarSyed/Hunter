@@ -267,7 +267,7 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
 
     run.stage("export", "running")
     out = exporter.export_all(html, spec, deck_dir, spec.title)
-    run.stage("export", "done", f"{len(out['pngs'])} slides")
+    run.stage("export", "done", f"studio deck - {len(out['pngs'])} slides")
     counts = {k: sum(1 for r in rows if r["status"] == k) for k in ("covered", "partial", "missing")}
     checks = validate.validate_deck(spec, plan_input.rqs, rows, plan_input.brand_products,
                                     has_competitors=len(plan_input.brands) > 1,

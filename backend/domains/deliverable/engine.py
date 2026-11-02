@@ -729,7 +729,7 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         run.section({"id": "citations", "rq_id": None, "module": "citations", "title": "Citations",
                      "citations": _deck_citations(registry.entries())})
         run.section(_page_visuals(project, sections_by_rq, inp.logos))
-        run.log(f"Deck saved with {len(Presentation(str(pptx_path)).slides)} slides; "
+        run.log(f"Classic deck saved with {len(Presentation(str(pptx_path)).slides)} slides; "
                 f"{len(registry.entries())} sources cited")
         run.stage("render", "done", pptx_path.name)
 
