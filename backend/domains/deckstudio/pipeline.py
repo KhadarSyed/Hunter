@@ -4,6 +4,7 @@ from __future__ import annotations
 
 
 import json
+from dataclasses import replace
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -179,6 +180,10 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
         role = "panel" if s.treatment == "C" or s.type == "objectives" else "background"
         subjects = image_brief.subjects_for(s, plan_input.brands, plan_input.products, plan_input.category,
                                             scene_by_id.get(s.id, ""))
+        if not subjects.brands and not plan_input.is_category:
+            # a slide naming no brand (takeaways, insights) searched its own words ("Did we answer the brief")
+            # and spent its vision checks on junk; the client's own brand and product are always on-topic
+            subjects = replace(subjects, brands=[plan_input.title])
         label = s.question or s.title or s.kicker
         return assets.find_photo(" ".join(image_brief.queries(subjects)[:1]) or s.image["query"], role,
                                  deck_dir / "photos", used, brand_image if s.type == "cover" else None,
@@ -194,7 +199,11 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
         futures = {pool.submit(photo_for, s): s for s in photo_slides}
         for k, done in enumerate(as_completed(futures), start=1):
             run.within("assets", 0.8 * k / max(1, len(photo_slides)), f"Finding photos: {k} of {len(photo_slides)}")
-            photos[futures[done].id] = done.result()
+            try:
+                photos[futures[done].id] = done.result()
+            except Exception as e:         # one slide's failed search costs that slide's photo, not the deck
+                logger.exception("photo search failed for %s", futures[done].id)
+                photos[futures[done].id] = assets.Photo(None, "", "none", f"photo search failed ({type(e).__name__})")
     taken: set[str] = set()
     for s in photo_slides:                 # two slides searched at once may have picked the same photo
         photo = photos[s.id]

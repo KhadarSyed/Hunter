@@ -275,10 +275,14 @@ def _maybe_usable(cand: dict, role: str) -> bool:
     return not (0 < cand.get("width", 0) < w / GOOD_UPSCALE or 0 < cand.get("height", 0) < h / GOOD_UPSCALE)
 
 
+UNVERIFIED = "not verified (vision budget used up)"
+
+
 def _accept(data: bytes, role: str, title: str, subjects: Subjects | None, judge) -> tuple[bool, str, bool]:
     """(on-topic and sharp enough, why, HD). A near-HD photo can pass: the caller keeps it as a backup."""
     try:
         with Image.open(BytesIO(data)) as im:
+            im.load()          # decodes every byte: a truncated or corrupt download is not an image
             size = (im.width, im.height)
     except Exception:
         return False, "not an image", False
@@ -293,7 +297,7 @@ def _accept(data: bytes, role: str, title: str, subjects: Subjects | None, judge
     if judge is not None:
         # vision is available but could not look (its budget is spent): a photo nobody checked against the brief's
         # product or category is not shown -- an off-topic or outdated image is worse than the brand gradient
-        return False, "not verified (vision budget used up)", hd
+        return False, UNVERIFIED, hd
     ok = text_relevant(title, subjects)
     return ok, "text: " + ("names the subject" if ok else "does not name the subject"), hd
 
@@ -310,17 +314,17 @@ def _keep(data: bytes, url: str, licence: str, why: str, role: str, folder: Path
 
 
 def _plan(query: str, subjects: Subjects | None, article_urls) -> Iterator[tuple[str, list[dict]]]:
-    """Sources in order: the slide's own articles, then per query brand/product shots, licensed stock, Google.
-    Lazy: each search runs only when find_photo reaches it, so a photo accepted early skips the searches it would
-    never have used (up to 12 per slide). The groups, their order and their contents are what the eager list was."""
+    """Sources in order: the slide's own articles, then per query web images (SearXNG, else DuckDuckGo, else
+    SerpAPI, which has a paid quota) and licensed stock -- web first when the slide names a brand (generic stock
+    would spend its vision checks first), stock first otherwise. Lazy: each search runs only when find_photo
+    reaches it, so a photo accepted early skips the searches it would never have used."""
     leads = [u for u in (article_image(a) for a in list(article_urls)[:MAX_ARTICLES]) if u]
     yield "article", [{"url": u, "width": 10 ** 6, "title": ""} for u in leads]
     for q in (brief_queries(subjects) if subjects else [query]):
-        yield "web", (_ddg_images(q) if subjects and subjects.brands else [])
-        yield "licensed", _pexels(q)
-        yield "licensed", _unsplash(q)
-        yield "web", _serpapi(q)
-        yield "web", _searxng_images(q)       # reached only when SerpAPI gave nothing on-topic for this query
+        web = (("web", search) for search in (_searxng_images, _ddg_images, _serpapi))
+        stock = (("licensed", search) for search in (_pexels, _unsplash))
+        for licence, search in ((*web, *stock) if subjects and subjects.brands else (*stock, *web)):
+            yield licence, search(q)
 
 
 def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image: Path | None = None, *,
@@ -335,7 +339,7 @@ def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image:
         if big_enough:
             used.add(str(brand_image))
             return Photo(crop_to(brand_image, role, folder / f"{slug}.jpg"), str(brand_image), "brand", "brand imagery")
-    rejected, backup = 0, {}
+    rejected, backup, why = 0, {}, ""
     for licence, results in _plan(query, subjects, article_urls):
         ranked = sorted((c for c in results if c["url"] and c["url"] not in used and _maybe_usable(c, role)),
                         key=lambda c: -_relevance(query, c["title"]))
@@ -347,6 +351,8 @@ def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image:
             if licence == "article" and subjects:      # routed to this slide's question: its subject by construction
                 title = " ".join(subjects.brands + subjects.products + [subjects.category])
             ok, why, hd = _accept(data, role, title, subjects, judge)
+            if why == UNVERIFIED:       # the slide's vision budget is spent: every later candidate fails the same way
+                break
             if not ok:
                 rejected += 1
                 continue
@@ -354,7 +360,11 @@ def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image:
                 backup = backup or {"data": data, "url": cand["url"], "licence": licence, "why": why, "cand": cand}
                 continue
             return _keep(data, cand["url"], licence, why, role, folder, slug, used, cand)
-    found = _fallback(query, role, folder, used, subjects, judge, slug, backup) if fallback else None
+        else:
+            continue
+        break
+    widen = fallback and why != UNVERIFIED
+    found = _fallback(query, role, folder, used, subjects, judge, slug, backup) if widen else None
     if found:
         return found
     if backup:
@@ -393,6 +403,8 @@ def _fallback(query: str, role: str, folder: Path, used: set[str], subjects: Sub
                 if not data:
                     continue
                 ok, why, hd = _accept(data, role, cand["title"], loose, judge)
+                if why == UNVERIFIED:
+                    return None
                 if not ok:
                     continue
                 if not hd:
