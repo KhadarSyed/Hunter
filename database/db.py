@@ -1437,6 +1437,17 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
         "ALTER TABLE intel_research_items ADD COLUMN sentiment_confidence REAL",
         "ALTER TABLE intel_research_items ADD COLUMN classified_for TEXT",
     ]),
+    # Each "Refresh latest 24h" on the Deliverables page: per-source counts, the cited summary, chart data and the
+    # kept articles, so the page shows the latest refresh after a reload.
+    # 28-30 are taken on other branches (research item access/vectors, jev classification, deck cut-outs).
+    (31, "latest 24h refreshes", [
+        """CREATE TABLE IF NOT EXISTS intel_latest24h_refreshes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, status TEXT NOT NULL,
+            started_at REAL NOT NULL, finished_at REAL, counts_json TEXT NOT NULL DEFAULT '{}',
+            fetched INTEGER NOT NULL DEFAULT 0, kept INTEGER NOT NULL DEFAULT 0, summary_json TEXT,
+            charts_json TEXT, articles_json TEXT, error TEXT)""",
+        "CREATE INDEX IF NOT EXISTS idx_latest24h_project ON intel_latest24h_refreshes(project_id, id)",
+    ]),
 ]
 
 

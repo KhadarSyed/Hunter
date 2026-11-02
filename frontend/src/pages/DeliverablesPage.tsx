@@ -10,6 +10,7 @@ import { StudioDeckCard } from "../components/deliverable/StudioDeckCard";
 import { agentSocket } from "../services/ws";
 import { useActiveProjectId } from "../context/project-context";
 import { ChartRenderer } from "../components/deliverable/ChartRenderer";
+import { Latest24hPanel } from "../components/deliverable/Latest24hPanel";
 import { RunTimeline } from "../components/deliverable/RunTimeline";
 import { RunLog } from "../components/deliverable/RunLog";
 import { TabPanel, Tabs } from "../components/deliverable/Tabs";
@@ -279,6 +280,8 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
           </button>
         </div>
       </div>
+
+      <Latest24hPanel projectId={projectId} />
 
       {(startError || (run?.status === "failed" && run.error)) && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{startError || run?.error}</div>

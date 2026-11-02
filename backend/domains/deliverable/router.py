@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from ...core import store
 from ...core.auth import require_project_access
 from ..deckstudio import data_tables, revise
-from . import engine, repair_run
+from . import engine, latest24h, repair_run
 from . import rows as engine_rows
 from .schemas import (DataCoverageResponse, DeckDesign, DeckDesignChange, DeckDesignResult, DeliverableRunPayload,
                       DeliverableRunStarted)
@@ -76,6 +76,20 @@ def coverage(project_id: ProjectId, _: Access):
 def latest(project_id: ProjectId, _: Access):
     run = store.get_latest_deliverable_run(project_id)
     return _payload(run["id"]) if run else {"run": None, "sections": []}
+
+
+@router.post("/deliverable/{project_id}/latest24h", status_code=202)
+def refresh_latest24h(project_id: ProjectId, _: Access):
+    """Fetch the last 24 hours of coverage about the brand and its competitors; progress streams on /ws."""
+    try:
+        return {"refresh_id": latest24h.start(project_id)}
+    except latest24h.RefreshBusy as e:
+        raise HTTPException(409, str(e))
+
+
+@router.get("/deliverable/{project_id}/latest24h")
+def latest_latest24h(project_id: ProjectId, _: Access):
+    return {"refresh": store.get_latest_latest24h_refresh(project_id)}
 
 
 @router.get("/deliverable/{project_id}/runs/{run_id}", response_model=DeliverableRunPayload)

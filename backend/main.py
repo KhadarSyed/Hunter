@@ -55,6 +55,7 @@ async def lifespan(app: FastAPI):
     store.cancel_stale_running_jobs()
     memory.mark_interrupted_runs()
     store.fail_interrupted_deliverable_runs()
+    store.fail_interrupted_latest24h_refreshes()
     ensure_dirs(load_settings())
     events.bind_loop(asyncio.get_running_loop())
     from .domains.agent import autopilot

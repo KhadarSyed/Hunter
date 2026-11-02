@@ -178,3 +178,52 @@ def save_deliverable_plan(project_id: int, rq_id: str, signature: str, plan: dic
                  (project_id, rq_id, signature, json.dumps(plan), source, time.time()))
     conn.commit()
     conn.close()
+
+
+# ─── "Refresh latest 24h" ───────────────────────────────────────────────────
+
+_REFRESH_JSON = ("counts", "summary", "charts", "articles")
+
+
+def create_latest24h_refresh(project_id: int) -> int:
+    conn = _conn()
+    cur = conn.execute("INSERT INTO intel_latest24h_refreshes (project_id, status, started_at) VALUES (?, 'running', ?)",
+                       (project_id, time.time()))
+    conn.commit()
+    conn.close()
+    return cur.lastrowid
+
+
+def finish_latest24h_refresh(refresh_id: int, status: str, counts: dict, fetched: int, kept: int,
+                             summary: Any = None, charts: Any = None, articles: Any = None,
+                             error: Optional[str] = None) -> None:
+    conn = _conn()
+    conn.execute("UPDATE intel_latest24h_refreshes SET status = ?, finished_at = ?, counts_json = ?, fetched = ?, "
+                 "kept = ?, summary_json = ?, charts_json = ?, articles_json = ?, error = ? WHERE id = ?",
+                 (status, time.time(), json.dumps(counts), fetched, kept, json.dumps(summary), json.dumps(charts),
+                  json.dumps(articles), error, refresh_id))
+    conn.commit()
+    conn.close()
+
+
+def get_latest_latest24h_refresh(project_id: int) -> Optional[dict]:
+    conn = _conn()
+    row = conn.execute("SELECT * FROM intel_latest24h_refreshes WHERE project_id = ? ORDER BY id DESC LIMIT 1",
+                       (project_id,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    d = dict(row)
+    for key in _REFRESH_JSON:
+        d[key] = json.loads(d.pop(f"{key}_json") or "null")
+    return d
+
+
+def fail_interrupted_latest24h_refreshes() -> int:
+    """A server restart ends any refresh mid-flight; mark it so the page never waits on it forever."""
+    conn = _conn()
+    n = conn.execute("UPDATE intel_latest24h_refreshes SET status = 'failed', error = 'Interrupted by a server restart', "
+                     "finished_at = ? WHERE status = 'running'", (time.time(),)).rowcount
+    conn.commit()
+    conn.close()
+    return n
