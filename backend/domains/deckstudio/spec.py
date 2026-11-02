@@ -45,6 +45,7 @@ class SlideSpec:
     citations: list[int] = field(default_factory=list)
     notes: str = ""
     reference: dict = field(default_factory=dict)
+    live: dict = field(default_factory=dict)     # the "last 24h" slides' stored refresh, re-rendered in the deck
 
 
 @dataclass

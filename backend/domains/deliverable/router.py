@@ -113,7 +113,9 @@ def download(project_id: ProjectId, run_id: RunId, kind: str, _: Access):
 # The deck holds model-written HTML: it runs in an opaque origin with no network, so even a sanitiser miss
 # cannot reach the API with the viewer's session
 _DECK_HEADERS = {
-    "Content-Security-Policy": ("sandbox allow-scripts; default-src 'none'; img-src data:; "
+    # popups: article links open in a new tab (outside the sandbox); the deck still reaches no API (connect-src)
+    "Content-Security-Policy": ("sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox; default-src 'none'; "
+                                "img-src data:; "
                                 "style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
                                 "script-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'; "
                                 "frame-ancestors 'self'"),

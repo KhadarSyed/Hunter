@@ -69,6 +69,24 @@
   </div>
   {% if s.cards %}<div class="cards reveal" style="position:absolute;left:740px;right:70px;top:730px;grid-template-columns:repeat({{ [s.cards|length, 3]|min }},1fr)">
     {% for c in s.cards[:3] %}<div class="card build"><h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}</p>{% if c.citations and marks.cites %}<div class="cites">{% for n in c.citations[:3] %}{% set m = marks.cites.get(n|string) %}{% if m %}{% if m.url %}<a class="cite" href="{{ m.url }}">{% else %}<span class="cite">{% endif %}{% if m.icon %}<img src="{{ m.icon }}" alt="">{% endif %}{{ m.outlet }}{% if m.url %}</a>{% else %}</span>{% endif %}{% endif %}{% endfor %}</div>{% endif %}</div>{% endfor %}</div>{% endif %}
+{% elif s.type in ("latest24h", "latest24h_dashboard") %}
+  {# the text is drawn (and redrawn after a Refresh) by live24h.js from the stored refresh below #}
+  <div style="position:absolute;left:70px;right:70px;top:48px">
+    <div class="kicker"><span class="live-dot"></span>{{ s.kicker }}</div>
+    <div class="title clamp" style="margin-top:8px;font-size:46px">{{ s.title }}</div>
+    <div class="live-meta"></div>
+  </div>
+  {% if s.type == "latest24h" %}<button type="button" class="live-btn" hidden>Refresh latest 24h</button>
+  <div class="live-progress" hidden aria-live="polite"></div>
+  <div class="live-bullets reveal"></div>
+  <div class="live-stories reveal"><div class="kicker" style="margin-bottom:10px">Top new stories</div><ol></ol></div>
+  {% else %}<div class="live-grid reveal">
+    <div class="live-cell" style="left:0;top:0;width:870px;height:440px"><div class="kicker">Share of 24h coverage by brand</div>{{ charts[0] | safe }}</div>
+    {# in the order of s.charts: deckcharts.js pairs each chart with its config by position #}
+    <div class="live-cell" style="left:0;top:470px;width:1780px;height:340px"><div class="kicker">Articles per hour (UTC)</div>{{ charts[1] | safe }}</div>
+    <div class="live-cell" style="left:910px;top:0;width:870px;height:440px"><div class="kicker">Top outlets in the last 24h</div>{{ charts[2] | safe }}</div>
+  </div>{% endif %}
+  <script type="application/json" class="live-data">{{ s.live | tojson }}</script>
 {% elif s.type == "verbatim_wall" %}
   <div class="vband">
     {% if s.question %}<div class="vkicker">{{ s.question }}</div>{% endif %}

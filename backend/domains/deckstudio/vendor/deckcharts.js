@@ -6,7 +6,7 @@
   var exportMode = new URLSearchParams(location.search).has("export");
   var configs = JSON.parse(document.getElementById("deck-charts").textContent || "{}");
   var charts = [];
-  var api = window.deckCharts = { ready: false, charts: charts };
+  var api = window.deckCharts = { ready: false, charts: charts, configs: configs };
   var LOGO_W = 64, LOGO_H = 30;
 
   function c(v) { return am5.color(v); }
@@ -102,7 +102,7 @@
     x.data.setAll(cfg.data);
     var yr = am5xy.AxisRendererY.new(root, {});
     hide(yr);
-    var y = chart.yAxes.push(am5xy.ValueAxis.new(root, { min: 0, extraMax: 0.15, renderer: yr }));
+    var y = chart.yAxes.push(am5xy.ValueAxis.new(root, { min: 0, extraMax: 0.25, renderer: yr }));   // room for the peak's value
     var series = chart.series.push(am5xy.LineSeries.new(root, {
       xAxis: x, yAxis: y, valueYField: "value", categoryXField: "category", stroke: c(cfg.accent), fill: c(cfg.accent),
       tooltip: tooltip(root, cfg)
@@ -397,7 +397,7 @@
   // each drawn chart swapped for its SVG export (the PDF prints vector charts, exactly as drawn)
   api.freeze = function () {
     charts.forEach(function (ch, i) {
-      if (!ch.el.dataset.ready) return;
+      if (ch.dead || !ch.el.dataset.ready) return;
       var box = document.createElement("div");
       box.className = "amchart-svg";
       box.style.width = ch.el.offsetWidth + "px";
@@ -406,6 +406,21 @@
       ch.el.parentNode.insertBefore(box, ch.el);
       ch.el.style.display = "none";
     });
+  };
+
+  // a slide's charts drawn again from new configs (the 24h dashboard after a Refresh); a slide not shown yet just
+  // keeps the new configs for when it is
+  api.redraw = function (slideId, list) {
+    configs[slideId] = list;
+    var section = document.querySelector('section.slide[data-id="' + slideId + '"]');
+    if (!section || !section.dataset.chartsDrawn) return Promise.resolve();
+    charts.forEach(function (ch) {
+      if (!ch.dead && section.contains(ch.el)) { ch.root.dispose(); ch.el.remove(); ch.dead = true; }
+    });
+    return Promise.all([].map.call(section.querySelectorAll("svg.chart"), function (svg, k) {
+      svg.style.display = "";
+      return list[k] ? sized(list[k]).then(function () { return draw(svg, list[k]); }) : null;
+    }));
   };
 
   function start() {

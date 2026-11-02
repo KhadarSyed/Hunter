@@ -45,6 +45,7 @@ _TAG = re.compile(r"<[^>]+>")
 FRONTEND_CSS = (Path(__file__).parent / "frontend_slides" / "viewport-base.css").read_text(encoding="utf-8")
 CHART_SIZE = {"A": (1000, 540), "C": (1100, 600), "plain": (1600, 600), "full": (900, 420), "S": (620, 640)}
 CHART_SIZE_WITH_CARDS = {"C": (1100, 370)}          # the photo-panel slide's summary cards sit under the chart
+LIVE_CHART_SIZES = [(870, 400), (1780, 300), (870, 400)]  # the 24h dashboard: brands | outlets over the hourly line
 
 
 def _asset(path: str | None, out_dir: Path) -> str | None:
@@ -73,7 +74,8 @@ def render_slide(slide: SlideSpec, tokens: DeckTokens, n: int, total: int, base_
     image = _asset(slide.image.get("path"), out_dir)
     logos, light = _slide_logos(slide, out_dir)
     w, h = CHART_SIZE_WITH_CARDS["C"] if slide.treatment == "C" and slide.cards else CHART_SIZE.get(slide.treatment, (1000, 540))
-    charts = [chart_svg(c, tokens, logos, w, h, light=light) for c in slide.charts]
+    sizes = LIVE_CHART_SIZES if slide.type == "latest24h_dashboard" else [(w, h)] * len(slide.charts)
+    charts = [chart_svg(c, tokens, logos, cw, ch, light=light) for c, (cw, ch) in zip(slide.charts, sizes)]
     return _env.get_template("slide.html.j2").render(s=slide, t=tokens, n=n, total=total, base_n=base_n, period=period,
                                                      source=source, image=image, charts=charts, logos=logos,
                                                      light_logos=light, table_cap=tables.render_cap(slide),
@@ -131,8 +133,11 @@ def render_deck(spec: DeckSpec, out_dir: Path, slide_html: dict[str, str] | None
     # a restyled slide); each slide's SVG chart stays as the fallback
     configs = amcharts.deck_configs(spec.slides, tokens, lambda s: _slide_logos(s, out_dir))
     maps = any(c and c["kind"] == "us_map" for cs in configs.values() for c in cs)
+    scripts = amcharts.scripts(configs, maps)
+    if any(s.type == "latest24h" for s in spec.slides):    # the live slides' text and their Refresh button
+        scripts += f"\n<script>{amcharts._inline('live24h.js')}</script>"
     html = _env.get_template("deck.html.j2").render(spec=spec, t=tokens, fonts=fonts_href(tokens), slides=parts,
-                                                     frontend_css=FRONTEND_CSS, chart_scripts=amcharts.scripts(configs, maps))
+                                                     frontend_css=FRONTEND_CSS, chart_scripts=scripts)
     path = out_dir / name
     path.write_text(html, encoding="utf-8")
     return path

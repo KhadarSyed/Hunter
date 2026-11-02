@@ -274,6 +274,26 @@ def build_charts(articles: list[dict], brands: list[str], now: datetime) -> dict
     return charts
 
 
+ICON_OUTLETS = 60           # outlets of the top stories that get their site icon (the rest show their initial)
+ICON_WORKERS = 8
+
+
+def outlet_icons(articles: list[dict]) -> dict[str, str]:
+    """{outlet: its site icon as a data URI}: the deck shows them inside a sandbox that loads no remote images."""
+    import base64
+    from ...core import config
+    from .visuals import favicon_png
+    sites: dict[str, str] = {}
+    for a in articles:
+        host = (urlparse(_site(a)).hostname or "").removeprefix("www.")
+        if a["outlet"] and host and a["outlet"] not in sites and len(sites) < ICON_OUTLETS:
+            sites[a["outlet"]] = host
+    with ThreadPoolExecutor(max_workers=ICON_WORKERS) as pool:
+        files = dict(zip(sites, pool.map(lambda h: favicon_png(h, config.DATA_DIR / "favicons"), sites.values())))
+    return {o: "data:image/png;base64," + base64.b64encode(p.read_bytes()).decode("ascii")
+            for o, p in files.items() if p and p.is_file()}
+
+
 def _hhmm(a: dict) -> str:
     dt = parse_utc(a["date"])
     return dt.strftime("%H:%M UTC") if dt else ""
@@ -475,6 +495,11 @@ def run_refresh(refresh_id: int, project_id: int, llm=None, now: datetime | None
         brand_names = [b.name for b in brands]
         summary = summarize(articles, brand_names, ctx["questions"], _headline(project_id), now, llm)
         charts = build_charts(articles, brand_names, now) if articles else {}
+        if articles:
+            try:
+                charts["icons"] = outlet_icons(articles)
+            except Exception as e:      # icons are decoration: the refresh still saves without them
+                logger.warning("latest24h outlet icons failed: %s", e)
         result = {"counts": counts, "fetched": len(fetched), "kept": len(articles), "summary": summary,
                   "charts": charts, "articles": articles}
         store.finish_latest24h_refresh(refresh_id, "completed", counts, len(fetched), len(articles),

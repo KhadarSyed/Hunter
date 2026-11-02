@@ -18,7 +18,7 @@ from ...core import config, store, writing_locale
 from ...core.events import broadcast
 from . import (analytics, brand_kit, catalog, engine_insights, extract, factcheck, generic_deck, templates_index,
                visuals, word_brief)
-from . import brand_analytics, chart_choice, entity_relevance, evidence, repair_context, tag_insights
+from . import brand_analytics, chart_choice, entity_relevance, evidence, latest24h, repair_context, tag_insights
 from ...agents import question_tag_schema
 from . import rows as R
 from .citations import CitationRegistry, domain_of
@@ -404,6 +404,41 @@ def _question_plan(project_id: int, llm, q: RQ, rows, stored: dict, log) -> dict
     return plan
 
 
+LATEST24H_WAIT_S = 150       # a deck with no stored 24h refresh waits this long for one, then shows "Refresh to load"
+LATEST24H_POLL_S = 3
+
+
+def _latest24h(project_id: int, llm, log) -> dict | None:
+    """The latest completed "last 24h" refresh for the deck's live slides; with none stored, one is run (bounded)."""
+    refresh = store.get_latest_latest24h_refresh(project_id)
+    if refresh and refresh["status"] == "completed":
+        return refresh
+    try:
+        latest24h.start(project_id, llm=llm)
+    except latest24h.RefreshBusy:
+        pass                                  # one already running: wait for it
+    deadline = time.time() + LATEST24H_WAIT_S
+    while time.time() < deadline:
+        refresh = store.get_latest_latest24h_refresh(project_id)
+        if refresh and refresh["status"] != "running":
+            break
+        time.sleep(LATEST24H_POLL_S)
+    if refresh and refresh["status"] == "completed":
+        log(f"Last 24h: {refresh['kept']} articles kept of {refresh['fetched']} fetched")
+        return refresh
+    log("Last 24h: no refresh finished in time; the slide offers Refresh to load the last 24h")
+    return None
+
+
+def _outlet_icon_files(refresh: dict | None, folder: Path) -> dict[str, str]:
+    """{outlet: its site icon file} for the 24h dashboard's outlet bars (the deck's chart logos are files)."""
+    outlets = ((refresh or {}).get("charts") or {}).get("outlets") or {}
+    # the outlet's own site (an undecoded news.google.com link would give every outlet Google's icon)
+    sites = {a["outlet"]: domain_of(latest24h._site(a)) for a in (refresh or {}).get("articles") or [] if a.get("outlet")}
+    found = {o: visuals.favicon_png(sites.get(o, ""), folder) for o in outlets.get("categories") or []}
+    return {o: str(p) for o, p in found.items() if p}
+
+
 def _fit_chart(section: Section, question: str) -> Section:
     """The section drawn as the chart its data and question call for (see chart_choice)."""
     if section.skipped or not section.chart:
@@ -774,6 +809,8 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
                 rqs, {**sections_by_rq, BRAND_KEY: brand_secs}, rows_by_rq, rows, brands,
                 {**{q.id: _relevant_urls(rows_by_rq[q.id], answer_tags[q.id], brands) for q in rqs},
                  BRAND_KEY: {r.article.norm_url for r in brand_evidence}})
+            plan_input.latest24h = _latest24h(project_id, llm, run.log)
+            plan_input.latest24h_icons = _outlet_icon_files(plan_input.latest24h, out_dir / "favicons")
             studio = run_studio(run, project_id, llm, plan_input,
                                 inp.brand_colors, inp.brand_image, inp.logos, out_dir,
                                 on_fix=lambda sid, action, kind: agent_memory.remember(
