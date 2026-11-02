@@ -84,7 +84,8 @@ def _row(rec: dict, rq: str | None, source_file: str, index: int, date_order: st
                       text=str(rec.get("content") or title),
                       sentiment=rec.get("overall_sentiment") or rec.get("sentiment") or None,
                       reach=_to_float(rec.get("reach")), source_file=source_file, row_index=index,
-                      image=str(rec.get("image") or "").strip())
+                      image=str(rec.get("image") or "").strip(), country=str(rec.get("country") or "").strip(),
+                      state=str(rec.get("state") or "").strip(), region=str(rec.get("region") or "").strip())
     return EngineRow(article=article, rq_ids={rq} if rq else set(), media_type=str(rec.get("media_type") or ""),
                      themes=_theme_labels(rec.get("themes")), entities=rec.get("entities") or {},
                      tags=rec.get("question_tags") if isinstance(rec.get("question_tags"), dict) else {},
@@ -110,6 +111,9 @@ def load_rows(project_id: int, rqs: list[RQ]) -> list[EngineRow]:
             existing.tag_evidence = {**row.tag_evidence, **existing.tag_evidence}
             if not existing.article.image:      # an enriched record may lack the picture its export row carries
                 existing.article.image = row.article.image
+            if not (existing.article.state or existing.article.region):   # nor the State / Region columns
+                a, b = existing.article, row.article
+                a.country, a.state, a.region = a.country or b.country, b.state, b.region
         else:
             merged[row.article.norm_url] = row
 
