@@ -255,8 +255,10 @@ def regenerate_spec(
 
     _emit("identifying_clarifications")
     clarifications = _identify_clarifications(project_spec, sections)
-    # Dedupe against what's already on this spec (e.g. from the original generate, or a
-    # prior reanalyze) so re-running Reanalyze doesn't pile up repeat clarification rows.
+    # Reanalysis replaces the clarifications: drop the ones this run no longer raises (a failed first run's
+    # "No specific products were identified" outlived the products the rerun found), keep rows it raises again
+    # (with any answer the analyst gave), and add only the new ones.
+    store.remove_clarifications_except(spec_id, {cq["question"] for cq in clarifications})
     existing_questions = {c.get("question") for c in existing.get("clarifications", [])}
     for cq in clarifications:
         if cq["question"] not in existing_questions:
