@@ -405,7 +405,7 @@ def fetch_preview(req: FetchPreviewRequest):
                      "progress_pct": 5, "message": "Building queries"})
         try:
             spec = project.get("spec", {})
-            topics = multi_source_module.build_boolean_queries(spec)
+            topics = multi_source_module.build_boolean_queries(spec, get_llm_client())
             adapter = LiveWebResearchAdapter()
             date_range = adapter._extract_date_range(spec)
             geography = adapter._extract_geography(spec)
