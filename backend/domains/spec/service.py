@@ -829,9 +829,26 @@ def _identify_clarifications(spec: dict, sections: dict) -> list[dict]:
     # Non-blocking safety net: if the LLM (or the deterministic tier) came up empty on a
     # data point the analyst may still have in mind, ask rather than silently leave it
     # blank. Never blocking — the analyst can proceed and fill these in later if they apply.
-    entity_types_present = {
-        ent.get("type") for ent in entities_content if isinstance(ent, dict)
-    } if isinstance(entities_content, list) else set()
+    ents = [e for e in entities_content if isinstance(e, dict)] if isinstance(entities_content, list) else []
+    entity_types_present = {ent.get("type") for ent in ents}
+    # A gap prompt must not contradict what scope did extract: an executive is a named person, brands and
+    # competitors are companies, and products tagged with a group (flagship/new_launch) form a lineup.
+    if "executive" in entity_types_present:
+        entity_types_present.add("person")
+    if entity_types_present & {"brand", "competitor"}:
+        entity_types_present.add("company")
+    if "product_group" in entity_types_present:
+        entity_types_present.add("product")
+    if any(e.get("type") == "product" and e.get("group") for e in ents):
+        entity_types_present.add("product_group")
+    suggested = [s.get("name") for s in spec.get("suggested_competitors") or [] if s.get("name")]
+    if suggested:
+        clarifications.append({
+            "question": f"Other competitors in this category not named in the brief: {', '.join(suggested)} — "
+                        "add any of them to the competitor set?",
+            "section_key": "entities",
+            "is_blocking": False,
+        })
     _ENTITY_GAP_PROMPTS = {
         "company": "No company/organization entities were identified — are there any relevant companies to track?",
         "product": "No specific products were identified — are there specific products this research should cover?",
