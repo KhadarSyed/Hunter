@@ -622,6 +622,11 @@ def _extract_brand_name(spec: dict) -> str:
     return brands[0] if brands else "Unknown"
 
 
+def _names(items: list) -> list[str]:
+    """Scope and brand-context lists hold plain names or {"name": ...} entries (scope competitors do)."""
+    return [str(i.get("name") or "") if isinstance(i, dict) else str(i) for i in items]
+
+
 def _build_user_prompt(spec: dict, brand_intelligence: dict) -> str:
     """Assemble the user-facing prompt from spec and brand context."""
     parts = [
@@ -653,15 +658,15 @@ def _build_user_prompt(spec: dict, brand_intelligence: dict) -> str:
     # Scope details.
     scope = spec.get("included_scope", {})
     if scope.get("platforms"):
-        parts.append(f"\nPlatforms: {', '.join(scope['platforms'])}")
+        parts.append(f"\nPlatforms: {', '.join(_names(scope['platforms']))}")
     if scope.get("countries"):
-        parts.append(f"Countries: {', '.join(scope['countries'])}")
+        parts.append(f"Countries: {', '.join(_names(scope['countries']))}")
     if scope.get("languages"):
-        parts.append(f"Languages: {', '.join(scope['languages'])}")
+        parts.append(f"Languages: {', '.join(_names(scope['languages']))}")
     if scope.get("time_period"):
         parts.append(f"Time Period: {scope['time_period']}")
     if scope.get("competitors"):
-        parts.append(f"Competitors: {', '.join(scope['competitors'])}")
+        parts.append(f"Competitors: {', '.join(_names(scope['competitors']))}")
 
     # Exclusions from brief scope.
     excluded = spec.get("excluded_scope", [])
@@ -678,18 +683,18 @@ def _build_user_prompt(spec: dict, brand_intelligence: dict) -> str:
         parts.append("\n--- BRAND INTELLIGENCE ---")
         if brand_intelligence.get("aliases"):
             parts.append(
-                f"Known aliases: {', '.join(brand_intelligence['aliases'])}")
+                f"Known aliases: {', '.join(_names(brand_intelligence['aliases']))}")
         if brand_intelligence.get("products"):
             parts.append(
-                f"Products: {', '.join(brand_intelligence['products'])}")
+                f"Products: {', '.join(_names(brand_intelligence['products']))}")
         if brand_intelligence.get("industry_terms"):
             parts.append(
                 f"Industry terms: "
-                f"{', '.join(brand_intelligence['industry_terms'])}")
+                f"{', '.join(_names(brand_intelligence['industry_terms']))}")
         if brand_intelligence.get("common_misspellings"):
             parts.append(
                 f"Common misspellings: "
-                f"{', '.join(brand_intelligence['common_misspellings'])}")
+                f"{', '.join(_names(brand_intelligence['common_misspellings']))}")
 
     return "\n".join(parts)
 
