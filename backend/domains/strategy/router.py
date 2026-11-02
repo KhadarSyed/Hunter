@@ -1272,8 +1272,10 @@ def enrich_dataset_route(dataset_id: IdPath, _access: Annotated[dict, Depends(re
             # Tag against what this file's research question asks about (sport, injury type, ...), not only the
             # fixed sentiment/theme/entity schema
             dimensions = dimensions_for_dataset(dataset, llm_client)
+            to_tag, also = tag_schemas.with_also_questions(dataset, to_tag, llm_client)
             result = enrich_dataset(to_tag, brand_name, competitors, llm_client=llm_client, emit=on_event,
-                                    dimensions=dimensions, tag_schema=tag_schemas.schema_for_dataset(dataset, llm_client))
+                                    dimensions=dimensions, tag_schema=tag_schemas.schema_for_dataset(dataset, llm_client),
+                                    also_schemas=also)
             tagged_by_id = {str(r["id"]): r for r in result["records"]}
             merged = [preserved_by_id.get(str(r["id"])) or tagged_by_id[str(r["id"])] for r in records]
 
