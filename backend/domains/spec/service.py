@@ -85,6 +85,13 @@ def _apply_form_context(llm_spec: dict, form_spec: dict) -> dict:
     return merged
 
 
+def _analysis_failed(result: dict, next_step: str) -> str:
+    """The job's error when the agent produced no usable spec: saving the form placeholder as "completed" hid it."""
+    reason = result.get("error") or "; ".join(result.get("validation_errors") or []) or "no usable output"
+    return (f"The brief could not be analysed after {result.get('attempts', 0)} attempt(s) ({reason[:200]}). "
+            f"{next_step}")
+
+
 def generate_spec(
     project_id: int,
     raw_brief_text: str = "",
@@ -135,7 +142,7 @@ def generate_spec(
             project_spec = _apply_form_context(grounded_spec, project_spec)
             store.update_project_spec(project_id, project_spec)
         else:
-            _emit("brief_scope_incomplete", {"validation_errors": result.get("validation_errors", [])})
+            raise ValueError(_analysis_failed(result, "Nothing was saved — click Analyze Brief to try again."))
 
     _emit("building_sections")
     sections = _build_sections(project_spec, raw_brief_text or project_spec.get("raw_brief", ""))
@@ -238,7 +245,7 @@ def regenerate_spec(
             project_spec = _apply_form_context(grounded_spec, project_spec)
             store.update_project_spec(project_id, project_spec)
         else:
-            _emit("brief_scope_incomplete", {"validation_errors": result.get("validation_errors", [])})
+            raise ValueError(_analysis_failed(result, "The previous specification is unchanged — click Reanalyze to try again."))
 
     _emit("building_sections")
     sections = _build_sections(project_spec, raw_brief_text or project_spec.get("raw_brief", ""))

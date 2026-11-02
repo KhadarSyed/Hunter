@@ -863,6 +863,7 @@ def run(
     spec = None
     all_errors: list[ValidationError] = []
     attempt = 0
+    last_error = ""
 
     for attempt in range(1, max_retries + 2):
         emit("brief_scope_attempt", {"attempt": attempt})
@@ -901,13 +902,15 @@ def run(
                 format_json=True,
             )
         except Exception as e:
-            emit("brief_scope_error", {"error": f"LLM call failed: {e}"})
+            last_error = f"LLM call failed: {e}"
+            emit("brief_scope_error", {"error": last_error})
             continue
 
         try:
             spec = _extract_json(raw_response)
         except (json.JSONDecodeError, ValueError) as e:
-            emit("brief_scope_error", {"error": f"JSON parse failed: {e}"})
+            last_error = f"JSON parse failed: {e}"
+            emit("brief_scope_error", {"error": last_error})
             continue
 
         _apply_defaults(spec)
@@ -935,6 +938,7 @@ def run(
         emit("brief_scope_failed", {"elapsed": elapsed})
         return {
             "spec": None,
+            "error": last_error,
             "validation_errors": [repr(e) for e in all_errors],
             "attempts": attempt,
             "elapsed_seconds": elapsed,
