@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass, field
 
 from ...core import store
+from ..deliverable import chart_choice
 from ..deliverable.engine_types import RQ, Section
 from .indexer import FAMILY_WORDS
 from . import tables
@@ -33,6 +34,8 @@ KEY_INSIGHTS = 3                  # a question's insight cards, side by side on 
 SEGMENT_CARDS = 5                 # a breakdown chart beside one explanation card per segment ("S" layout)
 BRAND_KEY = "BRAND"                       # sections_by_rq key of the brand vs competitors chapter
 BRAND_KICKER = "Brand vs competitors"
+GEO_KEY = "GEO"                           # the overview map, when no question asks where
+GEO_QUESTION = "Where does the coverage come from?"
 DENSE_KINDS = {"line_peaks", "column", "treemap", "us_map"}
 _CODE_PREFIX = re.compile(r"\bRQ\d+\s*:\s*")
 _CODE = re.compile(r"\bRQ(\d+)\b")
@@ -170,6 +173,9 @@ def _evidence(rq: RQ, kicker: str, sections: list[Section], family: str,
     for i, sec in enumerate(drawn):
         charts = [sec.chart] if sec.chart else []
         tables = [sec.table] if sec.table else []
+        matrix = (sec.table or {}).get("matrix")
+        if matrix and not charts:          # a cross-tab is drawn (heatmap, flow or 100% bars), not tabled
+            charts, tables = [chart_choice.matrix_chart(matrix, rq.question, tuple(matrix["dims"]))], []
         slide_type = TYPE_FOR_CHART.get((sec.chart or {}).get("kind", ""), "comparison_table")
         cards = (summaries or {}).get(sec.id, [])[:SEGMENT_CARDS]   # its summary, or one card per segment
         out.append(SlideSpec(
@@ -250,6 +256,9 @@ def build_deck_spec(inp: PlanInput) -> DeckSpec:
                                 title="Brief checklist", facts_allowed=list(all_facts),
                                 tables=[{"header": ["Brief asked", "Status", "Where", "Note"],
                                          "rows": [[r["ask"], r["status"], "—", r["note"]] for r in rows]}]))
+    geo = inp.sections_by_rq.get(GEO_KEY) or []
+    if geo:                               # appendix: where all the coverage comes from (no question asked where)
+        slides += _evidence(RQ(GEO_KEY, GEO_QUESTION), "Appendix", geo, family, inp.section_summaries)
     slides += _methodology_slides(inp, all_facts)
     for p in range(0, max(1, len(inp.citations)), CITES_PER_SLIDE):
         page = inp.citations[p:p + CITES_PER_SLIDE]

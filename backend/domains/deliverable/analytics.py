@@ -154,6 +154,9 @@ def _reach(module, rq, rows, base_n, _):
                                            if r.article.outlet in {o for o, _ in top}))
 
 
+_TONE = {"positive": 1, "neutral": 0, "negative": -1}
+
+
 def _themes(module, rq, rows, base_n, _):
     display: dict[str, str] = {}
     counts: Counter = Counter()
@@ -165,8 +168,14 @@ def _themes(module, rq, rows, base_n, _):
     top = [(display[k], c) for k, c in counts.most_common(TOP_N)]
     if not top:
         return _section(module, rq, skipped="No themes in the data")
+    tones: dict[str, list[int]] = {}           # theme -> +1 / 0 / -1 per article with a sentiment
+    for r in rows:
+        score = _TONE.get((r.article.sentiment or "").strip().lower())
+        for key in {theme_key(t) for t in r.themes if t and t.strip()} if score is not None else ():
+            tones.setdefault(display[key], []).append(score)
+    tone = [round(sum(tones[t]) / len(tones[t]), 2) if tones.get(t) else None for t, _ in top]
     return _section(module, rq, chart={"kind": "treemap", "categories": [t for t, _ in top], "values": [c for _, c in top],
-                                       "unit": "count", "peaks": [], "series_label": "Articles"},
+                                       "unit": "count", "peaks": [], "series_label": "Articles", "tone": tone},
                     facts=[f"Theme \"{t}\": {c} of {len(rows)} articles" for t, c in top],
                     segment_urls=_segments((display[k], r) for r in rows
                                            for k in {theme_key(t) for t in r.themes if t and t.strip()}
@@ -433,16 +442,20 @@ def _crosstab(module, rq, rows, base_n, _):
     if not cols:                      # a table of 0.0% says nothing: no article carries both dimensions
         return _section(module, rq, skipped=f"No article names both a {row_dim.label.lower()} and a "
                                             f"{col_dim.label.lower()}")
-    table_rows, facts = [], []
+    table_rows, facts, matrix = [], [], {"rows": row_names, "cols": cols, "counts": [], "n": [],
+                                         "dims": [row_dim.label, col_dim.label]}
     for name in row_names:
         within = [cv for rv, cv in per_row if name in rv]
         counts = Counter(c for cv in within for c in cv)
+        matrix["counts"].append([counts[c] for c in cols])
+        matrix["n"].append(len(within))
         table_rows.append([name] + [f"{_pct(counts[c], len(within))}%" for c in cols] + [str(len(within))])
         facts += [f"{rq.id}: {_pct(counts[c], len(within))}% of {name} articles mention {c} ({counts[c]} of {len(within)})"
                   for c in cols if counts[c]]
     # a heatmap table: two dimensions of shares that overlap are read cell by cell, shaded by size
     return _section(module, rq, table={"header": [row_dim.label] + cols + ["Articles"], "rows": table_rows,
-                                       "col_widths": [3.0] + [1.6] * len(cols) + [1.2], "heat": True},
+                                       "col_widths": [3.0] + [1.6] * len(cols) + [1.2], "heat": True,
+                                       "matrix": matrix},       # the deck draws it as a heatmap or a flow
                     facts=facts)
 
 

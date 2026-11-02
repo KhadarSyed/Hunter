@@ -13,6 +13,9 @@ from .spec import DeckTokens
 
 VENDOR = Path(__file__).parent / "vendor"
 DRAWN = {"bar", "column", "line_peaks", "doughnut", "treemap", "us_map"}     # a KPI stays the big number
+# a theme bubble's colour by its articles' net sentiment (-1..1): negative, mixed, positive (the deck's status colours)
+_TONE_COLORS = {-1: "#C62828", 0: "#8A8A99", 1: "#2E7D32"}
+TONE_SPLIT = 0.15
 
 
 def _badge(name: str, t: DeckTokens) -> str:
@@ -41,7 +44,8 @@ def chart_config(chart: dict, t: DeckTokens, logos: dict[str, str] | None = None
     cats = [str(c) for c in chart.get("categories") or []]
     vals = [float(v) for v in chart.get("values") or []]
     base = {"kind": kind, "unit": chart.get("unit", "count"), "font": t.chrome_font or t.body_font,
-            "text": f"#{t.text}", "muted": f"#{t.muted}", "primary": f"#{t.primary}", "label": chart.get("series_label") or ""}
+            "text": f"#{t.text}", "muted": f"#{t.muted}", "primary": f"#{t.primary}", "label": chart.get("series_label") or "",
+            "reason": chart.get("choice") or "", "alternatives": chart.get("alternatives") or ""}
     if groups:
         stacks = [str(s) for s in chart["breakdown"]["stacks"]]
         names = [str(g["name"]) for g in groups]
@@ -53,7 +57,22 @@ def chart_config(chart: dict, t: DeckTokens, logos: dict[str, str] | None = None
                 "ink": [f"#{_on(c)}" for c in _colors(stacks, t)]}
     if kind == "us_map":
         return {**base, "color": f"#{t.series[0]}", "states": chart.get("states") or [],
-                "counties": chart.get("counties") or [], "reason": chart.get("choice") or ""}
+                "counties": chart.get("counties") or []}
+    view = chart.get("view")
+    if view in ("heatmap", "sankey"):
+        m = chart["matrix"]
+        cells = [{"row": r, "col": c, "value": round(100 * v / max(1, m["n"][i]), 1), "count": v}
+                 for i, r in enumerate(m["rows"]) for c, v in zip(m["cols"], m["counts"][i]) if view == "heatmap" or v]
+        return {**base, "kind": view, "rows": m["rows"], "cols": m["cols"], "cells": cells, "dims": m["dims"],
+                "colors": [f"#{c}" for c in _colors(m["rows"] + m["cols"], t)], "low": f"#{t.surface}"}
+    if view == "bubble":
+        tone = chart.get("tone") or [None] * len(cats)
+        fills = [f for f in t.series if not _neutral(f)] or list(t.series)
+        data = [{"category": c, "value": v, "tone": tn,
+                 "color": _TONE_COLORS[(tn > TONE_SPLIT) - (tn < -TONE_SPLIT)] if tn is not None else f"#{fills[i % len(fills)]}"}
+                for i, (c, v, tn) in enumerate(zip(cats, vals, tone))]
+        return {**base, "kind": "bubble", "data": [{**d, "ink": "#FFFFFF"} for d in data],
+                "toned": any(tn is not None for tn in tone)}
     top = max(vals, default=0) or 1
     peaks = set(chart.get("peaks") or [])
     if kind == "bar":

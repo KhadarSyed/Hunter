@@ -278,7 +278,9 @@ def build_pptx(pngs: list[Path], spec: DeckSpec, out: Path, builds: list[Shot] |
         _animate(slide, ids)
         # card text marks its key phrases **bold** for the slide; speaker notes are plain text
         lines = [s.kicker, s.question or s.title, s.so_what] + [
-            f"{c.get('headline', '')}: {c.get('text', '').replace('**', '')}" for c in s.cards]
+            f"{c.get('headline', '')}: {c.get('text', '').replace('**', '')}" for c in s.cards] + [
+            f"Why this chart: {c['choice']}" + (f" (also considered: {c['alternatives']})" if c.get("alternatives") else "")
+            for c in s.charts if c.get("choice")]
         if s.type in ("verbatim_wall", "citations") and s.notes:
             lines.append(s.notes)
         slide.notes_slide.notes_text_frame.text = "\n".join(x for x in lines if x)

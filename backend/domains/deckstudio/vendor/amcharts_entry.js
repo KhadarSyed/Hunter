@@ -7,6 +7,7 @@ import * as am5xy from "@amcharts/amcharts5/xy";
 import * as am5percent from "@amcharts/amcharts5/percent";
 import * as am5hierarchy from "@amcharts/amcharts5/hierarchy";
 import * as am5map from "@amcharts/amcharts5/map";
+import * as am5flow from "@amcharts/amcharts5/flow";
 import am5themes_Animated from "@amcharts/amcharts5/themes/Animated";
 
-Object.assign(window, { am5, am5xy, am5percent, am5hierarchy, am5map, am5themes_Animated });
+Object.assign(window, { am5, am5xy, am5percent, am5hierarchy, am5map, am5flow, am5themes_Animated });

@@ -260,8 +260,78 @@
     return [chart, states];
   }
 
+  // themes as packed bubbles: size = articles, colour = the theme's net sentiment (as amCharts' packed circles demo)
+  function bubble(root, cfg) {
+    var series = root.container.children.push(am5hierarchy.Pack.new(root, {
+      valueField: "value", categoryField: "category", childDataField: "children", topDepth: 1, initialDepth: 1,
+      nodePadding: 6, tooltip: tooltip(root, cfg)
+    }));
+    series.set("colors", am5.ColorSet.new(root, { colors: cfg.data.map(function (d) { return c(d.color); }) }));
+    series.circles.template.setAll({ strokeOpacity: 0, fillOpacity: 0.92, cursorOverStyle: "pointer",
+      tooltipText: cfg.toned ? "{category}: [bold]{sum}[/] articles, net sentiment {tone}" : "{category}: [bold]{sum}[/] articles" });
+    series.labels.template.setAll({ text: "[fontWeight:600]{category}[/]\n{sum}", fontSize: 19, fill: c("#FFFFFF"),
+      oversizedBehavior: "fit", textAlign: "center" });
+    series.data.setAll([{ category: "All", children: cfg.data.map(function (d) {
+      return Object.assign({}, d, { tone: d.tone == null ? "n/a" : (d.tone > 0 ? "+" : "") + d.tone });
+    }) }]);
+    if (cfg.toned) {                 // the colour key: what green, grey and red mean
+      var key = root.container.children.push(am5.Label.new(root, { x: am5.p100, centerX: am5.p100, y: am5.p100, centerY: am5.p100,
+        text: "[#2E7D32]●[/] mostly positive   [#8A8A99]●[/] mixed   [#C62828]●[/] mostly negative", fontSize: 16, fill: c(cfg.muted) }));
+      key.toFront();
+    }
+    return [series, series];
+  }
+
+  // two dimensions crossed (as amCharts' heat map demo): each cell shaded by its share of the row's articles
+  function heatmap(root, cfg) {
+    var chart = root.container.children.push(am5xy.XYChart.new(root, { panX: false, panY: false, wheelX: "none", wheelY: "none", paddingLeft: 0, layout: root.verticalLayout }));
+    var yr = am5xy.AxisRendererY.new(root, { inversed: true, minGridDistance: 10 });
+    yr.grid.template.set("visible", false);
+    yr.labels.template.setAll({ fontSize: 19, maxWidth: 260, oversizedBehavior: "truncate", ellipsis: "…" });
+    var y = chart.yAxes.push(am5xy.CategoryAxis.new(root, { categoryField: "row", renderer: yr }));
+    var xr = am5xy.AxisRendererX.new(root, { opposite: true, minGridDistance: 10 });
+    xr.grid.template.set("visible", false);
+    xr.labels.template.setAll({ fontSize: 17, fill: c(cfg.muted), oversizedBehavior: "wrap", textAlign: "center" });
+    xr.labels.template.adapters.add("maxWidth", function () { return Math.max(60, x.width() / Math.max(1, cfg.cols.length) - 8); });
+    var x = chart.xAxes.push(am5xy.CategoryAxis.new(root, { categoryField: "col", renderer: xr }));
+    var series = chart.series.push(am5xy.ColumnSeries.new(root, {
+      calculateAggregates: true, clustered: false, stroke: c("#FFFFFF"), xAxis: x, yAxis: y,
+      categoryXField: "col", categoryYField: "row", valueField: "value", tooltip: tooltip(root, cfg)
+    }));
+    series.columns.template.setAll({ tooltipText: "{categoryY}, {categoryX}: [bold]{value}%[/] ({count} articles)",
+      strokeOpacity: 1, strokeWidth: 3, width: am5.percent(100), height: am5.percent(100), cursorOverStyle: "pointer" });
+    series.set("heatRules", [{ target: series.columns.template, dataField: "value", min: c(cfg.low), max: c(cfg.primary), key: "fill" }]);
+    series.bullets.push(function (root, s, dataItem) {
+      var dark = dataItem.get("value") > 0.55 * (s.getPrivate("valueHigh") || 1);
+      return am5.Bullet.new(root, { sprite: am5.Label.new(root, { text: "{value}%", populateText: true, centerX: am5.p50, centerY: am5.p50,
+        fontSize: 18, fontWeight: "700", fill: c(dark ? "#FFFFFF" : cfg.text) }) });
+    });
+    series.data.setAll(cfg.cells);
+    y.data.setAll(cfg.rows.map(function (r) { return { row: r }; }));
+    x.data.setAll(cfg.cols.map(function (k) { return { col: k }; }));
+    return [chart, series];
+  }
+
+  // a flow (brand -> award) as amCharts' Sankey: each band as wide as the articles that link the two
+  function sankey(root, cfg) {
+    var series = root.container.children.push(am5flow.Sankey.new(root, {
+      sourceIdField: "from", targetIdField: "to", valueField: "value", nodeWidth: 18, nodePadding: 14,
+      paddingLeft: 10, paddingRight: 220, tooltip: tooltip(root, cfg)
+    }));
+    // node ids are the names (a column named like a row gets a trailing space, so the two stay apart)
+    function colId(k) { return cfg.rows.indexOf(k) >= 0 ? k + " " : k; }
+    series.nodes.set("colors", am5.ColorSet.new(root, { colors: cfg.colors.map(function (k) { return c(k); }) }));
+    series.nodes.data.setAll(cfg.rows.concat(cfg.cols.map(colId)).map(function (id) { return { id: id }; }));
+    series.nodes.labels.template.setAll({ fontSize: 19, fill: c(cfg.text) });
+    series.links.template.setAll({ fillStyle: "source", fillOpacity: 0.35, cursorOverStyle: "pointer",
+      tooltipText: "{row} → {col}: [bold]{count}[/] articles" });
+    series.data.setAll(cfg.cells.map(function (k) { return { from: k.row, to: colId(k.col), value: k.count, row: k.row, col: k.col, count: k.count }; }));
+    return [series, series];
+  }
+
   var BUILD = { bar: function (r, f) { return columns(r, f, true); }, column: function (r, f) { return columns(r, f, false); },
-                line_peaks: line, doughnut: doughnut, treemap: treemap, stacked: stacked, us_map: usMap };
+                line_peaks: line, doughnut: doughnut, treemap: treemap, stacked: stacked, us_map: usMap,
+                bubble: bubble, heatmap: heatmap, sankey: sankey };
 
   function animate(made) {
     if (exportMode) return;
@@ -291,6 +361,14 @@
     el.className = "amchart";
     var vb = svg.viewBox && svg.viewBox.baseVal;
     if (vb && vb.width) el.style.aspectRatio = vb.width + " / " + vb.height;   // sized as the SVG it stands in for
+    // why this chart: a small "i" in the chart's corner, its hover text the choice and what else was considered
+    if (cfg.reason && !exportMode) {
+      var why = document.createElement("span");
+      why.className = "chart-why";
+      why.textContent = "i";
+      why.title = "Why this chart: " + cfg.reason + (cfg.alternatives ? "\nAlso considered: " + cfg.alternatives : "");
+      el.appendChild(why);
+    }
     svg.parentNode.insertBefore(el, svg);
     try {
       var root = rootFor(el, cfg);

@@ -29,7 +29,7 @@ from ..agent.repair import issues
 from ..deckstudio import verbatims, vision
 from ..deckstudio.pipeline import run_studio
 from ..deckstudio.checklist import brief_asks
-from ..deckstudio.planner import BRAND_KEY, PlanInput
+from ..deckstudio.planner import BRAND_KEY, GEO_KEY, PlanInput
 from ..strategy.dimensions import project_dimensions as question_dimensions
 
 logger = logging.getLogger(__name__)
@@ -408,7 +408,7 @@ def _fit_chart(section: Section, question: str) -> Section:
     """The section drawn as the chart its data and question call for (see chart_choice)."""
     if section.skipped or not section.chart:
         return section
-    return dataclasses.replace(section, chart=chart_choice.choose(section.chart, question))
+    return dataclasses.replace(section, chart=chart_choice.choose(section.chart, question, section.id))
 
 
 def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_rq, answers, takeaways,
@@ -653,6 +653,13 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         brand_secs = [_fit_chart(s, s.title) for s in brand_analytics.brand_sections(rows, brands)]
         for s in brand_secs:
             run.section(s.to_dict())
+        # no question asks where: one overview map of all the coverage, in the appendix, not on a themes question
+        geo_secs = [] if map_rq else [s for s in [analytics.compute_module(
+            {"module": "us_map", "title": "Where the coverage comes from", "entity_kind": None},
+            RQ(GEO_KEY, "Where does the coverage come from?"), rows, base, None)] if not s.skipped]
+        for s in geo_secs:
+            run.section(s.to_dict())
+            run.log(f"Overview map in the appendix: no question asks where ({s.chart['choice']})")
         sections_by_rq: dict[str, list[Section]] = {}
         for q in rqs:
             sections_by_rq[q.id] = [analytics.compute_module(m, q, rows_by_rq[q.id], base,
@@ -754,7 +761,8 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
                                      thumbs_dir=str(out_dir / "thumbs"))
         studio_paths = {}
         try:
-            plan_input = _plan_input(project, inp, rqs, overview, {**sections_by_rq, BRAND_KEY: brand_secs},
+            plan_input = _plan_input(project, inp, rqs, overview,
+                                     {**sections_by_rq, BRAND_KEY: brand_secs, GEO_KEY: geo_secs},
                                      insights_by_rq, answers,
                                      takeaways, methodology, base, {q.id: plans[q.id]["title"] for q in rqs},
                                      _verbatims_by_rq(rqs, rows_by_rq, insights_by_rq, registry, brands,
