@@ -201,7 +201,8 @@
       s.mapPolygons.template.adapters.add("tooltipText", function (text, target) {
         return target.dataItem && target.dataItem.get("value") != null ? text : "{name}: no articles";
       });
-      s.mapPolygons.template.states.create("hover", { fill: c(cfg.primary) });
+      // hover outlines the area: a fill would read as "most articles" on this scale
+      s.mapPolygons.template.states.create("hover", { stroke: c(cfg.text), strokeWidth: 2.5 });
       s.set("heatRules", [{ target: s.mapPolygons.template, dataField: "value", min: low, max: high, key: "fill" }]);
       return s;
     }
@@ -217,7 +218,7 @@
     if (exportMode) return [chart, states];
     // a click on a state zooms to it and shows its counties; the house button goes back to the states
     var counties = null;     // made on the first drill: an empty series makes the map's bounds NaN and zooming blanks it
-    var hint = root.container.children.push(am5.Label.new(root, { text: "Click a state to see its counties", fontSize: 16, fill: c(cfg.muted), x: 0, y: am5.p100, centerY: am5.p100 }));
+    var hint = root.container.children.push(am5.Label.new(root, { text: "Click a state to see its counties", fontSize: 16, fill: c(cfg.muted), x: 70, y: am5.p100, centerY: am5.p100 }));
     var back = root.container.children.push(am5.Button.new(root, {
       x: 0, y: 0, visible: false, paddingTop: 10, paddingBottom: 10, interactiveChildren: false,
       icon: am5.Graphics.new(root, { svgPath: "M16,8 L14,8 L14,16 L10,16 L10,10 L6,10 L6,16 L2,16 L2,8 L0,8 L8,0 L16,8 Z M16,8", fill: c("#FFFFFF") })
