@@ -6,10 +6,12 @@ Also contains:
 from __future__ import annotations
 
 import json
+import shutil
 import time
+from pathlib import Path
 from typing import Optional
 
-from database.db import _conn, declared_foreign_keys, table_columns, table_names
+from database.db import _PATH_COLUMNS, _conn, declared_foreign_keys, table_columns, table_names
 
 # ─── Projects ────────────────────────────────────────────────────────────────
 
@@ -252,6 +254,7 @@ _UNDECLARED_LINKS: list[tuple[str, str, str]] = [  # (child table, child column,
     ("intel_word_history", "presentation_id", "intel_pc_presentations"),
     ("intel_word_metrics", "job_id", "intel_word_jobs"),
     ("intel_si_storyline_matches", "storyline_id", "intel_storylines"),
+    ("intel_dataset_files", "dataset_id", "intel_datasets"),   # the uploaded file's bytes
 ]
 _ROOT = "intel_projects"
 _DELETE_CHUNK = 500  # stay under SQLite's bound-parameter limit
@@ -284,10 +287,14 @@ def delete_project(project_id: int) -> dict[str, int] | None:
             return None
         links = _child_links(conn)
         plan: list[tuple[str, list]] = []  # (table, ids), deepest first
+        keyed: list[tuple[str, str, list]] = []  # tables with no id column (keyed by their link): deleted by it
         seen: set[tuple[str, object]] = set()
 
         def collect(table: str, ids: list) -> None:
             for child, col in links.get(table, []):
+                if "id" not in table_columns(conn, child):   # e.g. agent_autopilots, intel_deliverable_plans
+                    keyed.append((child, col, ids))
+                    continue
                 found = []
                 for i in range(0, len(ids), _DELETE_CHUNK):
                     chunk = ids[i:i + _DELETE_CHUNK]
@@ -301,14 +308,57 @@ def delete_project(project_id: int) -> dict[str, int] | None:
 
         collect(_ROOT, [project_id])
         plan.append((_ROOT, [project_id]))
+        files = _referenced_files(conn, plan)
         deleted: dict[str, int] = {}
         with conn:
+            for table, col, ids in keyed:
+                for i in range(0, len(ids), _DELETE_CHUNK):
+                    chunk = ids[i:i + _DELETE_CHUNK]
+                    marks = ",".join("?" * len(chunk))
+                    deleted[table] = deleted.get(table, 0) + conn.execute(
+                        f'DELETE FROM "{table}" WHERE "{col}" IN ({marks})', chunk).rowcount
             for table, ids in plan:
                 for i in range(0, len(ids), _DELETE_CHUNK):
                     chunk = ids[i:i + _DELETE_CHUNK]
                     marks = ",".join("?" * len(chunk))
                     deleted[table] = deleted.get(table, 0) + conn.execute(
                         f'DELETE FROM "{table}" WHERE id IN ({marks})', chunk).rowcount
+        # its files go with its rows, after the commit (a failed delete keeps both): what the rows pointed at, the
+        # project's deliverables folder
+        from ...core import config
+        deleted["files"] = _remove_files(files + [config.DELIVERABLE_DIR / f"project_{project_id}"], config.DATA_DIR)
         return deleted
     finally:
         conn.close()
+
+
+def _referenced_files(conn, plan: list[tuple[str, list]]) -> list[Path]:
+    """Every file or folder the project's rows point at (database.db._PATH_COLUMNS)."""
+    out = []
+    for table, ids in plan:
+        for col in (c for t, c in _PATH_COLUMNS if t == table and not c.endswith("_json")):
+            for i in range(0, len(ids), _DELETE_CHUNK):
+                chunk = ids[i:i + _DELETE_CHUNK]
+                marks = ",".join("?" * len(chunk))
+                out += [Path(r[0]) for r in conn.execute(
+                    f'SELECT "{col}" FROM "{table}" WHERE id IN ({marks}) AND "{col}" IS NOT NULL', chunk) if r[0]]
+    return out
+
+
+def _remove_files(paths: list[Path], root: Path) -> int:
+    """Deletes each file or folder, but only inside the app's data folder: a stray path in a row never reaches
+    anything else. Returns how many were removed."""
+    root, n = root.resolve(), 0
+    for p in dict.fromkeys(paths):
+        try:
+            target = p.resolve()
+        except OSError:
+            continue
+        if root not in target.parents or not target.exists():
+            continue
+        if target.is_dir():
+            shutil.rmtree(target, ignore_errors=True)
+        else:
+            target.unlink(missing_ok=True)
+        n += 1
+    return n
