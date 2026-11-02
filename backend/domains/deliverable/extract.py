@@ -10,7 +10,7 @@ from .engine_types import EngineRow
 
 logger = logging.getLogger(__name__)
 BATCH = 8
-EXTRACT_SAMPLE = 400     # articles classified per question: the most-read ones, so cost is bounded on 40k+ rows
+EXTRACT_SAMPLE = 500    # articles classified per question: the most-read ones, so cost is bounded on 40k+ rows
 EXTRACT_WORKERS = 4      # concurrent model calls; one batch at a time made big questions take minutes
 MAX_TEXT = 3000
 
