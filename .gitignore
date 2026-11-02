@@ -82,3 +82,5 @@ scratch/
 
 # Standalone web-search POC (YouTube/Bluesky/HN/SearXNG), kept local until reviewed
 poc/
+.venv-gpu/
+data/recreate_inputs/
