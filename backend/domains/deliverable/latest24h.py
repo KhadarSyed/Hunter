@@ -145,6 +145,21 @@ def context_pattern(spec: dict, brands: list) -> re.Pattern:
     return re.compile(rf"(?<![\w-])(?:{alternation})(?![\w-])", re.IGNORECASE)
 
 
+_AUTO_INDUSTRY = next(iter(_INDUSTRY_WORDS))
+# Car brands that also make motorcycles (Honda, BMW, Suzuki): a MotoGP or motorbike story is not car coverage
+_MOTO = re.compile(r"\b(?:moto ?gp|moto[23]|wsbk|superbikes?|motorcycles?|motorbikes?|motocross|dirt ?bikes?|"
+                   r"scooters?)\b", re.IGNORECASE)
+_CAR = re.compile(r"\b(?:cars?|suvs?|sedans?|hatchbacks?|minivans?|crossovers?|pickups?|trucks?|automakers?|"
+                  r"carmakers?|dealerships?)\b", re.IGNORECASE)
+
+
+def car_story(article: dict, spec: dict) -> bool:
+    """For a car project: a motorcycle/motorsport-bike story counts only when it also talks about cars."""
+    industry = str((spec.get("industry") or {}).get("name") or "") if isinstance(spec.get("industry"), dict) else ""
+    text = _text(article)
+    return not re.search(_AUTO_INDUSTRY, industry, re.IGNORECASE) or not _MOTO.search(text) or bool(_CAR.search(text))
+
+
 def _uses(text: str, name: str) -> list[tuple[bool, bool, re.Match | None]]:
     """Each mention of `name`: (a possessive before it, as in "Chandler's Ford" or "China's BYD"; a venue word in the
     three words after it, as in 'Ford Field' or 'Ford Holiday River Parade'; those three words)."""
@@ -449,7 +464,7 @@ def run_refresh(refresh_id: int, project_id: int, llm=None, now: datetime | None
             a["brands"] = mentions(f"{a['title']}\n{a['snippet']}", brands)
         named = [a for a in unique if a["brands"]]
         context, ambiguous = context_pattern(project.get("spec") or {}, brands), ambiguous_brands(named)
-        on_topic = [a for a in named if in_context(a, context, ambiguous)]
+        on_topic = [a for a in named if in_context(a, context, ambiguous) and car_story(a, project.get("spec") or {})]
         country = project_country(project.get("spec") or {})
         if country:
             on_topic = [a for a, c in zip(on_topic, outlet_countries(on_topic)) if c in (None, country)]
