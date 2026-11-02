@@ -155,21 +155,6 @@ def _build_deterministic_strategy(spec: dict, raw_brief_text: str = "") -> dict:
         balanced_q = broad_q
     precise_q = f'("{brand_name}" NEAR/5 "{category}"){not_clause}' if category else balanced_q
 
-    rq_queries = []
-    for rq in spec.get("research_questions", []):
-        qid = rq.get("question_id", "")
-        q_text = rq.get("question", "")
-        keywords = [w for w in q_text.split() if len(w) > 4 and w.lower() not in
-                    ("which", "about", "their", "there", "these", "those", "where",
-                     "social", "media", "what")][:3]
-        kw_clause = " OR ".join(f'"{k}"' for k in keywords) if keywords else f'"{category}"'
-        rq_queries.append({
-            "question_id": qid,
-            "question": q_text,
-            "query": f'({brand_or}) AND ({kw_clause}){not_clause}',
-            "rationale": "Deterministic: brand + question keywords",
-        })
-
     scope = spec.get("included_scope", {})
 
     # Extract competitors from structured spec fields
@@ -243,18 +228,19 @@ def _build_deterministic_strategy(spec: dict, raw_brief_text: str = "") -> dict:
                 "use_case": f"Track {comp} activity in category",
             })
 
-        # Add competitive RQ queries
+    # One query per brief question (never invented ones): the brand, plus the competitors when the question compares
+    # them, AND the question's topic terms.
+    rq_queries = []
+    for rq in spec.get("research_questions", []):
+        q_text = rq.get("question", "")
+        names = [brand_name] + (competitors if _COMPARES.search(q_text) else [])
+        brands_or = " OR ".join(f'"{n}"' for n in names if n)
+        terms = _topic_terms(q_text, spec, names) or ([f'"{category}"'] if category else [])
         rq_queries.append({
-            "question_id": f"RQ{len(rq_queries) + 1}",
-            "question": f"How are {brand_name} and its competitors ({', '.join(competitors[:3])}) positioned in the {category or 'market'}?",
-            "query": f'{all_brands} AND ("market share" OR "competitive" OR "versus" OR "vs" OR "compared"){not_clause}',
-            "rationale": "Deterministic: brand + competitors + competitive keywords",
-        })
-        rq_queries.append({
-            "question_id": f"RQ{len(rq_queries) + 1}",
-            "question": f"What is the share of voice between {brand_name} and {', '.join(competitors[:3])}?",
-            "query": f'{all_brands}{not_clause}',
-            "rationale": "Deterministic: all brands for share of voice calculation",
+            "question_id": rq.get("question_id", ""),
+            "question": q_text,
+            "query": f'({brands_or}) AND ({" OR ".join(terms)}){not_clause}' if terms else f'({brands_or}){not_clause}',
+            "rationale": "Deterministic: brand + the question's topic terms",
         })
 
     # Build concepts/issues/events/people module (only when concept entities exist)
@@ -279,12 +265,12 @@ def _build_deterministic_strategy(spec: dict, raw_brief_text: str = "") -> dict:
 
     return {
         "strategy_summary": f"Deterministic Boolean strategy for {brand_name}. "
-                           f"Generated without LLM due to CPU timeout. "
+                           f"Generated without the LLM (unavailable, timed out or failed). "
                            f"Covers broad/balanced/precise variants"
                            f"{f', {len(competitors)} competitor queries' if competitors else ''}"
                            f" and {len(rq_queries)} research question sub-queries.",
         "_strategy_source": "deterministic",
-        "_note": "Generated deterministically because LLM timed out on CPU-only hardware. "
+        "_note": "Generated deterministically because the LLM strategy was unavailable, timed out or failed. "
                 "Queries use basic Boolean syntax and may benefit from LLM refinement.",
         "query_modules": [
             {
@@ -357,8 +343,73 @@ def _build_deterministic_strategy(spec: dict, raw_brief_text: str = "") -> dict:
 
 # Questions about all of a brand's coverage, not one topic in it
 _BRAND_WIDE = re.compile(r"share of voice|\bsov\b|\bvolume\b|\bspikes?\b|\bpeaks?\b|overall sentiment|"
-                         r"sentiment (?:breakout|breakdown|overview)|(?:prominent|key|top|main) themes", re.IGNORECASE)
-_COMPARES = re.compile(r"competitor|share of voice|\bsov\b|each brand", re.IGNORECASE)
+                         r"sentiment (?:breakout|breakdown|overview|distribution|split|mix)|"
+                         r"(?:prominent|key|top|main)(?: \w+)? themes", re.IGNORECASE)
+_COMPARES = re.compile(r"competitor|share of voice|\bsov\b|each brand|which brand|\bversus\b|\bvs\b", re.IGNORECASE)
+# Words a question is phrased with, not what its articles say ("Within coverage of ...", "sentiment distribution toward").
+_FILLER = frozenset("""a an the and or nor of in on to for with within without by from at as into is are was were be been
+being what which who whom whose how why when where whether does do did much many most more less least than toward towards
+about across between among each every any all its it their they his her this that these those there such very also
+coverage covered media social news editorial outlets conversation conversations discussion discussions mention mentions
+brand brands company companies competitor competitors named positioned position positioning compare compared comparison
+versus vs relative concern concerns concerning related relating associated drivers driver distribution sentiment tone
+share voice volume period during over e g eg exposed major key top main prominent overall us u s united states
+such often frequently reference references referenced discuss discussed discussing discussion talk talked described
+framed portrayed perceived perception cause caused drove drive driving moments stories story impact role""".split())
+_MONTHS = re.compile(r"^(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*$")
+# A question's concept word -> the words its articles use for it (a trailing * also matches plurals).
+_CONCEPT_TERMS = {
+    "autonom": ["self-driving", "autonomous", "autonomy", "FSD", "Full Self-Driving", "Autopilot", "robotaxi*"],
+    "self-driving": ["self-driving", "autonomous", "FSD", "Full Self-Driving", "Autopilot", "robotaxi*"],
+    "charging": ["charging", "charger*", "Supercharger*", "charging network"],
+    "recall": ["recall*", "NHTSA", "investigation*"],
+    "safety": ["safety", "NHTSA", "crash*", "investigation*"],
+    "pricing": ["price*", "pricing"],
+    "leadership": ["CEO", "leadership", "executive*"],
+}
+
+
+def _topic_terms(question: str, spec: dict, brand_names: list[str]) -> list[str]:
+    """A question's topic as quoted query terms: the items it lists in parentheses, the articles' words for the
+    concepts it names, the scope entities (and brand keywords) it mentions, then its remaining content words with
+    filler, brand names and dates dropped."""
+    lower = question.lower()
+    skip = {n.lower() for n in brand_names if n}
+    found: list[str] = []
+    for group in re.findall(r"\(([^)]*)\)", question):
+        found += [t.strip() for t in re.split(r",|\bor\b|\band\b", re.sub(r"\be\.?g\.?,?", "", group)) if t.strip()]
+    for concept, words in _CONCEPT_TERMS.items():
+        if concept in lower:
+            found += words
+    for ent in spec.get("validated_entities") or []:
+        if not isinstance(ent, dict):
+            continue
+        for name in [ent.get("name") or ""] + ((ent.get("keywords") or []) if ent.get("type") == "brand" else []):
+            if name and re.search(rf"\b{re.escape(name.lower())}\b", lower):
+                found.append(name)
+    in_terms = {w for t in found for w in re.findall(r"[\w'-]+", t.lower())}
+    for word in re.findall(r"[A-Za-z][\w'-]*", re.sub(r"\([^)]*\)", " ", question)):
+        w = word.lower().strip("'")
+        if len(w) > 2 and w not in _FILLER and w not in in_terms and not _MONTHS.match(w):
+            found.append(f"{w[:-1]}*" if len(w) > 4 and w.endswith("s") and not w.endswith("ss") else w)
+    terms, seen = [], set()
+    for t in found:
+        key = re.sub(r"s?\*?$", "", t.lower())   # "recalls" and "recall*" are one term
+        if key in seen or key in skip or key in _FILLER:
+            continue
+        seen.add(key)
+        terms.append(f'"{t}"')
+    return terms[:15]
+
+
+def _only_brief_questions(strategy: dict, spec: dict) -> dict:
+    """The strategy answers the brief's questions only: an RQ the brief does not have (an LLM's or a template's extra
+    RQ7/RQ8) is dropped."""
+    ids = {rq.get("question_id") for rq in spec.get("research_questions") or [] if isinstance(rq, dict)}
+    if ids and strategy.get("research_question_queries"):
+        strategy["research_question_queries"] = [q for q in strategy["research_question_queries"]
+                                                 if q.get("question_id") in ids]
+    return strategy
 
 
 def _brand_wide_queries(strategy: dict, spec: dict) -> dict:
@@ -498,7 +549,7 @@ def generate_search_strategy(req: GenerateStrategyRequest):
                                  "progress_pct": 70, "message": "Building deterministic strategy"})
                     strategy_result = _build_deterministic_strategy(spec, raw_brief_text)
 
-            strategy_result = _brand_wide_queries(strategy_result, spec)
+            strategy_result = _only_brief_questions(_brand_wide_queries(strategy_result, spec), spec)
             logger.info("[strategy:%s] LLM strategy generation succeeded — validating Boolean syntax", job_id)
             store.update_job(job_id, progress_pct=80,
                              progress_message="Validating Boolean syntax")
