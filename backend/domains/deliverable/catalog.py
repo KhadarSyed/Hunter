@@ -121,11 +121,24 @@ def with_brief_asks(plan: dict, asks: list[str]) -> dict:
         return plan
     split = {"module": "media_split", "title": "Social vs editorial", "entity_kind": None}
     return {**plan, "modules": plan["modules"] + [split]}
-def with_us_map(plan: dict, rows: list[EngineRow]) -> dict:
+
+
+_GEO_ASK = re.compile(r"\bwhere\b|geograph|region|\bstates?\b|\bcit(y|ies)\b|location|local\b", re.IGNORECASE)
+
+
+def map_question(rqs: list[RQ], rows_by_rq: dict[str, list[EngineRow]]) -> str | None:
+    """The one question per deck that gets the US map: the first geography ("where") question whose articles
+    carry enough US locations, else the first such question (RQ1, the overall brand question, comes first)."""
+    mappable = [q for q in rqs if us_locations.map_reason(us_locations.aggregate(rows_by_rq.get(q.id, [])))]
+    return next((q.id for q in mappable if _GEO_ASK.search(q.question)), mappable[0].id if mappable else None)
+
+
+def with_us_map(plan: dict, rows: list[EngineRow], allowed: bool = True) -> dict:
     """A US map exactly when enough of the question's articles carry a US location (us_locations.map_reason),
-    whatever the planner picked: a map of a handful of articles would misstate where the coverage comes from."""
+    whatever the planner picked: a map of a handful of articles would misstate where the coverage comes from.
+    `allowed` is False for every question but map_question's: one map per deck, not one per question."""
     kept = [m for m in plan["modules"] if m["module"] != "us_map"]
-    if us_locations.map_reason(us_locations.aggregate(rows)):
+    if allowed and us_locations.map_reason(us_locations.aggregate(rows)):
         kept.append(next((m for m in plan["modules"] if m["module"] == "us_map"),
                          {"module": "us_map", "title": "Where the coverage comes from", "entity_kind": None}))
     return {**plan, "modules": kept}

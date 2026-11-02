@@ -630,9 +630,10 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         # brief analysis did not list it as an expected analysis
         asks = [text for _, text in brief_asks(project_id)] + [(project.get("spec") or {}).get("raw_brief") or ""]
         stored_plans = store.get_deliverable_plans(project_id)
+        map_rq = catalog.map_question(rqs, rows_by_rq)
         plans = {q.id: catalog.with_us_map(catalog.with_brief_asks(
                      catalog.with_breakdowns(_question_plan(project_id, llm, q, rows_by_rq[q.id], stored_plans, run.log),
-                                             q, dims_by_rq.get(q.id, [])), asks), rows_by_rq[q.id])
+                                             q, dims_by_rq.get(q.id, [])), asks), rows_by_rq[q.id], q.id == map_rq)
                  for q in rqs}
         for q in rqs:
             run.log(f"{_rq_label(q)}: " + ", ".join(m["module"] for m in plans[q.id]["modules"]))
