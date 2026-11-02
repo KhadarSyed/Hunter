@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 
@@ -10,7 +12,9 @@ from .engine_types import EngineRow
 
 logger = logging.getLogger(__name__)
 BATCH = 8
-EXTRACT_SAMPLE = 500    # articles classified per question: the most-read ones, so cost is bounded on 40k+ rows
+# articles classified per question: every one, unless HUNTER_EXTRACT_SAMPLE caps it to the N most-read (to bound
+# model cost on a 40k-row export)
+EXTRACT_SAMPLE = int(os.environ.get("HUNTER_EXTRACT_SAMPLE") or 0) or sys.maxsize
 EXTRACT_WORKERS = 4      # concurrent model calls; one batch at a time made big questions take minutes
 MAX_TEXT = 3000
 
