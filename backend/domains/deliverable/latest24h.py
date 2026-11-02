@@ -24,7 +24,7 @@ from ...core import store
 from ...core.events import broadcast
 from ..exclusions.service import keep, rules_for_project
 from ..research import news_search
-from ..research.page_signals import publisher_country
+from ..research.page_signals import _country_from_cctld, publisher_country
 from ..research.web_research import _COUNTRY_ISO_CODES
 from ..research.multi_source import search_brand_term
 from .evidence import brand_set, mentions
@@ -179,26 +179,40 @@ def in_context(article: dict, context: re.Pattern, ambiguous: set[str]) -> bool:
                for possessive, venue, after in _uses(text, name))
 
 
-def outlet_country(article: dict) -> str | None:
-    """The outlet's ISO country when it can be told: its name's script, else its site's ccTLD/address
-    (page_signals). None when unknown — an undecoded news.google.com link names no publisher."""
-    for pattern, code in _SCRIPT_COUNTRY:
-        if re.search(pattern, article.get("outlet") or ""):
-            return code
+def _site(article: dict) -> str:
+    """The outlet's page: the article link, or for an undecoded news.google.com link its RSS <source url>."""
     url = article["url"]
     if "news.google.com" in urlparse(url).netloc:
         url = article.get("site") or ""
-    return publisher_country(url) if url and "news.google.com" not in url else None
+    return url if url and "news.google.com" not in url else ""
+
+
+def known_country(article: dict) -> str | None:
+    """The country told without fetching anything: the outlet name's script, else the site's ccTLD."""
+    for pattern, code in _SCRIPT_COUNTRY:
+        if re.search(pattern, article.get("outlet") or ""):
+            return code
+    return _country_from_cctld((urlparse(_site(article)).hostname or "").lower())
+
+
+def outlet_country(article: dict) -> str | None:
+    """The outlet's ISO country when it can be told: known_country, else its site's address (page_signals).
+    None when unknown — an undecoded news.google.com link names no publisher."""
+    site = _site(article)
+    return known_country(article) or (publisher_country(site) if site else None)
 
 
 def outlet_countries(articles: list[dict]) -> list[str | None]:
-    """outlet_country for each article, within COUNTRY_BUDGET_S: a site that has not answered by then counts as
-    unknown (kept). The lookups go on in the background and are cached per site for the next refresh."""
+    """outlet_country for each article. The offline answers (script, ccTLD) come first and always count: queued
+    behind slow site fetches they used to miss the budget, so 조선일보 was kept. Site lookups get COUNTRY_BUDGET_S;
+    one that has not answered by then counts as unknown (kept), and goes on in the background, cached per site."""
+    known = [known_country(a) for a in articles]
     pool = ThreadPoolExecutor(max_workers=COUNTRY_WORKERS)
-    futures = [pool.submit(outlet_country, a) for a in articles]
-    wait(futures, timeout=COUNTRY_BUDGET_S)
+    futures = [None if code or not _site(a) else pool.submit(publisher_country, _site(a))
+               for a, code in zip(articles, known)]
+    wait([f for f in futures if f], timeout=COUNTRY_BUDGET_S)
     pool.shutdown(wait=False)
-    return [f.result() if f.done() and not f.exception() else None for f in futures]
+    return [code or (f.result() if f and f.done() and not f.exception() else None) for code, f in zip(known, futures)]
 
 
 def project_country(spec: dict) -> str:
