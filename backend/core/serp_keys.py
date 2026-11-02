@@ -19,7 +19,7 @@ def _clean(value: str | None) -> str:
     return (value or "").split("#")[0].strip().strip('"')
 
 
-_NUMBERED = re.compile(r"^SERP_API_KEY_(\d+)$")
+_NUMBERED = re.compile(r"^SERP_API_KEY_?(\d+)$")      # SERP_API_KEY_2 or SERP_API_KEY2
 
 
 def _keys() -> list[str]:
