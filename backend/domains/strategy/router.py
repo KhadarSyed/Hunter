@@ -355,6 +355,32 @@ def _build_deterministic_strategy(spec: dict, raw_brief_text: str = "") -> dict:
     }
 
 
+# Questions about all of a brand's coverage, not one topic in it
+_BRAND_WIDE = re.compile(r"share of voice|\bsov\b|\bvolume\b|\bspikes?\b|\bpeaks?\b|overall sentiment|"
+                         r"sentiment (?:breakout|breakdown|overview)|(?:prominent|key|top|main) themes", re.IGNORECASE)
+_COMPARES = re.compile(r"competitor|share of voice|\bsov\b|each brand", re.IGNORECASE)
+
+
+def _brand_wide_queries(strategy: dict, spec: dict) -> dict:
+    """A share-of-voice / volume / spikes / sentiment-overview / top-themes question gets the brand query (plus the
+    competitors when it compares them) with no topic group: uploaded articles reach a question without its own upload
+    only by matching its query, so an "electric vehicle" AND-group starved SOV of most of its coverage."""
+    brand = (spec.get("commissioning_brand") or {}).get("name") or ""
+    competitors = [e["name"] for e in spec.get("validated_entities") or []
+                   if isinstance(e, dict) and e.get("type") == "competitor" and e.get("name") and e["name"] != brand]
+    if not brand:
+        return strategy
+    for rq in strategy.get("research_question_queries") or []:
+        question = rq.get("question") or ""
+        if not _BRAND_WIDE.search(question):
+            continue
+        names = [brand] + (competitors if _COMPARES.search(question) else [])
+        rq["query"] = " OR ".join(f'"{n}"' for n in names)
+        rq["rationale"] = "All coverage of the brand" + (" and its competitors" if len(names) > 1 else "") + \
+                          ": this question is about overall volume, not one topic"
+    return strategy
+
+
 @router.post("/strategy/generate", response_model=StrategyJobStarted)
 def generate_search_strategy(req: GenerateStrategyRequest):
     project = store.get_project(req.project_id)
@@ -472,6 +498,7 @@ def generate_search_strategy(req: GenerateStrategyRequest):
                                  "progress_pct": 70, "message": "Building deterministic strategy"})
                     strategy_result = _build_deterministic_strategy(spec, raw_brief_text)
 
+            strategy_result = _brand_wide_queries(strategy_result, spec)
             logger.info("[strategy:%s] LLM strategy generation succeeded — validating Boolean syntax", job_id)
             store.update_job(job_id, progress_pct=80,
                              progress_message="Validating Boolean syntax")
