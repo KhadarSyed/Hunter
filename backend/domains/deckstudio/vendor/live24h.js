@@ -6,7 +6,6 @@
   "use strict";
   var exportMode = new URLSearchParams(location.search).has("export");
   var framed = window.parent !== window && !exportMode;
-  var SOURCES = { serpapi: "SerpAPI", tavily: "Tavily", google_news_rss: "Google News" };
   var TOP_STORIES = 10, CITES = 3, MAX_BULLETS = 5;     // what fits the slide without clipping
   var DASHBOARD = "latest24h-dashboard";
   var textSlide = document.querySelector('section.slide[data-type="latest24h"]');
@@ -128,21 +127,14 @@
   }
 
   function progress(state) {
+    // running totals only: which source found what stays in the stored refresh, not on the slide
     box.hidden = false;
     box.textContent = "";
-    Object.keys(SOURCES).forEach(function (s) {
-      var c = state.counts[s] || { status: "fetching", found: 0 };
-      var line = node("div", null, SOURCES[s] + ": ");
-      line.appendChild(c.status === "failed" ? node("span", null, "failed") : node("b", null, String(c.found)));
-      if (c.status !== "failed") line.appendChild(document.createTextNode(c.status === "fetching" ? " found, fetching…" : " found"));
-      box.appendChild(line);
-    });
     var total = node("div", null, "");
     total.appendChild(node("b", null, String(state.total)));
     total.appendChild(document.createTextNode(" articles fetched"));
     box.appendChild(total);
-    box.appendChild(node("div", null, state.kept == null ? "Dedupe and relevance checks run when every source is done"
-      : state.kept + " kept after dedupe and relevance checks · writing the summary…"));
+    if (state.kept != null) box.appendChild(node("div", null, state.kept + " kept after dedupe and relevance checks · writing the summary…"));
   }
 
   function done(message) {
@@ -157,10 +149,7 @@
     if (m.event === "progress" && state) {
       var p = m.data || {};
       if (p.phase === "filtered") { state.total = p.total; state.kept = p.kept; }
-      else if (p.source) {
-        state.counts[p.source] = { status: p.status, found: p.found };
-        state.total = Math.max(state.total, p.total || 0);
-      }
+      else if (p.source) state.total = Math.max(state.total, p.total || 0);
       if (!p.phase || p.phase === "filtered") progress(state);
       return;
     }
@@ -188,7 +177,7 @@
     onHost(e.data);
   });
   btn.addEventListener("click", function () {
-    state = { counts: {}, total: 0, kept: null };
+    state = { total: 0, kept: null };
     btn.disabled = true;
     btn.textContent = "Refreshing…";
     progress(state);
