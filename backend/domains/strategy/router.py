@@ -432,6 +432,49 @@ def _brand_wide_queries(strategy: dict, spec: dict) -> dict:
     return strategy
 
 
+# shortcut: the common countries, regions and their short forms, not every place name; extend when a brief needs more
+_GEO_TERMS = frozenset(t.strip() for t in """
+us,usa,u.s.,america,united states,uk,u.k.,britain,great britain,united kingdom,england,scotland,wales,ireland,eu,europe,
+european,asia,asian,africa,african,apac,emea,latam,latin america,middle east,north america,south america,oceania,canada,
+mexico,brazil,argentina,chile,colombia,australia,new zealand,india,pakistan,bangladesh,china,chinese,hong kong,taiwan,
+japan,korea,south korea,north korea,singapore,malaysia,indonesia,thailand,vietnam,philippines,germany,france,italy,spain,
+portugal,netherlands,belgium,switzerland,austria,sweden,norway,denmark,finland,poland,russia,ukraine,turkey,israel,uae,
+dubai,saudi arabia,qatar,egypt,nigeria,kenya,south africa""".split(","))
+_NOT_GROUP = re.compile(r"\s*\bNOT\s*\(([^()]*)\)")
+_NOT_TERM = re.compile(r"\s*\bNOT\s+(\"[^\"]+\"|'[^']+'|[\w.]+)")
+
+
+def _is_geo(term: str) -> bool:
+    return term.strip().strip("\"'").strip().lower() in _GEO_TERMS
+
+
+def _strip_geo_not(query: str) -> str:
+    """The query without countries or regions among its NOT terms: excluding "China" drops BYD's coverage, and the
+    country is the source/country filter's job, not the query's."""
+    def group(m: re.Match) -> str:
+        kept = [t for t in re.split(r"\s+OR\s+", m.group(1).strip()) if t and not _is_geo(t)]
+        return f" NOT ({' OR '.join(kept)})" if kept else ""
+    query = _NOT_GROUP.sub(group, query or "")
+    return _NOT_TERM.sub(lambda m: "" if _is_geo(m.group(1)) else m.group(0), query).strip()
+
+
+def _no_geographic_exclusions(strategy: dict) -> dict:
+    """Geography is set by the country/source filters: no query excludes a country or region with NOT."""
+    for rq in strategy.get("research_question_queries") or []:
+        if rq.get("query"):
+            rq["query"] = _strip_geo_not(rq["query"])
+    for qv in (strategy.get("query_versions") or {}).values():
+        if isinstance(qv, dict) and qv.get("query"):
+            qv["query"] = _strip_geo_not(qv["query"])
+    exclusion = strategy.get("exclusion_strategy")
+    if isinstance(exclusion, dict):
+        if exclusion.get("global_exclusions"):
+            exclusion["global_exclusions"] = _strip_geo_not(exclusion["global_exclusions"])
+        exclusion["exclusion_categories"] = [c for c in exclusion.get("exclusion_categories") or []
+                                             if not (isinstance(c, dict) and c.get("category") == "geographic")]
+    return strategy
+
+
 @router.post("/strategy/generate", response_model=StrategyJobStarted)
 def generate_search_strategy(req: GenerateStrategyRequest):
     project = store.get_project(req.project_id)
@@ -549,7 +592,8 @@ def generate_search_strategy(req: GenerateStrategyRequest):
                                  "progress_pct": 70, "message": "Building deterministic strategy"})
                     strategy_result = _build_deterministic_strategy(spec, raw_brief_text)
 
-            strategy_result = _only_brief_questions(_brand_wide_queries(strategy_result, spec), spec)
+            strategy_result = _no_geographic_exclusions(
+                _only_brief_questions(_brand_wide_queries(strategy_result, spec), spec))
             logger.info("[strategy:%s] LLM strategy generation succeeded — validating Boolean syntax", job_id)
             store.update_job(job_id, progress_pct=80,
                              progress_message="Validating Boolean syntax")

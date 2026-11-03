@@ -111,7 +111,7 @@ Return ONLY a JSON object with these exact keys:
     "rationale": "why these exclusions are needed",
     "exclusion_categories": [
       {
-        "category": "spam|irrelevant_industry|geographic|other",
+        "category": "spam|irrelevant_industry|other",
         "terms": ["excluded terms"],
         "reason": "why excluded"
       }
@@ -162,11 +162,13 @@ Return ONLY a JSON object with these exact keys:
 5. Exclusion logic should remove:
    - Spam and promotional content patterns
    - Irrelevant industry mentions (homonyms, unrelated uses)
-   - Geographic noise (if scope is limited)
    - Bot and automated content patterns
 
 6. Filter recommendations must align with the ProjectSpecification's
    included_scope (countries, languages, platforms, time_period).
+   Geography is set ONLY by these country/source filters: never put a
+   country, region or city in a NOT clause (excluding "China" drops a
+   Chinese competitor's coverage).
 
 7. Quality scores must be honest -- flag gaps and noise risks.
 
