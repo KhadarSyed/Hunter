@@ -152,7 +152,10 @@ _STOP = {"what", "which", "where", "when", "does", "how", "much", "many", "most"
          # words about the analysis, which articles never use
          "overall", "sentiment", "breakout", "editorial", "social", "themes", "topics", "media", "spikes", "news",
          "moments", "drove", "them", "relative", "split", "focused", "positioned", "against", "cites", "competitors",
-         "mentions", "brand", "brands", "frequently", "discussed"}
+         "mentions", "brand", "brands", "frequently", "discussed",
+         # question filler that the keyword fallback otherwise picked up ("such", "have", "been", "among", "each")
+         "such", "specific", "have", "been", "events", "prompted", "competitive", "among", "each", "related",
+         "examples", "including", "like", "they", "this", "that", "were", "what's", "whose", "both", "also"}
 LLM_QUERY_TIMEOUT_S = 45
 
 
