@@ -109,6 +109,12 @@ class AppSettings(BaseSettings):
     api_key: str = ""
     brandfetch_api_key: str = ""
     brandfetch_client_id: str = ""
+    # Transactional mail (ZeptoMail). Empty token or sender = mail is skipped with a warning.
+    zeptomail_token: str = ""            # "Zoho-enczapikey <key>" or just the key
+    zeptomail_url: str = "https://api.zeptomail.com/v1.1/email"   # region hosts differ (e.g. api.zeptomail.eu)
+    mail_from: str = ""
+    mail_from_name: str = "Hunter"
+    app_url: str = "http://localhost:5173"   # the frontend's base URL, for links in emails
 
     @property
     def is_production(self) -> bool:
