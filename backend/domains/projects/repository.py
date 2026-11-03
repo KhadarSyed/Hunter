@@ -131,7 +131,8 @@ def update_project(
     return True
 
 
-def get_or_create_project(spec: dict) -> int:
+def get_or_create_project(spec: dict, org_id: int | None = None, owner_user_id: int | None = None) -> int:
+    """The latest project with the brief's name, or a new one owned by `owner_user_id` (an existing one keeps its owner)."""
     name = ""
     cb = spec.get("commissioning_brand", {})
     if isinstance(cb, dict):
@@ -148,7 +149,10 @@ def get_or_create_project(spec: dict) -> int:
 
     if row:
         return row["id"]
-    return create_project(name, spec)
+    pid = create_project(name, spec)
+    if owner_user_id is not None:
+        set_project_owner(pid, org_id, owner_user_id)
+    return pid
 
 
 # ─── Jobs ────────────────────────────────────────────────────────────────────

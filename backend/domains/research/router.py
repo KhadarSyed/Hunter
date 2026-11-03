@@ -66,9 +66,8 @@ router = APIRouter()
 def start_background_research(req: StartResearchRequest, user: Annotated[dict, Depends(get_current_user)]):
     """Start a live background research job."""
     spec = req.spec
-    project_id = req.project_id if req.project_id else store.get_or_create_project(spec)
-    if not req.project_id and not (store.get_project(project_id) or {}).get("owner_user_id"):
-        store.set_project_owner(project_id, user["org_id"], user["id"])     # the creator owns it (and gets its email)
+    # a new project is the creator's (and gets its email); a matched one is never moved to the caller's org
+    project_id = req.project_id or store.get_or_create_project(spec, user["org_id"], user["id"])
     job_id = f"research_{uuid.uuid4().hex[:12]}"
     store.create_job(job_id, project_id, "background_research")
 
