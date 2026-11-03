@@ -3,7 +3,7 @@ subject with analysis jargon removed. Queries go from most specific (brand + pro
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 MAX_QUERIES = 4
 _WORD = re.compile(r"[A-Za-z][A-Za-z'&-]+")
@@ -33,6 +33,7 @@ def subjects_for(slide, brands: list[str], products: list[str], category: str, s
 
 
 def queries(s: Subjects) -> list[str]:
+    s = replace(s, category=s.category.split("/")[0].strip())     # "Fitness Centers / Health Clubs" -> "Fitness Centers"
     product = s.products[0] if s.products else s.category
     out = [f"{b} {product}" for b in s.brands[:2]]
     if s.scene:

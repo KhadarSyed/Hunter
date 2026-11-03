@@ -167,8 +167,9 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     photo_slides = [s for s in spec.slides
                     if (s.treatment in ("A", "C", "full") or s.type == "objectives") and s.image.get("query")]
     # the client's actual products (CX-50, CX-90) are what a photo can show; the scope's keyword hints ("Zoom-Zoom",
-    # "Kodo design") searched slogans, logos and merch, so vision rejected them and most slides had no photo of their own
-    shown = plan_input.brand_products or plan_input.products
+    # "Kodo design", Planet Fitness's "brand refresh") searched slogans, logos and merch, so vision rejected them and most
+    # slides had no photo of their own; a brand with no products (a gym, a service) searches its brand and category
+    shown = plan_input.brand_products
     scene_by_id = image_brief.scenes(llm, photo_slides, plan_input.brands, shown, plan_input.category)
     checks = {"n": 0}
     for s in spec.slides:
