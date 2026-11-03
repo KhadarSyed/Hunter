@@ -329,7 +329,9 @@ def build_deck_spec(inp: PlanInput) -> DeckSpec:
         slides.append(SlideSpec(id=f"citations-{p // CITES_PER_SLIDE + 1}", type="citations", treatment="plain", title="Sources",
                                 tables=[{"header": ["#", "Source", "Headline", "Date"],
                                          "rows": [[str(c["n"]), c.get("outlet") or c.get("domain", ""), c["title"], us_date(c["date"])]
-                                                  for c in page]}],
+                                                  for c in page],
+                                         # each headline links its article (and a clickable area in the PPTX)
+                                         "links": [_link(c.get("url", "")) for c in page], "link_col": 2}],
                                 facts_allowed=all_facts + [str(c["n"]) for c in page] + [c["date"] for c in page]
                                 + [us_date(c["date"]) for c in page],
                                 notes="\n".join(c["url"] for c in page),
