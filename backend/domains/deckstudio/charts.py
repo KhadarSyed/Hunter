@@ -65,7 +65,7 @@ def _dark_chip(t) -> str:
 
 def _bars(c, t, logos, w, h, light=frozenset()):
     cats, vals = c["categories"], [float(v) for v in c["values"]]
-    top = max(vals) or 1
+    top = max(vals, default=0) or 1      # a chart with no rows draws nothing instead of failing the deck
     row = min(56, (h - 10) / max(1, len(cats)))
     out = []
     marked = any(cat in logos for cat in cats)       # one mark per label, or none: never a few logos and gaps
@@ -244,7 +244,7 @@ def _stacked(c, t, w, h, logos, light=frozenset()):
 def _columns(c, t, w, h):
     """Vertical columns for a short time series (under six points a line implies a trend it cannot show)."""
     cats, vals = c["categories"], [float(v) for v in c["values"]]
-    top, pl, pb, pt = (max(vals) or 1), 40, 46, 44
+    top, pl, pb, pt = (max(vals, default=0) or 1), 40, 46, 44
     slot = (w - pl - 20) / max(1, len(vals))
     out = [f'<line x1="{pl}" y1="{h - pb}" x2="{w - 20}" y2="{h - pb}" stroke="#{t.muted}" stroke-opacity=".35"/>']
     for i, (cat, v) in enumerate(zip(cats, vals)):
