@@ -186,7 +186,9 @@ _REFRESH_JSON = ("counts", "summary", "charts", "articles")
 
 
 def create_latest24h_refresh(project_id: int) -> int:
+    """A new running refresh; the project's older finished ones go (only the latest is ever read)."""
     conn = _conn()
+    conn.execute("DELETE FROM intel_latest24h_refreshes WHERE project_id = ? AND status != 'running'", (project_id,))
     cur = conn.execute("INSERT INTO intel_latest24h_refreshes (project_id, status, started_at) VALUES (?, 'running', ?)",
                        (project_id, time.time()))
     conn.commit()

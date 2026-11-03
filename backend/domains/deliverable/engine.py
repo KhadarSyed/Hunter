@@ -404,14 +404,16 @@ def _question_plan(project_id: int, llm, q: RQ, rows, stored: dict, log) -> dict
     return plan
 
 
-LATEST24H_WAIT_S = 150       # a deck with no stored 24h refresh waits this long for one, then shows "Refresh to load"
+LATEST24H_WAIT_S = 150       # a deck with no stored 24h refresh waits this long for one, then the deck goes without its 24h slides
 LATEST24H_POLL_S = 3
 
 
 def _latest24h(project_id: int, llm, log) -> dict | None:
-    """The latest completed "last 24h" refresh for the deck's live slides; with none stored, one is run (bounded)."""
+    """The latest completed "last 24h" refresh for the deck's live slides; with none stored, or only one older than
+    the window (its news is stale), one is run (bounded)."""
     refresh = store.get_latest_latest24h_refresh(project_id)
-    if refresh and refresh["status"] == "completed":
+    if (refresh and refresh["status"] == "completed"
+            and time.time() - (refresh.get("finished_at") or 0) < latest24h.WINDOW.total_seconds()):
         return refresh
     try:
         latest24h.start(project_id, llm=llm)
@@ -426,7 +428,7 @@ def _latest24h(project_id: int, llm, log) -> dict | None:
     if refresh and refresh["status"] == "completed":
         log(f"Last 24h: {refresh['kept']} articles kept of {refresh['fetched']} fetched")
         return refresh
-    log("Last 24h: no refresh finished in time; the slide offers Refresh to load the last 24h")
+    log("Last 24h: no refresh finished in time; the deck has no last-24h slides")
     return None
 
 

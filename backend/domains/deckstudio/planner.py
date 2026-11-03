@@ -242,8 +242,10 @@ def live_charts(refresh: dict | None) -> list[dict]:
 
 def _live_slides(inp: PlanInput) -> list[SlideSpec]:
     """'What's new in the last 24h' and its dashboard, right after the executive summary: the latest stored refresh,
-    which the HTML deck re-fetches in place (Refresh button) when it is shown inside Hunter."""
+    which the HTML deck re-fetches in place (Refresh button) when it is shown inside Hunter. None without one."""
     data = live_data(inp.latest24h)
+    if not data:
+        return []
     return [SlideSpec(id=LIVE_ID, type="latest24h", treatment="plain", kicker="Live · last 24 hours",
                       title="What's new in the last 24h", live=data),
             SlideSpec(id=LIVE_DASHBOARD_ID, type="latest24h_dashboard", treatment="plain", kicker="Live · last 24 hours",
