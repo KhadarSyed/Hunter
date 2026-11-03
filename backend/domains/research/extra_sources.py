@@ -237,18 +237,31 @@ def search_bluesky(query: str, date_range: tuple | None, max_results: int) -> li
 # --------------------------------------------------------------------------
 
 VET_WORKERS = 8
+VET_BUDGET_S = 60      # per search: pages not read by then keep the engine's / the link's date; their country stays unknown
+_COUNTRY: dict[str, str | None] = {}     # publisher host -> country, read once per process (the same outlets recur)
+
+
+def _host_country(host: str) -> str | None:
+    if host not in _COUNTRY:
+        _COUNTRY[host] = page_signals.publisher_country(f"https://{host}/")
+    return _COUNTRY[host]
 
 
 def _vet(items: list[dict], country: str) -> list[dict]:
     """Each result's publish date from its own page (the page wins over the engine's), then its
     publisher's country: a publisher in another country is dropped; one that names none is kept."""
-    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor, wait
 
     host_of = lambda item: (urlparse(item["published_url"]).hostname or "").lower()  # noqa: E731
     hosts = list(dict.fromkeys(host_of(i) for i in items))
-    with ThreadPoolExecutor(max_workers=VET_WORKERS) as pool:
-        dates = list(pool.map(lambda i: page_signals.published_date(page_signals.fetch_html(i["published_url"])), items))
-        countries = dict(zip(hosts, pool.map(lambda h: page_signals.publisher_country(f"https://{h}/"), hosts)))
+    pool = ThreadPoolExecutor(max_workers=VET_WORKERS)
+    date_jobs = [pool.submit(lambda i=i: page_signals.published_date(page_signals.fetch_html(i["published_url"])))
+                 for i in items]
+    country_jobs = {h: pool.submit(_host_country, h) for h in hosts if h not in _COUNTRY}
+    wait(date_jobs + list(country_jobs.values()), timeout=VET_BUDGET_S)
+    pool.shutdown(wait=False, cancel_futures=True)     # a slow site never holds up the research
+    dates = [j.result() if j.done() and not j.exception() else None for j in date_jobs]
+    countries = {h: _COUNTRY.get(h) for h in hosts}
 
     # A site that refuses us still counts (it is shown as paid): its date then comes from the engine or the
     # link itself (/2026/10/21/), so a subscription publisher's article is not lost for want of a readable page.
