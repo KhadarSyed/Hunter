@@ -3,7 +3,8 @@
 For each entity in the competitive set, classifies qualifying records
 into 3-6 analytical themes using a two-pass approach:
 1. LLM-assisted theme discovery from a sample of records
-2. Deterministic keyword-based classification of ALL records
+2. Classification of every record into one theme: Jev (constrained decoding, core/jev_client.py) when
+   TYPESAFE_API_KEY is set, deterministic keyword matching otherwise or for any record Jev can't answer
 
 ALL percentages and counts are calculated deterministically.
 The LLM is used ONLY for theme discovery and narrative generation.
@@ -20,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ...core import jev_client
 from ...core import llm_synthesis as llm
 from ...core import store
 
@@ -29,6 +31,8 @@ logger = logging.getLogger(__name__)
 
 DISCOVERY_SAMPLE_SIZE = 200
 MAX_RECORDS_FOR_FULL_CLASSIFICATION = 5000
+MAX_RECORDS_FOR_JEV = 2000
+JEV_MIN_CONFIDENCE = 0.5  # below this Jev's theme choice is too spread to trust: the record stays unclassified
 MIN_THEMES = 3
 MAX_THEMES = 6
 UNCLASSIFIED_LABEL = "Other / Unclassified Mentions"
@@ -112,7 +116,8 @@ def classify_themes(project_id: int, entity_name: str) -> dict:
         return _empty_result(entity_name, f"Project {project_id} not found")
     spec = project.get("spec") or {}
 
-    if not _select_datasets(project_id):
+    datasets = _select_datasets(project_id)
+    if not datasets:
         return _empty_result(entity_name, "No processed dataset is available for this project")
 
     try:
@@ -129,13 +134,14 @@ def classify_themes(project_id: int, entity_name: str) -> dict:
     # (keyword matching), but keep a hard ceiling for safety/predictable latency.
     sample_based = False
     records_to_classify = records
-    if total_records > MAX_RECORDS_FOR_FULL_CLASSIFICATION:
+    # Jev reads every record (~0.3s each, 8 at a time), so it classifies a smaller random sample; shares are
+    # percentages, which a random sample of this size estimates closely.
+    cap = MAX_RECORDS_FOR_JEV if jev_client.is_configured() else MAX_RECORDS_FOR_FULL_CLASSIFICATION
+    if total_records > cap:
         sample_based = True
-        records_to_classify = random.sample(records, MAX_RECORDS_FOR_FULL_CLASSIFICATION)
-        logger.warning(
-            "[theme_classifier] %s has %d records; classifying a sample of %d",
-            entity_name, total_records, MAX_RECORDS_FOR_FULL_CLASSIFICATION,
-        )
+        records_to_classify = random.sample(records, cap)
+        logger.warning("[theme_classifier] %s has %d records; classifying a sample of %d",
+                       entity_name, total_records, cap)
 
     # Pass 1: theme discovery from a representative sample.
     if len(records) <= DISCOVERY_SAMPLE_SIZE:
@@ -148,11 +154,8 @@ def classify_themes(project_id: int, entity_name: str) -> dict:
         logger.info("[theme_classifier] LLM discovery unavailable/failed for %s — using fallback themes", entity_name)
         theme_definitions = _FALLBACK_THEME_DEFINITIONS
 
-    # Pass 2: deterministic classification of every record.
-    assignments: dict[str, list[dict]] = defaultdict(list)
-    for rec in records_to_classify:
-        label = _classify_record(rec, theme_definitions, TEXT_FIELDS)
-        assignments[label].append(rec)
+    # Pass 2: one theme per record -- Jev's choice when it is configured, keyword matching otherwise.
+    assignments, classified_by = _assign_themes(records_to_classify, theme_definitions, entity_name)
 
     classified_total = sum(len(v) for v in assignments.values())
     ranked = sorted(assignments.items(), key=lambda kv: -len(kv[1]))
@@ -193,10 +196,11 @@ def classify_themes(project_id: int, entity_name: str) -> dict:
         "entity": entity_name,
         "total_records": total_records,
         "classification_method": "single-label",
+        "classified_by": classified_by,
         "themes": themes_out,
         "executive_takeaway": executive_takeaway,
         "date_range": _compute_date_range(records),
-        "dataset_source": _infer_dataset_source(dataset),
+        "dataset_source": ", ".join(dict.fromkeys(_infer_dataset_source(d) for d in datasets)),
         "context_label": _build_context_label(spec, entity_name),
         "sample_based": sample_based,
     }
@@ -416,6 +420,45 @@ Respond in JSON with exactly this shape:
 
 
 # ─── Theme Classification (Pass 2 — deterministic) ──────────────────────────
+
+def _record_text(record: dict) -> str:
+    return " ".join(str(record.get(c) or "") for c in TEXT_FIELDS).strip()
+
+
+def _assign_themes(records: list[dict], theme_definitions: list[dict],
+                   entity_name: str) -> tuple[dict[str, list[dict]], str]:
+    """Records grouped by theme, and who chose: "jev" or "keywords".
+
+    With Jev, each record gets a Choice among the discovered themes (described by their descriptions) plus
+    UNCLASSIFIED_LABEL, answered with constrained decoding so the label is always one of them. A choice Jev
+    isn't confident about goes to UNCLASSIFIED_LABEL rather than inflating a theme; a record Jev couldn't
+    answer falls back to keyword matching. Without Jev, every record is keyword-matched as before."""
+    assignments: dict[str, list[dict]] = defaultdict(list)
+    if not jev_client.is_configured():
+        for rec in records:
+            assignments[_classify_record(rec, theme_definitions, TEXT_FIELDS)].append(rec)
+        return assignments, "keywords"
+
+    options = {t["name"]: t.get("description") or ", ".join(t.get("keywords", [])) for t in theme_definitions}
+    options[UNCLASSIFIED_LABEL] = f"None of these themes, or {entity_name} is only mentioned in passing"
+    question = {"theme": jev_client.choice(
+        f"Which theme best describes this coverage of {entity_name}?", options)}
+    answers = jev_client.ask_many([_record_text(r) for r in records], question)
+    if not any(answers):  # Jev answered nothing (key rejected, API down): the previous logic, said honestly
+        for rec in records:
+            assignments[_classify_record(rec, theme_definitions, TEXT_FIELDS)].append(rec)
+        return assignments, "keywords"
+    for rec, answer in zip(records, answers):
+        picked = (answer or {}).get("theme") or {}
+        if answer is None or picked.get("choice") not in options:
+            label = _classify_record(rec, theme_definitions, TEXT_FIELDS)
+        elif float(picked.get("confidence") or 0) < JEV_MIN_CONFIDENCE:
+            label = UNCLASSIFIED_LABEL
+        else:
+            label = picked["choice"]
+        assignments[label].append(rec)
+    return assignments, "jev"
+
 
 def _classify_record(record: dict, theme_definitions: list[dict], text_columns: list[str]) -> str:
     """Assign a single record to the best-matching theme via keyword overlap

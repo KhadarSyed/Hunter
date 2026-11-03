@@ -1,6 +1,7 @@
 """Deliverable engine API: start a run, read the latest/any run with its streamed sections, download outputs."""
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -9,10 +10,11 @@ from fastapi.responses import FileResponse
 
 from ...core import store
 from ...core.auth import require_project_access
-from ..deckstudio import data_tables
+from ..deckstudio import data_tables, revise
 from . import engine, repair_run
 from . import rows as engine_rows
-from .schemas import DataCoverageResponse, DeliverableRunPayload, DeliverableRunStarted
+from .schemas import (DataCoverageResponse, DeckDesign, DeckDesignChange, DeckDesignResult, DeliverableRunPayload,
+                      DeliverableRunStarted)
 
 router = APIRouter()
 _MEDIA = {"pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -116,6 +118,56 @@ def deck_asset(project_id: ProjectId, run_id: RunId, asset_path: str, _: Access)
     if not target.is_file() or root not in target.parents:
         raise HTTPException(404, "File not available")
     return FileResponse(target, headers=_DECK_HEADERS if target.suffix.lower() == ".html" else {"X-Content-Type-Options": "nosniff"})
+
+
+_design_lock = threading.Lock()     # one re-export at a time: it screenshots every slide
+
+
+def _deck_dir(project_id: int, run_id: int, *, idle: bool = False) -> Path:
+    run = _owned_run(project_id, run_id)
+    if not run.get("deck_dir") or not (Path(run["deck_dir"]) / "spec.json").is_file():
+        raise HTTPException(404, "This run has no deck to restyle")
+    if idle and run.get("status") != "completed":
+        raise HTTPException(409, "The deck is still being built or repaired")
+    return Path(run["deck_dir"])
+
+
+@router.get("/deliverable/{project_id}/runs/{run_id}/design", response_model=DeckDesign)
+def get_design(project_id: ProjectId, run_id: RunId, _: Access):
+    deck_dir = _deck_dir(project_id, run_id)
+    return revise.design(deck_dir, (store.get_project(project_id) or {}).get("brand") or "")
+
+
+@router.post("/deliverable/{project_id}/runs/{run_id}/design/preview", response_model=DeckDesignResult)
+def preview_design(project_id: ProjectId, run_id: RunId, body: DeckDesignChange, _: Access):
+    """The deck re-rendered in the chosen colours as preview.html, in seconds; nothing is saved."""
+    return revise.set_design(_deck_dir(project_id, run_id), body.model_dump(exclude_none=True), preview=True)
+
+
+def _locked(fn):
+    if not _design_lock.acquire(blocking=False):
+        raise HTTPException(409, "Another deck is being re-exported; try again in a few minutes")
+    try:
+        out = fn()
+    finally:
+        _design_lock.release()
+    return {"applied": out["applied"], "rejected": out["rejected"]}
+
+
+@router.post("/deliverable/{project_id}/runs/{run_id}/design", response_model=DeckDesignResult)
+def apply_design(project_id: ProjectId, run_id: RunId, body: DeckDesignChange, _: Access):
+    """Saves the colours and re-exports the PPTX and PDF (a few minutes for a long deck)."""
+    deck_dir = _deck_dir(project_id, run_id, idle=True)
+    return _locked(lambda: revise.set_design(deck_dir, body.model_dump(exclude_none=True)))
+
+
+@router.post("/deliverable/{project_id}/runs/{run_id}/design/reset", response_model=DeckDesignResult)
+def reset_design(project_id: ProjectId, run_id: RunId, _: Access):
+    deck_dir = _deck_dir(project_id, run_id, idle=True)
+    try:
+        return _locked(lambda: revise.reset_design(deck_dir))
+    except ValueError as e:
+        raise HTTPException(409, str(e))
 
 
 @router.get("/deliverable/{project_id}/runs/{run_id}/thumbnail/{n}", response_class=FileResponse)

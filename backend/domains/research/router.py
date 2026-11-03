@@ -29,7 +29,9 @@ from . import article_extractor
 from . import brandfetch as brandfetch_client  # noqa: F401  (Brandfetch: first logo lookup, via logo_files)
 from . import logo_files
 from . import multi_source as multi_source_module
+from . import classify
 from . import pexels as pexels_client
+from . import relations
 from . import video_search
 from .schemas import (
     ApproveRequest,
@@ -40,6 +42,8 @@ from .schemas import (
     NewsApprovalRequest,
     PexelsImageResponse,
     ResearchApprovalResult,
+    ResearchItemClassificationResponse,
+    ResearchItemRelationsResponse,
     ResearchItemsListResponse,
     ResearchItemView,
     ResearchJobStarted,
@@ -453,25 +457,7 @@ def get_research_items_route(project_id: Annotated[int, Path(ge=1)],
     if not project:
         raise HTTPException(404, f"Project {project_id} not found")
     spec = project.get("spec", {})
-
-    research = store.get_latest_research(project_id)
-    date_range = None
-    if research:
-        metadata = research["research"].get("metadata", {})
-        start_str = metadata.get("date_range_start", "")
-        end_str = metadata.get("date_range_end", "")
-        if start_str and end_str:
-            from datetime import datetime
-            date_range = (
-                datetime.fromisoformat(start_str).date(),
-                datetime.fromisoformat(end_str).date(),
-            )
-
-    if date_range:
-        since, until = multi_source_module.date_range_to_timestamps(date_range)
-        items = store.get_research_items(project_id, since=since, until=until)
-    else:
-        items = store.get_research_items(project_id)
+    items = _scoped_research_items(project_id)
 
     adapter = LiveWebResearchAdapter()
     brand_name = adapter._extract_brand_name(spec)
@@ -505,7 +491,52 @@ def get_research_items_route(project_id: Annotated[int, Path(ge=1)],
             title=title or None, content=content or None, url=url,
             author=item.get("author"), thumbnail_url=item.get("thumbnail_url"),
             published_date=item["published_date"],
-            keywords_matched=matched, relevant=validation["relevant"],
+            keywords_matched=matched, relevant=validation["relevant"], access=item.get("access"),
         ))
 
     return ResearchItemsListResponse(items=result_items, total=len(result_items))
+
+
+def _scoped_research_items(project_id: int) -> list[dict]:
+    """The project's research items within its latest run's date range (all of them when no run has one)."""
+    research = store.get_latest_research(project_id)
+    metadata = research["research"].get("metadata", {}) if research else {}
+    start_str, end_str = metadata.get("date_range_start", ""), metadata.get("date_range_end", "")
+    if not (start_str and end_str):
+        return store.get_research_items(project_id)
+    from datetime import datetime
+    date_range = (datetime.fromisoformat(start_str).date(), datetime.fromisoformat(end_str).date())
+    since, until = multi_source_module.date_range_to_timestamps(date_range)
+    return store.get_research_items(project_id, since=since, until=until)
+
+
+@router.get("/research/{project_id}/items/classification", response_model=ResearchItemClassificationResponse)
+def get_research_item_classification_route(project_id: Annotated[int, Path(ge=1)],
+                                           _access: Annotated[dict, Depends(require_project_access)]):
+    """Jev's per-item answers for the All Articles table: probability the item is about the brief's brand, and
+    its tone toward the brand (see classify.py). Separate from /items so the table shows at once; new items are
+    classified on first view (~0.3s each, 8 at a time) and stored."""
+    project = store.get_project(project_id)
+    if not project:
+        raise HTTPException(404, f"Project {project_id} not found")
+    adapter = LiveWebResearchAdapter()
+    spec = project.get("spec", {})
+    found, method = classify.classify_items(_scoped_research_items(project_id),
+                                            adapter._extract_brand_name(spec), adapter._extract_category(spec))
+    return ResearchItemClassificationResponse(classifications=found, method=method)
+
+
+@router.get("/research/{project_id}/items/relations", response_model=ResearchItemRelationsResponse)
+def get_research_item_relations_route(project_id: Annotated[int, Path(ge=1)],
+                                      _access: Annotated[dict, Depends(require_project_access)]):
+    """For each item of the All Articles table: its syndicated copies (same article, other publishers) and
+    similar articles (same theme/content/context) -- see relations.py. Separate from /items so the table
+    shows at once; the first call for a project embeds its items (~5s per 100), later calls reuse them."""
+    if not store.get_project(project_id):
+        raise HTTPException(404, f"Project {project_id} not found")
+    try:
+        llm = get_llm_client()
+    except Exception:  # no provider configured: the title-matching fallback still answers
+        llm = None
+    found, method = relations.find_relations(_scoped_research_items(project_id), llm)
+    return ResearchItemRelationsResponse(relations=found, method=method)

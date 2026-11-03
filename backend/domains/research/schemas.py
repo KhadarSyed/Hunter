@@ -116,11 +116,35 @@ class ResearchItemView(ApiModel):
     published_date: float
     keywords_matched: list[str] = []
     relevant: bool = True
+    access: str | None = None  # "free" | "paid" (site refuses readers or paywalls) | None (not checked)
 
 
 class ResearchItemsListResponse(ApiModel):
     items: list[ResearchItemView]
     total: int
+
+
+class ItemRelations(ApiModel):
+    syndicated: list[int] = []  # the same article by other publishers, closest first
+    similar: list[int] = []     # other articles on the same theme / content / context, closest first
+
+
+class ItemClassification(ApiModel):
+    about_brand: float | None = None            # Jev: probability the item is genuinely about the brief's brand
+    sentiment: str | None = None                # "positive" | "neutral" | "negative" toward the brand
+    sentiment_confidence: float | None = None
+
+
+class ResearchItemClassificationResponse(ApiModel):
+    classifications: dict[int, ItemClassification]
+    method: str  # "jev" | "jev_partial" (more to classify on a later call) | "rules" (no Jev key)
+
+
+class ResearchItemRelationsResponse(ApiModel):
+    relations: dict[int, ItemRelations]
+    # "embeddings" | "embeddings_partial" (some items not embedded yet; they match by headline only this time)
+    # | "titles" (fallback when no embedding provider is reachable)
+    method: str
 
 
 class ArticleBlock(ApiModel):

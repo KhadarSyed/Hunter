@@ -143,6 +143,23 @@ def fetch_kit(brand_name: str, folder: Path, judge=None) -> BrandKit:
     return kit
 
 
+def brand_colors(brand_name: str) -> list[str]:
+    """The brand's colours as the kit lists them (logo hues, then Brandfetch's), without downloading any image: for
+    decks built before their spec kept the palette."""
+    try:
+        domain = resolve_brand_domain(brand_name)
+        data = _brand_api(domain) if domain else {}
+    except (requests.RequestException, ValueError) as e:
+        logger.warning("brand colours for %r unavailable: %s", brand_name, type(e).__name__)
+        return []
+    listed = [c["hex"].lstrip("#").upper() for c in sorted(
+        (c for c in data.get("colors") or [] if re.fullmatch(r"#?[0-9A-Fa-f]{6}", c.get("hex") or "")),
+        key=lambda c: _COLOR_ORDER.get(c.get("type"), 9))]
+    emblem = logo_files.logo_file(brand_name)
+    own = logo_colors(emblem[0] if emblem else None)
+    return list(dict.fromkeys(own + [c for c in listed if not any(_near(c, o) for o in own)]))
+
+
 def _near(a: str, b: str, tolerance: int = 40) -> bool:
     return sum(abs(int(a[i:i + 2], 16) - int(b[i:i + 2], 16)) for i in (0, 2, 4)) <= tolerance
 

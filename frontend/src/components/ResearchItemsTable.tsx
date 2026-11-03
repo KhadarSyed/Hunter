@@ -1,7 +1,13 @@
 import { formatDate as formatDateUS } from "../utils/format";
 import { useEffect, useState } from "react";
-import { intelApi, type ResearchItem } from "../services/intel-api";
+import {
+  intelApi,
+  type ItemClassification,
+  type ItemRelations,
+  type ResearchItem,
+} from "../services/intel-api";
 import { ArticleReaderModal } from "./ArticleReaderModal";
+import { AccessBadge, RelatedArticlesDrawer, type RelationKind } from "./RelatedArticlesDrawer";
 
 function faviconUrl(domain: string | null): string | null {
   if (!domain) return null;
@@ -16,6 +22,12 @@ function singleSourceLabel(sourceApi: string): string {
       return "Tavily";
     case "serpapi":
       return "SerpAPI";
+    case "youtube":
+      return "YouTube";
+    case "bluesky":
+      return "Bluesky";
+    case "searxng":
+      return "SearXNG";
     default:
       return sourceApi;
   }
@@ -36,6 +48,14 @@ function formatDate(ts: number): string {
   }
 }
 
+const ABOUT_BRAND_MIN = 0.5; // matches backend classify.ABOUT_BRAND_MIN
+
+const SENTIMENT_STYLE: Record<NonNullable<ItemClassification["sentiment"]>, string> = {
+  positive: "bg-emerald-50 text-emerald-700",
+  neutral: "bg-slate-100 text-slate-600",
+  negative: "bg-rose-50 text-rose-700",
+};
+
 interface ResearchItemsTableProps {
   projectId: number;
 }
@@ -47,6 +67,27 @@ export function ResearchItemsTable({ projectId }: ResearchItemsTableProps) {
   const [items, setItems] = useState<ResearchItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [readingItem, setReadingItem] = useState<ResearchItem | null>(null);
+  // undefined = still loading, null = failed to load
+  const [relations, setRelations] = useState<Record<string, ItemRelations> | null | undefined>(undefined);
+  const [openRelation, setOpenRelation] = useState<{ kind: RelationKind; item: ResearchItem } | null>(null);
+  const [classified, setClassified] = useState<Record<string, ItemClassification>>({});
+
+  // Jev's relevance + sentiment, loaded after the table; absent (no key, or failed) = the rule-based Relevant.
+  useEffect(() => {
+    let cancelled = false;
+    setClassified({});
+    intelApi
+      .getResearchItemClassification(projectId)
+      .then((res) => {
+        if (!cancelled) setClassified(res.classifications);
+      })
+      .catch(() => {
+        /* the rule-based Relevant column stays */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,6 +106,23 @@ export function ResearchItemsTable({ projectId }: ResearchItemsTableProps) {
     };
   }, [projectId]);
 
+  // Loaded separately so the table shows at once; the first load of a project embeds its articles.
+  useEffect(() => {
+    let cancelled = false;
+    setRelations(undefined);
+    intelApi
+      .getResearchItemRelations(projectId)
+      .then((res) => {
+        if (!cancelled) setRelations(res.relations);
+      })
+      .catch(() => {
+        if (!cancelled) setRelations(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
   if (error) {
     return <div className="text-sm text-red-500">{error}</div>;
   }
@@ -76,6 +134,59 @@ export function ResearchItemsTable({ projectId }: ResearchItemsTableProps) {
   if (items.length === 0) {
     return <div className="text-sm text-slate-400 italic">No articles found for this run.</div>;
   }
+
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const relatedItems = (item: ResearchItem, kind: RelationKind): ResearchItem[] =>
+    (relations?.[String(item.id)]?.[kind] ?? [])
+      .map((id) => byId.get(id))
+      .filter((found): found is ResearchItem => Boolean(found));
+
+  const relevantCell = (item: ResearchItem) => {
+    const about = classified[String(item.id)]?.about_brand;
+    const isRelevant = about == null ? item.relevant : about >= ABOUT_BRAND_MIN;
+    const label = isRelevant ? "Yes" : "No";
+    return (
+      <span
+        title={about == null ? "Rule-based check" : "Jev: probability this is about the brand"}
+        className={`px-1.5 py-0.5 rounded text-[10px] font-medium whitespace-nowrap ${
+          isRelevant ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-400"
+        }`}
+      >
+        {about == null ? label : `${label} ${Math.round(about * 100)}%`}
+      </span>
+    );
+  };
+
+  const sentimentCell = (item: ResearchItem) => {
+    const found = classified[String(item.id)];
+    if (!found?.sentiment) return <span className="text-slate-300">—</span>;
+    const style = SENTIMENT_STYLE[found.sentiment];
+    const confidence = found.sentiment_confidence == null ? "" : ` (${Math.round(found.sentiment_confidence * 100)}% sure)`;
+    return (
+      <span
+        title={`Tone toward the brand${confidence}`}
+        className={`px-1.5 py-0.5 rounded text-[10px] font-medium capitalize ${style}`}
+      >
+        {found.sentiment}
+      </span>
+    );
+  };
+
+  const relationCell = (item: ResearchItem, kind: RelationKind) => {
+    if (relations === undefined) return <span className="text-slate-300">…</span>;
+    if (relations === null) return <span className="text-slate-300" title="Could not load">—</span>;
+    const count = relatedItems(item, kind).length;
+    if (count === 0) return <span className="text-slate-300">0</span>;
+    return (
+      <button
+        onClick={() => setOpenRelation({ kind, item })}
+        className="px-1.5 py-0.5 rounded bg-violet-50 text-[#5B2C9D] font-semibold hover:bg-violet-100 hover:underline"
+        aria-label={`${count} ${kind} article${count === 1 ? "" : "s"}`}
+      >
+        {count}
+      </button>
+    );
+  };
 
   return (
     <div className="max-w-6xl">
@@ -94,8 +205,22 @@ export function ResearchItemsTable({ projectId }: ResearchItemsTableProps) {
                 <th className="text-left px-3 py-2 font-medium text-slate-500">Content</th>
                 <th className="text-left px-3 py-2 font-medium text-slate-500 w-28">Author</th>
                 <th className="text-left px-3 py-2 font-medium text-slate-500 w-24">Published</th>
+                <th className="text-left px-3 py-2 font-medium text-slate-500 w-16">Access</th>
+                <th
+                  className="text-left px-3 py-2 font-medium text-slate-500 w-20"
+                  title="The same article published by other publishers or vendors"
+                >
+                  Syndicated
+                </th>
+                <th
+                  className="text-left px-3 py-2 font-medium text-slate-500 w-16"
+                  title="Other articles with the same theme, content, motive or context"
+                >
+                  Similar
+                </th>
                 <th className="text-left px-3 py-2 font-medium text-slate-500 w-40">Keywords Matched</th>
                 <th className="text-left px-3 py-2 font-medium text-slate-500 w-20">Relevant</th>
+                <th className="text-left px-3 py-2 font-medium text-slate-500 w-20">Sentiment</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
@@ -163,6 +288,11 @@ export function ResearchItemsTable({ projectId }: ResearchItemsTableProps) {
                       {formatDate(item.published_date)}
                     </td>
                     <td className="px-3 py-2.5">
+                      <AccessBadge access={item.access} />
+                    </td>
+                    <td className="px-3 py-2.5">{relationCell(item, "syndicated")}</td>
+                    <td className="px-3 py-2.5">{relationCell(item, "similar")}</td>
+                    <td className="px-3 py-2.5">
                       <div className="flex flex-wrap gap-1">
                         {item.keywords_matched.length > 0 ? (
                           item.keywords_matched.map((kw) => (
@@ -178,17 +308,8 @@ export function ResearchItemsTable({ projectId }: ResearchItemsTableProps) {
                         )}
                       </div>
                     </td>
-                    <td className="px-3 py-2.5">
-                      <span
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                          item.relevant
-                            ? "bg-emerald-50 text-emerald-700"
-                            : "bg-slate-100 text-slate-400"
-                        }`}
-                      >
-                        {item.relevant ? "Yes" : "No"}
-                      </span>
-                    </td>
+                    <td className="px-3 py-2.5">{relevantCell(item)}</td>
+                    <td className="px-3 py-2.5">{sentimentCell(item)}</td>
                   </tr>
                 );
               })}
@@ -201,6 +322,14 @@ export function ResearchItemsTable({ projectId }: ResearchItemsTableProps) {
           itemId={readingItem.id}
           sourceUrl={readingItem.url}
           onClose={() => setReadingItem(null)}
+        />
+      )}
+      {openRelation && (
+        <RelatedArticlesDrawer
+          kind={openRelation.kind}
+          source={openRelation.item}
+          related={relatedItems(openRelation.item, openRelation.kind)}
+          onClose={() => setOpenRelation(null)}
         />
       )}
     </div>

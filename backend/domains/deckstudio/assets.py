@@ -1,5 +1,6 @@
-"""Slide photos: licensed (Pexels) and brand-owned first, SerpAPI Google Images as fallback; never the same
-image twice; cropped to the slide treatment. Keys come from the environment and are never logged."""
+"""Slide photos: licensed (Pexels) and brand-owned first, SerpAPI Google Images as fallback, then SearXNG images
+when SerpAPI finds nothing on-topic; every candidate passes the same relevance check against the brief's subjects;
+never the same image twice; cropped to the slide treatment. Keys come from the environment and are never logged."""
 from __future__ import annotations
 
 import hashlib
@@ -8,6 +9,7 @@ import os
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import date
 from io import BytesIO
 from pathlib import Path
 
@@ -21,9 +23,10 @@ from .verbatims import is_public_http
 
 logger = logging.getLogger(__name__)
 TIMEOUT_S = 15
-MIN_WIDTH = {"background": 1600, "panel": 900}
 SIZES = {"background": (1920, 1080), "panel": (672, 1080)}
 PEXELS_URL = "https://api.pexels.com/v1/search"
+UNSPLASH_URL = "https://api.unsplash.com/search/photos"
+UNSPLASH_WIDTH = 2400        # served resized from Unsplash's CDN: HD for a 1920 slide without a 6000px download
 SERP_URL = "https://serpapi.com/search.json"
 MAX_TRIES = 4
 MAX_REDIRECTS = 3
@@ -55,10 +58,43 @@ def _pexels(query: str) -> list[dict]:
         r.raise_for_status()
         photos = r.json().get("photos") or []
         return [{"url": p["src"].get("original") or p["src"].get("large2x"), "width": p.get("width", 0),
-                 "title": p.get("alt") or ""} for p in photos]
+                 "height": p.get("height", 0), "title": p.get("alt") or ""} for p in photos]
     except (requests.RequestException, ValueError, KeyError, AttributeError, TypeError) as e:
         logger.warning("pexels search failed: %s", type(e).__name__)
         return []
+
+
+def _unsplash(query: str) -> list[dict]:
+    """Licensed, high-resolution stock (UNSPLASH_ACCESS_KEY). `track` is the download ping Unsplash's API terms ask
+    for when a photo is used."""
+    key = os.environ.get("UNSPLASH_ACCESS_KEY", "")
+    if not key:
+        return []
+    try:
+        r = requests.get(UNSPLASH_URL, params={"query": query, "per_page": 10, "orientation": "landscape"},
+                         headers={"Authorization": f"Client-ID {key}"}, timeout=TIMEOUT_S)
+        r.raise_for_status()
+        out = []
+        for p in r.json().get("results") or []:
+            w, h = p.get("width") or 0, p.get("height") or 0
+            scale = min(1.0, UNSPLASH_WIDTH / w) if w else 1.0
+            out.append({"url": f"{p['urls']['raw']}&w={UNSPLASH_WIDTH}&fm=jpg&q=85", "width": int(w * scale),
+                        "height": int(h * scale), "title": p.get("alt_description") or p.get("description") or "",
+                        "track": (p.get("links") or {}).get("download_location") or ""})
+        return out
+    except (requests.RequestException, ValueError, KeyError, AttributeError, TypeError) as e:
+        logger.warning("unsplash search failed: %s", type(e).__name__)
+        return []
+
+
+def _track_use(cand: dict) -> None:
+    if not cand.get("track"):
+        return
+    try:
+        requests.get(cand["track"], headers={"Authorization": f"Client-ID {os.environ.get('UNSPLASH_ACCESS_KEY', '')}"},
+                     timeout=TIMEOUT_S)
+    except requests.RequestException:
+        pass        # the ping is courtesy to Unsplash's stats; the photo is already chosen
 
 
 def _serpapi(query: str) -> list[dict]:
@@ -68,10 +104,39 @@ def _serpapi(query: str) -> list[dict]:
             return []
         r.raise_for_status()
         results = r.json().get("images_results") or []
-        return [{"url": i.get("original"), "width": i.get("original_width") or 0, "title": i.get("title") or "",
+        return [{"url": i.get("original"), "width": i.get("original_width") or 0,
+                 "height": i.get("original_height") or 0, "title": i.get("title") or "",
                  "page": i.get("link") or ""} for i in results if i.get("original")]
     except (requests.RequestException, ValueError, AttributeError, TypeError) as e:
         logger.warning("serpapi image search failed: %s", type(e).__name__)
+        return []
+
+
+_DIGITS = re.compile(r"\d+")
+
+
+def _searxng_images(query: str) -> list[dict]:
+    """SearXNG's image engines (self-hosted, SEARXNG_URL): when SerpAPI is out of searches or finds nothing usable.
+    Its results carry the image, the page it sits on and a 'W×H' resolution."""
+    base = os.environ.get("SEARXNG_URL", "").strip().rstrip("/")
+    if not base:
+        return []
+    try:
+        r = requests.get(f"{base}/search", params={"q": query, "categories": "images", "format": "json",
+                                                    "language": "en", "safesearch": 1}, timeout=TIMEOUT_S)
+        r.raise_for_status()
+        results = r.json().get("results") or []
+        logger.info("searxng image fallback: %s results for %r", len(results), query)
+        out = []
+        for i in results:
+            if not i.get("img_src"):
+                continue
+            wh = [int(n) for n in _DIGITS.findall(i.get("resolution") or "")[:2]] + [0, 0]
+            out.append({"url": i["img_src"], "title": i.get("title") or "", "page": i.get("url") or "",
+                        "width": wh[0], "height": wh[1]})
+        return out
+    except (requests.RequestException, ValueError, KeyError, AttributeError, TypeError) as e:
+        logger.warning("searxng image search failed: %s", type(e).__name__)
         return []
 
 
@@ -83,7 +148,8 @@ def _ddg_images(query: str) -> list[dict]:
             from duckduckgo_search import DDGS
         with DDGS() as d:
             found = list(d.images(query, safesearch="moderate", size="Large", max_results=15))
-        return [{"url": i.get("image"), "width": int(i.get("width") or 0), "title": i.get("title") or ""} for i in found]
+        return [{"url": i.get("image"), "width": int(i.get("width") or 0), "height": int(i.get("height") or 0),
+                 "title": i.get("title") or ""} for i in found]
     except Exception as e:      # rate limits and network errors: the next source is tried
         logger.warning("duckduckgo image search failed: %s", type(e).__name__)
         return []
@@ -188,24 +254,59 @@ def _relevance(query: str, title: str) -> int:
     return len(set(_WORD.findall(query.lower())) & set(_WORD.findall(title.lower())))
 
 
-def _accept(data: bytes, role: str, title: str, subjects: Subjects | None, judge) -> tuple[bool, str]:
+GOOD_UPSCALE = 1.25     # a near-HD photo enlarged this much still looks sharp; run 77's blurry ones were 1.4-2x
+
+
+def upscale(width: int, height: int, role: str) -> float:
+    """How much the photo is enlarged to fill its slot (cover crop), in the tighter direction: a wide but short photo
+    stretched to a tall panel is blurred even when its width looks ample."""
+    w, h = SIZES[role]
+    return max(w / max(width, 1), h / max(height, 1))
+
+
+def is_hd(width: int, height: int, role: str) -> bool:
+    return upscale(width, height, role) <= 1
+
+
+def _maybe_usable(cand: dict, role: str) -> bool:
+    """A search result that already says it is too small even for the near-HD backup is skipped before downloading
+    (0 = size not given)."""
+    w, h = SIZES[role]
+    return not (0 < cand.get("width", 0) < w / GOOD_UPSCALE or 0 < cand.get("height", 0) < h / GOOD_UPSCALE)
+
+
+def _accept(data: bytes, role: str, title: str, subjects: Subjects | None, judge) -> tuple[bool, str, bool]:
+    """(on-topic and sharp enough, why, HD). A near-HD photo can pass: the caller keeps it as a backup."""
     try:
         with Image.open(BytesIO(data)) as im:
-            if im.width < MIN_WIDTH[role]:
-                return False, "too small"
+            size = (im.width, im.height)
     except Exception:
-        return False, "not an image"
+        return False, "not an image", False
+    if upscale(*size, role) > GOOD_UPSCALE:
+        return False, f"too small ({size[0]}x{size[1]})", False
+    hd = is_hd(*size, role)
     if subjects is None:
-        return True, "no subject check"
+        return True, "no subject check", hd
     verdict = judge(data) if judge else None
     if verdict is not None:
-        return verdict, "vision: " + ("matches" if verdict else "off-topic")
+        return verdict, "vision: " + ("matches" if verdict else "off-topic"), hd
     if judge is not None:
         # vision is available but could not look (its budget is spent): a photo nobody checked against the brief's
         # product or category is not shown -- an off-topic or outdated image is worse than the brand gradient
-        return False, "not verified (vision budget used up)"
+        return False, "not verified (vision budget used up)", hd
     ok = text_relevant(title, subjects)
-    return ok, "text: " + ("names the subject" if ok else "does not name the subject")
+    return ok, "text: " + ("names the subject" if ok else "does not name the subject"), hd
+
+
+def _keep(data: bytes, url: str, licence: str, why: str, role: str, folder: Path, slug: str, used: set[str],
+          cand: dict | None = None) -> Photo:
+    folder.mkdir(parents=True, exist_ok=True)
+    raw = folder / f"{slug}.src"
+    raw.write_bytes(data)
+    used.add(url)
+    if cand:
+        _track_use(cand)
+    return Photo(crop_to(raw, role, folder / f"{slug}.jpg"), url, licence, why)
 
 
 def _plan(query: str, subjects: Subjects | None, article_urls) -> Iterator[tuple[str, list[dict]]]:
@@ -217,23 +318,26 @@ def _plan(query: str, subjects: Subjects | None, article_urls) -> Iterator[tuple
     for q in (brief_queries(subjects) if subjects else [query]):
         yield "web", (_ddg_images(q) if subjects and subjects.brands else [])
         yield "licensed", _pexels(q)
+        yield "licensed", _unsplash(q)
         yield "web", _serpapi(q)
+        yield "web", _searxng_images(q)       # reached only when SerpAPI gave nothing on-topic for this query
 
 
 def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image: Path | None = None, *,
                subjects: Subjects | None = None, article_urls=(), judge=None, fallback: bool = True) -> Photo:
-    """The first candidate that is big enough and on-topic; no photo rather than an off-topic one. `fallback=False`
-    (a named product's shot) never widens to the category: a generic category image labelled as the product misleads."""
+    """The first candidate that is HD and on-topic; failing that, the first on-topic near-HD one (at most GOOD_UPSCALE
+    enlarged) met on the way; no photo rather than an off-topic or blurry one. `fallback=False` (a named product's
+    shot) never widens to the category: a generic category image labelled as the product misleads."""
     slug = hashlib.sha1(f"{query}|{role}".encode()).hexdigest()[:12]
     if brand_image and brand_image.exists() and str(brand_image) not in used:
         with Image.open(brand_image) as im:
-            wide_enough = im.width >= MIN_WIDTH[role]
-        if wide_enough:
+            big_enough = upscale(im.width, im.height, role) <= GOOD_UPSCALE
+        if big_enough:
             used.add(str(brand_image))
             return Photo(crop_to(brand_image, role, folder / f"{slug}.jpg"), str(brand_image), "brand", "brand imagery")
-    rejected = 0
+    rejected, backup = 0, {}
     for licence, results in _plan(query, subjects, article_urls):
-        ranked = sorted((c for c in results if c["url"] and c["url"] not in used),
+        ranked = sorted((c for c in results if c["url"] and c["url"] not in used and _maybe_usable(c, role)),
                         key=lambda c: -_relevance(query, c["title"]))
         for cand in ranked[:MAX_TRIES]:
             data = _download(cand["url"])
@@ -242,30 +346,44 @@ def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image:
             title = cand["title"]
             if licence == "article" and subjects:      # routed to this slide's question: its subject by construction
                 title = " ".join(subjects.brands + subjects.products + [subjects.category])
-            ok, why = _accept(data, role, title, subjects, judge)
+            ok, why, hd = _accept(data, role, title, subjects, judge)
             if not ok:
                 rejected += 1
                 continue
-            folder.mkdir(parents=True, exist_ok=True)
-            raw = folder / f"{slug}.src"
-            raw.write_bytes(data)
-            used.add(cand["url"])
-            return Photo(crop_to(raw, role, folder / f"{slug}.jpg"), cand["url"], licence, why)
-    found = _fallback(query, role, folder, used, subjects, judge, slug) if fallback else None
-    return found or Photo(None, "", "none", f"no relevant photo ({rejected} candidates rejected)")
+            if not hd:
+                backup = backup or {"data": data, "url": cand["url"], "licence": licence, "why": why, "cand": cand}
+                continue
+            return _keep(data, cand["url"], licence, why, role, folder, slug, used, cand)
+    found = _fallback(query, role, folder, used, subjects, judge, slug, backup) if fallback else None
+    if found:
+        return found
+    if backup:
+        return _keep(backup["data"], backup["url"], backup["licence"], f"{backup['why']}; near-HD (no HD photo found)",
+                     role, folder, slug, used, backup["cand"])
+    return Photo(None, "", "none", f"no relevant photo ({rejected} candidates rejected)")
+
+
+def product_photo(brand: str, name: str, category: str, folder: Path, used: set[str], make_judge=None) -> Photo:
+    """The client's product for the cover: the current model (the year and "new" steer the search away from vintage
+    and earlier generations), never widened to the category. `make_judge(subjects)` gives the vision check."""
+    subjects = Subjects([brand], [name], category, f"{name} product packshot")
+    return find_photo(f"{brand} {name} {date.today().year} new", "panel", folder, used, subjects=subjects,
+                      fallback=False, judge=make_judge(subjects) if make_judge else None)
 
 
 FALLBACK_TRIES = 8
 
 
 def _fallback(query: str, role: str, folder: Path, used: set[str], subjects: Subjects | None, judge,
-              slug: str) -> Photo | None:
-    """Every candidate failed: a wider Google Images search at the category's level (not the slide's brands), taking
-    each result's image or, when it cannot be downloaded (hot-link blocked), the lead image its page declares."""
+              slug: str, backup: dict) -> Photo | None:
+    """No HD photo yet: a wider Google Images search at the category's level (not the slide's brands), taking each
+    result's image or, when it cannot be downloaded (hot-link blocked), the lead image its page declares. A near-HD
+    match fills `backup` when it is still empty."""
     loose = Subjects([], [], subjects.category, subjects.scene) if subjects else None
     terms = [f"{subjects.category} {subjects.scene}".strip(), subjects.category] if subjects else [query]
-    for q in dict.fromkeys(t for t in terms if t):
-        for cand in _serpapi(q)[:FALLBACK_TRIES]:
+    searches = ((q, search) for q in dict.fromkeys(t for t in terms if t) for search in (_serpapi, _searxng_images))
+    for q, search in searches:      # lazy: SearXNG runs only when SerpAPI's results for this term all failed
+        for cand in [c for c in search(q) if _maybe_usable(c, role)][:FALLBACK_TRIES]:
             for url in (cand["url"], "page"):
                 if url == "page":
                     url = article_image(cand["page"]) if cand.get("page") else None
@@ -274,12 +392,12 @@ def _fallback(query: str, role: str, folder: Path, used: set[str], subjects: Sub
                 data = _download(url)
                 if not data:
                     continue
-                ok, why = _accept(data, role, cand["title"], loose, judge)
+                ok, why, hd = _accept(data, role, cand["title"], loose, judge)
                 if not ok:
                     continue
-                folder.mkdir(parents=True, exist_ok=True)
-                raw = folder / f"{slug}.src"
-                raw.write_bytes(data)
-                used.add(url)
-                return Photo(crop_to(raw, role, folder / f"{slug}.jpg"), url, "web", f"wider search: {why}")
+                if not hd:
+                    if not backup:
+                        backup.update(data=data, url=url, licence="web", why=f"wider search: {why}", cand=None)
+                    continue
+                return _keep(data, url, "web", f"wider search: {why}", role, folder, slug, used)
     return None

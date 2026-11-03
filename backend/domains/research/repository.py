@@ -228,18 +228,20 @@ def upsert_research_item(project_id: int, research_id: int | None, item: dict) -
     conn.execute(
         "INSERT INTO intel_research_items "
         "(project_id, research_id, topic, source_api, platform, publication, "
-        "published_date, title, content, url, author, thumbnail_url, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "published_date, title, content, url, author, thumbnail_url, access, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(project_id, url) DO UPDATE SET "
         "research_id = excluded.research_id, topic = excluded.topic, "
         "source_api = excluded.source_api, platform = excluded.platform, "
         "publication = excluded.publication, published_date = excluded.published_date, "
         "title = excluded.title, content = excluded.content, author = excluded.author, "
-        "thumbnail_url = excluded.thumbnail_url",
+        "thumbnail_url = excluded.thumbnail_url, "
+        "access = COALESCE(excluded.access, intel_research_items.access)",  # an unknown never erases a known
         (
             project_id, research_id, item["topic"], source_api, item.get("platform"),
             item.get("publication"), item["published_date"], item.get("title"),
-            item.get("content"), item["url"], item.get("author"), item.get("thumbnail_url"), now,
+            item.get("content"), item["url"], item.get("author"), item.get("thumbnail_url"),
+            item.get("access"), now,
         ),
     )
     conn.commit()
@@ -249,6 +251,53 @@ def upsert_research_item(project_id: int, research_id: int | None, item: dict) -
     ).fetchone()
     conn.close()
     return row["id"]
+
+
+def research_item_urls(project_id: int) -> list[str]:
+    """Every stored research-item URL of a project, so a new fetch can match variants of pages it already has."""
+    conn = _conn()
+    rows = conn.execute("SELECT url FROM intel_research_items WHERE project_id = ?", (project_id,)).fetchall()
+    conn.close()
+    return [row["url"] for row in rows]
+
+
+def get_item_vectors(item_ids: list[int], model: str) -> dict[int, bytes]:
+    """Stored embedding bytes (float32) per item id, only those made with `model`."""
+    found: dict[int, bytes] = {}
+    conn = _conn()
+    for start in range(0, len(item_ids), VECTOR_LOOKUP_CHUNK):  # Postgres caps bound parameters per statement
+        chunk = item_ids[start:start + VECTOR_LOOKUP_CHUNK]
+        rows = conn.execute(f"SELECT item_id, vector FROM intel_research_item_vectors WHERE model = ? "
+                            f"AND item_id IN ({','.join('?' * len(chunk))})", [model, *chunk]).fetchall()
+        found.update({row["item_id"]: bytes(row["vector"]) for row in rows})
+    conn.close()
+    return found
+
+
+VECTOR_LOOKUP_CHUNK = 1000
+
+
+def save_item_classifications(rows: list[tuple[int, float, str, float, str]]) -> None:
+    """(item id, about_brand probability, sentiment, sentiment confidence, brand classified for) per item."""
+    conn = _conn()
+    for item_id, about, sentiment, confidence, brand in rows:
+        conn.execute("UPDATE intel_research_items SET about_brand = ?, sentiment = ?, sentiment_confidence = ?, "
+                     "classified_for = ? WHERE id = ?", (about, sentiment, confidence, brand, item_id))
+    conn.commit()
+    conn.close()
+
+
+def save_item_vectors(vectors: dict[int, bytes], model: str, dim: int) -> None:
+    conn = _conn()
+    now = time.time()
+    for item_id, blob in vectors.items():
+        conn.execute(
+            "INSERT INTO intel_research_item_vectors (item_id, model, dim, vector, created_at) VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT (item_id) DO UPDATE SET model = excluded.model, dim = excluded.dim, "
+            "vector = excluded.vector, created_at = excluded.created_at",
+            (item_id, model, dim, blob, now))
+    conn.commit()
+    conn.close()
 
 
 def get_research_item(item_id: int) -> dict | None:

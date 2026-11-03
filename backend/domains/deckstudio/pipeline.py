@@ -2,7 +2,6 @@
 tokens), find assets, compose (render + creative pass), export."""
 from __future__ import annotations
 
-from datetime import date
 
 import json
 import logging
@@ -152,6 +151,7 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     plan_input.checklist = rows
     spec = planner.build_deck_spec(plan_input)
     attach_logos(spec, logos, plan_input.title, plan_input.brands)
+    spec.brand_colors = list(brand_colors)
     rows = checklist.attach_slide_numbers(spec, rows)
     entry, design_why = design_systems.choose(llm, plan_input.scope_text, [])
     design = {**(entry.get("design") or design_systems.load(entry["slug"])), "slug": entry["slug"]}
@@ -212,11 +212,8 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     reuse_photos(photo_slides, run.log)
 
     def product_photo(name: str):
-        subjects = image_brief.Subjects([plan_input.title], [name], plan_input.category, f"{name} product packshot")
-        # the current model: the year and "new" steer the search away from vintage and earlier generations
-        return assets.find_photo(f"{plan_input.title} {name} {date.today().year} new", "panel", deck_dir / "photos", used,
-                                 subjects=subjects, fallback=False,
-                                 judge=_judge(llm, subjects, f"{name} by {plan_input.title}", checks, exact=True)).path
+        return assets.product_photo(plan_input.title, name, plan_input.category, deck_dir / "photos", used,
+                                    lambda subj: _judge(llm, subj, f"{name} by {plan_input.title}", checks, exact=True)).path
     attach_product(spec, plan_input.brand_products, product_photo)
     if spec.product_image:
         run.log(f"Cover product: {spec.product_name}")

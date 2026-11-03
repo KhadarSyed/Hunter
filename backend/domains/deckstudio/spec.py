@@ -64,6 +64,7 @@ class DeckSpec:
     citation_meta: dict[str, dict] = field(default_factory=dict)  # "n" -> {outlet, icon}: cards cite by name + icon
     product_image: str = ""                                       # the client's product, shown on the cover
     product_name: str = ""
+    brand_colors: list[str] = field(default_factory=list)          # Brandfetch + logo hues: the recolour swatches
 
     def to_dict(self) -> dict:
         return asdict(self)

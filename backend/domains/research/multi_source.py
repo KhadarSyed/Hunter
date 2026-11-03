@@ -18,7 +18,7 @@ from datetime import date, datetime, timedelta
 from urllib.parse import urlparse
 
 from ..exclusions.service import keep, rules_for_project
-from . import news_search
+from . import extra_sources, news_search, page_signals, relations
 from . import repository
 
 logger = logging.getLogger(__name__)
@@ -183,6 +183,10 @@ def _to_normalized_items(bucket_result: dict, topic: str) -> list[dict]:
 
 MAX_RESULTS_PER_SOURCE = 40  # per source, per fetch call (general or social-biased) — up from
                               # 15; Tavily/SerpAPI both support well beyond this per call
+# Each extra source runs on one of the two calls only: YouTube's search costs 100 of 10,000 free daily
+# units, so running it on both would halve the topics a day's quota covers. Each runs only when configured.
+GENERAL_EXTRA_SOURCES = ("searxng",)
+SOCIAL_EXTRA_SOURCES = ("youtube", "bluesky")
 
 
 def _build_social_query(boolean_query: str) -> str:
@@ -193,6 +197,33 @@ def _build_social_query(boolean_query: str) -> str:
     domains = sorted(news_search.SOCIAL_PLATFORM_DOMAINS.keys())
     site_group = "(" + " OR ".join(f"site:{d}" for d in domains) + ")"
     return f"({boolean_query}) AND {site_group}"
+
+
+ACCESS_WORKERS = 8
+
+
+def _embed_for_relations(project_id: int) -> None:
+    """Embed the project's new items now, while the fetch job runs, so the All Articles table's Syndicated /
+    Similar counts don't wait on embedding. Best-effort: the table embeds whatever is still missing."""
+    from ...core.anthropic_client import get_llm_client
+    try:
+        relations.ensure_vectors(repository.get_research_items(project_id), get_llm_client())
+    except Exception:
+        logger.warning("Embedding research items for relations failed", exc_info=True)
+
+
+def _with_access(items: list[dict]) -> list[dict]:
+    """Each item with "access": "free" for social platforms (public posts), otherwise its site's verdict --
+    "paid" when the site refuses readers or paywalls, "free" when it opens (page_signals.access_status,
+    one check per site). Refusing sites stay in the results; they are just marked paid."""
+    first_url: dict[str, str] = {}
+    for item in items:
+        if not item.get("platform"):
+            first_url.setdefault(urlparse(item["url"]).hostname or "", item["url"])
+    with ThreadPoolExecutor(max_workers=ACCESS_WORKERS) as pool:
+        by_host = dict(zip(first_url, pool.map(page_signals.access_status, first_url.values())))
+    return [{**item, "access": "free" if item.get("platform") else by_host.get(urlparse(item["url"]).hostname or "")}
+            for item in items]
 
 
 def fetch_and_persist(
@@ -217,9 +248,14 @@ def fetch_and_persist(
 
     items_fetched = 0
     items_persisted = 0
-    source_status: dict[str, str] = {"tavily": "ok", "serpapi": "ok", "google_rss": "ok"}
+    source_status: dict[str, str] = {"tavily": "ok", "serpapi": "ok", "google_rss": "ok",
+                                     **{name: "ok" for name in GENERAL_EXTRA_SOURCES + SOCIAL_EXTRA_SOURCES
+                                        if extra_sources.is_configured(name)}}
     social_domains = list(news_search.SOCIAL_PLATFORM_DOMAINS.keys())
     rules = rules_for_project(project_id)
+    # dedupe key -> the URL already stored for that page, so a variant (www., trailing slash, tracking
+    # parameters, rows saved before canonical URLs) merges into the existing row instead of adding one
+    stored_urls = {news_search.dedupe_key(u): u for u in repository.research_item_urls(project_id)}
 
     def _track_failures(bucket_result: dict) -> None:
         for failed in bucket_result.get("failed_sources", []):
@@ -233,7 +269,7 @@ def fetch_and_persist(
         general_result = news_search.fetch_and_normalize(
             query=topic.boolean_query, country=geography, date_range=date_range,
             max_results=MAX_RESULTS_PER_SOURCE, tavily_query=topic.natural_query,
-            api_keys=api_keys, on_source_result=on_source_result,
+            api_keys=api_keys, on_source_result=on_source_result, extra_sources=GENERAL_EXTRA_SOURCES,
         )
         _track_failures(general_result)
 
@@ -241,7 +277,7 @@ def fetch_and_persist(
             query=_build_social_query(topic.boolean_query), country=geography,
             date_range=date_range, max_results=MAX_RESULTS_PER_SOURCE,
             tavily_query=topic.natural_query, include_domains=social_domains,
-            api_keys=api_keys, on_source_result=on_source_result,
+            api_keys=api_keys, on_source_result=on_source_result, extra_sources=SOCIAL_EXTRA_SOURCES,
         )
         _track_failures(social_result)
 
@@ -250,19 +286,23 @@ def fetch_and_persist(
         social_items = _to_normalized_items(social_result, topic.topic)
         general_items = _to_normalized_items(general_result, topic.topic)
 
-        seen_urls: set[str] = set()
+        seen_keys: set[str] = set()
         combined: list[dict] = []
         for item in social_items + general_items:
-            if item["url"] in seen_urls:
+            key = news_search.dedupe_key(item["url"])
+            if key in seen_keys:
                 continue
-            seen_urls.add(item["url"])
+            seen_keys.add(key)
             combined.append(item)
 
         items_fetched += len(combined)
+        combined = _with_access(combined)
         for item in keep(combined, rules):       # the organization's excluded websites and keywords never land
-            repository.upsert_research_item(project_id, research_id, item)
+            url = stored_urls.setdefault(news_search.dedupe_key(item["url"]), item["url"])
+            repository.upsert_research_item(project_id, research_id, {**item, "url": url})
             items_persisted += 1
 
+    _embed_for_relations(project_id)
     _emit("fetch_complete", {"items_fetched": items_fetched, "items_persisted": items_persisted})
     return {
         "items_fetched": items_fetched,
