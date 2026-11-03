@@ -46,8 +46,6 @@ def _section(module: dict, rq: RQ, **kw) -> Section:
                    title=module.get("title") or module["module"], **kw)
 
 
-SEGMENT_URLS = None  # every article of a chart category, best first: the deck lists them all on a click, the insight
-                    # writer takes its first few (relevant ones first)
 
 
 def _segments(pairs) -> dict[str, list[str]]:
@@ -68,7 +66,7 @@ def _segments(pairs) -> dict[str, list[str]]:
         leads = [max(copies, key=lambda r: (bool(r.dynamic_tags), r.article.reach or 0)) for copies in order]
         lead_ids = {id(r) for r in leads}
         rest = [r for copies in order for r in copies if id(r) not in lead_ids]
-        ranked[c] = list(dict.fromkeys(r.article.norm_url for r in leads + rest))[:SEGMENT_URLS]
+        ranked[c] = list(dict.fromkeys(r.article.norm_url for r in leads + rest))
     return ranked
 
 
@@ -363,7 +361,7 @@ def _entities(module, rq, rows, base_n, extraction):
     rows_out = [[e["name"]] + [_words(e.get(c)) for c in cols] + [str(e["count"])] for e in ranked[:10]]
     chart = {"kind": "bar", "categories": [_label(e["name"]) for e in ranked[:TOP_N]],
              "values": [e["count"] for e in ranked[:TOP_N]], "unit": "count", "peaks": [], "series_label": "Articles"}
-    segments = {_label(e["name"]): list(dict.fromkeys(e["urls"]))[:SEGMENT_URLS] for e in ranked[:TOP_N]}
+    segments = {_label(e["name"]): list(dict.fromkeys(e["urls"])) for e in ranked[:TOP_N]}
     if kind == "experts":
         known = [e for e in ranked if e.get("affiliation") in ("affiliated", "independent")]
         aff = [e for e in known if e["affiliation"] == "affiliated"]
@@ -411,7 +409,7 @@ def _people_segments(people: list[dict], key) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     for e in people:
         out.setdefault(key(e), []).extend(e["urls"])
-    return {k: list(dict.fromkeys(v))[:SEGMENT_URLS] for k, v in out.items()}
+    return {k: list(dict.fromkeys(v)) for k, v in out.items()}
 
 
 def _words(value) -> str:

@@ -344,7 +344,6 @@ export interface ReviewMapping {
   tag_name: string;
   review_column: string | null;
   review_criterion: string | null;
-  mapping_status: "MAPPED" | "UNMAPPED_REVIEW_CRITERION";
   points: string;
   weight: string;
 }

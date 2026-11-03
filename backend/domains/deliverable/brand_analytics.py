@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from .analytics import SEGMENT_URLS, _label, _pct, sov_split
+from .analytics import _label, _pct, sov_split
 from .engine_types import EngineRow, Section
 from .evidence import Brand, row_brands
 
@@ -72,7 +72,7 @@ def _sentiment(named_rows, brands: list[Brand]) -> Section:
 def _by_brand(named_rows, order: list[str]) -> dict[str, list[str]]:
     """{brand label: the articles naming it, most-read first}: each brand's insight is written from its own coverage."""
     return {_label(n): [r.article.norm_url for r in sorted((r for r, named in named_rows if n in named),
-                                                           key=lambda r: (not r.dynamic_tags, -r.copies, -r.article.reach))][:SEGMENT_URLS]
+                                                           key=lambda r: (not r.dynamic_tags, -r.copies, -r.article.reach))]
             for n in order}
 
 

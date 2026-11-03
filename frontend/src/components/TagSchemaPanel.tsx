@@ -1,16 +1,14 @@
 import type { TagSchemas } from "../services/intel-api";
 
 /** Each research question's dynamic tag schema and how every tag maps to the Review table. Points and weights are
- * the Review table's own: this panel only shows where a tag lands, or that no Review column records it. */
+ * the Review table's own: this panel only shows where each tag lands. */
 export function TagSchemaPanel({ schemas }: { schemas?: TagSchemas }) {
   const entries = Object.entries(schemas || {}).sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
   if (entries.length === 0) return null;
-  const unmapped = entries.reduce((n, [, s]) => n + s.review_mapping.filter((m) => m.mapping_status !== "MAPPED").length, 0);
   return (
     <details className="mb-4 rounded-lg border border-indigo-100 bg-indigo-50/30">
       <summary className="cursor-pointer select-none px-4 py-2.5 text-xs font-semibold text-indigo-900">
         Question-driven tag schemas ({entries.length} questions)
-        {unmapped > 0 && <span className="ml-2 font-medium text-amber-700">{unmapped} tag(s) UNMAPPED_REVIEW_CRITERION</span>}
       </summary>
       <div className="space-y-4 px-4 pb-4">
         {entries.map(([rq, { schema, review_mapping }]) => {
@@ -39,9 +37,7 @@ export function TagSchemaPanel({ schemas }: { schemas?: TagSchemas }) {
                         <td className="px-3 py-1.5 text-slate-600">{t.allowed_values.join(" / ") || "extracted"}</td>
                         <td className="px-3 py-1.5 text-slate-600">{t.definition}<div className="text-slate-400">{t.extraction_rule}</div></td>
                         <td className="px-3 py-1.5">
-                          {m?.mapping_status === "MAPPED"
-                            ? <span className="rounded bg-emerald-50 px-1.5 py-0.5 font-medium text-emerald-700">{m.review_criterion}</span>
-                            : <span className="rounded bg-amber-50 px-1.5 py-0.5 font-medium text-amber-700">UNMAPPED_REVIEW_CRITERION</span>}
+                          <span className="rounded bg-emerald-50 px-1.5 py-0.5 font-medium text-emerald-700">{m?.review_criterion}</span>
                         </td>
                         <td className="px-3 py-1.5 text-slate-400">{m?.points ?? "READ_FROM_REVIEW_TABLE"}</td>
                       </tr>

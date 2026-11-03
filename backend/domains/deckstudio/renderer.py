@@ -46,8 +46,8 @@ _env.filters["dark_heat"] = _dark_heat
 _TAG = re.compile(r"<[^>]+>")
 FRONTEND_CSS = (Path(__file__).parent / "frontend_slides" / "viewport-base.css").read_text(encoding="utf-8")
 CHART_SIZE = {"A": (1000, 540), "C": (1100, 600), "plain": (1600, 600), "full": (900, 420), "S": (620, 640)}
-CHART_SIZE_WITH_CARDS = {"C": (1100, 370)}
-KPI_ROW_H = 130                                     # the KPI tiles above a chart take this much of its height          # the photo-panel slide's summary cards sit under the chart
+CHART_SIZE_WITH_CARDS = {"C": (1100, 370)}         # the photo-panel slide's summary cards sit under the chart
+KPI_ROW_H = 130                                     # the KPI tiles above a chart take this much of its height
 LIVE_CHART_SIZES = [(870, 400), (1780, 300), (870, 400)]  # the 24h dashboard: brands | outlets over the hourly line
 
 
@@ -69,7 +69,7 @@ def _slide_logos(slide: SlideSpec, out_dir: Path) -> tuple[dict[str, str], set[s
             {name for name, (_rel, is_light) in marked.items() if is_light})
 
 
-def _inline_logos(logos: dict[str, str], light: set[str], out_dir: Path) -> tuple[dict[str, str], set[str]]:
+def _inline_logos(logos: dict[str, str], out_dir: Path) -> dict[str, str]:
     """The chart's logos as data URIs: amCharts loads a picture with CORS, which a deck opened from disk (and the
     exporter) refuses for a file, and its SVG export links pictures by address, which a PPTX can not follow."""
     out = {}
@@ -78,7 +78,7 @@ def _inline_logos(logos: dict[str, str], light: set[str], out_dir: Path) -> tupl
         if path.exists():
             kind = "svg+xml" if path.suffix.lower() == ".svg" else path.suffix.lower().lstrip(".").replace("jpg", "jpeg")
             out[name] = f"data:image/{kind};base64," + base64.b64encode(path.read_bytes()).decode("ascii")
-    return out, light
+    return out
 
 
 def render_slide(slide: SlideSpec, tokens: DeckTokens, n: int, total: int, base_n: int, period: str, source: str,
@@ -148,7 +148,10 @@ def render_deck(spec: DeckSpec, out_dir: Path, slide_html: dict[str, str] | None
              for n, s in enumerate(spec.slides, start=1)]
     # the charts are drawn live by amCharts from these configs (built from the spec, so a re-tone reaches them even on
     # a restyled slide); each slide's SVG chart stays as the fallback
-    configs = amcharts.deck_configs(spec.slides, tokens, lambda s: _inline_logos(*_slide_logos(s, out_dir), out_dir))
+    def chart_logos(s):
+        logos, light = _slide_logos(s, out_dir)
+        return _inline_logos(logos, out_dir), light
+    configs = amcharts.deck_configs(spec.slides, tokens, chart_logos)
     maps = any(c and c["kind"] == "us_map" for cs in configs.values() for c in cs)
     drill = _drill_data(spec, out_dir, configs)            # before the configs are written into the page
     scripts = amcharts.scripts(configs, maps)

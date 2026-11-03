@@ -34,7 +34,6 @@ logger = logging.getLogger(__name__)
 WINDOW = timedelta(hours=24)
 MAX_PER_QUERY = 40
 MAX_BRANDS = 6              # the brand + up to five competitors: one query each, per source
-TOP_STORIES = 10
 LLM_TIMEOUT_S = 60
 SOURCE_LABELS = {"serpapi": "SerpAPI", "tavily": "Tavily", "google_news_rss": "Google News"}
 _STOP = set("what which when where how does did have has with from that this their they about into over than "

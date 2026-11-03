@@ -105,17 +105,6 @@ def set_project_owner(project_id: int, org_id: int | None, owner_user_id: int) -
     conn.close()
 
 
-def archive_project(project_id: int) -> dict | None:
-    conn = _conn()
-    if not conn.execute("SELECT 1 FROM intel_projects WHERE id = ?", (project_id,)).fetchone():
-        conn.close()
-        return None
-    conn.execute("UPDATE intel_projects SET archived_at = ? WHERE id = ?", (time.time(), project_id))
-    conn.commit()
-    conn.close()
-    return {"id": project_id}
-
-
 def update_project(
     project_id: int, project_name: str | None = None, spec: dict | None = None, brand: str | None = None
 ) -> bool:

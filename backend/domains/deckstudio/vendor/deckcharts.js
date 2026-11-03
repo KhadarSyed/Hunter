@@ -320,11 +320,6 @@
       back.hide();
       hint.show();
     });
-    api.drill = api.drill || [];
-    api.drill.push(function (stateId) {      // for checks and screenshots: drill into a state by id ("US-NY")
-      var di = states.getDataItemById(stateId);
-      if (di) drillTo(di);
-    });
     return [chart, states];
   }
 
