@@ -54,10 +54,35 @@ _INDUSTRY_WORDS = {r"auto|vehicle|\bcars?\b|\bevs?\b": (
     "trim trims autopilot self-driving robotaxi drive drives driving driver drivers owner owners miles mph crash "
     "crashes registrations deliveries mechanic warranty tire tires v6 v8 hypercar supercar").split()}
 _NOT_A_PRODUCT = _STOP | set("is are be has have had says said just also gets got to on in at of for by as it its will "
-                             "can may new now not no his her he she says set".split())
+                             "can may new now not no his her he she says set news".split())
 _VENUE = set("field stadium arena center centre hall park parade holiday river foundation museum theatre theater "
              "obituary memorial university college school library hospital church award awards prize street avenue "
              "road county".split())
+# A role before "<First name> <Brand>" makes the brand a surname ("CEO Beth Ford", "Executive Director Amy Ford"). A
+# capitalised word alone does not: Title Case headlines put one before every brand ("Woman Buys Hyundai").
+_ROLES = set("ceo cfo coo cto chief executive director president chair chairman chairwoman founder cofounder governor "
+             "mayor senator sen rep representative congressman congresswoman councilman councilwoman minister secretary "
+             "judge sheriff officer coach player quarterback actor actress singer rapper author commissioner "
+             "superintendent attorney professor dr mr mrs ms".split())
+# A sports outlet or section (RotoWire, a college athletics site, /sports/ on a local paper): a brand named there is a
+# player, coach or sponsor ("Micah Ford", "Champion Chevrolet Athlete of the Week"), not the company.
+_SPORTS = set("sport sports fantasy athletics football cfootball basketball baseball softball hockey soccer nfl nba mlb "
+              "nhl ncaa rotowire espn".split())
+# Outlets that state their country in their name though their site has no ccTLD ("The Korea Herald", "Times of India",
+# "South China Morning Post"): whole words of the name, or the start of the site's name (koreaherald.com).
+_NAME_COUNTRY = (("KR", "korea|korean"), ("JP", "japan|japanese"), ("HK", "hong ?kong|south china"),
+                 ("CN", "china|chinese"), ("IN", "india|indian"), ("SG", "singapore"), ("PK", "pakistan"),
+                 ("PH", "philippines?"), ("AU", "australia|australian"), ("CA", "canada|canadian"))
+_HOST_COUNTRY = {"korea": "KR", "japan": "JP", "hongkong": "HK", "china": "CN", "singapore": "SG"}  # not india: indianapolis
+# Pure markets items (stock moves, price targets, an investor's picks) are not reputation or media coverage: kept only
+# for a finance study, or when the headline is also the brand's business news (a launch, sales, a recall).
+_MARKETS = re.compile(r"\b(?:stocks?|shareholders?|investors?|investing|price target|market cap|"
+                      r"upgrades?|upgraded|downgrades?|downgraded|analysts?|rally|hedge fund|etf|nasdaq|nyse|"
+                      r"otcmkts|michael burry)\b|\([A-Z]{2,6}:[A-Z]+\)", re.IGNORECASE)
+_BUSINESS = ("launch launches launched recall recalls recalled sales deliveries exports production factory plant "
+             "unveils unveiled").split()
+_FINANCE_STUDY = re.compile(r"\b(?:stocks?|share price|shareholders?|investors?|investment|financial|finance|"
+                            r"valuation|market cap|equity|earnings)\b", re.IGNORECASE)
 # Outlet names written in a script that belongs to one country ("조선일보" is Korean).
 _SCRIPT_COUNTRY = ((r"[\uac00-\ud7af]", "KR"), (r"[\u3040-\u30ff]", "JP"), (r"[\u0e00-\u0e7f]", "TH"),
                    (r"[\u0590-\u05ff]", "IL"), (r"[\u0370-\u03ff]", "GR"))
@@ -160,14 +185,17 @@ def car_story(article: dict, spec: dict) -> bool:
     return not re.search(_AUTO_INDUSTRY, industry, re.IGNORECASE) or not _MOTO.search(text) or bool(_CAR.search(text))
 
 
-def _uses(text: str, name: str) -> list[tuple[bool, bool, re.Match | None]]:
+def _uses(text: str, name: str) -> list[tuple[bool, bool, re.Match | None, bool]]:
     """Each mention of `name`: (a possessive before it, as in "Chandler's Ford" or "China's BYD"; a venue word in the
-    three words after it, as in 'Ford Field' or 'Ford Holiday River Parade'; those three words)."""
+    three words after it, as in 'Ford Field' or 'Ford Holiday River Parade'; those three words; a role and a first
+    name before it, as in 'CEO Beth Ford' or 'Director Amy Ford': the brand as a person's surname)."""
     out = []
     for m in re.finditer(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text, re.IGNORECASE):
         after = re.match(r"\s+([A-Z0-9][\w-]*)(?:\s+([A-Za-z][\w-]*))?(?:\s+([A-Za-z][\w-]*))?", text[m.end():])
         venue = bool(after and any(w and w.lower() in _VENUE for w in after.groups()))
-        out.append((bool(re.search(r"\w's\s*$", text[:m.start()])), venue, after))
+        before = re.search(r"([A-Za-z]+)\s+[A-Z][a-z]+\s+$", text[:m.start()])
+        person = bool(before and before.group(1).lower() in _ROLES)
+        out.append((bool(re.search(r"\w's\s*$", text[:m.start()])), venue, after, person))
     return out
 
 
@@ -176,22 +204,54 @@ def _text(article: dict) -> str:
 
 
 def ambiguous_brands(articles: list[dict]) -> set[str]:
-    """Brands this batch shows naming a venue too (Ford: 'Ford Field', 'Ford Holiday River Parade'): their stories
-    need company/industry context. A brand never seen that way (Tesla, Rivian) is kept on its name alone."""
+    """Brands this batch shows naming a venue or a person too (Ford: 'Ford Field', 'CEO Beth Ford'): their stories need
+    company/industry context. A brand never seen that way (Tesla, Rivian) is kept on its name alone."""
     return {a["brands"][0] for a in articles if len(a["brands"]) == 1
-            and any(venue for _, venue, _ in _uses(_text(a), a["brands"][0]))}
+            and any(venue or person for _, venue, _, person in _uses(_text(a), a["brands"][0]))}
+
+
+def sports_outlet(article: dict) -> bool:
+    """A sports outlet or section: a word of its name, a part of its site's name or a path segment is a sports word."""
+    url = urlparse(article.get("url") or "")
+    words = re.findall(r"[a-z]+", (article.get("outlet") or "").lower()) + (url.hostname or "").split(".")
+    return bool(_SPORTS & {*words, *url.path.lower().split("/")})
 
 
 def in_context(article: dict, context: re.Pattern, ambiguous: set[str]) -> bool:
-    """An unambiguous brand, two brands, or an ambiguous one named alongside a context word other than its own
-    name, or as '<Brand> <Model>' ('Ford Mustang') rather than a place or venue ("Chandler's Ford", 'Ford Field')."""
+    """Not a sports outlet's, and an unambiguous brand, two brands, or an ambiguous one named alongside a context word
+    other than its own name, or as '<Brand> <Model>' ('Ford Mustang'), rather than only as a place, venue or person
+    ("Chandler's Ford", 'Ford Field', 'Micah Ford')."""
+    if sports_outlet(article):
+        return False
     if len(article["brands"]) > 1 or not article["brands"] or article["brands"][0] not in ambiguous:
         return True
     name, text = article["brands"][0].lower(), _text(article)
+    uses = _uses(text, name)
+    if all(person for *_, person in uses):
+        return False
     if any(m.group(0).lower() != name for m in context.finditer(text)):
         return True
     return any(not possessive and not venue and after and after.group(1).lower() not in _NOT_A_PRODUCT
-               for possessive, venue, after in _uses(text, name))
+               for possessive, venue, after, _ in uses)
+
+
+def finance_study(spec: dict) -> bool:
+    """The brief is about the brand's stock, investors or finances."""
+    parts = [str(spec.get(k) or "") for k in ("research_type", "business_objective", "research_objective",
+                                              "research_subject")]
+    parts += [str(q.get("question") or "") for q in spec.get("research_questions") or [] if isinstance(q, dict)]
+    return bool(_FINANCE_STUDY.search(" ".join(parts)))
+
+
+def markets_item(article: dict, spec: dict) -> bool:
+    """A headline about the stock or investors with nothing of the brand's business or industry in it."""
+    title = article["title"]
+    if not _MARKETS.search(title):
+        return False
+    industry = str((spec.get("industry") or {}).get("name") or "") if isinstance(spec.get("industry"), dict) else ""
+    words = _BUSINESS + [w for pattern, vocab in _INDUSTRY_WORDS.items() if re.search(pattern, industry, re.IGNORECASE)
+                         for w in vocab]
+    return not any(re.search(rf"(?<![\w-]){re.escape(w)}(?![\w-])", title, re.IGNORECASE) for w in words)
 
 
 def _site(article: dict) -> str:
@@ -203,11 +263,19 @@ def _site(article: dict) -> str:
 
 
 def known_country(article: dict) -> str | None:
-    """The country told without fetching anything: the outlet name's script, else the site's ccTLD."""
+    """The country told without fetching anything: the outlet name's script, the site's ccTLD, else the country the
+    outlet's name or site name states ("The Korea Herald", koreaherald.com)."""
+    outlet = article.get("outlet") or ""
     for pattern, code in _SCRIPT_COUNTRY:
-        if re.search(pattern, article.get("outlet") or ""):
+        if re.search(pattern, outlet):
             return code
-    return _country_from_cctld((urlparse(_site(article)).hostname or "").lower())
+    host = (urlparse(_site(article)).hostname or "").lower()
+    cctld = _country_from_cctld(host)
+    if cctld:
+        return cctld
+    named = next((code for code, words in _NAME_COUNTRY if re.search(rf"\b(?:{words})\b", outlet, re.IGNORECASE)), None)
+    label = host.removeprefix("www.").split(".")[0]
+    return named or next((code for word, code in _HOST_COUNTRY.items() if label.startswith(word)), None)
 
 
 def outlet_country(article: dict) -> str | None:
@@ -491,7 +559,10 @@ def run_refresh(refresh_id: int, project_id: int, llm=None, now: datetime | None
             a["brands"] = mentions(f"{a['title']}\n{a['snippet']}", brands)
         named = [a for a in unique if a["brands"]]
         context, ambiguous = context_pattern(project.get("spec") or {}, brands), ambiguous_brands(named)
-        on_topic = [a for a in named if in_context(a, context, ambiguous) and car_story(a, project.get("spec") or {})]
+        spec = project.get("spec") or {}
+        finance = finance_study(spec)
+        on_topic = [a for a in named if in_context(a, context, ambiguous) and car_story(a, spec)
+                    and (finance or not markets_item(a, spec))]
         country = project_country(project.get("spec") or {})
         if country:
             on_topic = [a for a, c in zip(on_topic, outlet_countries(on_topic)) if c in (None, country)]
