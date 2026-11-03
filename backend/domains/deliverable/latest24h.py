@@ -234,6 +234,21 @@ def in_context(article: dict, context: re.Pattern, ambiguous: set[str]) -> bool:
                for possessive, venue, after, _ in uses)
 
 
+def about_brand(article: dict, brands: list) -> bool:
+    """The story is about a tracked brand: the headline names it, other than as a person's or account's name
+    ('Morgan Eos Fitness'), or the snippet opens with it. A brand only listed in the body of a roundup, a business
+    digest or another company's news ('Henrico Business in Brief', a hotel group's amenities) is not."""
+    title = article["title"]
+    for b in brands:
+        if not mentions(title, [b]):
+            continue
+        rest = re.findall(r"[\w'&-]+", re.sub("|".join(re.escape(t) for t in b.terms), " ", title, flags=re.I))
+        if not (len(rest) == 1 and rest[0][:1].isupper() and title.startswith(rest[0])):
+            return True
+    opening = re.sub(r"^(?:the|a|an)\s+", "", (article.get("snippet") or "").strip(), flags=re.I).lower()
+    return any(opening.startswith(t) for b in brands for t in b.terms)
+
+
 def finance_study(spec: dict) -> bool:
     """The brief is about the brand's stock, investors or finances."""
     parts = [str(spec.get(k) or "") for k in ("research_type", "business_objective", "research_objective",
@@ -420,7 +435,9 @@ def _llm_summary(llm, articles: list[dict], brands: list[str], questions: list[d
               f"Articles from the last 24 hours:\n{listing}\n\n"
               "Write 3-6 short bullets on what is new in the last 24 hours, tied to the research questions where the "
               "articles allow. Use only facts in these articles; the articles carry no sentiment scores, so do not claim a "
-              "sentiment trend. Every bullet cites the article numbers it rests on. "
+              "sentiment trend. Each bullet is a plain insight sentence: never mention articles, sources or coverage "
+              "of the event (no 'covered in articles [1] and [2]', no '[3] reports'), and put no article numbers in the "
+              "text; list the article numbers it rests on in \"citations\" only. "
               'Return JSON: {"bullets": [{"text": "...", "citations": [1, 2]}]}')
     raw = llm.chat([{"role": "system", "content": "You are a media analyst. Answer with JSON only."},
                     {"role": "user", "content": prompt}], format_json=True)
@@ -428,9 +445,22 @@ def _llm_summary(llm, articles: list[dict], brands: list[str], questions: list[d
     out = []
     for b in (json.loads(raw).get("bullets") or []):
         cites = [int(c) for c in (b.get("citations") or []) if str(c).isdigit() and int(c) in valid]
-        if str(b.get("text", "")).strip() and cites:
-            out.append({"text": str(b["text"]).strip(), "citations": cites})
+        text = plain_bullet(str(b.get("text", "")))
+        if text and cites:
+            out.append({"text": text, "citations": cites})
     return out
+
+
+# A sentence about where the bullet comes from ("This event is covered in articles [1] and [2].", "Article [5]
+# provides details.") and inline "[1, 2]" markers: the citations show as chips, the text keeps the insight only.
+_META_SENTENCE = re.compile(r"(?:(?<=[.!?])\s+|^)[^.!?]*\b(?:articles?|sources?|reports?|coverage|covered|stor(?:y|ies))"
+                            r"\b[^.!?]*\[\d[^.!?]*[.!?]?", re.IGNORECASE)
+_CITE_MARK = re.compile(r"\s*\[\d+(?:\s*,\s*\d+)*\]")
+
+
+def plain_bullet(text: str) -> str:
+    text = _CITE_MARK.sub("", _META_SENTENCE.sub("", text.strip()))
+    return re.sub(r"\s+([.,;])", r"\1", re.sub(r"\s{2,}", " ", text)).strip()
 
 
 def summarize(articles: list[dict], brands: list[str], questions: list[dict], headline: str, now: datetime,
@@ -560,7 +590,7 @@ def run_refresh(refresh_id: int, project_id: int, llm=None, now: datetime | None
         context, ambiguous = context_pattern(project.get("spec") or {}, brands), ambiguous_brands(named)
         spec = project.get("spec") or {}
         finance = finance_study(spec)
-        on_topic = [a for a in named if in_context(a, context, ambiguous) and car_story(a, spec)
+        on_topic = [a for a in named if about_brand(a, brands) and in_context(a, context, ambiguous) and car_story(a, spec)
                     and (finance or not markets_item(a, spec))]
         country = project_country(project.get("spec") or {})
         if country:
