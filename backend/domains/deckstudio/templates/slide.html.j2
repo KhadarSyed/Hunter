@@ -34,12 +34,12 @@
     {% if charts %}<div style="height:580px">{{ charts[0] | safe }}</div>
     {% elif s.tables and s.type != 'scorecard' %}{% include "table.html.j2" %}
     {% elif not s.tables or s.type == 'scorecard' %}<div class="cards" style="grid-template-columns:repeat({{ [s.cards|length, 3]|min or 1 }},1fr)">
-      {% for c in s.cards[:6] %}<div class="card build">{% if c.thumb %}<img class="thumb" src="{{ c.thumb }}" alt="">{% endif %}<h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}{% if c.note %} — {{ c.note }}{% endif %}</p>{% if c.citations and marks.cites %}<div class="cites">{% for n in c.citations[:3] %}{% set m = marks.cites.get(n|string) %}{% if m %}{% if m.url %}<a class="cite" href="{{ m.url }}">{% else %}<span class="cite">{% endif %}{% if m.icon %}<img src="{{ m.icon }}" alt="">{% endif %}{{ m.outlet }}{% if m.url %}</a>{% else %}</span>{% endif %}{% endif %}{% endfor %}</div>{% endif %}</div>{% endfor %}</div>
+      {% for c in s.cards[:6] %}<div class="card build">{% if c.thumb %}<img class="thumb" src="{{ c.thumb }}" alt="">{% endif %}<h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}{% if c.note %} — {{ c.note }}{% endif %}</p>{% if c.citations and marks.cites %}<div class="cites">{% for n in c.citations[:3] %}{% set m = marks.cites.get(n|string) %}{% if m %}{% if m.url %}<a class="cite" href="{{ m.url }}" target="_blank" rel="noopener noreferrer">{% else %}<span class="cite">{% endif %}{% if m.icon %}<img src="{{ m.icon }}" alt="">{% endif %}{{ m.outlet }}{% if m.url %}</a>{% else %}</span>{% endif %}{% endif %}{% endfor %}</div>{% endif %}</div>{% endfor %}</div>
       {% if s.type == 'scorecard' and s.tables and s.tables[0].rows %}<div style="margin-top:22px">{% include "table.html.j2" %}</div>{% endif %}
     {% endif %}
   </div>
   {% if (charts or (s.tables and s.type != 'scorecard')) and s.cards %}<div class="cards reveal" style="position:absolute;left:1190px;right:70px;top:320px;grid-template-columns:1fr">
-    {% for c in s.cards[:3] %}<div class="card build" style="background:rgba(255,255,255,.94)">{% if c.thumb %}<img class="thumb" src="{{ c.thumb }}" alt="">{% endif %}<h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}</p>{% if c.citations and marks.cites %}<div class="cites">{% for n in c.citations[:3] %}{% set m = marks.cites.get(n|string) %}{% if m %}{% if m.url %}<a class="cite" href="{{ m.url }}">{% else %}<span class="cite">{% endif %}{% if m.icon %}<img src="{{ m.icon }}" alt="">{% endif %}{{ m.outlet }}{% if m.url %}</a>{% else %}</span>{% endif %}{% endif %}{% endfor %}</div>{% endif %}</div>{% endfor %}</div>{% endif %}
+    {% for c in s.cards[:3] %}<div class="card build" style="background:rgba(255,255,255,.94)">{% if c.thumb %}<img class="thumb" src="{{ c.thumb }}" alt="">{% endif %}<h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}</p>{% if c.citations and marks.cites %}<div class="cites">{% for n in c.citations[:3] %}{% set m = marks.cites.get(n|string) %}{% if m %}{% if m.url %}<a class="cite" href="{{ m.url }}" target="_blank" rel="noopener noreferrer">{% else %}<span class="cite">{% endif %}{% if m.icon %}<img src="{{ m.icon }}" alt="">{% endif %}{{ m.outlet }}{% if m.url %}</a>{% else %}</span>{% endif %}{% endif %}{% endfor %}</div>{% endif %}</div>{% endfor %}</div>{% endif %}
   {% if charts %}<div class="nlabel" style="position:absolute;right:80px;top:280px;color:var(--on-dark)">N = {{ n_label }}</div>{% endif %}
 {% elif s.treatment == "S" %}
   <div style="position:absolute;left:70px;right:70px;top:48px">
@@ -52,7 +52,7 @@
     {% if charts %}{{ charts[0] | safe }}{% elif s.tables %}{% include "table.html.j2" %}{% endif %}
   </div>
   <div class="segs reveal">
-    {% for c in s.cards[:5] %}<div class="seg build"><p class="clamp"><strong class="seg-label">{{ c.headline }}:</strong> {{ c.text | md_bold }}</p>{% if c.citations and marks.cites %}<div class="cites">{% for n in c.citations[:3] %}{% set m = marks.cites.get(n|string) %}{% if m %}{% if m.url %}<a class="cite" href="{{ m.url }}">{% else %}<span class="cite">{% endif %}{% if m.icon %}<img src="{{ m.icon }}" alt="">{% endif %}{{ m.outlet }}{% if m.url %}</a>{% else %}</span>{% endif %}{% endif %}{% endfor %}</div>{% endif %}</div>{% endfor %}
+    {% for c in s.cards[:5] %}<div class="seg build"><p class="clamp"><strong class="seg-label">{{ c.headline }}:</strong> {{ c.text | md_bold }}</p>{% if c.citations and marks.cites %}<div class="cites">{% for n in c.citations[:3] %}{% set m = marks.cites.get(n|string) %}{% if m %}{% if m.url %}<a class="cite" href="{{ m.url }}" target="_blank" rel="noopener noreferrer">{% else %}<span class="cite">{% endif %}{% if m.icon %}<img src="{{ m.icon }}" alt="">{% endif %}{{ m.outlet }}{% if m.url %}</a>{% else %}</span>{% endif %}{% endif %}{% endfor %}</div>{% endif %}</div>{% endfor %}
   </div>
 {% elif s.treatment == "C" %}
   <div class="photo" style="left:0;top:0;bottom:0;width:672px;background-image:{{ bg }}"></div>
@@ -68,7 +68,7 @@
     {% if charts %}{{ charts[0] | safe }}{% elif s.tables %}{% include "table.html.j2" %}{% endif %}
   </div>
   {% if s.cards %}<div class="cards reveal" style="position:absolute;left:740px;right:70px;top:730px;grid-template-columns:repeat({{ [s.cards|length, 3]|min }},1fr)">
-    {% for c in s.cards[:3] %}<div class="card build"><h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}</p>{% if c.citations and marks.cites %}<div class="cites">{% for n in c.citations[:3] %}{% set m = marks.cites.get(n|string) %}{% if m %}{% if m.url %}<a class="cite" href="{{ m.url }}">{% else %}<span class="cite">{% endif %}{% if m.icon %}<img src="{{ m.icon }}" alt="">{% endif %}{{ m.outlet }}{% if m.url %}</a>{% else %}</span>{% endif %}{% endif %}{% endfor %}</div>{% endif %}</div>{% endfor %}</div>{% endif %}
+    {% for c in s.cards[:3] %}<div class="card build"><h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}</p>{% if c.citations and marks.cites %}<div class="cites">{% for n in c.citations[:3] %}{% set m = marks.cites.get(n|string) %}{% if m %}{% if m.url %}<a class="cite" href="{{ m.url }}" target="_blank" rel="noopener noreferrer">{% else %}<span class="cite">{% endif %}{% if m.icon %}<img src="{{ m.icon }}" alt="">{% endif %}{{ m.outlet }}{% if m.url %}</a>{% else %}</span>{% endif %}{% endif %}{% endfor %}</div>{% endif %}</div>{% endfor %}</div>{% endif %}
 {% elif s.type in ("latest24h", "latest24h_dashboard") %}
   {# the text is drawn (and redrawn after a Refresh) by live24h.js from the stored refresh below #}
   <div style="position:absolute;left:70px;right:70px;top:48px">
@@ -93,7 +93,7 @@
     <div class="vtitle clamp">{{ s.title }}</div>
   </div>
   <div class="vwall reveal">
-    {% for c in s.cards[:8] %}<figure class="vcell build">{% if c.url %}<a class="vlink" href="{{ c.url }}">{% endif %}{% if c.image %}<img class="vshot" src="{{ c.image }}" alt="{{ c.headline }} · {{ c.text }}">{% endif %}{% if c.url %}</a>{% endif %}</figure>{% endfor %}
+    {% for c in s.cards[:8] %}<figure class="vcell build">{% if c.url %}<a class="vlink" href="{{ c.url }}" target="_blank" rel="noopener noreferrer">{% endif %}{% if c.image %}<img class="vshot" src="{{ c.image }}" alt="{{ c.headline }} · {{ c.text }}">{% endif %}{% if c.url %}</a>{% endif %}</figure>{% endfor %}
   </div>
   <div class="vnote">The above insights are based on analysis of a representative sample of data.</div>
 {% elif s.type == "methodology" %}
@@ -119,7 +119,7 @@
     {% else %}{% for c in s.cards %}<p style="font-size:22px;line-height:1.5;margin-bottom:12px">{{ c.text }}</p>{% endfor %}{% endif %}
   </div>
   {% if side %}<div class="cards reveal" style="position:absolute;left:1190px;right:70px;top:210px;grid-template-columns:1fr">
-    {% for c in s.cards[:3] %}<div class="card build"><h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text | md_bold }}</p>{% if c.citations and marks.cites %}<div class="cites">{% for n in c.citations[:3] %}{% set m = marks.cites.get(n|string) %}{% if m %}{% if m.url %}<a class="cite" href="{{ m.url }}">{% else %}<span class="cite">{% endif %}{% if m.icon %}<img src="{{ m.icon }}" alt="">{% endif %}{{ m.outlet }}{% if m.url %}</a>{% else %}</span>{% endif %}{% endif %}{% endfor %}</div>{% endif %}</div>{% endfor %}
+    {% for c in s.cards[:3] %}<div class="card build"><h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text | md_bold }}</p>{% if c.citations and marks.cites %}<div class="cites">{% for n in c.citations[:3] %}{% set m = marks.cites.get(n|string) %}{% if m %}{% if m.url %}<a class="cite" href="{{ m.url }}" target="_blank" rel="noopener noreferrer">{% else %}<span class="cite">{% endif %}{% if m.icon %}<img src="{{ m.icon }}" alt="">{% endif %}{{ m.outlet }}{% if m.url %}</a>{% else %}</span>{% endif %}{% endif %}{% endfor %}</div>{% endif %}</div>{% endfor %}
   </div>{% endif %}
 {% endif %}
   {% if s.type not in ("cover", "closing", "divider") %}
