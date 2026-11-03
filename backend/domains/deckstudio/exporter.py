@@ -187,35 +187,24 @@ def _sub(parent, tag: str, **attrs) -> etree._Element:
     return el
 
 
-def _click_fades(shape_ids: list[int]) -> etree._Element:
-    """<p:timing>: one click per shape, each a fade-in entrance (PowerPoint's preset 10)."""
+def _click_fades(clicks: list[list[int]]) -> etree._Element:
+    """<p:timing>: one click per list of shapes (a card's picture and its text boxes), all fading in together
+    (PowerPoint's preset 10; the first on the click, the rest with it)."""
     ids = iter(range(1, 10_000))
     timing = _p("timing")
     root = _sub(_sub(_sub(timing, "tnLst"), "par"), "cTn", id=next(ids), dur="indefinite", restart="never",
                 nodeType="tmRoot")
     seq = _sub(_sub(root, "childTnLst"), "seq", concurrent="1", nextAc="seek")
     main = _sub(seq, "cTn", id=next(ids), dur="indefinite", nodeType="mainSeq")
-    clicks = _sub(main, "childTnLst")
-    for spid in shape_ids:
-        click = _sub(_sub(clicks, "par"), "cTn", id=next(ids), fill="hold")
+    clicks_lst = _sub(main, "childTnLst")
+    for shape_ids in clicks:
+        click = _sub(_sub(clicks_lst, "par"), "cTn", id=next(ids), fill="hold")
         _sub(_sub(click, "stCondLst"), "cond", delay="indefinite")
         step = _sub(_sub(_sub(click, "childTnLst"), "par"), "cTn", id=next(ids), fill="hold")
         _sub(_sub(step, "stCondLst"), "cond", delay="0")
-        effect = _sub(_sub(_sub(step, "childTnLst"), "par"), "cTn", id=next(ids), presetID="10", presetClass="entr",
-                      presetSubtype="0", fill="hold", grpId="0", nodeType="clickEffect")
-        _sub(_sub(effect, "stCondLst"), "cond", delay="0")
-        behaviours = _sub(effect, "childTnLst")
-        show = _sub(behaviours, "set")
-        bhvr = _sub(show, "cBhvr")
-        flip = _sub(bhvr, "cTn", id=next(ids), dur="1", fill="hold")
-        _sub(_sub(flip, "stCondLst"), "cond", delay="0")
-        _sub(_sub(bhvr, "tgtEl"), "spTgt", spid=spid)
-        _sub(_sub(bhvr, "attrNameLst"), "attrName").text = "style.visibility"
-        _sub(_sub(show, "to"), "strVal", val="visible")
-        fade = _sub(behaviours, "animEffect", transition="in", filter="fade")
-        fbhvr = _sub(fade, "cBhvr")
-        _sub(fbhvr, "cTn", id=next(ids), dur=FADE_MS)
-        _sub(_sub(fbhvr, "tgtEl"), "spTgt", spid=spid)
+        effects = _sub(step, "childTnLst")
+        for n, spid in enumerate(shape_ids):
+            _fade(effects, spid, ids, "clickEffect" if n == 0 else "withEffect")
     prev = _sub(_sub(seq, "prevCondLst"), "cond", evt="onPrev", delay="0")
     _sub(_sub(prev, "tgtEl"), "sldTgt")
     nxt = _sub(_sub(seq, "nextCondLst"), "cond", evt="onNext", delay="0")
@@ -223,8 +212,26 @@ def _click_fades(shape_ids: list[int]) -> etree._Element:
     return timing
 
 
-def _animate(slide, shape_ids: list[int]) -> None:
-    """A fade transition into the slide, then the build pictures fading in one click at a time."""
+def _fade(parent, spid: int, ids, node_type: str) -> None:
+    effect = _sub(_sub(parent, "par"), "cTn", id=next(ids), presetID="10", presetClass="entr",
+                  presetSubtype="0", fill="hold", grpId="0", nodeType=node_type)
+    _sub(_sub(effect, "stCondLst"), "cond", delay="0")
+    behaviours = _sub(effect, "childTnLst")
+    show = _sub(behaviours, "set")
+    bhvr = _sub(show, "cBhvr")
+    flip = _sub(bhvr, "cTn", id=next(ids), dur="1", fill="hold")
+    _sub(_sub(flip, "stCondLst"), "cond", delay="0")
+    _sub(_sub(bhvr, "tgtEl"), "spTgt", spid=spid)
+    _sub(_sub(bhvr, "attrNameLst"), "attrName").text = "style.visibility"
+    _sub(_sub(show, "to"), "strVal", val="visible")
+    fade = _sub(behaviours, "animEffect", transition="in", filter="fade")
+    fbhvr = _sub(fade, "cBhvr")
+    _sub(fbhvr, "cTn", id=next(ids), dur=FADE_MS)
+    _sub(_sub(fbhvr, "tgtEl"), "spTgt", spid=spid)
+
+
+def _animate(slide, shape_ids: list[list[int]]) -> None:
+    """A fade transition into the slide, then each card (its picture and text) fading in one click at a time."""
     sld = slide._element
     for old in sld.findall(f"{{{_NS}}}transition") + sld.findall(f"{{{_NS}}}timing"):
         sld.remove(old)
@@ -294,14 +301,13 @@ def build_pptx(pngs: list[Path], spec: DeckSpec, out: Path, builds: list[Shot] |
                 pptx_text.add_block(slide.shapes, b, _px)
         ids = []
         for path, (x, y, w, h), i in (shot.builds if shot and shot.base else []):
-            group = slide.shapes.add_group_shape()      # the card and its text appear together on its click
-            group.shapes.add_picture(str(path), _emu(x, PX_W, SLIDE_W), _emu(y, PX_H, SLIDE_H),
-                                     _emu(w, PX_W, SLIDE_W), _emu(h, PX_H, SLIDE_H))
-            for b in blocks:
-                if b["build"] == i:
-                    pptx_text.add_block(group.shapes, b, _px)
-            group.name = "Card"
-            ids.append(group.shape_id)
+            # the card and its text appear together on its click; not grouped, so a click on the card's text edits it
+            # (a group selects as a whole, its picture first: the text read as part of a picture)
+            card = slide.shapes.add_picture(str(path), _emu(x, PX_W, SLIDE_W), _emu(y, PX_H, SLIDE_H),
+                                            _emu(w, PX_W, SLIDE_W), _emu(h, PX_H, SLIDE_H))
+            card.name = "Card"
+            ids.append([card.shape_id] + [pptx_text.add_block(slide.shapes, b, _px).shape_id
+                                          for b in blocks if b["build"] == i])
         title = next((b for b in blocks if b["title"] and b["build"] < 0), None)
         if title:              # the slide's own title placeholder carries the visible title, on top
             ph = slide.shapes.title
