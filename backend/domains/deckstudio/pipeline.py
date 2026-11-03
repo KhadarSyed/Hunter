@@ -89,6 +89,7 @@ def add_chart_logos(slide, logos: dict[str, Path]) -> None:
     # themes are ideas, not organisations: a letter badge or a brand logo beside "Safety investigation" adds noise
     unmarked = any(k in slide.id for k in UNMARKED_CHARTS)
     names = [c for ch in slide.charts if not unmarked for c in ch.get("categories", [])] + \
+            [s["name"] for ch in slide.charts for s in ch.get("brand_series") or []] + \
             [str(row[0]) for t in slide.tables for row in t.get("rows", []) if row] + \
             [str(row[i]) for t, cols in zip(slide.tables, outlet_cols) for row in t.get("rows", []) for i in cols
              if len(row) > i and row[i]]

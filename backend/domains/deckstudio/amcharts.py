@@ -18,6 +18,24 @@ _TONE_COLORS = {-1: "#C62828", 0: "#8A8A99", 1: "#2E7D32"}
 TONE_SPLIT = 0.15
 
 
+# rivals' lines when the deck's own hues are shades of one colour (Tableau 10, its blues left out)
+RIVAL_HUES = ("E15759", "F28E2B", "59A14F", "B07AA1", "EDC948", "76B7B2", "9C755F")
+MIN_HUE_DISTANCE = 70        # RGB distance two lines need to tell apart
+MAX_LINE_LUMA = 0.8          # a paler line vanishes into the white chart
+
+
+def _distinct(colors: list[str]) -> list[str]:
+    """The colours in order, each kept only when it differs enough from the ones kept before it."""
+    rgb = lambda c: tuple(int(c[i:i + 2], 16) for i in (0, 2, 4))
+    kept: list[str] = []
+    for c in colors:
+        if sum(w * v for w, v in zip((0.299, 0.587, 0.114), rgb(c))) / 255 > MAX_LINE_LUMA and kept:
+            continue
+        if all(sum((a - b) ** 2 for a, b in zip(rgb(c), rgb(k))) ** 0.5 >= MIN_HUE_DISTANCE for k in kept):
+            kept.append(c)
+    return kept
+
+
 def _badge(name: str, t: DeckTokens) -> str:
     """The SVG chart's round initial for a label without a logo, as a picture amCharts can place beside the label."""
     initial = escape(next((ch for ch in str(name) if ch.isalnum()), "?").upper())
@@ -59,6 +77,16 @@ def chart_config(chart: dict, t: DeckTokens, logos: dict[str, str] | None = None
         return {**base, "color": f"#{t.series[0]}", "states": chart.get("states") or [],
                 "counties": chart.get("counties") or []}
     view = chart.get("view") or kind
+    if view == "multi_line":        # one line per brand: the client in the brand colour, rivals in the deck's hues
+        series = chart["brand_series"]
+        palette = _distinct([t.primary] + [f for f in t.series if not _neutral(f)] + list(RIVAL_HUES))
+        names = [s["name"] for s in series]
+        rows = [{"category": c, **{f"s{j}": s["values"][i] for j, s in enumerate(series)},
+                 **{f"p{j}": i in set(s.get("peaks") or []) for j, s in enumerate(series)}} for i, c in enumerate(cats)]
+        return {**base, "kind": "multi_line", "data": rows,
+                "lines": [{"name": s["name"], "field": f"s{j}", "peak": f"p{j}", "client": bool(s.get("client")),
+                           "color": f"#{palette[0] if j == 0 else palette[1 + (j - 1) % (len(palette) - 1)]}", **m}
+                          for j, (s, m) in enumerate(zip(series, _marks(names, t, logos, light)))]}
     if view in ("heatmap", "sankey"):
         m = chart["matrix"]
         cells = [{"row": r, "col": c, "value": round(100 * v / max(1, m["n"][i]), 1), "count": v}

@@ -127,6 +127,59 @@
     return [chart, series];
   }
 
+  // one line per brand (as amCharts' multiple line series demo): the client's line thicker with its peaks marked,
+  // a dot per point that lists that brand's articles for that period, the brands' logos in the legend
+  function multiLine(root, cfg) {
+    var chart = root.container.children.push(am5xy.XYChart.new(root, { panX: false, panY: false, paddingLeft: 10, paddingTop: 20, layout: root.verticalLayout }));
+    var legend = chart.children.unshift(am5.Legend.new(root, { x: am5.p50, centerX: am5.p50, marginBottom: 10 }));
+    legend.labels.template.setAll({ fontSize: 20, fill: c(cfg.text) });
+    legend.valueLabels.template.set("forceHidden", true);
+    var xr = am5xy.AxisRendererX.new(root, { minGridDistance: 70 });
+    xr.grid.template.set("forceHidden", true);
+    xr.labels.template.setAll({ fontSize: 18, fill: c(cfg.muted) });
+    var x = chart.xAxes.push(am5xy.CategoryAxis.new(root, { categoryField: "category", renderer: xr }));
+    x.data.setAll(cfg.data);
+    var yr = am5xy.AxisRendererY.new(root, {});
+    yr.grid.template.setAll({ strokeOpacity: 0.08 });
+    yr.labels.template.setAll({ fontSize: 16, fill: c(cfg.muted) });
+    var y = chart.yAxes.push(am5xy.ValueAxis.new(root, { min: 0, extraMax: 0.2, renderer: yr }));
+    var all = cfg.lines.map(function (ln) {
+      var s = chart.series.push(am5xy.LineSeries.new(root, {
+        name: ln.name, xAxis: x, yAxis: y, valueYField: ln.field, categoryXField: "category",
+        stroke: c(ln.color), fill: c(ln.color), tooltip: tooltip(root, cfg)
+      }));
+      s.get("tooltip").label.set("text", "{name}, {categoryX}: [bold]{valueY}[/] " + (cfg.label || "").toLowerCase());
+      s.strokes.template.setAll({ strokeWidth: ln.client ? 5 : 3 });
+      s.bullets.push(function (root, series, dataItem) {
+        var dot = am5.Circle.new(root, { radius: ln.client ? 6 : 4, fill: c(ln.color), stroke: c("#FFFFFF"), strokeWidth: 1.5,
+                                         cursorOverStyle: cfg.drill && !exportMode ? "pointer" : "default" });
+        dot.events.on("click", function () { cfg.pick(ln.name + "\t" + dataItem.dataContext.category, ln.name + " · " + dataItem.dataContext.category); });
+        return am5.Bullet.new(root, { sprite: dot });
+      });
+      if (ln.client) s.bullets.push(function (root, series, dataItem) {   // the client's peaks, valued as in the single line
+        if (!dataItem.dataContext[ln.peak]) return undefined;
+        return am5.Bullet.new(root, { sprite: am5.Label.new(root, { text: "{" + ln.field + "}", populateText: true, centerX: am5.p50, centerY: am5.p100, dy: -10, fontSize: 20, fontWeight: "700", fill: c(ln.color) }) });
+      });
+      s.data.setAll(cfg.data);
+      return s;
+    });
+    legend.data.setAll(chart.series.values);
+    legend.dataItems.forEach(function (di, i) {      // the brand's logo beside its name (as amCharts' image markers)
+      var ln = cfg.lines[i];
+      if (!ln.logo) return;
+      var size = ln.size || [LOGO_W, LOGO_H];
+      di.get("marker").setAll({ width: size[0], height: size[1] });
+      di.get("marker").children.push(am5.Picture.new(root, { src: ln.logo, width: size[0], height: size[1], centerY: am5.p50, y: am5.p50 }));
+      di.get("markerRectangle").set("forceHidden", true);
+      di.get("label").set("fill", c(ln.color));
+    });
+    if (!exportMode) {
+      var cursor = chart.set("cursor", am5xy.XYCursor.new(root, { behavior: "none", xAxis: x }));
+      cursor.lineY.set("visible", false);
+    }
+    return [chart, all];
+  }
+
   function doughnut(root, cfg) {
     var chart = root.container.children.push(am5percent.PieChart.new(root, { layout: root.horizontalLayout, innerRadius: am5.percent(58) }));
     var series = chart.series.push(am5percent.PieSeries.new(root, { valueField: "value", categoryField: "category", tooltip: tooltip(root, cfg) }));
@@ -336,7 +389,7 @@
 
   var BUILD = { bar: function (r, f) { return columns(r, f, true); }, column: function (r, f) { return columns(r, f, false); },
                 line_peaks: line, doughnut: doughnut, treemap: treemap, stacked: stacked, us_map: usMap,
-                bubble: bubble, heatmap: heatmap, sankey: sankey };
+                bubble: bubble, heatmap: heatmap, sankey: sankey, multi_line: multiLine };
 
   // which part of each kind is clicked, and the key its articles are filed under (see renderer._drill_data)
   function pickable(made, cfg) {
@@ -387,7 +440,7 @@
 
   // logos keep their aspect ratio inside the 64x30 box (amCharts stretches a picture given both sizes)
   function sized(cfg) {
-    var rows = (cfg.data || []).filter(function (d) { return d.logo; });
+    var rows = (cfg.data || []).concat(cfg.lines || []).filter(function (d) { return d.logo; });
     return Promise.all(rows.map(function (d) {
       return new Promise(function (done) {
         var img = new Image();

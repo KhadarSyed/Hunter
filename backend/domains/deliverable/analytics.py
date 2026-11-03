@@ -1,8 +1,10 @@
 """Compute stage: deterministic values for every chart and table; each value is also written as a fact."""
 from __future__ import annotations
 
+import dataclasses
 import re
 from collections import Counter
+from datetime import date, timedelta
 
 from ...agents import question_dimensions as qd
 from . import extract as extract_mod, us_locations
@@ -119,6 +121,65 @@ def _trend(module, rq, rows, base_n, _):
                                        "values": values, "peaks": sorted(top), "unit": "count", "series_label": "Articles"},
                     facts=facts, candidate_urls=cands, notes=notes,
                     drill_urls=_drill((month_label(r.article.date.strftime("%Y-%m")), r) for r in dated))
+
+
+BRAND_LINES = 6           # lines one chart keeps readable
+WEEK_SPAN_DAYS = 92       # up to about three months of data, a week per point; longer, a month
+
+
+def _period(d, grain: str) -> str:
+    return (d - timedelta(days=d.weekday())).isoformat() if grain == "week" else d.strftime("%Y-%m")
+
+
+def _period_keys(first, last, grain: str) -> list[str]:
+    if grain == "month":
+        return _months(_period(first, grain), _period(last, grain))
+    start, end = first - timedelta(days=first.weekday()), last
+    return [(start + timedelta(weeks=i)).isoformat() for i in range((end - start).days // 7 + 1)]
+
+
+def _period_label(key: str, grain: str) -> str:
+    if grain == "month":
+        return month_label(key)
+    d = date.fromisoformat(key)
+    return f"Wk {d.day} {d:%b}"
+
+
+def brand_lines(section: Section, rows: list[EngineRow], brands) -> Section:
+    """The trend as one line per brand (client first, its peaks marked), at a week or month grain by the data's span:
+    chart_choice draws it as a multi-series line when the question compares brands or the rows carry several.
+    A point's articles are filed under "<brand><TAB><period>" for the deck's click-through."""
+    from . import evidence
+    dated = [r for r in rows if r.article.date]
+    if section.skipped or not section.chart or not brands or not dated:
+        return section
+    named = [(r, evidence.row_brands(r, brands)) for r in dated]
+    counts = Counter(b for _, ns in named for b in ns)
+    primary = next((b.name for b in brands if b.primary), "")
+    names = sorted(counts, key=lambda n: (n != primary, -counts[n], n))[:BRAND_LINES]
+    if len(names) < 2:
+        return section
+    days = [r.article.date for r in dated]
+    grain = "week" if (max(days) - min(days)).days <= WEEK_SPAN_DAYS else "month"
+    keys = _period_keys(min(days), max(days), grain)
+    labels = [_period_label(k, grain) for k in keys]
+    totals = Counter(_period(r.article.date, grain) for r in dated)
+    series, facts, drill = [], [], {}
+    for n in names:
+        per = Counter(_period(r.article.date, grain) for r, ns in named if n in ns)
+        vals = [per.get(k, 0) for k in keys]
+        peaks = sorted(_spaced_peaks(vals)) if n == primary else []
+        series.append({"name": n, "values": vals, "peaks": peaks, "client": n == primary})
+        top = max(range(len(vals)), key=lambda i: vals[i])
+        facts.append(f"{n}: {counts[n]} dated articles, most in {labels[top]} ({vals[top]})")
+        drill.update(_drill((f"{n}\t{labels[keys.index(_period(r.article.date, grain))]}", r)
+                            for r, ns in named if n in ns))
+    values = [totals.get(k, 0) for k in keys]
+    chart = {**section.chart, "categories": labels, "values": values, "peaks": sorted(_spaced_peaks(values)),
+             "brand_series": series, "grain": grain}
+    period_drill = _drill((labels[keys.index(_period(r.article.date, grain))], r) for r in dated)
+    return dataclasses.replace(section, chart=chart, facts=section.facts + facts,
+                               drill_urls={**period_drill, **drill})
 
 
 def _outlets(module, rq, rows, base_n, _):
@@ -519,6 +580,8 @@ def compute_module(module: dict, rq: RQ, rows: list[EngineRow], base_n: int,
         section = _top_articles(module, rq, rows, base_n, extraction, brands)
     else:
         section = _HANDLERS[module["module"]](module, rq, rows, base_n, extraction)
+    if module["module"] == "volume_trend":      # a line per brand, for chart_choice to draw when it fits
+        section = brand_lines(section, rows, brands)
     if section.chart is not None and "n" not in section.chart:
         # the chart's own base (this question's articles), printed as its "N =": the deck-wide base is not what
         # a question's percentages are out of (45 of 72 is 62.5%, shown beside N = 500 it misleads)

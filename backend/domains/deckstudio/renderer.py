@@ -1,6 +1,7 @@
 """Renders a DeckSpec into one HTML deck (frontend-slides-style viewport-safe base) with an assets folder."""
 from __future__ import annotations
 
+import base64
 import json
 import re
 import shutil
@@ -65,6 +66,18 @@ def _slide_logos(slide: SlideSpec, out_dir: Path) -> tuple[dict[str, str], set[s
     marked = {name: m for name, p in slide.logos.items() if (m := _mark(p, out_dir))}
     return ({name: rel for name, (rel, _light) in marked.items()},
             {name for name, (_rel, is_light) in marked.items() if is_light})
+
+
+def _inline_logos(logos: dict[str, str], light: set[str], out_dir: Path) -> tuple[dict[str, str], set[str]]:
+    """The chart's logos as data URIs: amCharts loads a picture with CORS, which a deck opened from disk (and the
+    exporter) refuses for a file, and its SVG export links pictures by address, which a PPTX can not follow."""
+    out = {}
+    for name, rel in logos.items():
+        path = out_dir / rel
+        if path.exists():
+            kind = "svg+xml" if path.suffix.lower() == ".svg" else path.suffix.lower().lstrip(".").replace("jpg", "jpeg")
+            out[name] = f"data:image/{kind};base64," + base64.b64encode(path.read_bytes()).decode("ascii")
+    return out, light
 
 
 def render_slide(slide: SlideSpec, tokens: DeckTokens, n: int, total: int, base_n: int, period: str, source: str,
@@ -132,7 +145,7 @@ def render_deck(spec: DeckSpec, out_dir: Path, slide_html: dict[str, str] | None
              for n, s in enumerate(spec.slides, start=1)]
     # the charts are drawn live by amCharts from these configs (built from the spec, so a re-tone reaches them even on
     # a restyled slide); each slide's SVG chart stays as the fallback
-    configs = amcharts.deck_configs(spec.slides, tokens, lambda s: _slide_logos(s, out_dir))
+    configs = amcharts.deck_configs(spec.slides, tokens, lambda s: _inline_logos(*_slide_logos(s, out_dir), out_dir))
     maps = any(c and c["kind"] == "us_map" for cs in configs.values() for c in cs)
     drill = _drill_data(spec, out_dir, configs)            # before the configs are written into the page
     scripts = amcharts.scripts(configs, maps)

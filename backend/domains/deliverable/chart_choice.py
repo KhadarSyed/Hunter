@@ -65,13 +65,31 @@ ALTERNATIVES = {"line_peaks": "columns (too many points to read as bars)", "colu
                 "us_map": "bars of the top states (lose where they are)",
                 "bubble": "a treemap or sorted bars (no room for the tone of each theme)",
                 "heatmap": "a heat table or grouped bars (one bar per cell is unreadable)",
-                "sankey": "a heatmap (shows the cells, not the flow from one side to the other)"}
+                "sankey": "a heatmap (shows the cells, not the flow from one side to the other)",
+                "multi_line": "one total line (hides which brand drives each peak)"}
+SECOND_BRAND_SHARE = 0.1     # a second brand in a tenth of the articles: the rows carry several brands
+MULTI_LINE_MIN_POINTS = 3
+
+
+def _brand_trend(chart: dict, question: str) -> str | None:
+    """Why the trend is drawn as a line per brand, or None: the question compares brands, or its rows carry several."""
+    series = chart.get("brand_series") or []
+    if len(series) < 2 or len(chart.get("categories") or []) < MULTI_LINE_MIN_POINTS:
+        return None
+    total = sum(chart.get("values") or []) or 1
+    if _COMPARE.search(question or ""):
+        return f"trend + comparison: one line per brand ({len(series)} brands), the client's peaks marked"
+    if sum(series[1]["values"]) >= SECOND_BRAND_SHARE * total:
+        return f"trend of several brands: {len(series)} brands each as a line, the client's peaks marked"
+    return None
 
 
 def _view(chart: dict, question: str, section_id: str) -> dict:
     """The deck's drawing of a chart chosen by the question's intent (themes -> bubbles); `kind` stays the plain
     chart the classic deck, the insight writer and the static fallback read."""
     parts = len(chart.get("categories") or [])
+    if chart["kind"] in ("line_peaks", "column") and (why := _brand_trend(chart, question)):
+        return {**chart, "view": "multi_line", "choice": why, "alternatives": ALTERNATIVES["multi_line"]}
     if chart["kind"] in ("bar", "treemap", "doughnut") and parts >= 3 and _THEMES.search(section_id) and not chart.get("breakdown"):
         toned = chart.get("tone") and any(t is not None for t in chart["tone"])
         why = f"themes: {parts} themes as bubbles sized by volume" + (", coloured by net sentiment" if toned else "")
