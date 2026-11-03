@@ -41,7 +41,7 @@ _CODE_PREFIX = re.compile(r"\bRQ\d+\s*:\s*")
 _CODE = re.compile(r"\bRQ(\d+)\b")
 TYPE_FOR_CHART = {"kpi": "kpi_dashboard", "doughnut": "sentiment_split", "gauge": "kpi_dashboard",
                   "line_peaks": "trend_with_peaks", "column": "trend_with_peaks", "bar": "bar_with_cards",
-                  "treemap": "theme_cards", "us_map": "bar_with_cards"}
+                  "treemap": "theme_cards", "us_map": "bar_with_cards", "sunburst": "bar_with_cards"}
 
 
 @dataclass

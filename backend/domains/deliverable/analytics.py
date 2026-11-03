@@ -423,6 +423,7 @@ def _words(value) -> str:
     return " ".join(words)[:1].upper() + " ".join(words)[1:] if words else ""
 
 
+SUNBURST_CHILDREN = 6     # outer-ring segments per channel; the rest is one "Other" segment
 _SOCIAL_TYPES = ("social", "twitter", "facebook", "instagram", "tiktok", "reddit", "youtube", "forum", "x ")
 _SOCIAL_HOSTS = ("x.com", "twitter.com", "facebook.com", "instagram.com", "tiktok.com", "reddit.com", "youtube.com",
                  "threads.net", "pinterest.com", "linkedin.com")
@@ -464,11 +465,23 @@ def _media_split(module, rq, rows, base_n, _):
     cats = [k for k in ("Social", "Editorial") if counts.get(k)]
     unknown = len(rows) - known
     notes = [f"{unknown} of {len(rows)} articles have no source type"] if unknown else []
+    # channel -> where it ran (the platform of a social post, the outlet of an editorial article): a sunburst's rings
+    tree, children = [], []
+    for k in cats:
+        within = [r for r in rows if _channel(r) == k]
+        where = Counter(platform(r) if k == "Social" else (r.article.outlet or "Unnamed outlet") for r in within)
+        top = where.most_common(SUNBURST_CHILDREN)
+        rest = sum(where.values()) - sum(c for _, c in top)
+        tree.append({"name": k, "children": [{"name": n, "value": c} for n, c in top] +
+                                            ([{"name": f"Other {k.lower()}", "value": rest}] if rest else [])})
+        children += [(f"{k}\t{n}" if n in dict(top) else f"{k}\tOther {k.lower()}", r) for r in within
+                     for n in [platform(r) if k == "Social" else (r.article.outlet or "Unnamed outlet")]]
     return _section(module, rq, chart={"kind": "doughnut", "categories": cats,
                                        "values": [_pct(counts[k], known) for k in cats], "unit": "percent",
-                                       "peaks": [], "series_label": "Source"},
+                                       "peaks": [], "series_label": "Source", "hierarchy": tree},
                     facts=[f"{rq.id}: {counts[k]} of {known} articles are {k.lower()} ({_pct(counts[k], known)}%)"
-                           for k in cats] + notes, notes=notes, drill_urls=_drill((_channel(r), r) for r in rows))
+                           for k in cats] + notes, notes=notes,
+                    drill_urls={**_drill((_channel(r), r) for r in rows), **_drill(children)})
 
 
 _NO_ANSWER = {"", "no", "none", "unknown", "n/a", "false"}

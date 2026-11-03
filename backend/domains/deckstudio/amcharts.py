@@ -12,7 +12,7 @@ from .charts import _colors, _dark_chip, _neutral, _on
 from .spec import DeckTokens
 
 VENDOR = Path(__file__).parent / "vendor"
-DRAWN = {"bar", "column", "line_peaks", "doughnut", "treemap", "us_map", "heatmap", "sankey"}  # a KPI stays the number
+DRAWN = {"bar", "column", "line_peaks", "doughnut", "treemap", "us_map", "heatmap", "sankey", "sunburst"}  # a KPI stays the number
 # a theme bubble's colour by its articles' net sentiment (-1..1): negative, mixed, positive (the deck's status colours)
 _TONE_COLORS = {-1: "#C62828", 0: "#8A8A99", 1: "#2E7D32"}
 TONE_SPLIT = 0.15
@@ -34,6 +34,13 @@ def _distinct(colors: list[str]) -> list[str]:
         if all(sum((a - b) ** 2 for a, b in zip(rgb(c), rgb(k))) ** 0.5 >= MIN_HUE_DISTANCE for k in kept):
             kept.append(c)
     return kept
+
+
+CHILD_TINT = 0.3      # a sunburst's outer ring: its parent's colour, this much toward white
+
+
+def _tint(color: str) -> str:
+    return "".join(f"{round(int(color[i:i + 2], 16) + (255 - int(color[i:i + 2], 16)) * CHILD_TINT):02X}" for i in (0, 2, 4))
 
 
 def brand_colors(n: int, t: DeckTokens) -> list[str]:
@@ -96,6 +103,14 @@ def chart_config(chart: dict, t: DeckTokens, logos: dict[str, str] | None = None
                 "lines": [{"name": s["name"], "field": f"s{j}", "peak": f"p{j}", "client": bool(s.get("client")),
                            "color": f"#{colors[j]}", **m}
                           for j, (s, m) in enumerate(zip(series, _marks(names, t, logos, light)))]}
+    if view == "sunburst":         # rings: the parts, then what each is made of (its children a lighter shade)
+        tree = chart["hierarchy"]
+        fills = _colors([p["name"] for p in tree], t)
+        nodes = [{"name": p["name"], "key": p["name"], "col": {"fill": f"#{f}"},
+                  "children": [{"name": k["name"], "key": f"{p['name']}\t{k['name']}", "value": k["value"],
+                                "col": {"fill": f"#{_tint(f)}"}} for k in p["children"]]}
+                 for p, f in zip(tree, fills)]
+        return {**base, "kind": "sunburst", "unit": "count", "data":[{"name": chart.get("series_label") or "All", "children": nodes}]}
     if view in ("heatmap", "sankey"):
         m = chart["matrix"]
         cells = [{"row": r, "col": c, "value": round(100 * v / max(1, m["n"][i]), 1), "count": v}

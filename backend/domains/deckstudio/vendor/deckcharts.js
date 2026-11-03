@@ -347,6 +347,26 @@
     return [series, series];
   }
 
+  // a breakdown with levels as amCharts' sunburst: the parts in the inner ring, what each is made of around it; a
+  // click on a segment lists its articles (the built-in zoom stays off: the deck's wheel and clicks are its own)
+  function sunburst(root, cfg) {
+    var series = root.container.children.push(am5hierarchy.Sunburst.new(root, {
+      valueField: "value", categoryField: "name", childDataField: "children", topDepth: 1, initialDepth: 2,
+      downDepth: 2, innerRadius: am5.percent(22), tooltip: tooltip(root, cfg)
+    }));
+    series.slices.template.setAll({ templateField: "col", strokeOpacity: 1, stroke: c("#FFFFFF"), strokeWidth: 2,
+      tooltipText: "{category}: [bold]{sum}[/] " + (cfg.label === "Source" ? "articles" : "") });
+    series.nodes.template.setAll({ toggleKey: "none", cursorOverStyle: cfg.drill && !exportMode ? "pointer" : "default" });
+    series.labels.template.setAll({ text: "{category}", fontSize: 16, fill: c("#FFFFFF"), oversizedBehavior: "truncate" });
+    series.nodes.template.events.on("click", function (ev) {
+      var d = ev.target.dataItem && ev.target.dataItem.dataContext;
+      if (d && d.key) cfg.pick(d.key, String(d.key).replace("\t", " · "));
+    });
+    series.data.setAll(cfg.data);
+    series.set("selectedDataItem", series.dataItems[0]);
+    return [series, series];
+  }
+
   // two dimensions crossed (as amCharts' heat map demo): each cell shaded by its share of the row's articles
   function heatmap(root, cfg) {
     var chart = root.container.children.push(am5xy.XYChart.new(root, { panX: false, panY: false, wheelX: "none", wheelY: "none", paddingLeft: 0, layout: root.verticalLayout }));
@@ -396,7 +416,8 @@
 
   var BUILD = { bar: function (r, f) { return columns(r, f, true); }, column: function (r, f) { return columns(r, f, false); },
                 line_peaks: line, doughnut: doughnut, treemap: treemap, stacked: stacked, us_map: usMap,
-                bubble: bubble, heatmap: heatmap, sankey: sankey, multi_line: multiLine };
+                bubble: bubble, heatmap: heatmap, sankey: sankey, multi_line: multiLine,
+                sunburst: sunburst };
 
   // which part of each kind is clicked, and the key its articles are filed under (see renderer._drill_data)
   function pickable(made, cfg) {
