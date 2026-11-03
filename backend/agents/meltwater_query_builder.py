@@ -264,6 +264,27 @@ def validate_boolean_syntax(query: str) -> list[str]:
     return errors
 
 
+_NOT_A_PHRASE_WORD = re.compile(r"^(AND|OR|NOT|O?NEAR(/\d+)?)$|[*?:~]")
+
+
+def quote_bare_phrases(query: str) -> str:
+    """Every unquoted run of 2+ plain words becomes one quoted phrase: Meltwater and the search engines read
+    `NPR crisis` as NPR AND crisis, so a multi-word term the writer left bare would silently mean something else.
+    Operators, wildcards (recall*), fields (site:x) and proximity (NEAR/5) are never folded into a phrase."""
+    def fold(m: re.Match) -> str:
+        out, run = [], []
+        for word in m.group(0).split() + [""]:
+            if word and not _NOT_A_PHRASE_WORD.search(word):
+                run.append(word)
+                continue
+            out.append(f'"{" ".join(run)}"' if len(run) > 1 else " ".join(run))
+            run = []
+            out.append(word)
+        return " ".join(w for w in out if w)
+    parts = re.split(r'("[^"]*")', query or "")
+    return "".join(p if i % 2 else re.sub(r"[^\s()\"]+(?:[ \t]+[^\s()\"]+)+", fold, p) for i, p in enumerate(parts))
+
+
 def _tokenise_query(query: str) -> list[str]:
     """Split a Boolean query into tokens, treating quoted phrases as single
     tokens and recognising parentheses as separate tokens."""

@@ -26,7 +26,7 @@ from fastapi import Path as PathParam
 
 from ...agents.dataset_enrichment import enrich_dataset
 from ...agents.meltwater_query_builder import run as run_mqb
-from ...agents.meltwater_query_builder import validate_boolean_syntax
+from ...agents.meltwater_query_builder import quote_bare_phrases, validate_boolean_syntax
 from ...agents.query_evaluator import evaluate_sample
 from ...agents.question_dimensions import keyword_hits as qd_keyword_hits, query_groups as qd_query_groups
 from ...agents.question_dimensions import to_json as qd_to_json
@@ -510,6 +510,17 @@ def _no_geographic_exclusions(strategy: dict) -> dict:
     return strategy
 
 
+def _quoted_phrases(strategy: dict) -> dict:
+    """Every query's bare multi-word terms quoted (`NPR crisis` -> "NPR crisis"), so none silently means A AND B."""
+    for q in [*(strategy.get("research_question_queries") or []), *(strategy.get("query_versions") or {}).values()]:
+        if isinstance(q, dict) and q.get("query"):
+            q["query"] = quote_bare_phrases(q["query"])
+    exclusion = strategy.get("exclusion_strategy")
+    if isinstance(exclusion, dict) and exclusion.get("global_exclusions"):
+        exclusion["global_exclusions"] = quote_bare_phrases(exclusion["global_exclusions"])
+    return strategy
+
+
 @router.post("/strategy/generate", response_model=StrategyJobStarted)
 def generate_search_strategy(req: GenerateStrategyRequest):
     project = store.get_project(req.project_id)
@@ -628,7 +639,7 @@ def generate_search_strategy(req: GenerateStrategyRequest):
                     strategy_result = _build_deterministic_strategy(spec, raw_brief_text)
 
             strategy_result = _no_geographic_exclusions(
-                _only_brief_questions(_brand_wide_queries(strategy_result, spec), spec))
+                _only_brief_questions(_brand_wide_queries(_quoted_phrases(strategy_result), spec), spec))
             logger.info("[strategy:%s] LLM strategy generation succeeded — validating Boolean syntax", job_id)
             store.update_job(job_id, progress_pct=80,
                              progress_message="Validating Boolean syntax")
