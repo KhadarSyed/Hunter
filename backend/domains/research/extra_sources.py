@@ -307,7 +307,9 @@ def search_searxng(query: str, country: str, date_range: tuple | None, max_resul
         logger.warning("SearXNG search stopped: %s", type(e).__name__)  # pages already fetched are kept
 
     items = [{
-        "publisher_name": res.get("source") or res.get("engine") or "",
+        # the outlet is the article's site; "engine"/"engines" name the search engine that found it, never the outlet
+        "publisher_name": (res.get("source") if res.get("source") not in [res.get("engine"), *(res.get("engines") or [])]
+                           else "") or (urlparse(res.get("url") or "").hostname or "").removeprefix("www."),
         "published_url": res.get("url") or "",
         "title": res.get("title") or "",
         "content": res.get("content") or "",
