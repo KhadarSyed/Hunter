@@ -127,6 +127,20 @@
     return [chart, series];
   }
 
+  // each legend entry's logo beside its name, its name in its colour (as amCharts' images-as-markers)
+  function legendLogos(root, legend, items) {
+    legend.dataItems.forEach(function (di, i) {
+      var it = items[i];
+      if (!it || !it.logo) return;
+      var size = it.size || [LOGO_W, LOGO_H];
+      di.get("marker").setAll({ width: size[0], height: size[1] });
+      if (it.chip) di.get("marker").set("background", am5.RoundedRectangle.new(root, { fill: c(it.chip), cornerRadiusTL: 4, cornerRadiusTR: 4, cornerRadiusBL: 4, cornerRadiusBR: 4 }));
+      di.get("marker").children.push(am5.Picture.new(root, { src: it.logo, width: size[0], height: size[1], centerY: am5.p50, y: am5.p50 }));
+      di.get("markerRectangle").set("forceHidden", true);
+      di.get("label").set("fill", c(it.color));
+    });
+  }
+
   // one line per brand (as amCharts' multiple line series demo): the client's line thicker with its peaks marked,
   // a dot per point that lists that brand's articles for that period, the brands' logos in the legend
   function multiLine(root, cfg) {
@@ -164,15 +178,7 @@
       return s;
     });
     legend.data.setAll(chart.series.values);
-    legend.dataItems.forEach(function (di, i) {      // the brand's logo beside its name (as amCharts' image markers)
-      var ln = cfg.lines[i];
-      if (!ln.logo) return;
-      var size = ln.size || [LOGO_W, LOGO_H];
-      di.get("marker").setAll({ width: size[0], height: size[1] });
-      di.get("marker").children.push(am5.Picture.new(root, { src: ln.logo, width: size[0], height: size[1], centerY: am5.p50, y: am5.p50 }));
-      di.get("markerRectangle").set("forceHidden", true);
-      di.get("label").set("fill", c(ln.color));
-    });
+    legendLogos(root, legend, cfg.lines);
     if (!exportMode) {
       var cursor = chart.set("cursor", am5xy.XYCursor.new(root, { behavior: "none", xAxis: x }));
       cursor.lineY.set("visible", false);
@@ -238,6 +244,7 @@
       legend.data.push(series);
       all.push(series);
     });
+    legendLogos(root, legend, cfg.stacks);
     return [chart, all];
   }
 
@@ -402,7 +409,7 @@
         if (e.deckPicked) return;
         e.deckPicked = true;
         var d = ev.target.dataItem && ev.target.dataItem.dataContext;
-        if (d) cfg.pick.apply(null, key(d));
+        if (d) cfg.pick.apply(null, key(d, ev.target));
       }
       list.template.setAll({ cursorOverStyle: "pointer" });
       list.template.events.on("click", handle);
@@ -414,7 +421,12 @@
     else if (cfg.kind === "doughnut") on(s.slices, cat);
     else if (cfg.kind === "treemap") on(s.rectangles, cat);
     else if (cfg.kind === "bubble") on(s.nodes, cat);          // the node: its circle and its label
-    else if (cfg.kind === "stacked") s.forEach(function (x) { on(x.columns, function (d) { return [d.key, d.key]; }); });
+    else if (cfg.kind === "stacked") s.forEach(function (x) {
+      on(x.columns, function (d) {
+        var k = d.key + "\t" + x.get("name");
+        return cfg.drill[k] ? [k, d.key + " · " + x.get("name")] : [d.key, d.key];
+      });
+    });
     else if (cfg.kind === "heatmap") on(s.columns, function (d) { return [d.row + "\t" + d.col, d.row + " · " + d.col]; });
     else if (cfg.kind === "sankey") {
       on(s.links, function (d) { return [d.row + "\t" + d.col, d.row + " → " + d.col]; });
@@ -440,7 +452,7 @@
 
   // logos keep their aspect ratio inside the 64x30 box (amCharts stretches a picture given both sizes)
   function sized(cfg) {
-    var rows = (cfg.data || []).concat(cfg.lines || []).filter(function (d) { return d.logo; });
+    var rows = (cfg.data || []).concat(cfg.lines || [], cfg.stacks || []).filter(function (d) { return d.logo; });
     return Promise.all(rows.map(function (d) {
       return new Promise(function (done) {
         var img = new Image();

@@ -88,6 +88,10 @@ def _view(chart: dict, question: str, section_id: str) -> dict:
     """The deck's drawing of a chart chosen by the question's intent (themes -> bubbles); `kind` stays the plain
     chart the classic deck, the insight writer and the static fallback read."""
     parts = len(chart.get("categories") or [])
+    if chart.get("kpis") and (chart.get("breakdown") or {}).get("groups"):     # share of voice (analytics.sov_split)
+        by = chart["breakdown"]["by"]
+        return {**chart, "choice": f"share of voice: the brands' mix per {by} as 100% bars, the client's share, rank "
+                                   f"and change as KPI tiles above", "alternatives": ALTERNATIVES["stacked"]}
     if chart["kind"] in ("line_peaks", "column") and (why := _brand_trend(chart, question)):
         return {**chart, "view": "multi_line", "choice": why, "alternatives": ALTERNATIVES["multi_line"]}
     if chart["kind"] in ("bar", "treemap", "doughnut") and parts >= 3 and _THEMES.search(section_id) and not chart.get("breakdown"):

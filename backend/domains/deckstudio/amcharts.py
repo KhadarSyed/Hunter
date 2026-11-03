@@ -36,6 +36,12 @@ def _distinct(colors: list[str]) -> list[str]:
     return kept
 
 
+def brand_colors(n: int, t: DeckTokens) -> list[str]:
+    """One colour per brand, client first in the deck's brand colour, rivals in hues that tell apart from it."""
+    palette = _distinct([t.primary] + [f for f in t.series if not _neutral(f)] + list(RIVAL_HUES))
+    return [palette[0] if j == 0 else palette[1 + (j - 1) % (len(palette) - 1)] for j in range(n)]
+
+
 def _badge(name: str, t: DeckTokens) -> str:
     """The SVG chart's round initial for a label without a logo, as a picture amCharts can place beside the label."""
     initial = escape(next((ch for ch in str(name) if ch.isalnum()), "?").upper())
@@ -66,26 +72,29 @@ def chart_config(chart: dict, t: DeckTokens, logos: dict[str, str] | None = None
             "reason": chart.get("choice") or "", "alternatives": chart.get("alternatives") or ""}
     if groups:
         stacks = [str(s) for s in chart["breakdown"]["stacks"]]
+        # share of voice stacks brands (client first): brand colours, not shades of the deck's one hue
+        fills = brand_colors(len(stacks), t) if chart.get("kpis") else _colors(stacks, t)
         names = [str(g["name"]) for g in groups]
         rows = [{"category": f"{n} ({g['n']})" if g.get("n") else n, "key": n, **m,
                  **{f"s{i}": float(v) for i, v in enumerate(g["values"])}}
                 for n, g, m in zip(names, groups, _marks(names, t, logos, light))]
         return {**base, "kind": "stacked", "data": rows,
-                "stacks": [{"name": s, "field": f"s{i}", "color": f"#{c}"} for i, (s, c) in enumerate(zip(stacks, _colors(stacks, t)))],
-                "ink": [f"#{_on(c)}" for c in _colors(stacks, t)]}
+                "stacks": [{"name": s, "field": f"s{i}", "color": f"#{c}", **m}
+                           for i, (s, c, m) in enumerate(zip(stacks, fills, _marks(stacks, t, logos, light)))],
+                "ink": [f"#{_on(c)}" for c in fills]}
     if kind == "us_map":
         return {**base, "color": f"#{t.series[0]}", "states": chart.get("states") or [],
                 "counties": chart.get("counties") or []}
     view = chart.get("view") or kind
     if view == "multi_line":        # one line per brand: the client in the brand colour, rivals in the deck's hues
         series = chart["brand_series"]
-        palette = _distinct([t.primary] + [f for f in t.series if not _neutral(f)] + list(RIVAL_HUES))
+        colors = brand_colors(len(series), t)
         names = [s["name"] for s in series]
         rows = [{"category": c, **{f"s{j}": s["values"][i] for j, s in enumerate(series)},
                  **{f"p{j}": i in set(s.get("peaks") or []) for j, s in enumerate(series)}} for i, c in enumerate(cats)]
         return {**base, "kind": "multi_line", "data": rows,
                 "lines": [{"name": s["name"], "field": f"s{j}", "peak": f"p{j}", "client": bool(s.get("client")),
-                           "color": f"#{palette[0] if j == 0 else palette[1 + (j - 1) % (len(palette) - 1)]}", **m}
+                           "color": f"#{colors[j]}", **m}
                           for j, (s, m) in enumerate(zip(series, _marks(names, t, logos, light)))]}
     if view in ("heatmap", "sankey"):
         m = chart["matrix"]

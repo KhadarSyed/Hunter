@@ -182,6 +182,42 @@ def brand_lines(section: Section, rows: list[EngineRow], brands) -> Section:
                                drill_urls={**period_drill, **drill})
 
 
+def sov_split(named_rows, order: list[str], primary: str) -> dict:
+    """Share of voice split by channel (or, with one channel, by month) as 100% bars of the brands, and the client's
+    KPI tiles: its share, its rank, and the change since the previous month when the data spans two or more.
+    `named_rows`: (row, brands it names); `order`: the brands, client first."""
+    def shares(pairs) -> list[float]:
+        c = Counter(b for _, ns in pairs for b in ns if b in order)
+        total = sum(c.values())
+        return [_pct(c[b], total) for b in order]
+
+    channels = Counter(platform(r) for r, _ in named_rows)
+    months = sorted({r.article.date.strftime("%Y-%m") for r, _ in named_rows if r.article.date})
+    by, keys = ("channel", [c for c, _ in channels.most_common(BRAND_LINES)]) if len(channels) > 1 else \
+               ("month", months)
+    key_of = (lambda r: platform(r)) if by == "channel" else (lambda r: r.article.date.strftime("%Y-%m") if r.article.date else "")
+    label = (lambda k: k) if by == "channel" else month_label
+    groups, drill = [], {}
+    for k in keys:
+        pairs = [(r, ns) for r, ns in named_rows if key_of(r) == k]
+        groups.append({"name": label(k), "n": len(pairs), "values": shares(pairs)})
+        drill.update(_drill((f"{label(k)}\t{b}", r) for r, ns in pairs for b in ns if b in order))
+        drill.update(_drill((label(k), r) for r, _ in pairs))
+    overall = shares(named_rows)
+    kpis = []
+    if primary in order:
+        i = order.index(primary)
+        rank = 1 + sum(1 for v in overall if v > overall[i])
+        kpis = [{"label": f"{primary} share of voice", "value": f"{overall[i]}%"},
+                {"label": f"Rank among {len(order)} brands", "value": f"#{rank}"}]
+        if len(months) > 1:
+            prev, last = [shares([(r, ns) for r, ns in named_rows if r.article.date and
+                                  r.article.date.strftime("%Y-%m") == m])[i] for m in months[-2:]]
+            kpis.append({"label": f"Change vs {month_label(months[-2])}",
+                         "value": f"{last - prev:+.1f} pts"})
+    return {"breakdown": {"by": by, "stacks": order, "groups": groups}, "kpis": kpis, "drill": drill}
+
+
 def _outlets(module, rq, rows, base_n, _):
     top = Counter(r.article.outlet for r in rows if r.article.outlet).most_common(TOP_N)
     if not top:
@@ -258,17 +294,22 @@ def _brands_of(row: EngineRow, names: dict[str, str]) -> set[str]:
     return {names[str(x).strip()] for x in (row.entities or {}).get("brands") or [] if str(x).strip()}
 
 
-def _brand_sov(module, rq, rows, base_n, _):
+def _brand_sov(module, rq, rows, base_n, _, brands=()):
     names = unify(str(x).strip() for r in rows for x in (r.entities or {}).get("brands") or [] if str(x).strip())
     counts = Counter(b for r in rows for b in _brands_of(r, names))
     if not counts:
         return _section(module, rq, skipped="No brands named in the data")
     top, total = counts.most_common(TOP_N), sum(counts.values())
-    return _section(module, rq, chart={"kind": "bar", "categories": [b for b, _ in top],
+    order = [b for b, _ in top]
+    primary = next((b.name for b in brands if b.primary), "").casefold()
+    client = next((b for b in order if b.casefold() == primary), "")      # its KPIs only when the client is named
+    split = sov_split([(r, _brands_of(r, names)) for r in rows], sorted(order, key=lambda b: b != client), client)
+    return _section(module, rq, chart={"kind": "bar", "categories": order,
                                        "values": [_pct(c, total) for _, c in top], "unit": "percent", "peaks": [],
-                                       "series_label": "Share of brand mentions"},
+                                       "series_label": "Share of brand mentions", "breakdown": split["breakdown"],
+                                       "kpis": split["kpis"]},
                     facts=[f"Brand {b}: {c} of {total} brand mentions ({_pct(c, total)}%)" for b, c in top],
-                    notes=["logos"],
+                    notes=["logos"], drill_urls=split["drill"],
                     segment_urls=_segments((b, r) for r in rows for b in _brands_of(r, names)
                                            if b in {b for b, _ in top}))
 
@@ -578,6 +619,8 @@ def compute_module(module: dict, rq: RQ, rows: list[EngineRow], base_n: int,
         return _section(module, rq, skipped=NO_ROWS)
     if module["module"] == "top_articles":      # ranked by being about the study's brands first
         section = _top_articles(module, rq, rows, base_n, extraction, brands)
+    elif module["module"] == "brand_sov":       # the client's share, rank and change as KPI tiles
+        section = _brand_sov(module, rq, rows, base_n, extraction, brands)
     else:
         section = _HANDLERS[module["module"]](module, rq, rows, base_n, extraction)
     if module["module"] == "volume_trend":      # a line per brand, for chart_choice to draw when it fits
