@@ -1,9 +1,11 @@
-"""Pixel-perfect exports of the HTML deck: each slide screenshotted at 1920x1080 into a 16:9 PPTX and a PDF.
+"""Exports of the HTML deck: each slide at 1920x1080 into a 16:9 PPTX and a PDF.
 
-In the PPTX a slide is presented the way a presenter would build it: the slide picture without its cards, then
-each card (insight, verbatim) as its own picture at its exact place, fading in on click; slides cross-fade.
-The title stays under the pictures for search and accessibility, and the slide text goes in the notes. Each amCharts
-chart goes on the slide as a vector SVG picture (amCharts' own SVG export, PNG fallback). The PDF is the deck printed
+In the PPTX the slide's text is real, editable PowerPoint text (pptx_text): titles, kickers, card text, bullets, KPI
+numbers and footers as text boxes where the deck draws them, in its fonts, sizes and colours, tables as native tables
+and source links as text hyperlinks. Behind them is the slide picture taken without its text, and each amCharts chart
+as a vector SVG picture (amCharts' own SVG export, PNG fallback). A slide is presented the way a presenter would build
+it: each card (insight, verbatim) -- its picture and its text, grouped -- fades in on click; slides cross-fade. The
+slide text also goes in the notes. The PDF is the deck printed
 by Chromium with the same SVG charts, so text and charts stay vector (slide pictures only if printing fails).
 """
 from __future__ import annotations
@@ -22,6 +24,7 @@ from pptx.opc.package import Part
 from pptx.oxml.ns import qn
 from pptx.util import Emu, Inches
 
+from . import pptx_text
 from .spec import DeckSpec
 
 logger = logging.getLogger(__name__)
@@ -42,15 +45,18 @@ _NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
 class Shot:
     full: Path
     base: Path | None = None                          # the slide with its builds hidden
-    builds: list[tuple[Path, tuple[float, float, float, float]]] = field(default_factory=list)   # (png, x, y, w, h px)
+    # (png, (x, y, w, h) px, its index among the slide's builds): its text boxes carry the same index
+    builds: list[tuple[Path, tuple[float, float, float, float], int]] = field(default_factory=list)
     links: list[tuple[str, tuple[float, float, float, float]]] = field(default_factory=list)     # (url, x, y, w, h px)
     # the amCharts charts as vector SVG (+ PNG fallback), left out of `base`: (svg, png, x, y, w, h px)
     charts: list[tuple[Path, Path, tuple[float, float, float, float]]] = field(default_factory=list)
+    text: dict = field(default_factory=dict)          # {"blocks": [...], "tables": [...]} (pptx_text.READ_JS)
 
 
 MIN_LINK_PX = 4
+# links around pictures only (a verbatim's post): a link with text becomes a text hyperlink (pptx_text)
 _LINKS_JS = """s => { const o = s.getBoundingClientRect();
-  return [...s.querySelectorAll('a[href]')].map(a => { const r = a.getBoundingClientRect();
+  return [...s.querySelectorAll('a[href]')].filter(a => !a.innerText.trim()).map(a => { const r = a.getBoundingClientRect();
     return {href: a.href, x: r.x - o.x, y: r.y - o.y, w: r.width, h: r.height}; }); }"""
 
 
@@ -99,6 +105,11 @@ def _capture(el, slide_dir: Path, k: int) -> Shot:
     if not origin:
         return shot
     shot.charts = _charts(el, origin, slide_dir, k)
+    try:                    # the slide's text, then hidden for the pictures (it comes back as PowerPoint text)
+        shot.text = el.evaluate(pptx_text.READ_JS % {"max_builds": MAX_BUILDS}) or {}
+    except Exception as e:  # the text stays in the pictures, as before
+        logger.warning("slide %s text not read for editable PowerPoint text: %s", k, e)
+    el.evaluate(pptx_text.HIDE_JS, bool(shot.text))
     for i, b in enumerate(builds, start=1):
         box = b.bounding_box()
         if not box or box["width"] < 4 or box["height"] < 4:
@@ -106,14 +117,15 @@ def _capture(el, slide_dir: Path, k: int) -> Shot:
         path = slide_dir / "builds" / f"slide_{k:02d}_build_{i}.png"
         path.parent.mkdir(parents=True, exist_ok=True)
         b.screenshot(path=str(path))
-        shot.builds.append((path, (box["x"] - origin["x"], box["y"] - origin["y"], box["width"], box["height"])))
-    if shot.builds or shot.charts:
+        shot.builds.append((path, (box["x"] - origin["x"], box["y"] - origin["y"], box["width"], box["height"]), i - 1))
+    if shot.builds or shot.charts or shot.text:
         hide = f"{BUILD_SELECTOR},{EXPORTED_SELECTOR}"
         _hidden(el, hide, True)
         shot.base = slide_dir / "builds" / f"slide_{k:02d}_base.png"
         shot.base.parent.mkdir(parents=True, exist_ok=True)
         el.screenshot(path=str(shot.base))
         _hidden(el, hide, False)
+    el.evaluate(pptx_text.HIDE_JS, False)
     return shot
 
 
@@ -155,6 +167,11 @@ def screenshot_slides(html_path: Path, out_dir: Path, pdf: Path | None = None) -
 
 def _emu(px: float, total_px: int, total_emu: int) -> Emu:
     return Emu(int(round(px / total_px * total_emu)))
+
+
+def _px(px: float, axis: str) -> Emu:
+    """A slide pixel distance along x or y in EMU."""
+    return _emu(px, PX_W, SLIDE_W) if axis == "x" else _emu(px, PX_H, SLIDE_H)
 
 
 def _p(tag: str, **attrs) -> etree._Element:
@@ -268,11 +285,28 @@ def build_pptx(pngs: list[Path], spec: DeckSpec, out: Path, builds: list[Shot] |
         for svg, chart_png, (x, y, w, h) in (shot.charts if shot and shot.base else []):
             add_svg_picture(slide, svg, chart_png, _emu(x, PX_W, SLIDE_W), _emu(y, PX_H, SLIDE_H),
                             _emu(w, PX_W, SLIDE_W), _emu(h, PX_H, SLIDE_H))
+        text = (shot.text if shot and shot.base else None) or {}
+        blocks = text.get("blocks") or []
+        for t in text.get("tables") or []:
+            pptx_text.add_table(slide.shapes, t, _px)
+        for b in blocks:
+            if b["build"] < 0 and not b["title"]:
+                pptx_text.add_block(slide.shapes, b, _px)
         ids = []
-        for path, (x, y, w, h) in (shot.builds if shot and shot.base else []):
-            pic = slide.shapes.add_picture(str(path), _emu(x, PX_W, SLIDE_W), _emu(y, PX_H, SLIDE_H),
-                                           _emu(w, PX_W, SLIDE_W), _emu(h, PX_H, SLIDE_H))
-            ids.append(pic.shape_id)
+        for path, (x, y, w, h), i in (shot.builds if shot and shot.base else []):
+            group = slide.shapes.add_group_shape()      # the card and its text appear together on its click
+            group.shapes.add_picture(str(path), _emu(x, PX_W, SLIDE_W), _emu(y, PX_H, SLIDE_H),
+                                     _emu(w, PX_W, SLIDE_W), _emu(h, PX_H, SLIDE_H))
+            for b in blocks:
+                if b["build"] == i:
+                    pptx_text.add_block(group.shapes, b, _px)
+            group.name = "Card"
+            ids.append(group.shape_id)
+        title = next((b for b in blocks if b["title"] and b["build"] < 0), None)
+        if title:              # the slide's own title placeholder carries the visible title, on top
+            ph = slide.shapes.title
+            pptx_text.add_block(slide.shapes, title, _px, shape=ph)
+            ph._element.getparent().append(ph._element)
         for href, box in (shot.links if shot else []):
             _hotspot(slide, href, box)
         _animate(slide, ids)
