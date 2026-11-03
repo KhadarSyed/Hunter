@@ -199,15 +199,9 @@ def question_clauses(questions: list[str], names: list[str], llm=None) -> list[s
         return fallback
     finally:
         pool.shutdown(wait=False)
-    picked = [c if c and not validate_boolean_syntax(c) else fb for c, fb in zip(got + [""] * len(questions), fallback)]
-    # a clause an earlier question already searches (the LLM gives every sentiment/volume question the same broad
-    # group) becomes this question's own keyword clause, so each question runs its own search
-    seen: set[str] = set()
-    for i, fb in enumerate(fallback):
-        if picked[i] in seen:
-            picked[i] = fb if fb not in seen else f"{picked[i]} AND {fb}"
-        seen.add(picked[i])
-    return picked
+    # broad questions (sentiment, themes, share of voice) may share one clause: they all need the whole coverage, and
+    # swapping in a thin keyword clause ("narratives") would starve them
+    return [c if c and not validate_boolean_syntax(c) else fb for c, fb in zip(got + [""] * len(questions), fallback)]
 
 
 def _platform_for_url(url: str) -> str | None:
