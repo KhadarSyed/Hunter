@@ -183,6 +183,12 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
             # a slide naming no brand (takeaways, insights) searched its own words ("Did we answer the brief")
             # and spent its vision checks on junk; the client's own brand and product are always on-topic
             subjects = replace(subjects, brands=[plan_input.title])
+        rivals = [b for b in subjects.brands if b != plan_input.title]
+        if rivals:
+            # a slide about competitors shows one of theirs, rotating across the slide's brands; never the client's
+            # product under a rival's name ("BYD Model Y" finds nothing and a Tesla photo wins every slide)
+            j = photo_slides.index(s) % len(rivals)
+            subjects = replace(subjects, brands=rivals[j:] + rivals[:j], products=[])
         label = s.question or s.title or s.kicker
         return assets.find_photo(" ".join(image_brief.queries(subjects)[:1]) or s.image["query"], role,
                                  deck_dir / "photos", used, brand_image if s.type == "cover" else None,
