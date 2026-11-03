@@ -12,10 +12,41 @@ from .charts import _colors, _dark_chip, _neutral, _on
 from .spec import DeckTokens
 
 VENDOR = Path(__file__).parent / "vendor"
-DRAWN = {"bar", "column", "line_peaks", "doughnut", "treemap", "us_map", "heatmap", "sankey"}  # a KPI stays the number
+DRAWN = {"bar", "column", "line_peaks", "doughnut", "treemap", "us_map", "heatmap", "sankey", "sunburst"}  # a KPI stays the number
 # a theme bubble's colour by its articles' net sentiment (-1..1): negative, mixed, positive (the deck's status colours)
 _TONE_COLORS = {-1: "#C62828", 0: "#8A8A99", 1: "#2E7D32"}
 TONE_SPLIT = 0.15
+
+
+# rivals' lines when the deck's own hues are shades of one colour (Tableau 10, its blues left out)
+RIVAL_HUES = ("E15759", "F28E2B", "59A14F", "B07AA1", "EDC948", "76B7B2", "9C755F")
+MIN_HUE_DISTANCE = 70        # RGB distance two lines need to tell apart
+MAX_LINE_LUMA = 0.8          # a paler line vanishes into the white chart
+
+
+def _distinct(colors: list[str]) -> list[str]:
+    """The colours in order, each kept only when it differs enough from the ones kept before it."""
+    rgb = lambda c: tuple(int(c[i:i + 2], 16) for i in (0, 2, 4))
+    kept: list[str] = []
+    for c in colors:
+        if sum(w * v for w, v in zip((0.299, 0.587, 0.114), rgb(c))) / 255 > MAX_LINE_LUMA and kept:
+            continue
+        if all(sum((a - b) ** 2 for a, b in zip(rgb(c), rgb(k))) ** 0.5 >= MIN_HUE_DISTANCE for k in kept):
+            kept.append(c)
+    return kept
+
+
+CHILD_TINT = 0.3      # a sunburst's outer ring: its parent's colour, this much toward white
+
+
+def _tint(color: str) -> str:
+    return "".join(f"{round(int(color[i:i + 2], 16) + (255 - int(color[i:i + 2], 16)) * CHILD_TINT):02X}" for i in (0, 2, 4))
+
+
+def brand_colors(n: int, t: DeckTokens) -> list[str]:
+    """One colour per brand, client first in the deck's brand colour, rivals in hues that tell apart from it."""
+    palette = _distinct([t.primary] + [f for f in t.series if not _neutral(f)] + list(RIVAL_HUES))
+    return [palette[0] if j == 0 else palette[1 + (j - 1) % (len(palette) - 1)] for j in range(n)]
 
 
 def _badge(name: str, t: DeckTokens) -> str:
@@ -48,17 +79,38 @@ def chart_config(chart: dict, t: DeckTokens, logos: dict[str, str] | None = None
             "reason": chart.get("choice") or "", "alternatives": chart.get("alternatives") or ""}
     if groups:
         stacks = [str(s) for s in chart["breakdown"]["stacks"]]
+        # share of voice stacks brands (client first): brand colours, not shades of the deck's one hue
+        fills = brand_colors(len(stacks), t) if chart.get("kpis") else _colors(stacks, t)
         names = [str(g["name"]) for g in groups]
         rows = [{"category": f"{n} ({g['n']})" if g.get("n") else n, "key": n, **m,
                  **{f"s{i}": float(v) for i, v in enumerate(g["values"])}}
                 for n, g, m in zip(names, groups, _marks(names, t, logos, light))]
         return {**base, "kind": "stacked", "data": rows,
-                "stacks": [{"name": s, "field": f"s{i}", "color": f"#{c}"} for i, (s, c) in enumerate(zip(stacks, _colors(stacks, t)))],
-                "ink": [f"#{_on(c)}" for c in _colors(stacks, t)]}
+                "stacks": [{"name": s, "field": f"s{i}", "color": f"#{c}", **m}
+                           for i, (s, c, m) in enumerate(zip(stacks, fills, _marks(stacks, t, logos, light)))],
+                "ink": [f"#{_on(c)}" for c in fills]}
     if kind == "us_map":
-        return {**base, "color": f"#{t.series[0]}", "states": chart.get("states") or [],
+        return {**base, "color": f"#{t.series[0]}", "states": chart.get("states") or [], "note": chart.get("unlocated") or "",
                 "counties": chart.get("counties") or []}
     view = chart.get("view") or kind
+    if view == "multi_line":        # one line per brand: the client in the brand colour, rivals in the deck's hues
+        series = chart["brand_series"]
+        colors = brand_colors(len(series), t)
+        names = [s["name"] for s in series]
+        rows = [{"category": c, **{f"s{j}": s["values"][i] for j, s in enumerate(series)},
+                 **{f"p{j}": i in set(s.get("peaks") or []) for j, s in enumerate(series)}} for i, c in enumerate(cats)]
+        return {**base, "kind": "multi_line", "data": rows,
+                "lines": [{"name": s["name"], "field": f"s{j}", "peak": f"p{j}", "client": bool(s.get("client")),
+                           "color": f"#{colors[j]}", **m}
+                          for j, (s, m) in enumerate(zip(series, _marks(names, t, logos, light)))]}
+    if view == "sunburst":         # rings: the parts, then what each is made of (its children a lighter shade)
+        tree = chart["hierarchy"]
+        fills = _colors([p["name"] for p in tree], t)
+        nodes = [{"name": p["name"], "key": p["name"], "col": {"fill": f"#{f}"},
+                  "children": [{"name": k["name"], "key": f"{p['name']}\t{k['name']}", "value": k["value"],
+                                "col": {"fill": f"#{_tint(f)}"}} for k in p["children"]]}
+                 for p, f in zip(tree, fills)]
+        return {**base, "kind": "sunburst", "unit": "count", "data":[{"name": chart.get("series_label") or "All", "children": nodes}]}
     if view in ("heatmap", "sankey"):
         m = chart["matrix"]
         cells = [{"row": r, "col": c, "value": round(100 * v / max(1, m["n"][i]), 1), "count": v}

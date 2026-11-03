@@ -1,3 +1,4 @@
+{% macro kpi_row(chart) %}{% if chart and chart.kpis %}<div class="kpis">{% for k in chart.kpis %}<div class="kpi-tile"><div class="kpi-val">{{ k.value }}</div><div class="kpi-lab">{{ k.label }}</div></div>{% endfor %}</div>{% endif %}{% endmacro %}
 {% set bg = ("url('" ~ image ~ "')") if image else ("linear-gradient(135deg,#" ~ t.accent ~ ",#" ~ t.primary ~ ")") %}
 {% set n_label = ((s.charts[0].get('n') if s.charts else none) or (s.tables[0].get('n') if s.tables else none) or base_n) %}{# a chart's own base; the deck base for others #}
 <section class="slide" style="--chip-dark:{{ marks.chip_dark or 'var(--text)' }}" data-id="{{ s.id }}" data-type="{{ s.type }}" data-treatment="{{ s.treatment }}">
@@ -31,7 +32,8 @@
   {% if s.so_what %}<div class="sowhat clamp" style="position:absolute;right:70px;top:66px;width:560px;color:var(--on-dark)">{{ s.so_what }}</div>{% endif %}
   <div class="panel reveal" style="left:70px;top:320px;width:{{ 1090 if ((charts or s.tables) and s.cards) else 1780 }}px;height:680px;overflow:hidden">
     {% if s.title and s.question %}<div class="kicker" style="margin-bottom:12px">{{ s.title }}</div>{% endif %}
-    {% if charts %}<div style="height:580px">{{ charts[0] | safe }}</div>
+    {{ kpi_row(s.charts[0] if s.charts else none) }}
+    {% if charts %}<div style="height:{{ 450 if s.charts[0].kpis else 580 }}px">{{ charts[0] | safe }}</div>
     {% elif s.tables and s.type != 'scorecard' %}{% include "table.html.j2" %}
     {% elif not s.tables or s.type == 'scorecard' %}<div class="cards" style="grid-template-columns:repeat({{ [s.cards|length, 3]|min or 1 }},1fr)">
       {% for c in s.cards[:6] %}<div class="card build">{% if c.thumb %}<img class="thumb" src="{{ c.thumb }}" alt="">{% endif %}<h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}{% if c.note %} — {{ c.note }}{% endif %}</p>{% if c.citations and marks.cites %}<div class="cites">{% for n in c.citations[:3] %}{% set m = marks.cites.get(n|string) %}{% if m %}{% if m.url %}<a class="cite" href="{{ m.url }}" target="_blank" rel="noopener noreferrer">{% else %}<span class="cite">{% endif %}{% if m.icon %}<img src="{{ m.icon }}" alt="">{% endif %}{{ m.outlet }}{% if m.url %}</a>{% else %}</span>{% endif %}{% endif %}{% endfor %}</div>{% endif %}</div>{% endfor %}</div>
@@ -49,7 +51,9 @@
   </div>
   <div class="panel reveal" style="left:70px;top:240px;width:680px;height:760px;overflow:hidden">
     <div class="nlabel" style="text-align:right">N = {{ n_label }}</div>
-    {% if charts %}{{ charts[0] | safe }}{% elif s.tables %}{% include "table.html.j2" %}{% endif %}
+    {{ kpi_row(s.charts[0] if s.charts else none) }}
+    {% if charts and s.charts[0].kpis %}<div style="height:540px">{{ charts[0] | safe }}</div>
+    {% elif charts %}{{ charts[0] | safe }}{% elif s.tables %}{% include "table.html.j2" %}{% endif %}
   </div>
   <div class="segs reveal">
     {% for c in s.cards[:5] %}<div class="seg build"><p class="clamp"><strong class="seg-label">{{ c.headline }}:</strong> {{ c.text | md_bold }}</p>{% if c.citations and marks.cites %}<div class="cites">{% for n in c.citations[:3] %}{% set m = marks.cites.get(n|string) %}{% if m %}{% if m.url %}<a class="cite" href="{{ m.url }}" target="_blank" rel="noopener noreferrer">{% else %}<span class="cite">{% endif %}{% if m.icon %}<img src="{{ m.icon }}" alt="">{% endif %}{{ m.outlet }}{% if m.url %}</a>{% else %}</span>{% endif %}{% endif %}{% endfor %}</div>{% endif %}</div>{% endfor %}
@@ -65,7 +69,9 @@
   </div>
   <div class="nlabel" style="position:absolute;right:80px;top:290px">N = {{ n_label }}</div>
   <div class="reveal" style="position:absolute;left:740px;right:70px;top:330px;height:{{ 380 if s.cards else 660 }}px;overflow:hidden">
-    {% if charts %}{{ charts[0] | safe }}{% elif s.tables %}{% include "table.html.j2" %}{% endif %}
+    {{ kpi_row(s.charts[0] if s.charts else none) }}
+    {% if charts and s.charts[0].kpis %}<div style="height:{{ 250 if s.cards else 530 }}px">{{ charts[0] | safe }}</div>
+    {% elif charts %}{{ charts[0] | safe }}{% elif s.tables %}{% include "table.html.j2" %}{% endif %}
   </div>
   {% if s.cards %}<div class="cards reveal" style="position:absolute;left:740px;right:70px;top:730px;grid-template-columns:repeat({{ [s.cards|length, 3]|min }},1fr)">
     {% for c in s.cards[:3] %}<div class="card build"><h3 class="clamp">{{ c.headline }}</h3><p class="clamp">{{ c.text }}</p>{% if c.citations and marks.cites %}<div class="cites">{% for n in c.citations[:3] %}{% set m = marks.cites.get(n|string) %}{% if m %}{% if m.url %}<a class="cite" href="{{ m.url }}" target="_blank" rel="noopener noreferrer">{% else %}<span class="cite">{% endif %}{% if m.icon %}<img src="{{ m.icon }}" alt="">{% endif %}{{ m.outlet }}{% if m.url %}</a>{% else %}</span>{% endif %}{% endif %}{% endfor %}</div>{% endif %}</div>{% endfor %}</div>{% endif %}

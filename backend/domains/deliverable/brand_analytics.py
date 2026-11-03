@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from .analytics import SEGMENT_URLS, _label, _pct
+from .analytics import SEGMENT_URLS, _label, _pct, sov_split
 from .engine_types import EngineRow, Section
 from .evidence import Brand, row_brands
 
@@ -26,11 +26,16 @@ def _sov(named_rows, brands: list[Brand]) -> Section:
     total = sum(counts.values())
     facts = [f"Brand {n}: {counts[n]} of {total} brand mentions ({_pct(counts[n], total)}%)" for n in order]
     urls = [r.article.norm_url for n in order for r, named in named_rows if n in named][:CANDIDATES_PER_BRAND * len(order)]
+    # drawn as 100% bars of the brands per channel (or month), under the client's KPI tiles
+    split = sov_split([(r, [_label(n) for n in named]) for r, named in named_rows], [_label(n) for n in order],
+                      _label(primary))
     return Section(id="brand-sov", rq_id=None, module="brand_sov", title="Share of voice: brand vs competitors",
                    chart={"kind": "bar", "categories": [_label(n) for n in order],
                           "values": [_pct(counts[n], total) for n in order], "unit": "percent", "peaks": [],
-                          "series_label": "Share of brand mentions"},
-                   facts=facts, candidate_urls=urls, notes=["logos"], segment_urls=_by_brand(named_rows, order))
+                          "series_label": "Share of brand mentions", "breakdown": split["breakdown"],
+                          "kpis": split["kpis"]},
+                   facts=facts + [f"{k['label']}: {k['value']}" for k in split["kpis"]], candidate_urls=urls,
+                   notes=["logos"], segment_urls=_by_brand(named_rows, order), drill_urls=split["drill"])
 
 
 def _sentiment(named_rows, brands: list[Brand]) -> Section:

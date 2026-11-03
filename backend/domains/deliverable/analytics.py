@@ -1,8 +1,10 @@
 """Compute stage: deterministic values for every chart and table; each value is also written as a fact."""
 from __future__ import annotations
 
+import dataclasses
 import re
 from collections import Counter
+from datetime import date, timedelta
 
 from ...agents import question_dimensions as qd
 from . import extract as extract_mod, us_locations
@@ -121,6 +123,101 @@ def _trend(module, rq, rows, base_n, _):
                     drill_urls=_drill((month_label(r.article.date.strftime("%Y-%m")), r) for r in dated))
 
 
+BRAND_LINES = 6           # lines one chart keeps readable
+WEEK_SPAN_DAYS = 92       # up to about three months of data, a week per point; longer, a month
+
+
+def _period(d, grain: str) -> str:
+    return (d - timedelta(days=d.weekday())).isoformat() if grain == "week" else d.strftime("%Y-%m")
+
+
+def _period_keys(first, last, grain: str) -> list[str]:
+    if grain == "month":
+        return _months(_period(first, grain), _period(last, grain))
+    start, end = first - timedelta(days=first.weekday()), last
+    return [(start + timedelta(weeks=i)).isoformat() for i in range((end - start).days // 7 + 1)]
+
+
+def _period_label(key: str, grain: str) -> str:
+    if grain == "month":
+        return month_label(key)
+    d = date.fromisoformat(key)
+    return f"Wk {d.day} {d:%b}"
+
+
+def brand_lines(section: Section, rows: list[EngineRow], brands) -> Section:
+    """The trend as one line per brand (client first, its peaks marked), at a week or month grain by the data's span:
+    chart_choice draws it as a multi-series line when the question compares brands or the rows carry several.
+    A point's articles are filed under "<brand><TAB><period>" for the deck's click-through."""
+    from . import evidence
+    dated = [r for r in rows if r.article.date]
+    if section.skipped or not section.chart or not brands or not dated:
+        return section
+    named = [(r, evidence.row_brands(r, brands)) for r in dated]
+    counts = Counter(b for _, ns in named for b in ns)
+    primary = next((b.name for b in brands if b.primary), "")
+    names = sorted(counts, key=lambda n: (n != primary, -counts[n], n))[:BRAND_LINES]
+    if len(names) < 2:
+        return section
+    days = [r.article.date for r in dated]
+    grain = "week" if (max(days) - min(days)).days <= WEEK_SPAN_DAYS else "month"
+    keys = _period_keys(min(days), max(days), grain)
+    labels = [_period_label(k, grain) for k in keys]
+    totals = Counter(_period(r.article.date, grain) for r in dated)
+    series, facts, drill = [], [], {}
+    for n in names:
+        per = Counter(_period(r.article.date, grain) for r, ns in named if n in ns)
+        vals = [per.get(k, 0) for k in keys]
+        peaks = sorted(_spaced_peaks(vals)) if n == primary else []
+        series.append({"name": n, "values": vals, "peaks": peaks, "client": n == primary})
+        top = max(range(len(vals)), key=lambda i: vals[i])
+        facts.append(f"{n}: {counts[n]} dated articles, most in {labels[top]} ({vals[top]})")
+        drill.update(_drill((f"{n}\t{labels[keys.index(_period(r.article.date, grain))]}", r)
+                            for r, ns in named if n in ns))
+    values = [totals.get(k, 0) for k in keys]
+    chart = {**section.chart, "categories": labels, "values": values, "peaks": sorted(_spaced_peaks(values)),
+             "brand_series": series, "grain": grain}
+    period_drill = _drill((labels[keys.index(_period(r.article.date, grain))], r) for r in dated)
+    return dataclasses.replace(section, chart=chart, facts=section.facts + facts,
+                               drill_urls={**period_drill, **drill})
+
+
+def sov_split(named_rows, order: list[str], primary: str) -> dict:
+    """Share of voice split by channel (or, with one channel, by month) as 100% bars of the brands, and the client's
+    KPI tiles: its share, its rank, and the change since the previous month when the data spans two or more.
+    `named_rows`: (row, brands it names); `order`: the brands, client first."""
+    def shares(pairs) -> list[float]:
+        c = Counter(b for _, ns in pairs for b in ns if b in order)
+        total = sum(c.values())
+        return [_pct(c[b], total) for b in order]
+
+    channels = Counter(platform(r) for r, _ in named_rows)
+    months = sorted({r.article.date.strftime("%Y-%m") for r, _ in named_rows if r.article.date})
+    by, keys = ("channel", [c for c, _ in channels.most_common(BRAND_LINES)]) if len(channels) > 1 else \
+               ("month", months)
+    key_of = (lambda r: platform(r)) if by == "channel" else (lambda r: r.article.date.strftime("%Y-%m") if r.article.date else "")
+    label = (lambda k: k) if by == "channel" else month_label
+    groups, drill = [], {}
+    for k in keys:
+        pairs = [(r, ns) for r, ns in named_rows if key_of(r) == k]
+        groups.append({"name": label(k), "n": len(pairs), "values": shares(pairs)})
+        drill.update(_drill((f"{label(k)}\t{b}", r) for r, ns in pairs for b in ns if b in order))
+        drill.update(_drill((label(k), r) for r, _ in pairs))
+    overall = shares(named_rows)
+    kpis = []
+    if primary in order:
+        i = order.index(primary)
+        rank = 1 + sum(1 for v in overall if v > overall[i])
+        kpis = [{"label": f"{primary} share of voice", "value": f"{overall[i]}%"},
+                {"label": f"Rank among {len(order)} brands", "value": f"#{rank}"}]
+        if len(months) > 1:
+            prev, last = [shares([(r, ns) for r, ns in named_rows if r.article.date and
+                                  r.article.date.strftime("%Y-%m") == m])[i] for m in months[-2:]]
+            kpis.append({"label": f"Change vs {month_label(months[-2])}",
+                         "value": f"{last - prev:+.1f} pts"})
+    return {"breakdown": {"by": by, "stacks": order, "groups": groups}, "kpis": kpis, "drill": drill}
+
+
 def _outlets(module, rq, rows, base_n, _):
     top = Counter(r.article.outlet for r in rows if r.article.outlet).most_common(TOP_N)
     if not top:
@@ -197,17 +294,22 @@ def _brands_of(row: EngineRow, names: dict[str, str]) -> set[str]:
     return {names[str(x).strip()] for x in (row.entities or {}).get("brands") or [] if str(x).strip()}
 
 
-def _brand_sov(module, rq, rows, base_n, _):
+def _brand_sov(module, rq, rows, base_n, _, brands=()):
     names = unify(str(x).strip() for r in rows for x in (r.entities or {}).get("brands") or [] if str(x).strip())
     counts = Counter(b for r in rows for b in _brands_of(r, names))
     if not counts:
         return _section(module, rq, skipped="No brands named in the data")
     top, total = counts.most_common(TOP_N), sum(counts.values())
-    return _section(module, rq, chart={"kind": "bar", "categories": [b for b, _ in top],
+    order = [b for b, _ in top]
+    primary = next((b.name for b in brands if b.primary), "").casefold()
+    client = next((b for b in order if b.casefold() == primary), "")      # its KPIs only when the client is named
+    split = sov_split([(r, _brands_of(r, names)) for r in rows], sorted(order, key=lambda b: b != client), client)
+    return _section(module, rq, chart={"kind": "bar", "categories": order,
                                        "values": [_pct(c, total) for _, c in top], "unit": "percent", "peaks": [],
-                                       "series_label": "Share of brand mentions"},
+                                       "series_label": "Share of brand mentions", "breakdown": split["breakdown"],
+                                       "kpis": split["kpis"]},
                     facts=[f"Brand {b}: {c} of {total} brand mentions ({_pct(c, total)}%)" for b, c in top],
-                    notes=["logos"],
+                    notes=["logos"], drill_urls=split["drill"],
                     segment_urls=_segments((b, r) for r in rows for b in _brands_of(r, names)
                                            if b in {b for b, _ in top}))
 
@@ -321,6 +423,7 @@ def _words(value) -> str:
     return " ".join(words)[:1].upper() + " ".join(words)[1:] if words else ""
 
 
+SUNBURST_CHILDREN = 6     # outer-ring segments per channel; the rest is one "Other" segment
 _SOCIAL_TYPES = ("social", "twitter", "facebook", "instagram", "tiktok", "reddit", "youtube", "forum", "x ")
 _SOCIAL_HOSTS = ("x.com", "twitter.com", "facebook.com", "instagram.com", "tiktok.com", "reddit.com", "youtube.com",
                  "threads.net", "pinterest.com", "linkedin.com")
@@ -362,11 +465,23 @@ def _media_split(module, rq, rows, base_n, _):
     cats = [k for k in ("Social", "Editorial") if counts.get(k)]
     unknown = len(rows) - known
     notes = [f"{unknown} of {len(rows)} articles have no source type"] if unknown else []
+    # channel -> where it ran (the platform of a social post, the outlet of an editorial article): a sunburst's rings
+    tree, children = [], []
+    for k in cats:
+        within = [r for r in rows if _channel(r) == k]
+        where = Counter(platform(r) if k == "Social" else (r.article.outlet or "Unnamed outlet") for r in within)
+        top = where.most_common(SUNBURST_CHILDREN)
+        rest = sum(where.values()) - sum(c for _, c in top)
+        tree.append({"name": k, "children": [{"name": n, "value": c} for n, c in top] +
+                                            ([{"name": f"Other {k.lower()}", "value": rest}] if rest else [])})
+        children += [(f"{k}\t{n}" if n in dict(top) else f"{k}\tOther {k.lower()}", r) for r in within
+                     for n in [platform(r) if k == "Social" else (r.article.outlet or "Unnamed outlet")]]
     return _section(module, rq, chart={"kind": "doughnut", "categories": cats,
                                        "values": [_pct(counts[k], known) for k in cats], "unit": "percent",
-                                       "peaks": [], "series_label": "Source"},
+                                       "peaks": [], "series_label": "Source", "hierarchy": tree},
                     facts=[f"{rq.id}: {counts[k]} of {known} articles are {k.lower()} ({_pct(counts[k], known)}%)"
-                           for k in cats] + notes, notes=notes, drill_urls=_drill((_channel(r), r) for r in rows))
+                           for k in cats] + notes, notes=notes,
+                    drill_urls={**_drill((_channel(r), r) for r in rows), **_drill(children)})
 
 
 _NO_ANSWER = {"", "no", "none", "unknown", "n/a", "false"}
@@ -474,6 +589,22 @@ def _crosstab(module, rq, rows, base_n, _):
                                        for v in rv if v in row_names for c in cv if c in cols]))
 
 
+def unlocated_note(rows: list[EngineRow]) -> str:
+    """What the map leaves out, said on the map: '195 social posts carry no location and are not on the map (TikTok 40
+    · ...)'. Posts are never placed by guesswork: only the export's own Country / State / Region locate them."""
+    social = Counter(platform(r) for r in rows if platform(r) != "News")
+    news = len(rows) - sum(social.values())
+    parts = []
+    if social:
+        n = sum(social.values())
+        parts.append(f"{n} social post{'s' if n != 1 else ''} carry no location and are not on the map "
+                     f"({_breakdown_text(social)})")
+    if news:
+        parts.append(f"{news} news article{'s' if news != 1 else ''} without a US state "
+                     f"{'are' if news != 1 else 'is'} not on the map either")
+    return "; ".join(parts)
+
+
 def _us_map(module, rq, rows, base_n, _):
     """Articles per US state (drilling down to counties in the HTML deck); a bar of the top states where a map
     can not be drawn."""
@@ -490,16 +621,17 @@ def _us_map(module, rq, rows, base_n, _):
         for area in places[id(r)]:
             if area:
                 mix.setdefault(area, Counter())[platform(r)] += 1
-    return _section(module, rq, chart={
+    note = unlocated_note([r for r in rows if not located[id(r)]])
+    return _section(module, rq, notes=[note] if note else [], chart={
         "kind": "us_map", "categories": [names[s] for s, _ in top], "values": [c for _, c in top], "unit": "count",
-        "peaks": [], "series_label": "Articles", "choice": reason,
+        "peaks": [], "series_label": "Articles", "choice": reason, "unlocated": note,
         "states": [{"id": s, "name": names[s], "value": c, "channels": _breakdown_text(mix[s])}
                    for s, c in agg["states"].most_common()],
         "counties": [{"id": f, "name": us_locations.COUNTY_NAMES[f], "state": agg["county_state"][f], "value": c,
                       "channels": _breakdown_text(mix[f])}
                      for f, c in agg["counties"].most_common()]},
         drill_urls=_drill((area, r) for r in rows for area in places[id(r)] if area),     # "US-CA" / county FIPS
-        facts=[f"{rq.id}: {agg['located']} of {agg['total']} articles carry a US state or county"] +
+        facts=[f"{rq.id}: {agg['located']} of {agg['total']} articles carry a US state or county"] + ([note] if note else []) +
               [f"{rq.id} coverage from {names[s]}: {c} articles" for s, c in top],
         segment_urls=_segments((names[located[id(r)]], r) for r in rows
                                if located[id(r)] in {s for s, _ in top}))
@@ -517,8 +649,12 @@ def compute_module(module: dict, rq: RQ, rows: list[EngineRow], base_n: int,
         return _section(module, rq, skipped=NO_ROWS)
     if module["module"] == "top_articles":      # ranked by being about the study's brands first
         section = _top_articles(module, rq, rows, base_n, extraction, brands)
+    elif module["module"] == "brand_sov":       # the client's share, rank and change as KPI tiles
+        section = _brand_sov(module, rq, rows, base_n, extraction, brands)
     else:
         section = _HANDLERS[module["module"]](module, rq, rows, base_n, extraction)
+    if module["module"] == "volume_trend":      # a line per brand, for chart_choice to draw when it fits
+        section = brand_lines(section, rows, brands)
     if section.chart is not None and "n" not in section.chart:
         # the chart's own base (this question's articles), printed as its "N =": the deck-wide base is not what
         # a question's percentages are out of (45 of 72 is 62.5%, shown beside N = 500 it misleads)
