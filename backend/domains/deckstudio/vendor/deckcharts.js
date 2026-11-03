@@ -341,28 +341,35 @@
   // which part of each kind is clicked, and the key its articles are filed under (see renderer._drill_data)
   function pickable(made, cfg) {
     if (exportMode || !cfg.drill) return;
-    function on(template, key) {
-      template.setAll({ cursorOverStyle: "pointer" });
-      template.events.on("click", function (ev) {
+    // the list's template covers parts made later; parts made already (a hierarchy or flow builds them as its data
+    // is set) get the handler themselves; one click opens one list either way
+    function on(list, key) {
+      function handle(ev) {
+        var e = ev.originalEvent || {};
+        if (e.deckPicked) return;
+        e.deckPicked = true;
         var d = ev.target.dataItem && ev.target.dataItem.dataContext;
         if (d) cfg.pick.apply(null, key(d));
-      });
+      }
+      list.template.setAll({ cursorOverStyle: "pointer" });
+      list.template.events.on("click", handle);
+      list.each(function (sprite) { sprite.set("cursorOverStyle", "pointer"); sprite.events.on("click", handle); });
     }
     var cat = function (d) { return [d.category, d.category]; };
     var s = made[1];
-    if (cfg.kind === "bar" || cfg.kind === "column") on(s.columns.template, cat);
-    else if (cfg.kind === "doughnut") on(s.slices.template, cat);
-    else if (cfg.kind === "treemap") on(s.rectangles.template, cat);
-    else if (cfg.kind === "bubble") on(s.circles.template, cat);
-    else if (cfg.kind === "stacked") s.forEach(function (x) { on(x.columns.template, function (d) { return [d.key, d.key]; }); });
-    else if (cfg.kind === "heatmap") on(s.columns.template, function (d) { return [d.row + "\t" + d.col, d.row + " · " + d.col]; });
+    if (cfg.kind === "bar" || cfg.kind === "column") on(s.columns, cat);
+    else if (cfg.kind === "doughnut") on(s.slices, cat);
+    else if (cfg.kind === "treemap") on(s.rectangles, cat);
+    else if (cfg.kind === "bubble") on(s.nodes, cat);          // the node: its circle and its label
+    else if (cfg.kind === "stacked") s.forEach(function (x) { on(x.columns, function (d) { return [d.key, d.key]; }); });
+    else if (cfg.kind === "heatmap") on(s.columns, function (d) { return [d.row + "\t" + d.col, d.row + " · " + d.col]; });
     else if (cfg.kind === "sankey") {
-      on(s.links.template, function (d) { return [d.row + "\t" + d.col, d.row + " → " + d.col]; });
-      on(s.nodes.rectangles.template, function (d) { return [d.id, d.id]; });
+      on(s.links, function (d) { return [d.row + "\t" + d.col, d.row + " → " + d.col]; });
+      on(s.nodes.rectangles, function (d) { return [d.id, d.id]; });
     } else if (cfg.kind === "line_peaks") {
       // a line has no element per point: the click picks the category under the pointer
       var chart = made[0], x = chart.xAxes.getIndex(0);
-      chart.plotContainer.set("cursorOverStyle", "pointer");
+      chart.plotContainer.setAll({ interactive: true, cursorOverStyle: "pointer" });
       chart.plotContainer.events.on("click", function (ev) {
         var p = chart.plotContainer.toLocal(ev.point);
         var i = x.axisPositionToIndex(x.toAxisPosition(p.x / chart.plotContainer.width()));
