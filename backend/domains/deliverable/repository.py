@@ -186,9 +186,8 @@ _REFRESH_JSON = ("counts", "summary", "charts", "articles")
 
 
 def create_latest24h_refresh(project_id: int) -> int:
-    """A new running refresh; the project's older finished ones go (only the latest is ever read)."""
+    """A new running refresh (the older ones are dropped once it completes, so a failed refresh keeps the last good one)."""
     conn = _conn()
-    conn.execute("DELETE FROM intel_latest24h_refreshes WHERE project_id = ? AND status != 'running'", (project_id,))
     cur = conn.execute("INSERT INTO intel_latest24h_refreshes (project_id, status, started_at) VALUES (?, 'running', ?)",
                        (project_id, time.time()))
     conn.commit()
@@ -204,6 +203,9 @@ def finish_latest24h_refresh(refresh_id: int, status: str, counts: dict, fetched
                  "kept = ?, summary_json = ?, charts_json = ?, articles_json = ?, error = ? WHERE id = ?",
                  (status, time.time(), json.dumps(counts), fetched, kept, json.dumps(summary), json.dumps(charts),
                   json.dumps(articles), error, refresh_id))
+    if status == "completed":        # only the latest is ever read: a completed refresh replaces the older ones
+        conn.execute("DELETE FROM intel_latest24h_refreshes WHERE id != ? AND status != 'running' AND project_id = "
+                     "(SELECT project_id FROM intel_latest24h_refreshes WHERE id = ?)", (refresh_id, refresh_id))
     conn.commit()
     conn.close()
 

@@ -130,9 +130,10 @@ def get_or_create_project(spec: dict, org_id: int | None = None, owner_user_id: 
         name = spec.get("project_name", "Untitled")
 
     conn = _conn()
+    in_org = " AND org_id = ?" if org_id is not None else ""     # never match another org's same-named project
     row = conn.execute(
-        "SELECT id FROM intel_projects WHERE project_name = ? ORDER BY created_at DESC, id DESC LIMIT 1",
-        (name,),
+        f"SELECT id FROM intel_projects WHERE project_name = ?{in_org} ORDER BY created_at DESC, id DESC LIMIT 1",
+        (name, org_id) if org_id is not None else (name,),
     ).fetchone()
     conn.close()
 
