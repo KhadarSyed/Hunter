@@ -334,13 +334,16 @@ def mark_used(data: bytes, used: set[str]) -> None:
 def _keep(data: bytes, url: str, licence: str, why: str, role: str, folder: Path, slug: str, used: set[str],
           cand: dict | None = None) -> Photo:
     folder.mkdir(parents=True, exist_ok=True)
-    raw = folder / f"{slug}.src"
+    # named after the picture too: slides that searched the same words used to share one file, so the last photo
+    # written showed on all of them
+    name = f"{slug}-{hashlib.sha1(url.encode()).hexdigest()[:8]}"
+    raw = folder / f"{name}.src"
     raw.write_bytes(data)
     used.add(url)
     mark_used(data, used)
     if cand:
         _track_use(cand)
-    return Photo(crop_to(raw, role, folder / f"{slug}.jpg"), url, licence, why)
+    return Photo(crop_to(raw, role, folder / f"{name}.jpg"), url, licence, why)
 
 
 def _plan(query: str, subjects: Subjects | None, article_urls) -> Iterator[tuple[str, list[dict]]]:
