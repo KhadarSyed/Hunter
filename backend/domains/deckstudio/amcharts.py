@@ -90,7 +90,7 @@ def chart_config(chart: dict, t: DeckTokens, logos: dict[str, str] | None = None
                            for i, (s, c, m) in enumerate(zip(stacks, fills, _marks(stacks, t, logos, light)))],
                 "ink": [f"#{_on(c)}" for c in fills]}
     if kind == "us_map":
-        return {**base, "color": f"#{t.series[0]}", "states": chart.get("states") or [],
+        return {**base, "color": f"#{t.series[0]}", "states": chart.get("states") or [], "note": chart.get("unlocated") or "",
                 "counties": chart.get("counties") or []}
     view = chart.get("view") or kind
     if view == "multi_line":        # one line per brand: the client in the brand colour, rivals in the deck's hues

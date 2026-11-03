@@ -252,7 +252,7 @@
     var chart = root.container.children.push(am5map.MapChart.new(root, {
       // the wheel turns the deck's slides, so it never zooms the map; drag still pans a drilled-in state
       projection: am5map.geoAlbersUsa(), panX: "translateX", panY: "translateY", wheelX: "none", wheelY: "none",
-      layout: root.horizontalLayout
+      layout: root.horizontalLayout, paddingTop: cfg.note ? 56 : 0      // room for the note on what is not mapped
     }));
     var low = am5.Color.lighten(c(cfg.color), 0.8), high = c(cfg.color);
     function polygons(geo, extra) {
@@ -283,6 +283,9 @@
       legend.set("startValue", states.getPrivate("valueLow"));
       legend.set("endValue", states.getPrivate("valueHigh"));
     });
+    // what the map leaves out, on the map (exported with it): posts with no location, by channel
+    if (cfg.note) root.container.children.push(am5.Label.new(root, { text: cfg.note, fontSize: 16, fill: c(cfg.muted),
+      x: am5.p50, centerX: am5.p50, y: 0, maxWidth: 900, oversizedBehavior: "wrap", textAlign: "center" }));
     if (exportMode) return [chart, states];
     // a click on a state zooms to it and shows its counties; the house button goes back to the states
     var counties = null;     // made on the first drill: an empty series makes the map's bounds NaN and zooming blanks it

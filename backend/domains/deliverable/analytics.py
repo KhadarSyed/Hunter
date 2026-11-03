@@ -589,6 +589,22 @@ def _crosstab(module, rq, rows, base_n, _):
                                        for v in rv if v in row_names for c in cv if c in cols]))
 
 
+def unlocated_note(rows: list[EngineRow]) -> str:
+    """What the map leaves out, said on the map: '195 social posts carry no location and are not on the map (TikTok 40
+    · ...)'. Posts are never placed by guesswork: only the export's own Country / State / Region locate them."""
+    social = Counter(platform(r) for r in rows if platform(r) != "News")
+    news = len(rows) - sum(social.values())
+    parts = []
+    if social:
+        n = sum(social.values())
+        parts.append(f"{n} social post{'s' if n != 1 else ''} carry no location and are not on the map "
+                     f"({_breakdown_text(social)})")
+    if news:
+        parts.append(f"{news} news article{'s' if news != 1 else ''} without a US state "
+                     f"{'are' if news != 1 else 'is'} not on the map either")
+    return "; ".join(parts)
+
+
 def _us_map(module, rq, rows, base_n, _):
     """Articles per US state (drilling down to counties in the HTML deck); a bar of the top states where a map
     can not be drawn."""
@@ -605,16 +621,17 @@ def _us_map(module, rq, rows, base_n, _):
         for area in places[id(r)]:
             if area:
                 mix.setdefault(area, Counter())[platform(r)] += 1
-    return _section(module, rq, chart={
+    note = unlocated_note([r for r in rows if not located[id(r)]])
+    return _section(module, rq, notes=[note] if note else [], chart={
         "kind": "us_map", "categories": [names[s] for s, _ in top], "values": [c for _, c in top], "unit": "count",
-        "peaks": [], "series_label": "Articles", "choice": reason,
+        "peaks": [], "series_label": "Articles", "choice": reason, "unlocated": note,
         "states": [{"id": s, "name": names[s], "value": c, "channels": _breakdown_text(mix[s])}
                    for s, c in agg["states"].most_common()],
         "counties": [{"id": f, "name": us_locations.COUNTY_NAMES[f], "state": agg["county_state"][f], "value": c,
                       "channels": _breakdown_text(mix[f])}
                      for f, c in agg["counties"].most_common()]},
         drill_urls=_drill((area, r) for r in rows for area in places[id(r)] if area),     # "US-CA" / county FIPS
-        facts=[f"{rq.id}: {agg['located']} of {agg['total']} articles carry a US state or county"] +
+        facts=[f"{rq.id}: {agg['located']} of {agg['total']} articles carry a US state or county"] + ([note] if note else []) +
               [f"{rq.id} coverage from {names[s]}: {c} articles" for s, c in top],
         segment_urls=_segments((names[located[id(r)]], r) for r in rows
                                if located[id(r)] in {s for s, _ in top}))
