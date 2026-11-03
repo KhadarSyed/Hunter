@@ -344,7 +344,6 @@ export interface ReviewMapping {
   tag_name: string;
   review_column: string | null;
   review_criterion: string | null;
-  mapping_status: "MAPPED" | "UNMAPPED_REVIEW_CRITERION";
   points: string;
   weight: string;
 }
@@ -1516,6 +1515,9 @@ export const intelApi = {
   deliverableRepair: (projectId: number, runId: number, scope: RepairScope) =>
     post<{ run_id: number; scope: RepairScope }>(`/deliverable/${projectId}/runs/${runId}/repair?scope=${scope}`, {}),
   deliverableLatest: (projectId: number) => get<DeliverablePayload>(`/deliverable/${projectId}/latest`),
+  /** "Refresh latest 24h": starts the fetch (progress streams on /ws as latest24h_progress); latest = the stored result. */
+  latest24hRefresh: (projectId: number) => post<{ refresh_id: number }>(`/deliverable/${projectId}/latest24h`, {}),
+  latest24hLatest: (projectId: number) => get<{ refresh: Latest24hRefresh | null }>(`/deliverable/${projectId}/latest24h`),
   /** Articles per question from the approved datasets, counted as the deliverable engine will (own + query-matched). */
   deliverableCoverage: (projectId: number) => get<DataCoverage>(`/deliverable/${projectId}/coverage`),
   agentState: (projectId: number) => get<AgentState>(`/agent/${projectId}`),
@@ -1605,3 +1607,16 @@ export interface DeliverableCitation { n: number; outlet: string; title: string;
 /** Per question: articles uploaded for it (own) and in total once other uploads matching its query are routed in. */
 export interface DataCoverage { rqs: { rq_id: string; has_own_upload: boolean; shared: number | null }[] }
 export interface DeliverablePayload { run: DeliverableRun | null; sections: DeliverableSection[] }
+
+export interface Latest24hSourceCount { label: string; status: "fetching" | "done" | "failed"; found: number }
+export interface Latest24hArticle {
+  n: number; title: string; url: string; outlet: string; date: string; snippet: string; source: string;
+  brands: string[]; copies: number; sources: string[];
+}
+export interface Latest24hRefresh {
+  id: number; project_id: number; status: "running" | "completed" | "failed"; started_at: number;
+  finished_at: number | null; counts: Record<string, Latest24hSourceCount>; fetched: number; kept: number;
+  summary: { source: "llm" | "deterministic"; bullets: { text: string; citations: number[] }[] } | null;
+  charts: Record<string, import("../components/deliverable/ChartRenderer").ChartSpec & { counts?: number[] }> | null;
+  articles: Latest24hArticle[] | null; error: string | null;
+}

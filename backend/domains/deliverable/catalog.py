@@ -6,6 +6,7 @@ import logging
 import re
 
 from ...agents import question_dimensions as qd
+from . import us_locations
 from .engine_types import RQ, EngineRow
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,8 @@ MODULES: dict[str, dict] = {
     "entities": {"needs_extraction": True, "desc": "named experts / celebrities / brands / products / retailers (table + chart)"},
     "brand_sov": {"needs_extraction": False, "desc": "brand share of voice with logos (bar chart)"},
     "top_articles": {"needs_extraction": False, "desc": "most-read articles (table)"},
+    "us_map": {"needs_extraction": False, "desc": "articles by US state, drilling down to counties (map); only when "
+                                              "enough articles carry a US location"},
 }
 ENTITY_KINDS = ("experts", "celebrities", "brands", "products", "retailers")
 MAX_MODULES = 6
@@ -69,7 +72,8 @@ def _profile(rows: list[EngineRow]) -> dict:
             "with_sentiment": sum(1 for r in rows if r.article.sentiment),
             "with_reach": sum(1 for r in rows if r.article.reach),
             "outlets": len({r.article.outlet for r in rows if r.article.outlet}),
-            "brands_mentioned": sum(1 for r in rows if (r.entities or {}).get("brands"))}
+            "brands_mentioned": sum(1 for r in rows if (r.entities or {}).get("brands")),
+            "with_us_location": us_locations.aggregate(rows)["located"]}
 
 
 def plan_rq(llm, rq: RQ, rows: list[EngineRow]) -> tuple[dict, str]:
@@ -117,6 +121,30 @@ def with_brief_asks(plan: dict, asks: list[str]) -> dict:
         return plan
     split = {"module": "media_split", "title": "Social vs editorial", "entity_kind": None}
     return {**plan, "modules": plan["modules"] + [split]}
+
+
+_GEO_ASK = re.compile(r"\bwhere\b|geograph|region|\bstates?\b|\bcit(y|ies)\b|location|local\b", re.IGNORECASE)
+
+
+def map_question(rqs: list[RQ], rows_by_rq: dict[str, list[EngineRow]]) -> str | None:
+    """The one question per deck that gets the US map: the first geography ("where") question whose articles carry
+    enough US locations. None when no question asks where: a map on a themes or sentiment question answers nothing
+    it asked (the deck then shows one overview map, see engine)."""
+    mappable = [q for q in rqs if us_locations.map_reason(us_locations.aggregate(rows_by_rq.get(q.id, [])))]
+    return next((q.id for q in mappable if _GEO_ASK.search(q.question)), None)
+
+
+def with_us_map(plan: dict, rows: list[EngineRow], allowed: bool = True) -> dict:
+    """A US map exactly when enough of the question's articles carry a US location (us_locations.map_reason),
+    whatever the planner picked: a map of a handful of articles would misstate where the coverage comes from.
+    `allowed` is False for every question but map_question's: one map per deck, not one per question."""
+    kept = [m for m in plan["modules"] if m["module"] != "us_map"]
+    if allowed and us_locations.map_reason(us_locations.aggregate(rows)):
+        kept.append(next((m for m in plan["modules"] if m["module"] == "us_map"),
+                         {"module": "us_map", "title": "Where the coverage comes from", "entity_kind": None}))
+    return {**plan, "modules": kept}
+
+
 MAX_BREAKDOWNS = 2
 
 

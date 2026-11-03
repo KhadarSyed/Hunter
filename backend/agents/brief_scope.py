@@ -424,6 +424,37 @@ def _validate_competitor_count(spec: dict, errors: list[ValidationError]) -> Non
             "list them in included_scope.competitors"))
 
 
+def _named_in_brief(name: str, brief_text: str) -> bool:
+    """The brief names this brand: the full name (any case), or its first word as a capitalised proper noun
+    ('Lucid' for 'Lucid Motors'), so a brief's 'GM'-style shorthand isn't required to match exactly."""
+    name = (name or "").strip()
+    if not name:
+        return False
+    if re.search(rf"(?<!\w){re.escape(name)}(?!\w)", brief_text, re.IGNORECASE):
+        return True
+    first = name.split()[0]
+    return len(first) >= 3 and bool(re.search(rf"(?<!\w){re.escape(first)}(?!\w)", brief_text))
+
+
+def _split_suggested_competitors(spec: dict, brief_text: str) -> None:
+    """When the brief names its competitors, the competitor set is exactly those: the extra ones RULE #8 asks
+    the LLM to add are moved to spec["suggested_competitors"] (offered to the analyst as a clarification), not
+    silently put in scope where they'd flow into the search queries. A brief naming none (a category study)
+    keeps the added ones, since otherwise there'd be no brands to track."""
+    competitors = [e for e in spec.get("validated_entities") or [] if e.get("type") == "competitor"]
+    extra = [e for e in competitors if not _named_in_brief(e.get("name", ""), brief_text)]
+    if not extra or len(extra) == len(competitors):
+        return
+    extra_names = {e.get("name") for e in extra}
+    spec["validated_entities"] = [e for e in spec["validated_entities"] if e.get("name") not in extra_names
+                                  or e.get("type") != "competitor"]
+    scope = spec.get("included_scope") or {}
+    for key in ("competitors", "brands"):
+        if isinstance(scope.get(key), list):
+            scope[key] = [c for c in scope[key] if c not in extra_names]
+    spec["suggested_competitors"] = [{"name": e.get("name"), "reasoning": e.get("reasoning", "")} for e in extra]
+
+
 def _validate_audience_entities(spec: dict, errors: list[ValidationError]) -> None:
     """Every brief has a research audience (research_audience is required), so at least one entity must
     carry type "audience" — the LLM otherwise drops the groups or files them as topics."""
@@ -832,6 +863,7 @@ def run(
     spec = None
     all_errors: list[ValidationError] = []
     attempt = 0
+    last_error = ""
 
     for attempt in range(1, max_retries + 2):
         emit("brief_scope_attempt", {"attempt": attempt})
@@ -870,13 +902,15 @@ def run(
                 format_json=True,
             )
         except Exception as e:
-            emit("brief_scope_error", {"error": f"LLM call failed: {e}"})
+            last_error = f"LLM call failed: {e}"
+            emit("brief_scope_error", {"error": last_error})
             continue
 
         try:
             spec = _extract_json(raw_response)
         except (json.JSONDecodeError, ValueError) as e:
-            emit("brief_scope_error", {"error": f"JSON parse failed: {e}"})
+            last_error = f"JSON parse failed: {e}"
+            emit("brief_scope_error", {"error": last_error})
             continue
 
         _apply_defaults(spec)
@@ -904,10 +938,13 @@ def run(
         emit("brief_scope_failed", {"elapsed": elapsed})
         return {
             "spec": None,
+            "error": last_error,
             "validation_errors": [repr(e) for e in all_errors],
             "attempts": attempt,
             "elapsed_seconds": elapsed,
         }
+
+    _split_suggested_competitors(spec, brief_text)
 
     spec["_meta"] = {
         "agent": "brief_scope",

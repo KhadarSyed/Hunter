@@ -3,8 +3,9 @@
 For each research question the LLM derives the minimum tag schema needed to answer it -- a Yes/No classification for
 "what proportion is deal/sale-led?", an expert type plus the cited expert's name and organisation for "which experts
 are cited?" -- with a definition, allowed values and an extraction rule per tag. Articles are then tagged against that
-schema with quoted evidence and a confidence. Every tag is mapped to an existing Review-table column; one that has no
-column is flagged UNMAPPED_REVIEW_CRITERION. Points and weights belong to the Review table: nothing here scores.
+schema with quoted evidence and a confidence. Every tag is mapped to a Review-table column: the question column it
+records, the table's own Sentiment column, or the column the table draws for the tag itself. Points and weights belong
+to the Review table: nothing here scores.
 """
 from __future__ import annotations
 
@@ -21,7 +22,6 @@ MAX_ALLOWED = 12
 MAX_ENTITIES = 10
 MAX_EVIDENCE = 300
 MIN_ALLOWED = 2
-UNMAPPED = "UNMAPPED_REVIEW_CRITERION"
 FROM_REVIEW_TABLE = "READ_FROM_REVIEW_TABLE"
 
 _PROMPT = (
@@ -126,13 +126,27 @@ def derive(llm, rq_id: str, question: str, query: str, review_columns: list[dict
     return TagSchema(rq_id, question, intent, tags, tuple(columns.items())), "llm"
 
 
+# Review-table columns that are not question dimensions but record what a tag of that name asks
+BUILT_IN_COLUMNS = {"sentiment": "Sentiment", "overall_sentiment": "Sentiment"}
+
+
+def _review_column(tag: TagDef, labels: dict[str, str]) -> tuple[str, str]:
+    """(key, label) of the Review column recording the tag: the one it was mapped to, a question column or built-in
+    column of the same name, else the column the Review table draws for the tag itself."""
+    for key in (tag.review_column, tag.tag_name):
+        if key in labels:
+            return key, labels[key]
+    if tag.tag_name in BUILT_IN_COLUMNS:
+        return tag.tag_name, BUILT_IN_COLUMNS[tag.tag_name]
+    return tag.tag_name, tag.tag_name.replace("_", " ").capitalize()
+
+
 def review_mapping(schema: TagSchema) -> list[dict]:
-    """Each tag against the Review table: its column, or UNMAPPED. Points and weights are read there, never made up."""
+    """Each tag against the Review table and its column. Points and weights are read there, never made up."""
     labels = dict(schema.review_columns)
-    return [{"question_id": schema.question_id, "tag_name": t.tag_name, "review_column": t.review_column,
-             "review_criterion": labels.get(t.review_column) if t.review_column else None,
-             "mapping_status": "MAPPED" if t.review_column else UNMAPPED,
-             "points": FROM_REVIEW_TABLE, "weight": FROM_REVIEW_TABLE} for t in schema.tags]
+    return [{"question_id": schema.question_id, "tag_name": t.tag_name, "review_column": key, "review_criterion": label,
+             "mapping_status": "MAPPED", "points": FROM_REVIEW_TABLE, "weight": FROM_REVIEW_TABLE}
+            for t in schema.tags for key, label in [_review_column(t, labels)]]
 
 
 def to_json(schema: TagSchema) -> dict:

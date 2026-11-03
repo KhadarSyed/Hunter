@@ -85,6 +85,13 @@ def _apply_form_context(llm_spec: dict, form_spec: dict) -> dict:
     return merged
 
 
+def _analysis_failed(result: dict, next_step: str) -> str:
+    """The job's error when the agent produced no usable spec: saving the form placeholder as "completed" hid it."""
+    reason = result.get("error") or "; ".join(result.get("validation_errors") or []) or "no usable output"
+    return (f"The brief could not be analysed after {result.get('attempts', 0)} attempt(s) ({reason[:200]}). "
+            f"{next_step}")
+
+
 def generate_spec(
     project_id: int,
     raw_brief_text: str = "",
@@ -135,7 +142,7 @@ def generate_spec(
             project_spec = _apply_form_context(grounded_spec, project_spec)
             store.update_project_spec(project_id, project_spec)
         else:
-            _emit("brief_scope_incomplete", {"validation_errors": result.get("validation_errors", [])})
+            raise ValueError(_analysis_failed(result, "Nothing was saved — click Analyze Brief to try again."))
 
     _emit("building_sections")
     sections = _build_sections(project_spec, raw_brief_text or project_spec.get("raw_brief", ""))
@@ -238,7 +245,7 @@ def regenerate_spec(
             project_spec = _apply_form_context(grounded_spec, project_spec)
             store.update_project_spec(project_id, project_spec)
         else:
-            _emit("brief_scope_incomplete", {"validation_errors": result.get("validation_errors", [])})
+            raise ValueError(_analysis_failed(result, "The previous specification is unchanged — click Reanalyze to try again."))
 
     _emit("building_sections")
     sections = _build_sections(project_spec, raw_brief_text or project_spec.get("raw_brief", ""))
@@ -248,8 +255,10 @@ def regenerate_spec(
 
     _emit("identifying_clarifications")
     clarifications = _identify_clarifications(project_spec, sections)
-    # Dedupe against what's already on this spec (e.g. from the original generate, or a
-    # prior reanalyze) so re-running Reanalyze doesn't pile up repeat clarification rows.
+    # Reanalysis replaces the clarifications: drop the ones this run no longer raises (a failed first run's
+    # "No specific products were identified" outlived the products the rerun found), keep rows it raises again
+    # (with any answer the analyst gave), and add only the new ones.
+    store.remove_clarifications_except(spec_id, {cq["question"] for cq in clarifications})
     existing_questions = {c.get("question") for c in existing.get("clarifications", [])}
     for cq in clarifications:
         if cq["question"] not in existing_questions:
@@ -829,9 +838,26 @@ def _identify_clarifications(spec: dict, sections: dict) -> list[dict]:
     # Non-blocking safety net: if the LLM (or the deterministic tier) came up empty on a
     # data point the analyst may still have in mind, ask rather than silently leave it
     # blank. Never blocking — the analyst can proceed and fill these in later if they apply.
-    entity_types_present = {
-        ent.get("type") for ent in entities_content if isinstance(ent, dict)
-    } if isinstance(entities_content, list) else set()
+    ents = [e for e in entities_content if isinstance(e, dict)] if isinstance(entities_content, list) else []
+    entity_types_present = {ent.get("type") for ent in ents}
+    # A gap prompt must not contradict what scope did extract: an executive is a named person, brands and
+    # competitors are companies, and products tagged with a group (flagship/new_launch) form a lineup.
+    if "executive" in entity_types_present:
+        entity_types_present.add("person")
+    if entity_types_present & {"brand", "competitor"}:
+        entity_types_present.add("company")
+    if "product_group" in entity_types_present:
+        entity_types_present.add("product")
+    if any(e.get("type") == "product" and e.get("group") for e in ents):
+        entity_types_present.add("product_group")
+    suggested = [s.get("name") for s in spec.get("suggested_competitors") or [] if s.get("name")]
+    if suggested:
+        clarifications.append({
+            "question": f"Other competitors in this category not named in the brief: {', '.join(suggested)} — "
+                        "add any of them to the competitor set?",
+            "section_key": "entities",
+            "is_blocking": False,
+        })
     _ENTITY_GAP_PROMPTS = {
         "company": "No company/organization entities were identified — are there any relevant companies to track?",
         "product": "No specific products were identified — are there specific products this research should cover?",

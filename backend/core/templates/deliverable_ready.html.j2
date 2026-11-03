@@ -1,0 +1,152 @@
+{#- Email-client-safe layout: Outlook desktop renders with Word, so everything is nested tables with width/align/
+    bgcolor/cellpadding attributes, inline styles, px line-heights, padding only on <td>, explicit image sizes, a
+    VML button for Outlook and an MSO-only 600px wrapper. border-radius is progressive enhancement only. -#}
+{%- set FONT = "Arial,Helvetica,sans-serif" -%}
+{%- macro img(i, height, alt) -%}
+<img src="{{ i.src }}" width="{{ (i.w * height / i.h) | round | int }}" height="{{ height }}" alt="{{ alt }}" border="0"
+     style="display:block;border:0;outline:none;text-decoration:none;height:{{ height }}px;width:{{ (i.w * height / i.h) | round | int }}px;">
+{%- endmacro -%}
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="x-apple-disable-message-reformatting">
+<title>{{ subject }}</title>
+<!--[if mso]>
+<noscript><xml><o:OfficeDocumentSettings><o:AllowPNG/><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
+<style>td,th,div,p,a,span{font-family:Arial,Helvetica,sans-serif !important;}</style>
+<![endif]-->
+<style>
+  @media only screen and (max-width: 620px) {
+    .container { width: 100% !important; }
+    .pad { padding-left: 20px !important; padding-right: 20px !important; }
+  }
+</style>
+</head>
+<body style="margin:0;padding:0;background-color:#F3F1F7;" bgcolor="#F3F1F7">
+<div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">{{ project_name }}: your deck, brief and data tables are ready.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#F3F1F7" style="background-color:#F3F1F7;">
+<tr><td align="center" style="padding:24px 12px;">
+  <!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td width="600"><![endif]-->
+  <table role="presentation" class="container" width="600" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF"
+         style="width:600px;max-width:600px;background-color:#FFFFFF;border-radius:10px;">
+    <tr><td class="pad" bgcolor="#5B2C9D" style="background-color:#5B2C9D;padding:28px 36px;border-radius:10px 10px 0 0;font-family:{{ FONT }};">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr><td style="font-family:{{ FONT }};font-size:13px;line-height:18px;letter-spacing:2px;text-transform:uppercase;color:#D9CCF0;font-weight:bold;">Hunter</td></tr>
+        <tr><td style="padding-top:6px;font-family:{{ FONT }};font-size:24px;line-height:32px;color:#FFFFFF;font-weight:bold;">Your deliverable is ready</td></tr>
+      </table>
+    </td></tr>
+
+    <tr><td class="pad" style="padding:28px 36px 8px 36px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+        {% if logo %}
+        <td valign="middle" style="padding-right:16px;">
+          <table role="presentation" cellpadding="8" cellspacing="0" border="0" bgcolor="{{ '#5B2C9D' if logo.light else '#FFFFFF' }}"
+                 style="background-color:{{ '#5B2C9D' if logo.light else '#FFFFFF' }};border:1px solid #ECE8F3;border-radius:8px;">
+            <tr><td>{{ img(logo, 40, client) }}</td></tr>
+          </table>
+        </td>
+        {% endif %}
+        <td valign="middle" style="font-family:{{ FONT }};">
+          <div style="font-family:{{ FONT }};font-size:20px;line-height:26px;font-weight:bold;color:#1F1B2D;">{{ project_name }}</div>
+          {% if client %}<div style="font-family:{{ FONT }};font-size:14px;line-height:20px;color:#6B6480;">Client: {{ client }}</div>{% endif %}
+        </td>
+      </tr></table>
+    </td></tr>
+
+    <tr><td class="pad" align="center" style="padding:20px 36px 8px 36px;">
+      <div>
+        <!--[if mso]>
+        <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ link }}"
+                     style="height:48px;v-text-anchor:middle;width:240px;" arcsize="13%" stroke="f" fillcolor="#5B2C9D">
+          <w:anchorlock/>
+          <center style="color:#FFFFFF;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;">Open deliverables</center>
+        </v:roundrect>
+        <![endif]-->
+        <!--[if !mso]><!-- -->
+        <a href="{{ link }}" target="_blank"
+           style="background-color:#5B2C9D;border-radius:6px;color:#FFFFFF;display:inline-block;font-family:{{ FONT }};font-size:16px;font-weight:bold;line-height:48px;text-align:center;text-decoration:none;width:240px;-webkit-text-size-adjust:none;">Open deliverables</a>
+        <!--<![endif]-->
+      </div>
+    </td></tr>
+
+    {% if stats %}
+    <tr><td class="pad" style="padding:24px 36px 4px 36px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr><td colspan="2" style="padding-bottom:10px;font-family:{{ FONT }};font-size:12px;line-height:16px;letter-spacing:1.5px;text-transform:uppercase;color:#5B2C9D;font-weight:bold;">Deliverable summary</td></tr>
+        {% for label, value in stats %}
+        <tr>
+          <td style="padding:9px 0;border-bottom:1px solid #ECE8F3;font-family:{{ FONT }};font-size:14px;line-height:20px;color:#6B6480;">{{ label }}</td>
+          <td align="right" style="padding:9px 0;border-bottom:1px solid #ECE8F3;font-family:{{ FONT }};font-size:14px;line-height:20px;color:#1F1B2D;font-weight:bold;">{{ value }}</td>
+        </tr>
+        {% endfor %}
+        {% if files %}
+        <tr><td colspan="2" style="padding-top:14px;font-family:{{ FONT }};font-size:14px;line-height:22px;color:#1F1B2D;">
+          <span style="color:#6B6480;">Files available:</span> {{ files | join(" · ") }}
+        </td></tr>
+        {% endif %}
+      </table>
+    </td></tr>
+    {% endif %}
+
+    <tr><td class="pad" style="padding:24px 36px 4px 36px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr><td colspan="2" style="padding-bottom:10px;font-family:{{ FONT }};font-size:12px;line-height:16px;letter-spacing:1.5px;text-transform:uppercase;color:#5B2C9D;font-weight:bold;">Brief &amp; scope</td></tr>
+        {% if summary %}
+        <tr><td colspan="2" style="padding-bottom:14px;font-family:{{ FONT }};font-size:14px;line-height:22px;color:#1F1B2D;">{{ summary }}</td></tr>
+        {% endif %}
+        {% for label, value in scope %}
+        <tr>
+          <td valign="top" width="110" style="width:110px;padding:6px 12px 6px 0;font-family:{{ FONT }};font-size:14px;line-height:20px;color:#6B6480;">{{ label }}</td>
+          <td valign="top" style="padding:3px 0;font-family:{{ FONT }};font-size:14px;line-height:20px;color:#1F1B2D;">
+            {%- if label == "Competitors" and competitors %}
+            {%- for c in competitors %}
+            <table role="presentation" align="left" cellpadding="0" cellspacing="0" border="0"><tr><td style="padding:0 6px 6px 0;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" bgcolor="#F6F3FB" style="background-color:#F6F3FB;border:1px solid #ECE8F3;border-radius:14px;"><tr>
+                {% if c.logo %}
+                <td valign="middle" bgcolor="{{ '#5B2C9D' if c.logo.light else '#F6F3FB' }}" style="padding:3px 0 3px 8px;{{ 'background-color:#5B2C9D;' if c.logo.light }}">{{ img(c.logo, 20, c.name) }}</td>
+                {% endif %}
+                <td valign="middle" style="padding:4px 10px 4px 8px;font-family:{{ FONT }};font-size:13px;line-height:18px;color:#1F1B2D;white-space:nowrap;">{{ c.name }}</td>
+              </tr></table>
+            </td></tr></table>
+            {%- endfor %}
+            {%- elif label == "Geography" and countries %}
+            {%- for c in countries %}
+            <table role="presentation" align="left" cellpadding="0" cellspacing="0" border="0"><tr>
+              {% if c.flag %}<td valign="middle" style="padding:3px 6px 3px 0;">{{ img(c.flag, 18, "") }}</td>{% endif %}
+              <td valign="middle" style="padding:3px 14px 3px 0;font-family:{{ FONT }};font-size:14px;line-height:20px;color:#1F1B2D;white-space:nowrap;">{{ c.name }}</td>
+            </tr></table>
+            {%- endfor %}
+            {%- else %}{{ value }}{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% if questions %}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr><td colspan="2" style="padding:14px 0 6px 0;font-family:{{ FONT }};font-size:14px;line-height:20px;font-weight:bold;color:#1F1B2D;">Research questions</td></tr>
+        {% for q in questions %}
+        <tr>
+          <td valign="top" width="24" style="width:24px;padding:3px 0;font-family:{{ FONT }};font-size:14px;line-height:21px;color:#5B2C9D;font-weight:bold;">{{ loop.index }}.</td>
+          <td valign="top" style="padding:3px 0;font-family:{{ FONT }};font-size:14px;line-height:21px;color:#1F1B2D;">{{ q }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% endif %}
+    </td></tr>
+
+    <tr><td class="pad" style="padding:28px 36px 28px 36px;font-family:{{ FONT }};font-size:13px;line-height:20px;color:#6B6480;">
+      If the button does not work, paste this link into your browser:<br>
+      <a href="{{ link }}" target="_blank" style="color:#5B2C9D;word-break:break-all;">{{ link }}</a>
+    </td></tr>
+    <tr><td class="pad" bgcolor="#FAF9FC" style="background-color:#FAF9FC;padding:16px 36px;border-top:1px solid #ECE8F3;border-radius:0 0 10px 10px;font-family:{{ FONT }};font-size:12px;line-height:18px;color:#9A94AA;">
+      Sent by Hunter because a deliverable you own finished building.
+    </td></tr>
+  </table>
+  <!--[if mso]></td></tr></table><![endif]-->
+</td></tr>
+</table>
+</body>
+</html>

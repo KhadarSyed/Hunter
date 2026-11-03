@@ -29,6 +29,10 @@ class Article:
     source_file: str = ""
     row_index: int = 0
     image: str = ""            # the post's or article's own picture (Meltwater's Image column), when the export has one
+    country: str = ""          # where the export says it is from: Country, State, Region (a county: "New York County")
+    state: str = ""
+    region: str = ""
+    author: str = ""           # the journalist, or the social account (@handle) that posted it
 
 
 def normalize_url(url: str) -> str:

@@ -91,12 +91,13 @@ def update_project_route(project_id: Annotated[int, Path(ge=1)], req: UpdateProj
 @router.delete("/projects/{project_id}", response_model=DeleteProjectResponse)
 def delete_project_route(project_id: Annotated[int, Path(ge=1)],
                           _access: Annotated[dict, Depends(require_project_access)]):
-    """Archive a project (soft delete — see spec §5); rows/files are kept."""
-    archived = store.archive_project(project_id)
-    if archived is None:
+    """Delete a project for good: every row that belongs to it, the files those rows point at, its deliverables
+    folder (store.delete_project). The dialog says so: this cannot be undone."""
+    deleted = store.delete_project(project_id)
+    if deleted is None:
         raise HTTPException(404, "Project not found")
-    _broadcast({"type": "project_archived", "project_id": project_id})
-    return DeleteProjectResponse(project_id=project_id, rows_deleted=0, tables={})
+    _broadcast({"type": "project_deleted", "project_id": project_id})
+    return DeleteProjectResponse(project_id=project_id, rows_deleted=sum(deleted.values()), tables=deleted)
 
 
 # ─── Jobs ──────────────────────────────────────────────────────────────

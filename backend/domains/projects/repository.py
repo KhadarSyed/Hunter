@@ -6,10 +6,12 @@ Also contains:
 from __future__ import annotations
 
 import json
+import shutil
 import time
+from pathlib import Path
 from typing import Optional
 
-from database.db import _conn, declared_foreign_keys, table_columns, table_names
+from database.db import _PATH_COLUMNS, _conn, declared_foreign_keys, table_columns, table_names
 
 # ─── Projects ────────────────────────────────────────────────────────────────
 
@@ -103,17 +105,6 @@ def set_project_owner(project_id: int, org_id: int | None, owner_user_id: int) -
     conn.close()
 
 
-def archive_project(project_id: int) -> dict | None:
-    conn = _conn()
-    if not conn.execute("SELECT 1 FROM intel_projects WHERE id = ?", (project_id,)).fetchone():
-        conn.close()
-        return None
-    conn.execute("UPDATE intel_projects SET archived_at = ? WHERE id = ?", (time.time(), project_id))
-    conn.commit()
-    conn.close()
-    return {"id": project_id}
-
-
 def update_project(
     project_id: int, project_name: str | None = None, spec: dict | None = None, brand: str | None = None
 ) -> bool:
@@ -129,7 +120,8 @@ def update_project(
     return True
 
 
-def get_or_create_project(spec: dict) -> int:
+def get_or_create_project(spec: dict, org_id: int | None = None, owner_user_id: int | None = None) -> int:
+    """The latest project with the brief's name, or a new one owned by `owner_user_id` (an existing one keeps its owner)."""
     name = ""
     cb = spec.get("commissioning_brand", {})
     if isinstance(cb, dict):
@@ -138,15 +130,19 @@ def get_or_create_project(spec: dict) -> int:
         name = spec.get("project_name", "Untitled")
 
     conn = _conn()
+    in_org = " AND org_id = ?" if org_id is not None else ""     # never match another org's same-named project
     row = conn.execute(
-        "SELECT id FROM intel_projects WHERE project_name = ? ORDER BY created_at DESC, id DESC LIMIT 1",
-        (name,),
+        f"SELECT id FROM intel_projects WHERE project_name = ?{in_org} ORDER BY created_at DESC, id DESC LIMIT 1",
+        (name, org_id) if org_id is not None else (name,),
     ).fetchone()
     conn.close()
 
     if row:
         return row["id"]
-    return create_project(name, spec)
+    pid = create_project(name, spec)
+    if owner_user_id is not None:
+        set_project_owner(pid, org_id, owner_user_id)
+    return pid
 
 
 # ─── Jobs ────────────────────────────────────────────────────────────────────
@@ -252,6 +248,7 @@ _UNDECLARED_LINKS: list[tuple[str, str, str]] = [  # (child table, child column,
     ("intel_word_history", "presentation_id", "intel_pc_presentations"),
     ("intel_word_metrics", "job_id", "intel_word_jobs"),
     ("intel_si_storyline_matches", "storyline_id", "intel_storylines"),
+    ("intel_dataset_files", "dataset_id", "intel_datasets"),   # the uploaded file's bytes
 ]
 _ROOT = "intel_projects"
 _DELETE_CHUNK = 500  # stay under SQLite's bound-parameter limit
@@ -276,18 +273,22 @@ def _child_links(conn) -> dict[str, list[tuple[str, str]]]:
 
 def delete_project(project_id: int) -> dict[str, int] | None:
     """Delete a project and every row that belongs to it (children first) in one
-    transaction. Returns rows deleted per table, or None if the project doesn't exist.
-    Files on disk (uploads, rendered decks) are left in place."""
+    transaction, then its files on disk inside the data folder (uploads, rendered decks).
+    Returns rows deleted per table plus a "files" count, or None if the project doesn't exist."""
     conn = _conn()
     try:
         if not conn.execute("SELECT 1 FROM intel_projects WHERE id = ?", (project_id,)).fetchone():
             return None
         links = _child_links(conn)
         plan: list[tuple[str, list]] = []  # (table, ids), deepest first
+        keyed: list[tuple[str, str, list]] = []  # tables with no id column (keyed by their link): deleted by it
         seen: set[tuple[str, object]] = set()
 
         def collect(table: str, ids: list) -> None:
             for child, col in links.get(table, []):
+                if "id" not in table_columns(conn, child):   # e.g. agent_autopilots, intel_deliverable_plans
+                    keyed.append((child, col, ids))
+                    continue
                 found = []
                 for i in range(0, len(ids), _DELETE_CHUNK):
                     chunk = ids[i:i + _DELETE_CHUNK]
@@ -301,14 +302,57 @@ def delete_project(project_id: int) -> dict[str, int] | None:
 
         collect(_ROOT, [project_id])
         plan.append((_ROOT, [project_id]))
+        files = _referenced_files(conn, plan)
         deleted: dict[str, int] = {}
         with conn:
+            for table, col, ids in keyed:
+                for i in range(0, len(ids), _DELETE_CHUNK):
+                    chunk = ids[i:i + _DELETE_CHUNK]
+                    marks = ",".join("?" * len(chunk))
+                    deleted[table] = deleted.get(table, 0) + conn.execute(
+                        f'DELETE FROM "{table}" WHERE "{col}" IN ({marks})', chunk).rowcount
             for table, ids in plan:
                 for i in range(0, len(ids), _DELETE_CHUNK):
                     chunk = ids[i:i + _DELETE_CHUNK]
                     marks = ",".join("?" * len(chunk))
                     deleted[table] = deleted.get(table, 0) + conn.execute(
                         f'DELETE FROM "{table}" WHERE id IN ({marks})', chunk).rowcount
+        # its files go with its rows, after the commit (a failed delete keeps both): what the rows pointed at, the
+        # project's deliverables folder
+        from ...core import config
+        deleted["files"] = _remove_files(files + [config.DELIVERABLE_DIR / f"project_{project_id}"], config.DATA_DIR)
         return deleted
     finally:
         conn.close()
+
+
+def _referenced_files(conn, plan: list[tuple[str, list]]) -> list[Path]:
+    """Every file or folder the project's rows point at (database.db._PATH_COLUMNS)."""
+    out = []
+    for table, ids in plan:
+        for col in (c for t, c in _PATH_COLUMNS if t == table and not c.endswith("_json")):
+            for i in range(0, len(ids), _DELETE_CHUNK):
+                chunk = ids[i:i + _DELETE_CHUNK]
+                marks = ",".join("?" * len(chunk))
+                out += [Path(r[0]) for r in conn.execute(
+                    f'SELECT "{col}" FROM "{table}" WHERE id IN ({marks}) AND "{col}" IS NOT NULL', chunk) if r[0]]
+    return out
+
+
+def _remove_files(paths: list[Path], root: Path) -> int:
+    """Deletes each file or folder, but only inside the app's data folder: a stray path in a row never reaches
+    anything else. Returns how many were removed."""
+    root, n = root.resolve(), 0
+    for p in dict.fromkeys(paths):
+        try:
+            target = p.resolve()
+        except OSError:
+            continue
+        if root not in target.parents or not target.exists():
+            continue
+        if target.is_dir():
+            shutil.rmtree(target, ignore_errors=True)
+        else:
+            target.unlink(missing_ok=True)
+        n += 1
+    return n

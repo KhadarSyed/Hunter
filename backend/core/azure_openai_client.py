@@ -31,6 +31,8 @@ _RETRY_STATUS = {500, 502, 503, 504}
 # retries are counted apart from the other retries, so neither kind ever gets fewer tries than before.
 RATE_LIMIT_ATTEMPTS = 8
 MAX_RATE_WAIT_S = 60.0
+# A full Brief & Scope spec runs ~3.5k tokens; at 4096 a slightly longer one was cut off mid-JSON and failed to parse.
+MAX_OUTPUT_TOKENS = 16384
 
 
 def _rate_limit_wait(r: requests.Response, retry: int) -> float:
@@ -104,7 +106,7 @@ class AzureOpenAIClient:
         format_json: bool = False,
     ) -> str:
         headers = {"api-key": self.api_key, "Content-Type": "application/json"}
-        payload: dict = {"messages": messages, "max_tokens": 4096}
+        payload: dict = {"messages": messages, "max_tokens": MAX_OUTPUT_TOKENS}
         if format_json:
             payload["response_format"] = {"type": "json_object"}
 
@@ -112,8 +114,10 @@ class AzureOpenAIClient:
             r = _post(self._url(), headers, payload)
             if r.status_code != 200:
                 raise AzureOpenAIError(f"Azure OpenAI chat failed: {r.status_code} {r.text[:300]}")
-            data = r.json()
-            return data["choices"][0]["message"]["content"]
+            choice = r.json()["choices"][0]
+            if choice.get("finish_reason") == "length":
+                logger.warning("Azure OpenAI reply cut off at max_tokens=%d", MAX_OUTPUT_TOKENS)
+            return choice["message"]["content"]
 
         payload["stream"] = True
         full: list[str] = []
@@ -129,6 +133,8 @@ class AzureOpenAIClient:
                 chunk = json.loads(raw)
                 choices = chunk.get("choices") or []
                 delta = choices[0].get("delta", {}).get("content", "") if choices else ""
+                if choices and choices[0].get("finish_reason") == "length":
+                    logger.warning("Azure OpenAI reply cut off at max_tokens=%d", MAX_OUTPUT_TOKENS)
                 if delta:
                     full.append(delta)
                     on_token(delta)
@@ -137,7 +143,7 @@ class AzureOpenAIClient:
     def chat_tools(self, messages: list[dict], tools: list[dict], tool_choice: str = "auto") -> dict:
         """One tool-calling turn: the reply's text and the tool calls it asks for, arguments parsed."""
         headers = {"api-key": self.api_key, "Content-Type": "application/json"}
-        payload: dict = {"messages": messages, "max_tokens": 4096}
+        payload: dict = {"messages": messages, "max_tokens": MAX_OUTPUT_TOKENS}
         if tools:
             payload.update(tools=tools, tool_choice=tool_choice)
         r = _post(self._url(), headers, payload)

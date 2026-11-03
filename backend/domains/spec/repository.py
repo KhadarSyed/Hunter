@@ -421,6 +421,20 @@ def resolve_clarification(
     return True
 
 
+def remove_clarifications_except(spec_id: int, keep_questions: set[str]) -> int:
+    """Drop a spec's clarifications whose question a reanalysis no longer raises; returns how many went."""
+    conn = _conn()
+    rows = conn.execute("SELECT id, question FROM intel_spec_clarifications WHERE spec_id = ?", (spec_id,)).fetchall()
+    stale = [r["id"] for r in rows if r["question"] not in keep_questions]
+    for cid in stale:
+        conn.execute("DELETE FROM intel_spec_clarifications WHERE id = ?", (cid,))
+    if stale:
+        _recompute_and_save_readiness(conn, spec_id, time.time())
+    conn.commit()
+    conn.close()
+    return len(stale)
+
+
 def get_clarifications(spec_id: int, unresolved_only: bool = False) -> list[dict]:
     conn = _conn()
     sql = "SELECT * FROM intel_spec_clarifications WHERE spec_id = ?"

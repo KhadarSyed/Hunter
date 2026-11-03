@@ -431,7 +431,12 @@ class LiveWebResearchAdapter:
         exclude_patterns = self._extract_exclusions(spec)
         validator = EntityValidator(search_brand_term(brand_name), category, geography, exclude_patterns)
 
-        topics = build_boolean_queries(spec)
+        try:
+            from ...core.anthropic_client import get_llm_client
+            llm = get_llm_client()
+        except Exception:       # no chat model: the research questions get keyword clauses
+            llm = None
+        topics = build_boolean_queries(spec, llm)
         _emit("research_started", {"brand": brand_name, "topics": [t.topic for t in topics]})
         _emit("research_queries_built", {"count": len(topics)})
 

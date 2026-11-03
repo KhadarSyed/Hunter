@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass, field
 
 from ...core import store
+from ..deliverable import chart_choice
 from ..deliverable.engine_types import RQ, Section
 from .indexer import FAMILY_WORDS
 from . import tables
@@ -33,12 +34,14 @@ KEY_INSIGHTS = 3                  # a question's insight cards, side by side on 
 SEGMENT_CARDS = 5                 # a breakdown chart beside one explanation card per segment ("S" layout)
 BRAND_KEY = "BRAND"                       # sections_by_rq key of the brand vs competitors chapter
 BRAND_KICKER = "Brand vs competitors"
-DENSE_KINDS = {"line_peaks", "column", "treemap"}
+GEO_KEY = "GEO"                           # the overview map, when no question asks where
+GEO_QUESTION = "Where does the coverage come from?"
+DENSE_KINDS = {"line_peaks", "column", "treemap", "us_map"}
 _CODE_PREFIX = re.compile(r"\bRQ\d+\s*:\s*")
 _CODE = re.compile(r"\bRQ(\d+)\b")
 TYPE_FOR_CHART = {"kpi": "kpi_dashboard", "doughnut": "sentiment_split", "gauge": "kpi_dashboard",
                   "line_peaks": "trend_with_peaks", "column": "trend_with_peaks", "bar": "bar_with_cards",
-                  "treemap": "theme_cards"}
+                  "treemap": "theme_cards", "us_map": "bar_with_cards", "sunburst": "bar_with_cards"}
 
 
 @dataclass
@@ -74,6 +77,10 @@ class PlanInput:
     mixed_media: bool = False                                                # the data has both social and editorial
     brand_share: float = 1.0                                                 # share of articles naming a brand of the set
     repair_context: dict = field(default_factory=dict)                       # what the repair agent needs (fixer.py)
+    latest24h: dict | None = None                                            # the stored "last 24h" refresh, if any
+    latest24h_icons: dict[str, str] = field(default_factory=dict)            # its outlets' site icons (files)
+    articles: dict[str, dict] = field(default_factory=dict)                  # norm url -> what the click-through shows
+    article_icons: dict[str, str] = field(default_factory=dict)              # site domain -> its icon (file)
 
 
 def _link(url: str) -> str:
@@ -170,6 +177,12 @@ def _evidence(rq: RQ, kicker: str, sections: list[Section], family: str,
     for i, sec in enumerate(drawn):
         charts = [sec.chart] if sec.chart else []
         tables = [sec.table] if sec.table else []
+        matrix = (sec.table or {}).get("matrix")
+        if matrix and not charts:          # a cross-tab is drawn (heatmap, flow or 100% bars), not tabled
+            charts, tables = [chart_choice.matrix_chart(matrix, rq.question, tuple(matrix["dims"]))], []
+        # each chart element and table row carries its articles (the deck lists them on a click)
+        drill = {**sec.segment_urls, **sec.drill_urls}
+        charts, tables = [{**c, "drill": drill} for c in charts], [{**t, "drill": drill} for t in tables]
         slide_type = TYPE_FOR_CHART.get((sec.chart or {}).get("kind", ""), "comparison_table")
         cards = (summaries or {}).get(sec.id, [])[:SEGMENT_CARDS]   # its summary, or one card per segment
         out.append(SlideSpec(
@@ -180,6 +193,64 @@ def _evidence(rq: RQ, kicker: str, sections: list[Section], family: str,
             citations=[n for c in cards for n in c.get("citations", [])],
             image={"query": f"{kicker} {sec.title}", "role": "panel"}, reference=pick_reference(slide_type, family)))
     return out
+
+
+LIVE_ID, LIVE_DASHBOARD_ID = "latest24h", "latest24h-dashboard"
+_LIVE_KEYS = ("title", "url", "outlet", "date", "brands", "copies", "snippet", "n")
+
+
+def live_data(refresh: dict | None) -> dict:
+    """What the deck needs to draw (and redraw) the last-24h slides from one stored refresh: {} when none is done."""
+    if not refresh or refresh.get("status") != "completed":
+        return {}
+    charts = refresh.get("charts") or {}
+    return {"refresh_id": refresh["id"], "finished_at": refresh.get("finished_at"), "fetched": refresh.get("fetched"),
+            "kept": refresh.get("kept"), "counts": refresh.get("counts") or {},
+            "bullets": (refresh.get("summary") or {}).get("bullets") or [],
+            "articles": [{k: a.get(k) for k in _LIVE_KEYS} for a in refresh.get("articles") or []],
+            "icons": charts.get("icons") or {}}
+
+
+def hour_label(category: str) -> str:
+    """'02 Nov 14:00' -> '14:00': 24 hourly points along one axis have room for the hour only."""
+    return str(category)[-5:]
+
+
+def live_charts(refresh: dict | None) -> list[dict]:
+    """The dashboard's three charts (share by brand as ranked bars beside each brand's logo, articles per hour, top
+    outlets beside their icons), empty when there is nothing yet, so the deck can fill them on refresh."""
+    charts = ((refresh or {}).get("charts") or {}) if live_data(refresh) else {}
+    share = charts.get("share") or {}
+    ranked = sorted(zip(share.get("categories") or [], share.get("values") or []), key=lambda p: -p[1])
+    empty = {"categories": [], "values": [], "peaks": []}
+    return [{**empty, "kind": "bar", "unit": "percent", "series_label": "Share of 24h coverage by brand",
+             "categories": [c for c, _ in ranked], "values": [v for _, v in ranked], "drill": share.get("drill") or {},
+             "choice": "share of voice: each brand's share of the day's brand mentions, ranked, beside its logo",
+             "alternatives": "a doughnut (logos and close shares read better on a common axis)"},
+            {**empty, "kind": "line_peaks", "unit": "count", "series_label": "Articles per hour (UTC)",
+             **{k: (charts.get("timeline") or {}).get(k, v) for k, v in empty.items()},
+             "categories": [hour_label(c) for c in (charts.get("timeline") or {}).get("categories") or []],
+             "drill": {hour_label(k): v for k, v in ((charts.get("timeline") or {}).get("drill") or {}).items()},
+             "choice": "change over time: 24 hourly points as a line, the peak marked",
+             "alternatives": "columns (24 bars crowd the slide)"},
+            {**empty, "kind": "bar", "unit": "count", "series_label": "Top outlets in the last 24h",
+             **{k: (charts.get("outlets") or {}).get(k, v) for k, v in empty.items()},
+             "drill": (charts.get("outlets") or {}).get("drill") or {},
+             "choice": "ranking: the day's most active outlets as sorted bars",
+             "alternatives": "a treemap (bars rank the outlets exactly)"}]
+
+
+def _live_slides(inp: PlanInput) -> list[SlideSpec]:
+    """'What's new in the last 24h' and its dashboard, right after the executive summary: the latest stored refresh,
+    which the HTML deck re-fetches in place (Refresh button) when it is shown inside Hunter. None without one."""
+    data = live_data(inp.latest24h)
+    if not data:
+        return []
+    return [SlideSpec(id=LIVE_ID, type="latest24h", treatment="plain", kicker="Live · last 24 hours",
+                      title="What's new in the last 24h", live=data),
+            SlideSpec(id=LIVE_DASHBOARD_ID, type="latest24h_dashboard", treatment="plain", kicker="Live · last 24 hours",
+                      title="The last 24 hours at a glance", charts=live_charts(inp.latest24h), live=data,
+                      logos=dict(inp.latest24h_icons))]
 
 
 def build_deck_spec(inp: PlanInput) -> DeckSpec:
@@ -203,6 +274,7 @@ def build_deck_spec(inp: PlanInput) -> DeckSpec:
                          for a in inp.answers],
                   facts_allowed=all_facts + [str(len(inp.rqs))], image={"query": f"{inp.title} overview", "role": "background"},
                   reference=pick_reference("kpi_dashboard", family))]
+    slides += _live_slides(inp)
     brand_sections = inp.sections_by_rq.get(BRAND_KEY) or []
     if brand_sections:                    # the client against its competitors, before the question chapters
         brand_rq = RQ(BRAND_KEY, f"How does {inp.title} compare with its competitors?")
@@ -250,13 +322,18 @@ def build_deck_spec(inp: PlanInput) -> DeckSpec:
                                 title="Brief checklist", facts_allowed=list(all_facts),
                                 tables=[{"header": ["Brief asked", "Status", "Where", "Note"],
                                          "rows": [[r["ask"], r["status"], "—", r["note"]] for r in rows]}]))
+    geo = inp.sections_by_rq.get(GEO_KEY) or []
+    if geo:                               # appendix: where all the coverage comes from (no question asked where)
+        slides += _evidence(RQ(GEO_KEY, GEO_QUESTION), "Appendix", geo, family, inp.section_summaries)
     slides += _methodology_slides(inp, all_facts)
     for p in range(0, max(1, len(inp.citations)), CITES_PER_SLIDE):
         page = inp.citations[p:p + CITES_PER_SLIDE]
         slides.append(SlideSpec(id=f"citations-{p // CITES_PER_SLIDE + 1}", type="citations", treatment="plain", title="Sources",
                                 tables=[{"header": ["#", "Source", "Headline", "Date"],
                                          "rows": [[str(c["n"]), c.get("outlet") or c.get("domain", ""), c["title"], us_date(c["date"])]
-                                                  for c in page]}],
+                                                  for c in page],
+                                         # each headline links its article (and a clickable area in the PPTX)
+                                         "links": [_link(c.get("url", "")) for c in page], "link_col": 2}],
                                 facts_allowed=all_facts + [str(c["n"]) for c in page] + [c["date"] for c in page]
                                 + [us_date(c["date"]) for c in page],
                                 notes="\n".join(c["url"] for c in page),
@@ -270,7 +347,8 @@ def build_deck_spec(inp: PlanInput) -> DeckSpec:
                     family=family, family_reason=why, tokens=None, slides=slides,
                     citation_meta={str(c["n"]): {"outlet": c.get("outlet") or c.get("domain", ""), "icon": c.get("icon") or "",
                                                  "url": _link(c.get("url", ""))}
-                                   for c in inp.citations})
+                                   for c in inp.citations},
+                    articles=inp.articles, article_icons=inp.article_icons)
 
 
 def _plain(text: str) -> str:

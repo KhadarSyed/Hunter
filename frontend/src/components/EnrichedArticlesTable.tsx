@@ -47,7 +47,8 @@ function formatReviewedAt(iso: string | null | undefined): string {
  * Social/Traditional regardless of what kind of content it was. */
 function bucketOf(r: EnrichedRecord): "social" | "traditional" | "irrelevant" {
   if (r.review_status === "irrelevant") return "irrelevant";
-  return r.media_type === "Post" ? "social" : "traditional";
+  // "Post" when derived from the source domain; a file's own media type column says "social"
+  return /^(post|social)$/i.test(r.media_type || "") ? "social" : "traditional";
 }
 
 function SentimentPill({ sentiment, confidence }: { sentiment: string | null; confidence: number | null }) {
@@ -464,7 +465,9 @@ function DynamicTagCell({ record, tag }: { record: EnrichedRecord; tag: DynamicT
 
 export function EnrichedArticlesTable({ records, loading, dimensions, tagSchemas }: EnrichedArticlesTableProps) {
   const dimColumns = useMemo(() => dimensionColumns(dimensions), [dimensions]);
-  const dynColumns = useMemo(() => tagColumns(tagSchemas), [tagSchemas]);
+  // a tag named like a dimension column would repeat its header; its values still show under Question match
+  const dynColumns = useMemo(() => tagColumns(tagSchemas).filter((t) => !dimColumns.some((d) => d.key === t.tag_name)),
+    [tagSchemas, dimColumns]);
   const [localRecords, setLocalRecords] = useState<EnrichedRecord[]>(records);
   useEffect(() => { setLocalRecords(records); }, [records]);
 
@@ -796,7 +799,10 @@ export function EnrichedArticlesTable({ records, loading, dimensions, tagSchemas
                   <td className="px-3 py-2.5 text-xs text-slate-600">{r.author || "—"}</td>
                   <td className="px-3 py-2.5 text-xs text-slate-600">{r.author_type && r.author_type !== "Unknown" ? r.author_type : <span className="text-slate-300">—</span>}</td>
                   {dimColumns.map((d) => {
-                    const tagged = r.question_tags?.[d.key] || [];
+                    // an article another question's query routed here carries that question's tag of the same name
+                    const dyn = r.dynamic_tags?.[d.key];
+                    const tagged = r.question_tags?.[d.key]?.length ? r.question_tags[d.key]
+                      : Array.isArray(dyn) ? dyn : dyn ? [dyn] : [];
                     return (
                       <td key={d.key} className="px-3 py-2.5">
                         <div className="flex flex-wrap gap-1">

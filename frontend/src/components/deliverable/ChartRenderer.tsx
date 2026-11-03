@@ -32,7 +32,8 @@ function buildXY(root: am5.Root, spec: ChartSpec, fill: string) {
     const xAxis = chart.xAxes.push(am5xy.ValueAxis.new(root, { min: 0, renderer: am5xy.AxisRendererX.new(root, {}) }));
     yAxis.data.setAll(data);
     const series = chart.series.push(am5xy.ColumnSeries.new(root, { xAxis, yAxis, valueXField: "value", categoryYField: "category" }));
-    series.columns.template.setAll({ fill: am5.color(`#${fill}`), strokeOpacity: 0, cornerRadiusTR: 4, cornerRadiusBR: 4 });
+    series.columns.template.setAll({ fill: am5.color(`#${fill}`), strokeOpacity: 0, cornerRadiusTR: 4, cornerRadiusBR: 4,
+      tooltipText: percent ? "{categoryY}: {valueX}%" : "{categoryY}: {valueX}" });
     series.bullets.push(() => am5.Bullet.new(root, { locationX: 1, sprite: am5.Label.new(root, {
       text: percent ? "{valueX}%" : "{valueX}", populateText: true, fontSize: 11, dx: 6, centerY: am5.p50, fill: am5.color("#404040") }) }));
     series.data.setAll(data);
@@ -45,7 +46,9 @@ function buildXY(root: am5.Root, spec: ChartSpec, fill: string) {
   const yAxis = chart.yAxes.push(am5xy.ValueAxis.new(root, { min: 0, renderer: am5xy.AxisRendererY.new(root, {}) }));
   xAxis.data.setAll(data);
   if (spec.kind === "line_peaks") {
-    const series = chart.series.push(am5xy.LineSeries.new(root, { xAxis, yAxis, valueYField: "value", categoryXField: "category", stroke: am5.color("#8FB8E0") }));
+    const series = chart.series.push(am5xy.LineSeries.new(root, { xAxis, yAxis, valueYField: "value", categoryXField: "category", stroke: am5.color("#8FB8E0"),
+      tooltip: am5.Tooltip.new(root, { labelText: "{categoryX}: {valueY}" }) }));
+    chart.set("cursor", am5xy.XYCursor.new(root, { behavior: "none", xAxis }));
     series.strokes.template.setAll({ strokeWidth: 2 });
     series.bullets.push((_r, _s, dataItem) => {
       const ctx = dataItem.dataContext as Datum;
@@ -59,13 +62,15 @@ function buildXY(root: am5.Root, spec: ChartSpec, fill: string) {
     return;
   }
   const series = chart.series.push(am5xy.ColumnSeries.new(root, { xAxis, yAxis, valueYField: "value", categoryXField: "category" }));
-  series.columns.template.setAll({ fill: am5.color(`#${fill}`), strokeOpacity: 0, cornerRadiusTL: 4, cornerRadiusTR: 4 });
+  series.columns.template.setAll({ fill: am5.color(`#${fill}`), strokeOpacity: 0, cornerRadiusTL: 4, cornerRadiusTR: 4,
+    tooltipText: percent ? "{categoryX}: {valueY}%" : "{categoryX}: {valueY}" });
   series.bullets.push(() => am5.Bullet.new(root, { locationY: 1, sprite: am5.Label.new(root, {
     text: percent ? "{valueY}%" : "{valueY}", populateText: true, fontSize: 11, centerX: am5.p50, dy: -14, fill: am5.color("#404040") }) }));
   series.data.setAll(data);
 }
 
-export function ChartRenderer({ spec, height = 280, palette = HOUSE }: { spec: ChartSpec; height?: number; palette?: string[] }) {
+/** `legend` adds a clickable legend (toggles slices) to a doughnut. */
+export function ChartRenderer({ spec, height = 280, palette = HOUSE, legend = false }: { spec: ChartSpec; height?: number; palette?: string[]; legend?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (!ref.current || spec.kind === "kpi") return;
@@ -77,6 +82,11 @@ export function ChartRenderer({ spec, height = 280, palette = HOUSE }: { spec: C
       series.get("colors")?.set("colors", colors);
       series.labels.template.setAll({ text: "{category}: {value}%", fontSize: 11 });
       series.data.setAll(spec.categories.map((c, i) => ({ category: c, value: spec.values[i] })));
+      if (legend) {
+        chart.set("layout", root.verticalLayout);
+        const lg = chart.children.push(am5.Legend.new(root, { centerX: am5.p50, x: am5.p50 }));
+        lg.data.setAll(series.dataItems);
+      }
     } else if (spec.kind === "gauge") {
       const chart = root.container.children.push(am5radar.RadarChart.new(root, { startAngle: 180, endAngle: 360, innerRadius: -20 }));
       const axis = chart.xAxes.push(am5xy.ValueAxis.new(root, { min: 0, max: 100, strictMinMax: true, renderer: am5radar.AxisRendererCircular.new(root, {}) }));
@@ -93,7 +103,7 @@ export function ChartRenderer({ spec, height = 280, palette = HOUSE }: { spec: C
       buildXY(root, spec, palette[0]);
     }
     return () => root.dispose();
-  }, [spec, palette]);
+  }, [spec, palette, legend]);
 
   if (spec.kind === "kpi") {
     return (

@@ -155,21 +155,6 @@ def _build_deterministic_strategy(spec: dict, raw_brief_text: str = "") -> dict:
         balanced_q = broad_q
     precise_q = f'("{brand_name}" NEAR/5 "{category}"){not_clause}' if category else balanced_q
 
-    rq_queries = []
-    for rq in spec.get("research_questions", []):
-        qid = rq.get("question_id", "")
-        q_text = rq.get("question", "")
-        keywords = [w for w in q_text.split() if len(w) > 4 and w.lower() not in
-                    ("which", "about", "their", "there", "these", "those", "where",
-                     "social", "media", "what")][:3]
-        kw_clause = " OR ".join(f'"{k}"' for k in keywords) if keywords else f'"{category}"'
-        rq_queries.append({
-            "question_id": qid,
-            "question": q_text,
-            "query": f'({brand_or}) AND ({kw_clause}){not_clause}',
-            "rationale": "Deterministic: brand + question keywords",
-        })
-
     scope = spec.get("included_scope", {})
 
     # Extract competitors from structured spec fields
@@ -243,18 +228,19 @@ def _build_deterministic_strategy(spec: dict, raw_brief_text: str = "") -> dict:
                 "use_case": f"Track {comp} activity in category",
             })
 
-        # Add competitive RQ queries
+    # One query per brief question (never invented ones): the brand, plus the competitors when the question compares
+    # them, AND the question's topic terms.
+    rq_queries = []
+    for rq in spec.get("research_questions", []):
+        q_text = rq.get("question", "")
+        names = [brand_name] + (competitors if _COMPARES.search(q_text) else [])
+        brands_or = " OR ".join(f'"{n}"' for n in names if n)
+        terms = _topic_terms(q_text, spec, names) or ([f'"{category}"'] if category else [])
         rq_queries.append({
-            "question_id": f"RQ{len(rq_queries) + 1}",
-            "question": f"How are {brand_name} and its competitors ({', '.join(competitors[:3])}) positioned in the {category or 'market'}?",
-            "query": f'{all_brands} AND ("market share" OR "competitive" OR "versus" OR "vs" OR "compared"){not_clause}',
-            "rationale": "Deterministic: brand + competitors + competitive keywords",
-        })
-        rq_queries.append({
-            "question_id": f"RQ{len(rq_queries) + 1}",
-            "question": f"What is the share of voice between {brand_name} and {', '.join(competitors[:3])}?",
-            "query": f'{all_brands}{not_clause}',
-            "rationale": "Deterministic: all brands for share of voice calculation",
+            "question_id": rq.get("question_id", ""),
+            "question": q_text,
+            "query": f'({brands_or}) AND ({" OR ".join(terms)}){not_clause}' if terms else f'({brands_or}){not_clause}',
+            "rationale": "Deterministic: brand + the question's topic terms",
         })
 
     # Build concepts/issues/events/people module (only when concept entities exist)
@@ -279,12 +265,12 @@ def _build_deterministic_strategy(spec: dict, raw_brief_text: str = "") -> dict:
 
     return {
         "strategy_summary": f"Deterministic Boolean strategy for {brand_name}. "
-                           f"Generated without LLM due to CPU timeout. "
+                           f"Generated without the LLM (unavailable, timed out or failed). "
                            f"Covers broad/balanced/precise variants"
                            f"{f', {len(competitors)} competitor queries' if competitors else ''}"
                            f" and {len(rq_queries)} research question sub-queries.",
         "_strategy_source": "deterministic",
-        "_note": "Generated deterministically because LLM timed out on CPU-only hardware. "
+        "_note": "Generated deterministically because the LLM strategy was unavailable, timed out or failed. "
                 "Queries use basic Boolean syntax and may benefit from LLM refinement.",
         "query_modules": [
             {
@@ -353,6 +339,175 @@ def _build_deterministic_strategy(spec: dict, raw_brief_text: str = "") -> dict:
                                 "Test queries in Meltwater and refine based on sample results"],
         },
     }
+
+
+# Questions about all of a brand's coverage, not one topic in it
+_BRAND_WIDE = re.compile(r"share of voice|\bsov\b|\bvolume\b|\bspikes?\b|\bpeaks?\b|overall sentiment|"
+                         r"sentiment (?:breakout|breakdown|overview|distribution|split|mix)|"
+                         r"(?:prominent|key|top|main)(?: \w+)? themes", re.IGNORECASE)
+_COMPARES = re.compile(r"competitor|share of voice|\bsov\b|each brand|which brand|\bversus\b|\bvs\b", re.IGNORECASE)
+# Words a question is phrased with, not what its articles say ("Within coverage of ...", "sentiment distribution toward").
+_FILLER = frozenset("""a an the and or nor of in on to for with within without by from at as into is are was were be been
+being what which who whom whose how why when where whether does do did much many most more less least than toward towards
+about across between among each every any all its it their they his her this that these those there such very also
+coverage covered media social news editorial outlets conversation conversations discussion discussions mention mentions
+brand brands company companies competitor competitors named positioned position positioning compare compared comparison
+versus vs relative concern concerns concerning related relating associated drivers driver distribution sentiment tone
+share voice volume period during over e g eg exposed major key top main prominent overall us u s united states
+such often frequently reference references referenced discuss discussed discussing discussion talk talked described
+framed portrayed perceived perception cause caused drove drive driving moments stories story impact role""".split())
+_MONTHS = re.compile(r"^(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*$")
+# A question's concept word -> the words its articles use for it (a trailing * also matches plurals).
+_CONCEPT_TERMS = {
+    "autonom": ["self-driving", "autonomous", "autonomy", "FSD", "Full Self-Driving", "Autopilot", "robotaxi*"],
+    "self-driving": ["self-driving", "autonomous", "FSD", "Full Self-Driving", "Autopilot", "robotaxi*"],
+    "charging": ["charging", "charger*", "Supercharger*", "charging network"],
+    "recall": ["recall*", "NHTSA", "investigation*"],
+    "safety": ["safety", "NHTSA", "crash*", "investigation*"],
+    "pricing": ["price*", "pricing"],
+    "leadership": ["CEO", "leadership", "executive*"],
+}
+
+
+def _topic_terms(question: str, spec: dict, brand_names: list[str]) -> list[str]:
+    """A question's topic as quoted query terms: the items it lists in parentheses, the articles' words for the
+    concepts it names, the scope entities (and brand keywords) it mentions, then its remaining content words with
+    filler, brand names and dates dropped."""
+    lower = question.lower()
+    skip = {n.lower() for n in brand_names if n}
+    found: list[str] = []
+    for group in re.findall(r"\(([^)]*)\)", question):
+        found += [t.strip() for t in re.split(r",|\bor\b|\band\b", re.sub(r"\be\.?g\.?,?", "", group)) if t.strip()]
+    for concept, words in _CONCEPT_TERMS.items():
+        if concept in lower:
+            found += words
+    for ent in spec.get("validated_entities") or []:
+        if not isinstance(ent, dict):
+            continue
+        for name in [ent.get("name") or ""] + ((ent.get("keywords") or []) if ent.get("type") == "brand" else []):
+            if name and re.search(rf"\b{re.escape(name.lower())}\b", lower):
+                found.append(name)
+    in_terms = {w for t in found for w in re.findall(r"[\w'-]+", t.lower())}
+    for word in re.findall(r"[A-Za-z][\w'-]*", re.sub(r"\([^)]*\)", " ", question)):
+        w = word.lower().strip("'")
+        if len(w) > 2 and w not in _FILLER and w not in in_terms and not _MONTHS.match(w):
+            found.append(f"{w[:-1]}*" if len(w) > 4 and w.endswith("s") and not w.endswith("ss") else w)
+    terms, seen = [], set()
+    for t in found:
+        key = re.sub(r"s?\*?$", "", t.lower())   # "recalls" and "recall*" are one term
+        if key in seen or key in skip or key in _FILLER:
+            continue
+        seen.add(key)
+        terms.append(f'"{t}"')
+    return terms[:15]
+
+
+def _only_brief_questions(strategy: dict, spec: dict) -> dict:
+    """The strategy answers the brief's questions only: an RQ the brief does not have (an LLM's or a template's extra
+    RQ7/RQ8) is dropped."""
+    ids = {rq.get("question_id") for rq in spec.get("research_questions") or [] if isinstance(rq, dict)}
+    if ids and strategy.get("research_question_queries"):
+        strategy["research_question_queries"] = [q for q in strategy["research_question_queries"]
+                                                 if q.get("question_id") in ids]
+    return strategy
+
+
+def _brand_wide_queries(strategy: dict, spec: dict) -> dict:
+    """A share-of-voice / volume / spikes / sentiment-overview / top-themes question gets the brand query (plus the
+    competitors when it compares them) with no topic group: uploaded articles reach a question without its own upload
+    only by matching its query, so an "electric vehicle" AND-group starved SOV of most of its coverage."""
+    brand = (spec.get("commissioning_brand") or {}).get("name") or ""
+    competitors = [e["name"] for e in spec.get("validated_entities") or []
+                   if isinstance(e, dict) and e.get("type") == "competitor" and e.get("name") and e["name"] != brand]
+    if not brand:
+        return strategy
+    for rq in strategy.get("research_question_queries") or []:
+        question = rq.get("question") or ""
+        if not _BRAND_WIDE.search(question):
+            continue
+        names = [brand] + (competitors if _COMPARES.search(question) else [])
+        # the question keeps its own query (searching, display); uploaded articles are matched to it on the brand
+        # group and exclusions only, so a topic AND-group can't starve an overall-volume question of its articles
+        rq["match_query"] = _without_topic_groups(rq.get("query") or "", brand, names)
+    return strategy
+
+
+def _top_level(query: str) -> list[tuple[str, str]]:
+    """[(operator, clause)] split on the AND / NOT that sit outside any parentheses; the first operator is ""."""
+    parts, depth, start, op, i, quoted = [], 0, 0, "", 0, False
+    while i < len(query):
+        ch = query[i]
+        if ch == '"':
+            quoted = not quoted
+        elif not quoted and ch == "(":
+            depth += 1
+        elif not quoted and ch == ")":
+            depth -= 1
+        elif not quoted and depth == 0 and (m := re.match(r"\s+(AND NOT|AND|NOT)\s+", query[i:])):
+            parts.append((op, query[start:i].strip()))
+            op, start = m.group(1), i + m.end()
+            i += m.end()
+            continue
+        i += 1
+    parts.append((op, query[start:].strip()))
+    return [(o, c) for o, c in parts if c]
+
+
+def _without_topic_groups(query: str, brand: str, names: list[str]) -> str:
+    """The query's own structure minus its topic AND-groups: the brand group (with the variants the builder wrote) and
+    the NOT exclusions stay; a compared competitor missing from the brand group is added to it."""
+    clauses = _top_level(query)
+    group = next((c for o, c in clauses if o in ("", "AND") and brand.lower() in c.lower()), "")
+    inner = group[1:-1].strip() if group.startswith("(") and group.endswith(")") else group
+    terms = [t for t in re.split(r"\s+OR\s+", inner) if t.strip()] if inner else []
+    have = {t.strip().strip('"').lower() for t in terms}
+    terms += [f'"{n}"' for n in names if n.lower() not in have]
+    keep = f"({' OR '.join(terms)})" if len(terms) > 1 else (terms[0] if terms else f'"{brand}"')
+    nots = [c for o, c in clauses if "NOT" in o]
+    return " ".join([keep] + [f"NOT {c}" for c in nots])
+
+
+# shortcut: the common countries, regions and their short forms, not every place name; extend when a brief needs more
+_GEO_TERMS = frozenset(t.strip() for t in """
+us,usa,u.s.,america,united states,uk,u.k.,britain,great britain,united kingdom,england,scotland,wales,ireland,eu,europe,
+european,asia,asian,africa,african,apac,emea,latam,latin america,middle east,north america,south america,oceania,canada,
+mexico,brazil,argentina,chile,colombia,australia,new zealand,india,pakistan,bangladesh,china,chinese,hong kong,taiwan,
+japan,korea,south korea,north korea,singapore,malaysia,indonesia,thailand,vietnam,philippines,germany,france,italy,spain,
+portugal,netherlands,belgium,switzerland,austria,sweden,norway,denmark,finland,poland,russia,ukraine,turkey,israel,uae,
+dubai,saudi arabia,qatar,egypt,nigeria,kenya,south africa""".split(","))
+_NOT_GROUP = re.compile(r"\s*\bNOT\s*\(([^()]*)\)")
+_NOT_TERM = re.compile(r"\s*\bNOT\s+(\"[^\"]+\"|'[^']+'|[\w.]+)")
+
+
+def _is_geo(term: str) -> bool:
+    return term.strip().strip("\"'").strip().lower() in _GEO_TERMS
+
+
+def _strip_geo_not(query: str) -> str:
+    """The query without countries or regions among its NOT terms: excluding "China" drops BYD's coverage, and the
+    country is the source/country filter's job, not the query's."""
+    def group(m: re.Match) -> str:
+        kept = [t for t in re.split(r"\s+OR\s+", m.group(1).strip()) if t and not _is_geo(t)]
+        return f" NOT ({' OR '.join(kept)})" if kept else ""
+    query = _NOT_GROUP.sub(group, query or "")
+    return _NOT_TERM.sub(lambda m: "" if _is_geo(m.group(1)) else m.group(0), query).strip()
+
+
+def _no_geographic_exclusions(strategy: dict) -> dict:
+    """Geography is set by the country/source filters: no query excludes a country or region with NOT."""
+    for rq in strategy.get("research_question_queries") or []:
+        if rq.get("query"):
+            rq["query"] = _strip_geo_not(rq["query"])
+    for qv in (strategy.get("query_versions") or {}).values():
+        if isinstance(qv, dict) and qv.get("query"):
+            qv["query"] = _strip_geo_not(qv["query"])
+    exclusion = strategy.get("exclusion_strategy")
+    if isinstance(exclusion, dict):
+        if exclusion.get("global_exclusions"):
+            exclusion["global_exclusions"] = _strip_geo_not(exclusion["global_exclusions"])
+        exclusion["exclusion_categories"] = [c for c in exclusion.get("exclusion_categories") or []
+                                             if not (isinstance(c, dict) and c.get("category") == "geographic")]
+    return strategy
 
 
 @router.post("/strategy/generate", response_model=StrategyJobStarted)
@@ -472,6 +627,8 @@ def generate_search_strategy(req: GenerateStrategyRequest):
                                  "progress_pct": 70, "message": "Building deterministic strategy"})
                     strategy_result = _build_deterministic_strategy(spec, raw_brief_text)
 
+            strategy_result = _no_geographic_exclusions(
+                _only_brief_questions(_brand_wide_queries(strategy_result, spec), spec))
             logger.info("[strategy:%s] LLM strategy generation succeeded — validating Boolean syntax", job_id)
             store.update_job(job_id, progress_pct=80,
                              progress_message="Validating Boolean syntax")
@@ -1194,8 +1351,10 @@ def enrich_dataset_route(dataset_id: IdPath, _access: Annotated[dict, Depends(re
             # Tag against what this file's research question asks about (sport, injury type, ...), not only the
             # fixed sentiment/theme/entity schema
             dimensions = dimensions_for_dataset(dataset, llm_client)
+            to_tag, also = tag_schemas.with_also_questions(dataset, to_tag, llm_client)
             result = enrich_dataset(to_tag, brand_name, competitors, llm_client=llm_client, emit=on_event,
-                                    dimensions=dimensions, tag_schema=tag_schemas.schema_for_dataset(dataset, llm_client))
+                                    dimensions=dimensions, tag_schema=tag_schemas.schema_for_dataset(dataset, llm_client),
+                                    also_schemas=also)
             tagged_by_id = {str(r["id"]): r for r in result["records"]}
             merged = [preserved_by_id.get(str(r["id"])) or tagged_by_id[str(r["id"])] for r in records]
 

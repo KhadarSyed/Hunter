@@ -99,7 +99,21 @@ def _tag_answers(sections: list[Section], word: str) -> Section | None:
     return next((s for s in sections if s.module == "tag_share" and not s.skipped and word in s.id), None)
 
 
-def _ask_row(kind: str, ask: str, sections: list[Section], has_brief_doc: bool, has_data_export: bool = False) -> dict:
+_GENERIC_ASK = _GENERIC_TITLE | {"analys", "compar", "breako"}
+
+
+def _by_question(ask: str, rqs: list[RQ], sections: list[Section]) -> RQ | None:
+    """The research question that is this ask ('Electrification (hybrids/EV) coverage analysis' -> the question on
+    hybrids and EVs), when its share of coverage was measured: its slides answer the ask."""
+    want = _stems(ask) - _GENERIC_ASK
+    drawn = {s.rq_id for s in sections if s.module == "share_kpi" and not s.skipped}
+    best = max(((len(want & _stems(rq.question)), rq) for rq in rqs if rq.id in drawn), key=lambda p: p[0],
+               default=(0, None))
+    return best[1] if best[0] >= MIN_SHARED_STEMS else None
+
+
+def _ask_row(kind: str, ask: str, sections: list[Section], has_brief_doc: bool, has_data_export: bool = False,
+             rqs: list[RQ] = ()) -> dict:
     low = ask.lower()
     row = {"ask": ask, "kind": kind, "rq_id": None, "slides": [], "modules": []}
     if DATA_EXPORT.search(low) and has_data_export:
@@ -117,6 +131,10 @@ def _ask_row(kind: str, ask: str, sections: list[Section], has_brief_doc: bool, 
         if matched:
             return {**row, "status": "covered", "note": f"Answered by: {matched[0].title}",
                     "modules": [m.id for m in matched]}
+        rq = _by_question(ask, rqs, sections)
+        if rq:
+            return {**row, "status": "covered", "note": f"Answered by {rq.id}: {rq.question}", "rq_id": rq.id,
+                    "modules": [s.id for s in sections if s.rq_id == rq.id]}
         return {**row, "status": "missing", "note": "No analysis in this run matches this request"}
     drawn = [s for s in sections if not s.skipped and _keys(s) & wanted]
     if not drawn:
@@ -131,7 +149,7 @@ def build_checklist(rqs: list[RQ], sections_by_rq: dict[str, list[Section]], ask
                     has_brief_doc: bool = True, has_data_export: bool = False) -> list[dict]:
     every = [s for secs in sections_by_rq.values() for s in secs]
     return [_question_row(rq, sections_by_rq.get(rq.id, [])) for rq in rqs] + \
-           [_ask_row(kind, ask, every, has_brief_doc, has_data_export) for kind, ask in asks]
+           [_ask_row(kind, ask, every, has_brief_doc, has_data_export, rqs) for kind, ask in asks]
 
 
 def attach_slide_numbers(spec: DeckSpec, rows: list[dict]) -> list[dict]:

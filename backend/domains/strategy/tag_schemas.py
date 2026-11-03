@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 
 from ...agents import question_tag_schema as ts
 from ...core import store
+from ..deliverable.boolean_query import matches
 from .dimensions import project_dimensions
 
 
@@ -24,7 +26,15 @@ def _signature(question: str, query: str, columns: list[dict]) -> str:
     return hashlib.sha1("\n".join([question, query, json.dumps(columns, sort_keys=True)]).encode("utf-8")).hexdigest()
 
 
+_locks: dict[int, threading.Lock] = {}   # one derivation per project at a time (see dimensions._locks)
+
+
 def project_tag_schemas(project_id: int, llm=None) -> dict[str, ts.TagSchema]:
+    with _locks.setdefault(project_id, threading.Lock()):
+        return _project_tag_schemas(project_id, llm)
+
+
+def _project_tag_schemas(project_id: int, llm=None) -> dict[str, ts.TagSchema]:
     strategy = (store.get_latest_strategy(project_id) or {}).get("strategy") or {}
     questions = strategy.get("research_question_queries") or []
     dims_by_rq = project_dimensions(project_id, llm)
@@ -49,3 +59,19 @@ def project_tag_schemas(project_id: int, llm=None) -> dict[str, ts.TagSchema]:
 def schema_for_dataset(dataset: dict, llm=None) -> ts.TagSchema | None:
     """The schema of the question a dataset was uploaded for (none when it is not mapped to one)."""
     return project_tag_schemas(dataset["project_id"], llm).get(dataset.get("research_question_id") or "")
+
+
+def with_also_questions(dataset: dict, records: list[dict], llm=None) -> tuple[list[dict], dict[str, ts.TagSchema]]:
+    """The other questions' schemas, and each record with `also_questions`: the questions (not the file's own) whose
+    Meltwater query matches it, as the deck's routing will. A question with no upload of its own gets its tags
+    from the articles routed to it, tagged in the same enrichment call as the file's own question."""
+    own = dataset.get("research_question_id") or ""
+    schemas = project_tag_schemas(dataset["project_id"], llm)
+    strategy = (store.get_latest_strategy(dataset["project_id"]) or {}).get("strategy") or {}
+    queries = {q.get("question_id") or f"RQ{i}": q.get("match_query") or q.get("query") or ""
+               for i, q in enumerate(strategy.get("research_question_queries") or [], start=1)}
+    others = {rq: s for rq, s in schemas.items() if rq != own and s.tags and queries.get(rq)}
+    out = [{**r, "also_questions": [rq for rq in others
+                                    if matches(queries[rq], f"{r.get('title') or ''}\n{r.get('content') or ''}")]}
+           for r in records]
+    return out, others

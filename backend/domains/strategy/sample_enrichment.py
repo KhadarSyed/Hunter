@@ -15,7 +15,7 @@ from ...core import store
 from ..deliverable.ingest import normalize_url
 from ..execution.service import _is_excluded, _load_dataset
 from .dimensions import dimensions_for_dataset
-from .tag_schemas import schema_for_dataset
+from .tag_schemas import schema_for_dataset, with_also_questions
 
 logger = logging.getLogger(__name__)
 TOTAL = 500
@@ -122,21 +122,24 @@ def _plan(datasets: list[dict], total: int, per_rq: int) -> list[tuple[dict, lis
 
 
 def _retag_with_schema(datasets: list[dict], brand: str, competitors: list[str], llm, emit) -> int:
-    """Articles already in the sample but tagged before their question had a dynamic tag schema are tagged again
-    against it -- the same articles, so the sample does not grow; an analyst's manual edits are never redone."""
+    """Articles already in the sample but tagged before their question had a dynamic tag schema, or before a
+    question their text matches by query had its tags filled (also_questions), are tagged again -- the same
+    articles, so the sample does not grow; an analyst's manual edits are never redone."""
     retagged = 0
     for ds in datasets:
         schema = schema_for_dataset(ds, llm)
         raw = (store.get_dataset_by_id(ds["id"]) or {}).get("enrichment_json")
         existing = json.loads(raw) if raw else []
-        stale = [r for r in existing if schema and schema.tags and "question_tags" in r
-                 and ("dynamic_tags" not in r or "question_summary" not in r)
+        current, also = with_also_questions(ds, existing, llm)
+        stale = [r for r, old in zip(current, existing) if "question_tags" in r
+                 and ((schema and schema.tags and ("dynamic_tags" not in r or "question_summary" not in r))
+                      or set(r["also_questions"]) - set(old.get("also_questions") or []))
                  and not r.get("manually_edited") and (r.get("url") or "").strip() and (r.get("content") or r.get("title"))]
         if not stale:
             continue
         stale = [{**r, "content": r.get("content") or r.get("title")} for r in stale]
         result = enrich_dataset(stale, brand, competitors, llm_client=llm, emit=emit,
-                                dimensions=dimensions_for_dataset(ds, llm), tag_schema=schema)
+                                dimensions=dimensions_for_dataset(ds, llm), tag_schema=schema, also_schemas=also)
         store.update_dataset_enrichment(ds["id"], "done", enrichment=_merge(existing, result["records"]))
         retagged += len(stale)
     return retagged
@@ -157,8 +160,10 @@ def run_sample(project_id: int, llm, total: int = TOTAL, per_rq: int = PER_RQ, e
         rq = ds.get("research_question_id") or "unmapped"
         store.update_dataset_enrichment(ds["id"], "processing", enrichment=existing or None)
         try:
+            sample, also = with_also_questions(ds, sample, llm)
             result = enrich_dataset(sample, brand, competitors, llm_client=llm, emit=emit,
-                                    dimensions=dimensions_for_dataset(ds, llm), tag_schema=schema_for_dataset(ds, llm))
+                                    dimensions=dimensions_for_dataset(ds, llm), tag_schema=schema_for_dataset(ds, llm),
+                                    also_schemas=also)
         except Exception as e:
             logger.error("sample enrichment of dataset %s failed: %s", ds["id"], type(e).__name__)
             store.update_dataset_enrichment(ds["id"], "error", enrichment=existing or None, error=str(e)[:300])

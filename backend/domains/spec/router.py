@@ -68,8 +68,8 @@ def _spec_progress(step: str, payload: dict) -> tuple[int | None, str]:
         return pct, f"Attempt {attempt}: all rules met" + (f" ({warnings} minor warning(s))" if warnings else "")
     if step == "brief_scope_error":
         return None, payload.get("error", "Agent call issue — retrying")
-    if step in ("brief_scope_failed", "brief_scope_incomplete"):
-        return _LLM_STAGE_END_PCT, "Agent interpretation incomplete after retries — using existing project details"
+    if step == "brief_scope_failed":
+        return _LLM_STAGE_END_PCT, "Agent could not interpret the brief after retries"
     if step == "brief_scope_complete":
         client = payload.get("client", "")
         entities = payload.get("entity_count", 0)

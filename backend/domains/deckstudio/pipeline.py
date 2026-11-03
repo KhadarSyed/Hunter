@@ -4,6 +4,7 @@ from __future__ import annotations
 
 
 import json
+from dataclasses import replace
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -28,22 +29,15 @@ CREATIVE_RESTYLE = False
 
 
 def reuse_photos(slides, log=lambda _m: None) -> None:
-    """A photo slide whose search found nothing (search quota spent, no relevant image) reuses one found for another
-    slide, never its neighbours', so no slide is left a bare gradient; with no photo at all, the gradient stays."""
-    found = list(dict.fromkeys(s.image["path"] for s in slides if s.image.get("path")))
-    # the cover and closing reuse only each other's photo (checked as the client's own), never a category photo
-    own = list(dict.fromkeys(s.image["path"] for s in slides if s.image.get("path") and s.type in BRAND_BOOKENDS))
-    k = 0
-    for i, s in enumerate(slides):
-        pool = own if s.type in BRAND_BOOKENDS else found
-        if s.image.get("path") or not pool:
-            continue
-        near = {slides[j].image.get("path") for j in (i - 1, i + 1) if 0 <= j < len(slides)}
-        options = [pool[(k + n) % len(pool)] for n in range(len(pool))]
-        pick = next((p for p in options if p not in near), options[0])
-        k = found.index(pick) + 1
-        s.image["path"] = pick
-        log(f"{s.id}: no photo of its own; reusing one found for another slide")
+    """No picture is shown twice: a photo slide whose search found nothing keeps the brand gradient. Only the cover
+    and closing share one, the client's own photo (checked as the client's), so the deck opens and ends on it."""
+    own = next((s.image["path"] for s in slides if s.image.get("path") and s.type in BRAND_BOOKENDS), None)
+    for s in slides:
+        if s.type in BRAND_BOOKENDS and own and not s.image.get("path"):
+            s.image["path"] = own
+            log(f"{s.id}: the client's photo from the other end of the deck")
+        elif not s.image.get("path"):
+            log(f"{s.id}: no photo of its own; brand gradient kept (no picture repeats)")
 
 
 def _article_urls(slide, plan_input: PlanInput) -> list[str]:
@@ -95,6 +89,8 @@ def add_chart_logos(slide, logos: dict[str, Path]) -> None:
     # themes are ideas, not organisations: a letter badge or a brand logo beside "Safety investigation" adds noise
     unmarked = any(k in slide.id for k in UNMARKED_CHARTS)
     names = [c for ch in slide.charts if not unmarked for c in ch.get("categories", [])] + \
+            [s["name"] for ch in slide.charts for s in ch.get("brand_series") or []] + \
+            [str(b) for ch in slide.charts if ch.get("kpis") for b in (ch.get("breakdown") or {}).get("stacks") or []] + \
             [str(row[0]) for t in slide.tables for row in t.get("rows", []) if row] + \
             [str(row[i]) for t, cols in zip(slide.tables, outlet_cols) for row in t.get("rows", []) for i in cols
              if len(row) > i and row[i]]
@@ -170,15 +166,29 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     found = []
     photo_slides = [s for s in spec.slides
                     if (s.treatment in ("A", "C", "full") or s.type == "objectives") and s.image.get("query")]
-    scene_by_id = image_brief.scenes(llm, photo_slides, plan_input.brands, plan_input.products, plan_input.category)
+    # the client's actual products (CX-50, CX-90) are what a photo can show; the scope's keyword hints ("Zoom-Zoom",
+    # "Kodo design") searched slogans, logos and merch, so vision rejected them and most slides had no photo of their own
+    shown = plan_input.brand_products or plan_input.products
+    scene_by_id = image_brief.scenes(llm, photo_slides, plan_input.brands, shown, plan_input.category)
     checks = {"n": 0}
     for s in spec.slides:
         add_chart_logos(s, logos)
 
     def photo_for(s):
         role = "panel" if s.treatment == "C" or s.type == "objectives" else "background"
-        subjects = image_brief.subjects_for(s, plan_input.brands, plan_input.products, plan_input.category,
+        k = photo_slides.index(s) % max(1, len(shown))      # each slide leads with the next product, so photos vary
+        subjects = image_brief.subjects_for(s, plan_input.brands, shown[k:] + shown[:k], plan_input.category,
                                             scene_by_id.get(s.id, ""))
+        if not subjects.brands and not plan_input.is_category:
+            # a slide naming no brand (takeaways, insights) searched its own words ("Did we answer the brief")
+            # and spent its vision checks on junk; the client's own brand and product are always on-topic
+            subjects = replace(subjects, brands=[plan_input.title])
+        rivals = [b for b in subjects.brands if b != plan_input.title]
+        if rivals:
+            # a slide about competitors shows one of theirs, rotating across the slide's brands; never the client's
+            # product under a rival's name ("BYD Model Y" finds nothing and a Tesla photo wins every slide)
+            j = photo_slides.index(s) % len(rivals)
+            subjects = replace(subjects, brands=rivals[j:] + rivals[:j], products=[])
         label = s.question or s.title or s.kicker
         return assets.find_photo(" ".join(image_brief.queries(subjects)[:1]) or s.image["query"], role,
                                  deck_dir / "photos", used, brand_image if s.type == "cover" else None,
@@ -194,14 +204,26 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
         futures = {pool.submit(photo_for, s): s for s in photo_slides}
         for k, done in enumerate(as_completed(futures), start=1):
             run.within("assets", 0.8 * k / max(1, len(photo_slides)), f"Finding photos: {k} of {len(photo_slides)}")
-            photos[futures[done].id] = done.result()
-    taken: set[str] = set()
-    for s in photo_slides:                 # two slides searched at once may have picked the same photo
+            try:
+                photos[futures[done].id] = done.result()
+            except Exception as e:         # one slide's failed search costs that slide's photo, not the deck
+                logger.exception("photo search failed for %s", futures[done].id)
+                photos[futures[done].id] = assets.Photo(None, "", "none", f"photo search failed ({type(e).__name__})")
+    taken: set[str] = set()                # URLs and content fingerprints of the photos placed so far
+
+    def picture(photo) -> bytes:           # the downloaded original: crops for different slide shapes differ
+        raw = Path(photo.path).with_suffix(".src")
+        return (raw if raw.exists() else Path(photo.path)).read_bytes()
+
+    for s in photo_slides:                 # two slides searched at once may have picked the same picture
         photo = photos[s.id]
-        if photo.path and photo.source_url in taken:
-            photo = photo_for(s)           # `used` now holds every photo chosen above
+        if photo.path and (photo.source_url in taken or assets.is_duplicate(picture(photo), taken)):
+            photo = photo_for(s)           # `used` now holds every photo chosen above (URLs and fingerprints)
+            if photo.path and assets.is_duplicate(picture(photo), taken):
+                photo = assets.Photo(None, "", "none", "only pictures already on other slides")
         if photo.path:
             taken.add(photo.source_url)
+            assets.mark_used(picture(photo), taken)
         s.image["path"] = str(photo.path) if photo.path else None
         s.image["why"] = photo.why
         found.append({"slide": s.id, "source": photo.source_url, "licence": photo.licence, "why": photo.why})
@@ -267,7 +289,7 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
 
     run.stage("export", "running")
     out = exporter.export_all(html, spec, deck_dir, spec.title)
-    run.stage("export", "done", f"{len(out['pngs'])} slides")
+    run.stage("export", "done", f"studio deck - {len(out['pngs'])} slides")
     counts = {k: sum(1 for r in rows if r["status"] == k) for k in ("covered", "partial", "missing")}
     checks = validate.validate_deck(spec, plan_input.rqs, rows, plan_input.brand_products,
                                     has_competitors=len(plan_input.brands) > 1,

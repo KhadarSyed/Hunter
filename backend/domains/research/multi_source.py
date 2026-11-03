@@ -64,7 +64,7 @@ def search_brand_term(name: str) -> str:
     return stripped or (name or "").strip()
 
 
-def build_boolean_queries(spec: dict) -> list[TopicQuery]:
+def build_boolean_queries(spec: dict, llm=None) -> list[TopicQuery]:
     """Build one TopicQuery per research angle from an approved Research Specification.
     Every topic includes the brand OR'd with every competitor (brand_or_competitors) — no
     topic is brand-only or competitor-only, so no query is blind to the competitive set."""
@@ -123,20 +123,72 @@ def build_boolean_queries(spec: dict) -> list[TopicQuery]:
             display_label=f"Event: {event}",
         ))
 
-    research_questions = spec.get("research_questions", [])
-    for i, rq in enumerate(research_questions):
-        question = rq.get("question", "") if isinstance(rq, dict) else str(rq)
-        if not question:
-            continue
-        phrase = question[:80]
+    questions = [(rq.get("question", "") if isinstance(rq, dict) else str(rq)) for rq in spec.get("research_questions", [])]
+    clauses = question_clauses([q for q in questions if q], brand_or_competitors_terms, llm)
+    for i, question in enumerate(q for q in questions if q):
+        clause = clauses[i]
         topics.append(TopicQuery(
             topic=f"research_question_{i + 1}",
-            boolean_query=f'{brand_group_bool} AND "{phrase}"{exclusion}',
-            natural_query=f"{brand_group_natural} {phrase}",
-            display_label=phrase,
+            boolean_query=f"{brand_group_bool} AND {clause}{exclusion}",
+            natural_query=f"{brand_group_natural} {question[:120]}",
+            display_label=question[:80],
         ))
 
     return topics
+
+
+_QUESTION_PROMPT = (
+    "You write Meltwater-style Boolean search clauses. For each research question, return the clause that finds "
+    "articles answering it: the question's 1-2 subject concepts, each an OR group of 2-6 words or phrases that "
+    "would appear in such an article's text (e.g. hybrid OR \\\"plug-in hybrid\\\" OR EV OR electric), groups joined "
+    "with AND. Every multi-word phrase in DOUBLE quotes. Never use words that describe the analysis rather than the "
+    "subject (sentiment, coverage, editorial, social, media, articles, mentions, volume, share of voice, themes, "
+    "spikes, trend). Do NOT include the brand or competitor names (added separately) and no NOT. A question only "
+    "about sentiment or volume gets one broad subject group for the category. Reply as JSON "
+    "{\"clauses\": [\"(...)\", ...]} in the same order as the questions.")
+_STOP = {"what", "which", "where", "when", "does", "how", "much", "many", "most", "major", "across", "between",
+         "about", "their", "there", "these", "those", "with", "from", "into", "compare", "compared", "coverage",
+         "share", "voice", "volume", "period", "during", "within", "other", "receives", "associated", "prominent",
+         # words about the analysis, which articles never use
+         "overall", "sentiment", "breakout", "editorial", "social", "themes", "topics", "media", "spikes", "news",
+         "moments", "drove", "them", "relative", "split", "focused", "positioned", "against", "cites", "competitors",
+         "mentions", "brand", "brands", "frequently", "discussed",
+         # question filler that the keyword fallback otherwise picked up ("such", "have", "been", "among", "each")
+         "such", "specific", "have", "been", "events", "prompted", "competitive", "among", "each", "related",
+         "examples", "including", "like", "they", "this", "that", "were", "what's", "whose", "both", "also"}
+LLM_QUERY_TIMEOUT_S = 45
+
+
+def _keyword_clause(question: str, names: list[str]) -> str:
+    """Without the LLM: the question's own content words, OR'd (never the question as one quoted phrase)."""
+    taken = {w.lower() for n in names for w in n.split()}
+    words = [w.strip(",.?!()\"'’") for w in question.split()]
+    keep = [w for w in dict.fromkeys(words) if len(w) > 3 and w.lower() not in _STOP and w.lower() not in taken][:5]
+    return "(" + " OR ".join(f'"{w}"' for w in keep) + ")" if keep else "(news OR coverage)"
+
+
+def question_clauses(questions: list[str], names: list[str], llm=None) -> list[str]:
+    """One Boolean clause per research question: written by the LLM like Search Strategy's queries (one call for all
+    questions, each clause syntax-checked), else built from the question's keywords."""
+    fallback = [_keyword_clause(q, names) for q in questions]
+    if not questions or llm is None:
+        return fallback
+    from concurrent.futures import ThreadPoolExecutor
+    from ...agents.meltwater_query_builder import validate_boolean_syntax
+    msgs = [{"role": "system", "content": _QUESTION_PROMPT},
+            {"role": "user", "content": _json.dumps({"questions": questions}, ensure_ascii=False)}]
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        reply = _json.loads(pool.submit(llm.chat, msgs, format_json=True).result(timeout=LLM_QUERY_TIMEOUT_S))
+        # search engines read only double-quoted phrases
+        got = [re.sub(r"'([^']+)'", r'"\1"', str(c)).strip() for c in (reply.get("clauses") or [])]
+    except Exception as e:      # slow, unreachable or malformed: the keyword clauses stand
+        logger.warning("question clauses fell back to keywords: %s", type(e).__name__)
+        return fallback
+    finally:
+        pool.shutdown(wait=False)
+    return [c if c and not validate_boolean_syntax(c) else fb
+            for c, fb in zip(got + [""] * len(questions), fallback)]
 
 
 def _platform_for_url(url: str) -> str | None:

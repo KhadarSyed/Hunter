@@ -18,7 +18,7 @@ from ...core import config, store, writing_locale
 from ...core.events import broadcast
 from . import (analytics, brand_kit, catalog, engine_insights, extract, factcheck, generic_deck, templates_index,
                visuals, word_brief)
-from . import brand_analytics, chart_choice, entity_relevance, evidence, repair_context, tag_insights
+from . import brand_analytics, chart_choice, entity_relevance, evidence, latest24h, notify, repair_context, tag_insights
 from ...agents import question_tag_schema
 from . import rows as R
 from .citations import CitationRegistry, domain_of
@@ -29,7 +29,7 @@ from ..agent.repair import issues
 from ..deckstudio import verbatims, vision
 from ..deckstudio.pipeline import run_studio
 from ..deckstudio.checklist import brief_asks
-from ..deckstudio.planner import BRAND_KEY, PlanInput
+from ..deckstudio.planner import BRAND_KEY, GEO_KEY, PlanInput
 from ..strategy.dimensions import project_dimensions as question_dimensions
 
 logger = logging.getLogger(__name__)
@@ -404,11 +404,70 @@ def _question_plan(project_id: int, llm, q: RQ, rows, stored: dict, log) -> dict
     return plan
 
 
+LATEST24H_WAIT_S = 150       # a deck with no stored 24h refresh waits this long for one, then the deck goes without its 24h slides
+LATEST24H_POLL_S = 3
+
+
+def _latest24h(project_id: int, llm, log) -> dict | None:
+    """The latest completed "last 24h" refresh for the deck's live slides; with none stored, or only one older than
+    the window (its news is stale), one is run (bounded)."""
+    refresh = store.get_latest_latest24h_refresh(project_id)
+    if (refresh and refresh["status"] == "completed"
+            and time.time() - (refresh.get("finished_at") or 0) < latest24h.WINDOW.total_seconds()):
+        return refresh
+    try:
+        latest24h.start(project_id, llm=llm)
+    except latest24h.RefreshBusy:
+        pass                                  # one already running: wait for it
+    deadline = time.time() + LATEST24H_WAIT_S
+    while time.time() < deadline:
+        refresh = store.get_latest_latest24h_refresh(project_id)
+        if refresh and refresh["status"] != "running":
+            break
+        time.sleep(LATEST24H_POLL_S)
+    if refresh and refresh["status"] == "completed":
+        log(f"Last 24h: {refresh['kept']} articles kept of {refresh['fetched']} fetched")
+        return refresh
+    log("Last 24h: no refresh finished in time; the deck has no last-24h slides")
+    return None
+
+
+def _outlet_icon_files(refresh: dict | None, folder: Path) -> dict[str, str]:
+    """{outlet: its site icon file} for the 24h dashboard's outlet bars (the deck's chart logos are files)."""
+    outlets = ((refresh or {}).get("charts") or {}).get("outlets") or {}
+    # the outlet's own site (an undecoded news.google.com link would give every outlet Google's icon)
+    sites = {a["outlet"]: domain_of(latest24h._site(a)) for a in (refresh or {}).get("articles") or [] if a.get("outlet")}
+    found = {o: visuals.favicon_png(sites.get(o, ""), folder) for o in outlets.get("categories") or []}
+    return {o: str(p) for o, p in found.items() if p}
+
+
+DRILL_SUMMARY_CHARS = 220    # an article's 1-2 line summary in the deck's click-through (the export's own text)
+DRILL_ICON_SITES = 400       # site icons fetched for it (cached on disk); the rest show the outlet's initial
+DRILL_ICON_WORKERS = 8
+
+
+def _drill_articles(rows, folder: Path) -> tuple[dict[str, dict], dict[str, str]]:
+    """Every article as the deck lists it when a chart element is clicked, and each site's icon file."""
+    articles = {}
+    for r in rows:
+        a = r.article
+        text = re.sub(r"\s+", " ", a.text or "").strip()
+        summary = text if len(text) <= DRILL_SUMMARY_CHARS else text[:DRILL_SUMMARY_CHARS].rsplit(" ", 1)[0] + "…"
+        articles[a.norm_url] = {"t": a.title, "u": a.url, "d": domain_of(a.url), "dt": a.date.isoformat() if a.date else "",
+                                "a": a.author, "c": analytics.platform(r), "o": a.outlet,
+                                "i": a.image if a.image.lower().startswith("https://") else "",
+                                "s": "" if summary == a.title else summary}
+    sites = list(dict.fromkeys(v["d"] for v in articles.values() if v["d"]))[:DRILL_ICON_SITES]
+    with ThreadPoolExecutor(max_workers=DRILL_ICON_WORKERS) as pool:
+        found = dict(zip(sites, pool.map(lambda d: visuals.favicon_png(d, folder), sites)))
+    return articles, {d: str(p) for d, p in found.items() if p}
+
+
 def _fit_chart(section: Section, question: str) -> Section:
     """The section drawn as the chart its data and question call for (see chart_choice)."""
     if section.skipped or not section.chart:
         return section
-    return dataclasses.replace(section, chart=chart_choice.choose(section.chart, question))
+    return dataclasses.replace(section, chart=chart_choice.choose(section.chart, question, section.id))
 
 
 def _deck_input(project: dict, rows, rqs, overview, sections_by_rq, insights_by_rq, answers, takeaways,
@@ -630,9 +689,10 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         # brief analysis did not list it as an expected analysis
         asks = [text for _, text in brief_asks(project_id)] + [(project.get("spec") or {}).get("raw_brief") or ""]
         stored_plans = store.get_deliverable_plans(project_id)
-        plans = {q.id: catalog.with_brief_asks(
+        map_rq = catalog.map_question(rqs, rows_by_rq)
+        plans = {q.id: catalog.with_us_map(catalog.with_brief_asks(
                      catalog.with_breakdowns(_question_plan(project_id, llm, q, rows_by_rq[q.id], stored_plans, run.log),
-                                             q, dims_by_rq.get(q.id, [])), asks)
+                                             q, dims_by_rq.get(q.id, [])), asks), rows_by_rq[q.id], q.id == map_rq)
                  for q in rqs}
         for q in rqs:
             run.log(f"{_rq_label(q)}: " + ", ".join(m["module"] for m in plans[q.id]["modules"]))
@@ -652,6 +712,13 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         brand_secs = [_fit_chart(s, s.title) for s in brand_analytics.brand_sections(rows, brands)]
         for s in brand_secs:
             run.section(s.to_dict())
+        # no question asks where: one overview map of all the coverage, in the appendix, not on a themes question
+        geo_secs = [] if map_rq else [s for s in [analytics.compute_module(
+            {"module": "us_map", "title": "Where the coverage comes from", "entity_kind": None},
+            RQ(GEO_KEY, "Where does the coverage come from?"), rows, base, None)] if not s.skipped]
+        for s in geo_secs:
+            run.section(s.to_dict())
+            run.log(f"Overview map in the appendix: no question asks where ({s.chart['choice']})")
         sections_by_rq: dict[str, list[Section]] = {}
         for q in rqs:
             sections_by_rq[q.id] = [analytics.compute_module(m, q, rows_by_rq[q.id], base,
@@ -729,7 +796,7 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         run.section({"id": "citations", "rq_id": None, "module": "citations", "title": "Citations",
                      "citations": _deck_citations(registry.entries())})
         run.section(_page_visuals(project, sections_by_rq, inp.logos))
-        run.log(f"Deck saved with {len(Presentation(str(pptx_path)).slides)} slides; "
+        run.log(f"Classic deck saved with {len(Presentation(str(pptx_path)).slides)} slides; "
                 f"{len(registry.entries())} sources cited")
         run.stage("render", "done", pptx_path.name)
 
@@ -753,7 +820,8 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
                                      thumbs_dir=str(out_dir / "thumbs"))
         studio_paths = {}
         try:
-            plan_input = _plan_input(project, inp, rqs, overview, {**sections_by_rq, BRAND_KEY: brand_secs},
+            plan_input = _plan_input(project, inp, rqs, overview,
+                                     {**sections_by_rq, BRAND_KEY: brand_secs, GEO_KEY: geo_secs},
                                      insights_by_rq, answers,
                                      takeaways, methodology, base, {q.id: plans[q.id]["title"] for q in rqs},
                                      _verbatims_by_rq(rqs, rows_by_rq, insights_by_rq, registry, brands,
@@ -765,6 +833,9 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
                 rqs, {**sections_by_rq, BRAND_KEY: brand_secs}, rows_by_rq, rows, brands,
                 {**{q.id: _relevant_urls(rows_by_rq[q.id], answer_tags[q.id], brands) for q in rqs},
                  BRAND_KEY: {r.article.norm_url for r in brand_evidence}})
+            plan_input.latest24h = _latest24h(project_id, llm, run.log)
+            plan_input.latest24h_icons = _outlet_icon_files(plan_input.latest24h, out_dir / "favicons")
+            plan_input.articles, plan_input.article_icons = _drill_articles(rows, out_dir / "favicons")
             studio = run_studio(run, project_id, llm, plan_input,
                                 inp.brand_colors, inp.brand_image, inp.logos, out_dir,
                                 on_fix=lambda sid, action, kind: agent_memory.remember(
@@ -800,6 +871,7 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
             logger.exception("[deliverable:%s] progress calibration check failed", run_id)
         broadcast({"type": "deliverable_completed", "project_id": project_id, "run_id": run_id,
                    "ready": report["ready"]})
+        notify.notify_ready(project_id, run_id)
     except Exception as e:
         stage = e.stage if isinstance(e, StageFailed) else current
         logger.error("[deliverable:%s] stage %s failed: %s", run_id, stage, e, exc_info=not isinstance(e, StageFailed))

@@ -6,12 +6,12 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 from ...core import store
 from ...core.auth import require_project_access
 from ..deckstudio import data_tables, revise
-from . import engine, repair_run
+from . import engine, latest24h, notify, repair_run
 from . import rows as engine_rows
 from .schemas import (DataCoverageResponse, DeckDesign, DeckDesignChange, DeckDesignResult, DeliverableRunPayload,
                       DeliverableRunStarted)
@@ -78,6 +78,20 @@ def latest(project_id: ProjectId, _: Access):
     return _payload(run["id"]) if run else {"run": None, "sections": []}
 
 
+@router.post("/deliverable/{project_id}/latest24h", status_code=202)
+def refresh_latest24h(project_id: ProjectId, _: Access):
+    """Fetch the last 24 hours of coverage about the brand and its competitors; progress streams on /ws."""
+    try:
+        return {"refresh_id": latest24h.start(project_id)}
+    except latest24h.RefreshBusy as e:
+        raise HTTPException(409, str(e))
+
+
+@router.get("/deliverable/{project_id}/latest24h")
+def latest_latest24h(project_id: ProjectId, _: Access):
+    return {"refresh": store.get_latest_latest24h_refresh(project_id)}
+
+
 @router.get("/deliverable/{project_id}/runs/{run_id}", response_model=DeliverableRunPayload)
 def get_run(project_id: ProjectId, run_id: RunId, _: Access):
     _owned_run(project_id, run_id)
@@ -96,10 +110,13 @@ def download(project_id: ProjectId, run_id: RunId, kind: str, _: Access):
     return FileResponse(path, media_type=_MEDIA[kind], filename=Path(path).name)
 
 
-# The deck holds model-written HTML: it runs in an opaque origin with no network, so even a sanitiser miss
-# cannot reach the API with the viewer's session
+# The deck holds model-written HTML: it runs sandboxed in an opaque origin with connect-src 'none', so even a sanitiser
+# miss cannot call the API with the viewer's session. It is not network-free: https images (article thumbnails) load
+# and popups (article links) open, so the guarantee covers API access only.
 _DECK_HEADERS = {
-    "Content-Security-Policy": ("sandbox allow-scripts; default-src 'none'; img-src data:; "
+    "Content-Security-Policy": ("sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox; default-src 'none'; "
+                                # https images: an article's own picture in the click-through, linked from its site
+                                "img-src data: https:; "
                                 "style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
                                 "script-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'; "
                                 "frame-ancestors 'self'"),
@@ -178,3 +195,13 @@ def thumbnail(project_id: ProjectId, run_id: RunId, n: Annotated[int, PathParam(
     if n > len(pngs):
         raise HTTPException(404, "Thumbnail not available")
     return FileResponse(pngs[n - 1], media_type="image/png")
+
+
+@router.get("/deliverable/{project_id}/runs/{run_id}/email-preview", response_class=HTMLResponse)
+def email_preview(project_id: ProjectId, run_id: RunId, user: Access):
+    """The "deliverable ready" email as it would be sent (admins only, nothing is sent)."""
+    if user.get("role") not in ("admin", "super_admin"):
+        raise HTTPException(403, "Admins only")
+    run = _owned_run(project_id, run_id)
+    mail = notify.render(store.get_project(project_id), run, store.list_deliverable_sections(run_id), inline_logo=False)
+    return HTMLResponse(mail["html"])

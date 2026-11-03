@@ -275,10 +275,14 @@ def _maybe_usable(cand: dict, role: str) -> bool:
     return not (0 < cand.get("width", 0) < w / GOOD_UPSCALE or 0 < cand.get("height", 0) < h / GOOD_UPSCALE)
 
 
+UNVERIFIED = "not verified (vision budget used up)"
+
+
 def _accept(data: bytes, role: str, title: str, subjects: Subjects | None, judge) -> tuple[bool, str, bool]:
     """(on-topic and sharp enough, why, HD). A near-HD photo can pass: the caller keeps it as a backup."""
     try:
         with Image.open(BytesIO(data)) as im:
+            im.load()          # decodes every byte: a truncated or corrupt download is not an image
             size = (im.width, im.height)
     except Exception:
         return False, "not an image", False
@@ -293,34 +297,67 @@ def _accept(data: bytes, role: str, title: str, subjects: Subjects | None, judge
     if judge is not None:
         # vision is available but could not look (its budget is spent): a photo nobody checked against the brief's
         # product or category is not shown -- an off-topic or outdated image is worse than the brand gradient
-        return False, "not verified (vision budget used up)", hd
+        return False, UNVERIFIED, hd
     ok = text_relevant(title, subjects)
     return ok, "text: " + ("names the subject" if ok else "does not name the subject"), hd
+
+
+DUPLICATE_BITS = 10        # dHash bits two copies of one picture (other host, size or crop) differ by at most
+_HASH = "dhash:"           # a used picture's fingerprint, kept in `used` beside its URLs
+
+
+def dhash(data: bytes) -> int | None:
+    """64-bit difference hash of a picture: the same photo resized, recompressed or served by another host hashes
+    within DUPLICATE_BITS. None when the bytes are not an image."""
+    try:
+        with Image.open(BytesIO(data)) as im:
+            px = im.convert("L").resize((9, 8), Image.LANCZOS).tobytes()
+    except Exception:
+        return None
+    return sum(1 << i for i, (row, col) in enumerate((r, c) for r in range(8) for c in range(8))
+               if px[row * 9 + col] > px[row * 9 + col + 1])
+
+
+def is_duplicate(data: bytes, used: set[str]) -> bool:
+    """Whether this picture (by content, not URL) is already on another slide."""
+    h = dhash(data)
+    return h is not None and any(bin(h ^ int(u[len(_HASH):], 16)).count("1") <= DUPLICATE_BITS
+                                 for u in list(used) if u.startswith(_HASH))   # list(): other slides add meanwhile
+
+
+def mark_used(data: bytes, used: set[str]) -> None:
+    h = dhash(data)
+    if h is not None:
+        used.add(f"{_HASH}{h:016x}")
 
 
 def _keep(data: bytes, url: str, licence: str, why: str, role: str, folder: Path, slug: str, used: set[str],
           cand: dict | None = None) -> Photo:
     folder.mkdir(parents=True, exist_ok=True)
-    raw = folder / f"{slug}.src"
+    # named after the picture too: slides that searched the same words used to share one file, so the last photo
+    # written showed on all of them
+    name = f"{slug}-{hashlib.sha1(url.encode()).hexdigest()[:8]}"
+    raw = folder / f"{name}.src"
     raw.write_bytes(data)
     used.add(url)
+    mark_used(data, used)
     if cand:
         _track_use(cand)
-    return Photo(crop_to(raw, role, folder / f"{slug}.jpg"), url, licence, why)
+    return Photo(crop_to(raw, role, folder / f"{name}.jpg"), url, licence, why)
 
 
 def _plan(query: str, subjects: Subjects | None, article_urls) -> Iterator[tuple[str, list[dict]]]:
-    """Sources in order: the slide's own articles, then per query brand/product shots, licensed stock, Google.
-    Lazy: each search runs only when find_photo reaches it, so a photo accepted early skips the searches it would
-    never have used (up to 12 per slide). The groups, their order and their contents are what the eager list was."""
+    """Sources in order: the slide's own articles, then per query web images (SearXNG, else DuckDuckGo, else
+    SerpAPI, which has a paid quota) and licensed stock -- web first when the slide names a brand (generic stock
+    would spend its vision checks first), stock first otherwise. Lazy: each search runs only when find_photo
+    reaches it, so a photo accepted early skips the searches it would never have used."""
     leads = [u for u in (article_image(a) for a in list(article_urls)[:MAX_ARTICLES]) if u]
     yield "article", [{"url": u, "width": 10 ** 6, "title": ""} for u in leads]
     for q in (brief_queries(subjects) if subjects else [query]):
-        yield "web", (_ddg_images(q) if subjects and subjects.brands else [])
-        yield "licensed", _pexels(q)
-        yield "licensed", _unsplash(q)
-        yield "web", _serpapi(q)
-        yield "web", _searxng_images(q)       # reached only when SerpAPI gave nothing on-topic for this query
+        web = (("web", search) for search in (_searxng_images, _ddg_images, _serpapi))
+        stock = (("licensed", search) for search in (_pexels, _unsplash))
+        for licence, search in ((*web, *stock) if subjects and subjects.brands else (*stock, *web)):
+            yield licence, search(q)
 
 
 def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image: Path | None = None, *,
@@ -334,19 +371,22 @@ def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image:
             big_enough = upscale(im.width, im.height, role) <= GOOD_UPSCALE
         if big_enough:
             used.add(str(brand_image))
+            mark_used(brand_image.read_bytes(), used)
             return Photo(crop_to(brand_image, role, folder / f"{slug}.jpg"), str(brand_image), "brand", "brand imagery")
-    rejected, backup = 0, {}
+    rejected, backup, why = 0, {}, ""
     for licence, results in _plan(query, subjects, article_urls):
         ranked = sorted((c for c in results if c["url"] and c["url"] not in used and _maybe_usable(c, role)),
                         key=lambda c: -_relevance(query, c["title"]))
         for cand in ranked[:MAX_TRIES]:
             data = _download(cand["url"])
-            if not data:
+            if not data or is_duplicate(data, used):     # the same picture from another host is still a repeat
                 continue
             title = cand["title"]
             if licence == "article" and subjects:      # routed to this slide's question: its subject by construction
                 title = " ".join(subjects.brands + subjects.products + [subjects.category])
             ok, why, hd = _accept(data, role, title, subjects, judge)
+            if why == UNVERIFIED:       # the slide's vision budget is spent: every later candidate fails the same way
+                break
             if not ok:
                 rejected += 1
                 continue
@@ -354,10 +394,14 @@ def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image:
                 backup = backup or {"data": data, "url": cand["url"], "licence": licence, "why": why, "cand": cand}
                 continue
             return _keep(data, cand["url"], licence, why, role, folder, slug, used, cand)
-    found = _fallback(query, role, folder, used, subjects, judge, slug, backup) if fallback else None
+        else:
+            continue
+        break
+    widen = fallback and why != UNVERIFIED
+    found = _fallback(query, role, folder, used, subjects, judge, slug, backup) if widen else None
     if found:
         return found
-    if backup:
+    if backup and not is_duplicate(backup["data"], used):     # another slide may have taken it meanwhile
         return _keep(backup["data"], backup["url"], backup["licence"], f"{backup['why']}; near-HD (no HD photo found)",
                      role, folder, slug, used, backup["cand"])
     return Photo(None, "", "none", f"no relevant photo ({rejected} candidates rejected)")
@@ -390,9 +434,11 @@ def _fallback(query: str, role: str, folder: Path, used: set[str], subjects: Sub
                 if not url or url in used:
                     continue
                 data = _download(url)
-                if not data:
+                if not data or is_duplicate(data, used):
                     continue
                 ok, why, hd = _accept(data, role, cand["title"], loose, judge)
+                if why == UNVERIFIED:
+                    return None
                 if not ok:
                     continue
                 if not hd:

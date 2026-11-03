@@ -22,7 +22,7 @@ from ..exclusions import service as exclusions
 from ..datasources import service as ds_service
 from ...core.anthropic_client import get_llm_client
 from ...core.api import OkResponse
-from ...core.auth import require_project_access
+from ...core.auth import get_current_user, require_project_access
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from . import article_extractor
@@ -63,10 +63,11 @@ router = APIRouter()
 
 
 @router.post("/research/start", response_model=ResearchJobStarted)
-def start_background_research(req: StartResearchRequest):
+def start_background_research(req: StartResearchRequest, user: Annotated[dict, Depends(get_current_user)]):
     """Start a live background research job."""
     spec = req.spec
-    project_id = req.project_id if req.project_id else store.get_or_create_project(spec)
+    # a new project is the creator's (and gets its email); a matched one is never moved to the caller's org
+    project_id = req.project_id or store.get_or_create_project(spec, user["org_id"], user["id"])
     job_id = f"research_{uuid.uuid4().hex[:12]}"
     store.create_job(job_id, project_id, "background_research")
 
@@ -403,7 +404,7 @@ def fetch_preview(req: FetchPreviewRequest):
                      "progress_pct": 5, "message": "Building queries"})
         try:
             spec = project.get("spec", {})
-            topics = multi_source_module.build_boolean_queries(spec)
+            topics = multi_source_module.build_boolean_queries(spec, get_llm_client())
             adapter = LiveWebResearchAdapter()
             date_range = adapter._extract_date_range(spec)
             geography = adapter._extract_geography(spec)

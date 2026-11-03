@@ -121,7 +121,7 @@ def tag_section(rq: RQ, rows: list[EngineRow], schema: TagSchema | None) -> Sect
                           "peaks": [], "series_label": "Articles", "n": len(tagged)},     # out of the tagged articles
                    facts=facts, candidate_urls=list(dict.fromkeys(cite_first)),
                    notes=[f"Base: {len(tagged)} articles tagged for this question"],
-                   segment_urls={v: [r.article.norm_url for r in tagged if v in vals[id(r)]][:8]
+                   segment_urls={v: [r.article.norm_url for r in tagged if v in vals[id(r)]]
                                  for v in order})
 
 
