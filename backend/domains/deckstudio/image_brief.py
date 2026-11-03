@@ -34,7 +34,9 @@ def subjects_for(slide, brands: list[str], products: list[str], category: str, s
 
 def queries(s: Subjects) -> list[str]:
     s = replace(s, category=s.category.split("/")[0].strip())     # "Fitness Centers / Health Clubs" -> "Fitness Centers"
-    product = s.products[0] if s.products else s.category
+    # no products (a gym, a bank, a service): each slide leads with its own scene, else every slide searches the
+    # same "<brand> <category>" and the deck runs out of distinct photos half way through
+    product = s.products[0] if s.products else (s.scene or s.category)
     out = [f"{b} {product}" for b in s.brands[:2]]
     if s.scene:
         out.append(f"{s.category} {s.scene}" if s.category.split()[0].lower() not in s.scene.lower() else s.scene)
