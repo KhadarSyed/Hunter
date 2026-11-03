@@ -53,10 +53,63 @@ def _fixed_split(chart: dict) -> bool:
     return all(str(c).strip().lower() in _COMPOSITION for c in chart.get("categories") or [])
 
 
-def choose(chart: dict | None, question: str = "") -> dict | None:
+_THEMES = re.compile(r"theme|topic", re.I)
+_FLOW = re.compile(r"award|affiliat|endors|sponsor|partner|flow|lead(s)? to|result(s|ed)? in", re.I)
+# what else fits each drawn kind, recorded beside the choice ("why this chart")
+ALTERNATIVES = {"line_peaks": "columns (too many points to read as bars)", "column": "a line (too few points)",
+                "doughnut": "sorted bars (fine too; a few parts read at a glance as a whole)",
+                "treemap": "sorted bars (many parts: areas still show the whole)",
+                "bar": "a doughnut or treemap (the values overlap, so they are not parts of one whole)",
+                "stacked": "grouped bars (harder to compare each group's mix)", "kpi": "a one-bar chart (compares nothing)",
+                "gauge": "a one-bar chart (compares nothing)",
+                "us_map": "bars of the top states (lose where they are)",
+                "bubble": "a treemap or sorted bars (no room for the tone of each theme)",
+                "heatmap": "a heat table or grouped bars (one bar per cell is unreadable)",
+                "sankey": "a heatmap (shows the cells, not the flow from one side to the other)"}
+
+
+def _view(chart: dict, question: str, section_id: str) -> dict:
+    """The deck's drawing of a chart chosen by the question's intent (themes -> bubbles); `kind` stays the plain
+    chart the classic deck, the insight writer and the static fallback read."""
+    parts = len(chart.get("categories") or [])
+    if chart["kind"] in ("bar", "treemap", "doughnut") and parts >= 3 and _THEMES.search(section_id) and not chart.get("breakdown"):
+        toned = chart.get("tone") and any(t is not None for t in chart["tone"])
+        why = f"themes: {parts} themes as bubbles sized by volume" + (", coloured by net sentiment" if toned else "")
+        return {**chart, "view": "bubble", "choice": why, "alternatives": ALTERNATIVES["bubble"]}
+    return {**chart, "alternatives": ALTERNATIVES.get(chart["kind"], "")}
+
+
+def matrix_chart(matrix: dict, question: str, dims: tuple[str, str]) -> dict:
+    """A cross-tab (rows x columns of article counts) as the deck draws it: a flow (brand -> award) as a Sankey,
+    a fixed split (sentiment, social/editorial) as one 100% bar per row, anything else as a heatmap. Its kind is that
+    drawing (not "bar"): a cross-tab's rows are not chart segments that each need their own insight card."""
+    rows, cols, counts = matrix["rows"], matrix["cols"], matrix["counts"]
+    base = {"categories": rows, "values": [sum(r) for r in counts], "unit": "count", "peaks": [],
+            "series_label": "Articles", "matrix": matrix, **({"n": matrix["total"]} if matrix.get("total") else {})}
+    label = f"{dims[1]} by {dims[0]}"
+    if all(str(c).strip().lower() in _COMPOSITION for c in cols):
+        groups = [{"name": r, "n": matrix["n"][i], "values": [round(100 * v / max(1, sum(counts[i])), 1) for v in counts[i]]}
+                  for i, r in enumerate(rows)]
+        return {**base, "kind": "stacked", "breakdown": {"by": dims[0], "stacks": cols, "groups": groups},
+                "choice": f"{GROUPS}: {label}, a fixed split per {dims[0].lower()} as 100% bars",
+                "alternatives": ALTERNATIVES["stacked"]}
+    if _FLOW.search(question) or _FLOW.search(" ".join(dims)):
+        return {**base, "kind": "sankey", "choice": f"flow: {label}, each band as wide as its articles",
+                "alternatives": ALTERNATIVES["sankey"]}
+    return {**base, "kind": "heatmap", "choice": f"two dimensions: {label}, each cell shaded by its share",
+            "alternatives": ALTERNATIVES["heatmap"]}
+
+
+def choose(chart: dict | None, question: str = "", section_id: str = "") -> dict | None:
     """The chart with the kind that fits its data and question, and the reason (shown in the run log)."""
-    if not chart or chart.get("kind") == "us_map":      # a map was chosen for its geography (its own "choice")
+    if not chart:
         return chart
+    if chart.get("kind") == "us_map":      # a map was chosen for its geography (its own "choice")
+        return {**chart, "alternatives": ALTERNATIVES["us_map"]}
+    return _view(_kind(chart, question), question, section_id)
+
+
+def _kind(chart: dict, question: str) -> dict:
     rel, parts = relation(chart), len(chart.get("categories") or [])
     kind = chart.get("kind")
     if rel == TIME:

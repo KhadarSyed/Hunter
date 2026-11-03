@@ -302,15 +302,48 @@ def _accept(data: bytes, role: str, title: str, subjects: Subjects | None, judge
     return ok, "text: " + ("names the subject" if ok else "does not name the subject"), hd
 
 
+DUPLICATE_BITS = 10        # dHash bits two copies of one picture (other host, size or crop) differ by at most
+_HASH = "dhash:"           # a used picture's fingerprint, kept in `used` beside its URLs
+
+
+def dhash(data: bytes) -> int | None:
+    """64-bit difference hash of a picture: the same photo resized, recompressed or served by another host hashes
+    within DUPLICATE_BITS. None when the bytes are not an image."""
+    try:
+        with Image.open(BytesIO(data)) as im:
+            px = im.convert("L").resize((9, 8), Image.LANCZOS).tobytes()
+    except Exception:
+        return None
+    return sum(1 << i for i, (row, col) in enumerate((r, c) for r in range(8) for c in range(8))
+               if px[row * 9 + col] > px[row * 9 + col + 1])
+
+
+def is_duplicate(data: bytes, used: set[str]) -> bool:
+    """Whether this picture (by content, not URL) is already on another slide."""
+    h = dhash(data)
+    return h is not None and any(bin(h ^ int(u[len(_HASH):], 16)).count("1") <= DUPLICATE_BITS
+                                 for u in list(used) if u.startswith(_HASH))   # list(): other slides add meanwhile
+
+
+def mark_used(data: bytes, used: set[str]) -> None:
+    h = dhash(data)
+    if h is not None:
+        used.add(f"{_HASH}{h:016x}")
+
+
 def _keep(data: bytes, url: str, licence: str, why: str, role: str, folder: Path, slug: str, used: set[str],
           cand: dict | None = None) -> Photo:
     folder.mkdir(parents=True, exist_ok=True)
-    raw = folder / f"{slug}.src"
+    # named after the picture too: slides that searched the same words used to share one file, so the last photo
+    # written showed on all of them
+    name = f"{slug}-{hashlib.sha1(url.encode()).hexdigest()[:8]}"
+    raw = folder / f"{name}.src"
     raw.write_bytes(data)
     used.add(url)
+    mark_used(data, used)
     if cand:
         _track_use(cand)
-    return Photo(crop_to(raw, role, folder / f"{slug}.jpg"), url, licence, why)
+    return Photo(crop_to(raw, role, folder / f"{name}.jpg"), url, licence, why)
 
 
 def _plan(query: str, subjects: Subjects | None, article_urls) -> Iterator[tuple[str, list[dict]]]:
@@ -338,6 +371,7 @@ def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image:
             big_enough = upscale(im.width, im.height, role) <= GOOD_UPSCALE
         if big_enough:
             used.add(str(brand_image))
+            mark_used(brand_image.read_bytes(), used)
             return Photo(crop_to(brand_image, role, folder / f"{slug}.jpg"), str(brand_image), "brand", "brand imagery")
     rejected, backup, why = 0, {}, ""
     for licence, results in _plan(query, subjects, article_urls):
@@ -345,7 +379,7 @@ def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image:
                         key=lambda c: -_relevance(query, c["title"]))
         for cand in ranked[:MAX_TRIES]:
             data = _download(cand["url"])
-            if not data:
+            if not data or is_duplicate(data, used):     # the same picture from another host is still a repeat
                 continue
             title = cand["title"]
             if licence == "article" and subjects:      # routed to this slide's question: its subject by construction
@@ -367,7 +401,7 @@ def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image:
     found = _fallback(query, role, folder, used, subjects, judge, slug, backup) if widen else None
     if found:
         return found
-    if backup:
+    if backup and not is_duplicate(backup["data"], used):     # another slide may have taken it meanwhile
         return _keep(backup["data"], backup["url"], backup["licence"], f"{backup['why']}; near-HD (no HD photo found)",
                      role, folder, slug, used, backup["cand"])
     return Photo(None, "", "none", f"no relevant photo ({rejected} candidates rejected)")
@@ -400,7 +434,7 @@ def _fallback(query: str, role: str, folder: Path, used: set[str], subjects: Sub
                 if not url or url in used:
                     continue
                 data = _download(url)
-                if not data:
+                if not data or is_duplicate(data, used):
                     continue
                 ok, why, hd = _accept(data, role, cand["title"], loose, judge)
                 if why == UNVERIFIED:

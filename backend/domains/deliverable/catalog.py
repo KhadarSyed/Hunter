@@ -127,10 +127,11 @@ _GEO_ASK = re.compile(r"\bwhere\b|geograph|region|\bstates?\b|\bcit(y|ies)\b|loc
 
 
 def map_question(rqs: list[RQ], rows_by_rq: dict[str, list[EngineRow]]) -> str | None:
-    """The one question per deck that gets the US map: the first geography ("where") question whose articles
-    carry enough US locations, else the first such question (RQ1, the overall brand question, comes first)."""
+    """The one question per deck that gets the US map: the first geography ("where") question whose articles carry
+    enough US locations. None when no question asks where: a map on a themes or sentiment question answers nothing
+    it asked (the deck then shows one overview map, see engine)."""
     mappable = [q for q in rqs if us_locations.map_reason(us_locations.aggregate(rows_by_rq.get(q.id, [])))]
-    return next((q.id for q in mappable if _GEO_ASK.search(q.question)), mappable[0].id if mappable else None)
+    return next((q.id for q in mappable if _GEO_ASK.search(q.question)), None)
 
 
 def with_us_map(plan: dict, rows: list[EngineRow], allowed: bool = True) -> dict:

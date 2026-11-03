@@ -45,7 +45,8 @@ def paginate(slides: list[SlideSpec]) -> list[SlideSpec]:
         rest = replace(s, cards=[], citations=[])
         step = rows_cap(rest)
         for k, start in enumerate(range(cap, len(rows), step), start=1):
-            out.append(replace(rest, id=f"{s.id}-cont-{k}", title=f"{s.title} (continued)",
+            # its own image dict: a shared one gave the continuation the first page's photo (a repeat)
+            out.append(replace(rest, id=f"{s.id}-cont-{k}", title=f"{s.title} (continued)", image=dict(s.image),
                                tables=[{**table, "rows": rows[start:start + step],
                                         "links": links[start:start + step]}]))
     return out

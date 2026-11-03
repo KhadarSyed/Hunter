@@ -267,11 +267,38 @@ def build_charts(articles: list[dict], brands: list[str], now: datetime) -> dict
         if a["outlet"]:
             shown.setdefault(a["outlet"].casefold(), a["outlet"])
     outlets = [(shown[k], n) for k, n in Counter(a["outlet"].casefold() for a in articles if a["outlet"]).most_common(8)]
+    # each bar / hour's articles (by n), listed when the deck's chart element is clicked
+    share["drill"] = {b: [a["n"] for a in articles if b in a["brands"]] for b in share_brands}
+    timeline["drill"] = {h.strftime("%d %b %H:00"): [a["n"] for a in articles if (dt := parse_utc(a["date"]))
+                                                     and dt.replace(minute=0, second=0, microsecond=0) == h]
+                         for h in hours}
     charts = {"share": share, "timeline": timeline}
     if len(outlets) >= 3:
         charts["outlets"] = {"kind": "bar", "categories": [o for o, _ in outlets], "values": [n for _, n in outlets],
-                             "unit": "count", "series_label": "Top outlets in the last 24h"}
+                             "unit": "count", "series_label": "Top outlets in the last 24h",
+                             "drill": {o: [a["n"] for a in articles if (a["outlet"] or "").casefold() == o.casefold()]
+                                       for o, _ in outlets}}
     return charts
+
+
+ICON_OUTLETS = 60           # outlets of the top stories that get their site icon (the rest show their initial)
+ICON_WORKERS = 8
+
+
+def outlet_icons(articles: list[dict]) -> dict[str, str]:
+    """{outlet: its site icon as a data URI}: the deck shows them inside a sandbox that loads no remote images."""
+    import base64
+    from ...core import config
+    from .visuals import favicon_png
+    sites: dict[str, str] = {}
+    for a in articles:
+        host = (urlparse(_site(a)).hostname or "").removeprefix("www.")
+        if a["outlet"] and host and a["outlet"] not in sites and len(sites) < ICON_OUTLETS:
+            sites[a["outlet"]] = host
+    with ThreadPoolExecutor(max_workers=ICON_WORKERS) as pool:
+        files = dict(zip(sites, pool.map(lambda h: favicon_png(h, config.DATA_DIR / "favicons"), sites.values())))
+    return {o: "data:image/png;base64," + base64.b64encode(p.read_bytes()).decode("ascii")
+            for o, p in files.items() if p and p.is_file()}
 
 
 def _hhmm(a: dict) -> str:
@@ -475,6 +502,11 @@ def run_refresh(refresh_id: int, project_id: int, llm=None, now: datetime | None
         brand_names = [b.name for b in brands]
         summary = summarize(articles, brand_names, ctx["questions"], _headline(project_id), now, llm)
         charts = build_charts(articles, brand_names, now) if articles else {}
+        if articles:
+            try:
+                charts["icons"] = outlet_icons(articles)
+            except Exception as e:      # icons are decoration: the refresh still saves without them
+                logger.warning("latest24h outlet icons failed: %s", e)
         result = {"counts": counts, "fetched": len(fetched), "kept": len(articles), "summary": summary,
                   "charts": charts, "articles": articles}
         store.finish_latest24h_refresh(refresh_id, "completed", counts, len(fetched), len(articles),

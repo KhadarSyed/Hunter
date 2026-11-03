@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { Icon } from "@iconify/react";
 import { intelApi } from "../../services/intel-api";
-import type { Latest24hArticle, Latest24hRefresh, Latest24hSourceCount } from "../../services/intel-api";
+import type { Latest24hArticle, Latest24hRefresh } from "../../services/intel-api";
 import { agentSocket } from "../../services/ws";
 import { ChartRenderer } from "./ChartRenderer";
 
-type Live = { refreshId: number; counts: Record<string, Latest24hSourceCount>; total: number; kept: number | null };
+// running totals only: which source found what stays in the stored refresh
+type Live = { refreshId: number; total: number; kept: number | null };
 
-const SOURCE_LABELS: Record<string, string> = { serpapi: "SerpAPI", tavily: "Tavily", google_news_rss: "Google News" };
 const TOP_STORIES = 10;
 // one distinct light tint per brand (the house palette has four, and the brand + five competitors need six)
 const BRAND_TINTS = ["B794E8", "F9B98E", "8FB8E0", "8FD3B6", "F2A7C3", "F6D57A", "A3A8F0", "9ED9E8"];
@@ -17,19 +17,6 @@ const timeOf = (date: string) => {
   const d = new Date(date);
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 };
-
-function SourceLine({ c }: { c: Latest24hSourceCount }) {
-  const failed = c.status === "failed";
-  return (
-    <li className={`flex items-center gap-2 text-sm ${failed ? "text-red-600" : "text-slate-700"}`}>
-      <Icon icon={failed ? "lucide:circle-x" : c.status === "done" ? "lucide:circle-check" : "lucide:loader-circle"} width={15}
-        className={c.status === "fetching" ? "animate-spin text-[#5B2C9D]" : failed ? "" : "text-emerald-600"} />
-      <span className="font-medium">{c.label}:</span>
-      {failed ? <span>failed</span>
-        : <span>{c.status === "fetching" ? "fetching… " : ""}<b className="tabular-nums">{c.found}</b> found</span>}
-    </li>
-  );
-}
 
 function Cite({ n, byN }: { n: number; byN: Record<number, Latest24hArticle> }) {
   const a = byN[n];
@@ -43,11 +30,13 @@ function Cite({ n, byN }: { n: number; byN: Record<number, Latest24hArticle> }) 
 }
 
 /** "Refresh latest 24h": fetches the brand's and competitors' last-24h coverage, streams per-source counts, then
- * shows a cited "What's new" summary, charts and the top new stories. The latest refresh is reloaded from the server. */
+ * shows a cited "What's new" summary, charts and the top new stories. The latest refresh is reloaded from the server.
+ * Collapsed on every visit: a header row (title, last refresh, chevron) the user opens. */
 export function Latest24hPanel({ projectId }: { projectId: number }) {
   const [refresh, setRefresh] = useState<Latest24hRefresh | null>(null);
   const [live, setLive] = useState<Live | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
     let current = true;
@@ -64,10 +53,9 @@ export function Latest24hPanel({ projectId }: { projectId: number }) {
         return;
       }
       setLive((l) => {
-        const base: Live = l && l.refreshId === msg.refresh_id ? l : { refreshId: msg.refresh_id, counts: {}, total: 0, kept: null };
+        const base: Live = l && l.refreshId === msg.refresh_id ? l : { refreshId: msg.refresh_id, total: 0, kept: null };
         if (msg.phase === "filtered") return { ...base, total: msg.total, kept: msg.kept };
-        return { ...base, total: Math.max(base.total, msg.total ?? 0),
-          counts: { ...base.counts, [msg.source]: { label: SOURCE_LABELS[msg.source] ?? msg.source, status: msg.status, found: msg.found } } };
+        return { ...base, total: Math.max(base.total, msg.total ?? 0) };
       });
     });
     return () => { current = false; off(); };
@@ -77,7 +65,7 @@ export function Latest24hPanel({ projectId }: { projectId: number }) {
     setError(null);
     try {
       const { refresh_id } = await intelApi.latest24hRefresh(projectId);
-      setLive((l) => (l && l.refreshId === refresh_id ? l : { refreshId: refresh_id, counts: {}, total: 0, kept: null }));
+      setLive((l) => (l && l.refreshId === refresh_id ? l : { refreshId: refresh_id, total: 0, kept: null }));
     } catch (e) {
       setError(e instanceof Error ? e.message.replace(/^\d+:\s*/, "") : "Could not start the 24h refresh");
     }
@@ -87,21 +75,26 @@ export function Latest24hPanel({ projectId }: { projectId: number }) {
   const articles = refresh?.articles ?? [];
   const byN = Object.fromEntries(articles.map((a) => [a.n, a]));
   const charts = refresh?.charts ?? {};
-  const counts = live?.counts ?? {};
 
   return (
     <section className="space-y-4 rounded-2xl border border-violet-100 bg-white p-5" aria-labelledby="latest24h-heading">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 id="latest24h-heading" className="flex items-center gap-2 text-base font-semibold text-slate-900">
-            <Icon icon="lucide:radio" width={18} className="text-[#5B2C9D]" /> What's new in the last 24h
-          </h2>
-          <p className="text-xs text-slate-500">
-            {refresh?.finished_at && !live
-              ? `Last refreshed ${new Date(refresh.finished_at * 1000).toLocaleString("en-GB")} · ${refresh.fetched} fetched, ${refresh.kept} kept`
-              : "Fresh coverage of the brand and its competitors from SerpAPI, Tavily and Google News"}
-          </p>
-        </div>
+        <button type="button" onClick={() => setIsOpen((o) => !o)} aria-expanded={isOpen} aria-controls="latest24h-body"
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5B2C9D]">
+          <Icon icon="lucide:chevron-right" width={18} className={`shrink-0 text-slate-500 transition-transform ${isOpen ? "rotate-90" : ""}`} />
+          <span className="min-w-0">
+            <span id="latest24h-heading" className="flex items-center gap-2 text-base font-semibold text-slate-900">
+              <Icon icon="lucide:radio" width={18} className="text-[#5B2C9D]" /> What's new in the last 24h
+            </span>
+            <span className="block text-xs text-slate-500" aria-live="polite">
+              {live
+                ? `${live.total} articles fetched${live.kept !== null ? ` · ${live.kept} kept after dedupe and relevance checks · writing the summary…` : ""}`
+                : refresh?.finished_at
+                  ? `Last refreshed ${new Date(refresh.finished_at * 1000).toLocaleString("en-GB")} · ${refresh.fetched} fetched, ${refresh.kept} kept`
+                  : "Fresh coverage of the brand and its competitors"}
+            </span>
+          </span>
+        </button>
         <button onClick={start} disabled={running}
           className="inline-flex items-center gap-2 rounded-lg border border-[#5B2C9D] px-4 py-2 text-sm font-medium text-[#5B2C9D] hover:bg-violet-50 disabled:opacity-50">
           <Icon icon="lucide:refresh-cw" width={15} className={running ? "animate-spin" : ""} />
@@ -111,31 +104,13 @@ export function Latest24hPanel({ projectId }: { projectId: number }) {
 
       {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 
-      {live && (
-        <div className="rounded-xl border border-violet-100 bg-violet-50/40 p-4" aria-live="polite">
-          <ul className="space-y-1">
-            {Object.keys(SOURCE_LABELS).map((s) => (
-              <SourceLine key={s} c={counts[s] ?? { label: SOURCE_LABELS[s], status: "fetching", found: 0 }} />
-            ))}
-          </ul>
-          <p className="mt-3 text-sm text-slate-800"><b className="tabular-nums">{live.total}</b> articles fetched</p>
-          {live.kept !== null
-            ? <p className="text-sm font-semibold text-[#5B2C9D]"><span className="tabular-nums">{live.kept}</span> kept after dedupe and relevance checks · writing the summary…</p>
-            : <p className="text-xs text-slate-500">Dedupe and relevance checks run when every source is done</p>}
-        </div>
-      )}
-
+      {isOpen && (<div id="latest24h-body" className="space-y-4">
       {!live && refresh?.status === "failed" && (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">The last refresh failed: {refresh.error}</p>
       )}
 
       {!live && refresh?.status === "completed" && (
         <>
-          <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-            {Object.entries(refresh.counts).map(([s, c]) => (
-              <li key={s} className={c.status === "failed" ? "text-red-600" : ""}>{c.label}: {c.status === "failed" ? "failed" : `${c.found} found`}</li>
-            ))}
-          </ul>
           {articles.length === 0 ? (
             <p className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">No new coverage in the last 24h</p>
           ) : (
@@ -190,6 +165,7 @@ export function Latest24hPanel({ projectId }: { projectId: number }) {
           )}
         </>
       )}
+      </div>)}
     </section>
   );
 }

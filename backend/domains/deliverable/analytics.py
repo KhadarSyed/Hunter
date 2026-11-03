@@ -44,7 +44,8 @@ def _section(module: dict, rq: RQ, **kw) -> Section:
                    title=module.get("title") or module["module"], **kw)
 
 
-SEGMENT_URLS = 20   # articles kept per chart category, best first, for its insight (relevant ones are picked from these)
+SEGMENT_URLS = None  # every article of a chart category, best first: the deck lists them all on a click, the insight
+                    # writer takes its first few (relevant ones first)
 
 
 def _segments(pairs) -> dict[str, list[str]]:
@@ -87,6 +88,15 @@ def _months(first: str, last: str) -> list[str]:
     return out
 
 
+def _drill(pairs) -> dict[str, list[str]]:
+    """{chart element: its articles} from (element, row) pairs, for the deck's click-through (any order: the deck
+    sorts them by date)."""
+    out: dict[str, list[str]] = {}
+    for key, r in pairs:
+        out.setdefault(str(key), []).append(r.article.norm_url)
+    return {k: list(dict.fromkeys(v)) for k, v in out.items()}
+
+
 def _trend(module, rq, rows, base_n, _):
     dated = [r for r in rows if r.article.date]
     if not dated:
@@ -107,7 +117,8 @@ def _trend(module, rq, rows, base_n, _):
     facts += notes
     return _section(module, rq, chart={"kind": "line_peaks", "categories": [month_label(k) for k in series],
                                        "values": values, "peaks": sorted(top), "unit": "count", "series_label": "Articles"},
-                    facts=facts, candidate_urls=cands, notes=notes)
+                    facts=facts, candidate_urls=cands, notes=notes,
+                    drill_urls=_drill((month_label(r.article.date.strftime("%Y-%m")), r) for r in dated))
 
 
 def _outlets(module, rq, rows, base_n, _):
@@ -154,6 +165,9 @@ def _reach(module, rq, rows, base_n, _):
                                            if r.article.outlet in {o for o, _ in top}))
 
 
+_TONE = {"positive": 1, "neutral": 0, "negative": -1}
+
+
 def _themes(module, rq, rows, base_n, _):
     display: dict[str, str] = {}
     counts: Counter = Counter()
@@ -165,8 +179,14 @@ def _themes(module, rq, rows, base_n, _):
     top = [(display[k], c) for k, c in counts.most_common(TOP_N)]
     if not top:
         return _section(module, rq, skipped="No themes in the data")
+    tones: dict[str, list[int]] = {}           # theme -> +1 / 0 / -1 per article with a sentiment
+    for r in rows:
+        score = _TONE.get((r.article.sentiment or "").strip().lower())
+        for key in {theme_key(t) for t in r.themes if t and t.strip()} if score is not None else ():
+            tones.setdefault(display[key], []).append(score)
+    tone = [round(sum(tones[t]) / len(tones[t]), 2) if tones.get(t) else None for t, _ in top]
     return _section(module, rq, chart={"kind": "treemap", "categories": [t for t, _ in top], "values": [c for _, c in top],
-                                       "unit": "count", "peaks": [], "series_label": "Articles"},
+                                       "unit": "count", "peaks": [], "series_label": "Articles", "tone": tone},
                     facts=[f"Theme \"{t}\": {c} of {len(rows)} articles" for t, c in top],
                     segment_urls=_segments((display[k], r) for r in rows
                                            for k in {theme_key(t) for t in r.themes if t and t.strip()}
@@ -317,6 +337,23 @@ def _channel(row: EngineRow) -> str:
     return ""
 
 
+_PLATFORMS = {"x.com": "X", "twitter.com": "X", "facebook.com": "Facebook", "instagram.com": "Instagram",
+              "tiktok.com": "TikTok", "reddit.com": "Reddit", "youtube.com": "YouTube", "threads.net": "Threads",
+              "pinterest.com": "Pinterest", "linkedin.com": "LinkedIn"}
+
+
+def platform(row: EngineRow) -> str:
+    """Where a post or article ran: the social platform its address names, else 'Social', else 'News'."""
+    host = row.article.url.split("//", 1)[-1].split("/", 1)[0].lower().removeprefix("www.")
+    named = next((p for h, p in _PLATFORMS.items() if host == h or host.endswith("." + h)), None)
+    return named or ("Social" if _channel(row) == "Social" else "News")
+
+
+def _breakdown_text(counts: Counter) -> str:
+    """'Facebook 8 · X 5 · News 7', biggest first: a map tooltip's channel mix."""
+    return " · ".join(f"{p} {n}" for p, n in counts.most_common())
+
+
 def _media_split(module, rq, rows, base_n, _):
     counts = Counter(c for c in (_channel(r) for r in rows) if c)
     known = sum(counts.values())
@@ -329,7 +366,7 @@ def _media_split(module, rq, rows, base_n, _):
                                        "values": [_pct(counts[k], known) for k in cats], "unit": "percent",
                                        "peaks": [], "series_label": "Source"},
                     facts=[f"{rq.id}: {counts[k]} of {known} articles are {k.lower()} ({_pct(counts[k], known)}%)"
-                           for k in cats] + notes, notes=notes)
+                           for k in cats] + notes, notes=notes, drill_urls=_drill((_channel(r), r) for r in rows))
 
 
 _NO_ANSWER = {"", "no", "none", "unknown", "n/a", "false"}
@@ -416,17 +453,25 @@ def _crosstab(module, rq, rows, base_n, _):
     if not cols:                      # a table of 0.0% says nothing: no article carries both dimensions
         return _section(module, rq, skipped=f"No article names both a {row_dim.label.lower()} and a "
                                             f"{col_dim.label.lower()}")
-    table_rows, facts = [], []
+    table_rows, facts, matrix = [], [], {"rows": row_names, "cols": cols, "counts": [], "n": [],
+                                         "dims": [row_dim.label, col_dim.label], "total": len(rows)}
     for name in row_names:
         within = [cv for rv, cv in per_row if name in rv]
         counts = Counter(c for cv in within for c in cv)
+        matrix["counts"].append([counts[c] for c in cols])
+        matrix["n"].append(len(within))
         table_rows.append([name] + [f"{_pct(counts[c], len(within))}%" for c in cols] + [str(len(within))])
         facts += [f"{rq.id}: {_pct(counts[c], len(within))}% of {name} articles mention {c} ({counts[c]} of {len(within)})"
                   for c in cols if counts[c]]
     # a heatmap table: two dimensions of shares that overlap are read cell by cell, shaded by size
     return _section(module, rq, table={"header": [row_dim.label] + cols + ["Articles"], "rows": table_rows,
-                                       "col_widths": [3.0] + [1.6] * len(cols) + [1.2], "heat": True},
-                    facts=facts)
+                                       "col_widths": [3.0] + [1.6] * len(cols) + [1.2], "heat": True,
+                                       "matrix": matrix},       # the deck draws it as a heatmap or a flow
+                    facts=facts,
+                    # a row's articles, and a cell's ("row<TAB>column"), for the deck's click-through
+                    drill_urls=_drill([(v, r) for r, (rv, _) in zip(rows, per_row) for v in rv if v in row_names] +
+                                      [(f"{v}\t{c}", r) for r, (rv, cv) in zip(rows, per_row)
+                                       for v in rv if v in row_names for c in cv if c in cols]))
 
 
 def _us_map(module, rq, rows, base_n, _):
@@ -438,13 +483,22 @@ def _us_map(module, rq, rows, base_n, _):
         return _section(module, rq, skipped=f"Only {agg['located']} of {agg['total']} articles carry a US location")
     top = agg["states"].most_common(TOP_N)
     names = us_locations.STATE_NAMES
-    located = {id(r): us_locations.locate(r.article.country, r.article.state, r.article.region)[0] for r in rows}
+    places = {id(r): us_locations.locate(r.article.country, r.article.state, r.article.region) for r in rows}
+    located = {k: st for k, (st, _) in places.items()}
+    mix: dict[str, Counter] = {}               # state id / county FIPS -> articles per channel (tooltip)
+    for r in rows:
+        for area in places[id(r)]:
+            if area:
+                mix.setdefault(area, Counter())[platform(r)] += 1
     return _section(module, rq, chart={
         "kind": "us_map", "categories": [names[s] for s, _ in top], "values": [c for _, c in top], "unit": "count",
         "peaks": [], "series_label": "Articles", "choice": reason,
-        "states": [{"id": s, "name": names[s], "value": c} for s, c in agg["states"].most_common()],
-        "counties": [{"id": f, "name": us_locations.COUNTY_NAMES[f], "state": agg["county_state"][f], "value": c}
+        "states": [{"id": s, "name": names[s], "value": c, "channels": _breakdown_text(mix[s])}
+                   for s, c in agg["states"].most_common()],
+        "counties": [{"id": f, "name": us_locations.COUNTY_NAMES[f], "state": agg["county_state"][f], "value": c,
+                      "channels": _breakdown_text(mix[f])}
                      for f, c in agg["counties"].most_common()]},
+        drill_urls=_drill((area, r) for r in rows for area in places[id(r)] if area),     # "US-CA" / county FIPS
         facts=[f"{rq.id}: {agg['located']} of {agg['total']} articles carry a US state or county"] +
               [f"{rq.id} coverage from {names[s]}: {c} articles" for s, c in top],
         segment_urls=_segments((names[located[id(r)]], r) for r in rows

@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { RefObject } from "react";
 import { Icon } from "@iconify/react";
 import { intelApi } from "../../services/intel-api";
 import type { DeliverableSection, RepairScope } from "../../services/intel-api";
+import { agentSocket } from "../../services/ws";
 import { DeckColorPanel } from "./DeckColorPanel";
 
 const STATUS_STYLE: Record<string, string> = {
@@ -38,9 +40,45 @@ function RegenerateHint() {
   );
 }
 
+type DeckMessage = { type?: string; action?: string };
+
+/** The deck's "Refresh latest 24h" button, run from here: the deck is sandboxed with no network, so it asks this page
+ * (by postMessage) to start the refresh, and gets the per-source progress and the stored result back the same way. */
+function useLatest24hBridge(frame: RefObject<HTMLIFrameElement | null>, projectId: number) {
+  useEffect(() => {
+    // the deck's origin is opaque ("null"), so "*" is the only target; it carries only what the deck shows anyway
+    const post = (msg: Record<string, unknown>) =>
+      frame.current?.contentWindow?.postMessage({ type: "hunter-deck-host", ...msg }, "*");
+    const result = () => intelApi.latest24hLatest(projectId)
+      .then((r) => post(r.refresh?.status === "completed" ? { event: "result", refresh: r.refresh }
+        : { event: "error", message: `The refresh failed: ${r.refresh?.error ?? "unknown error"}` }))
+      .catch(() => post({ event: "error", message: "Could not load the refreshed coverage" }));
+    const onMessage = (e: MessageEvent<DeckMessage>) => {
+      if (e.source !== frame.current?.contentWindow || e.data?.type !== "hunter-deck") return;
+      if (e.data.action === "hello") post({ event: "ready" });
+      if (e.data.action === "latest24h-refresh") {
+        intelApi.latest24hRefresh(projectId).catch((err: unknown) => {
+          // one already running (409): its progress and result still stream to the deck
+          const text = err instanceof Error ? err.message : "";
+          if (!text.startsWith("409")) post({ event: "error", message: "Could not start the 24h refresh" });
+        });
+      }
+    };
+    const off = agentSocket.onMessage((msg) => {
+      if (msg.type !== "latest24h_progress" || msg.project_id !== projectId) return;
+      if (msg.phase === "completed" || msg.phase === "failed") result();
+      else post({ event: "progress", data: msg });
+    });
+    window.addEventListener("message", onMessage);
+    return () => { window.removeEventListener("message", onMessage); off(); };
+  }, [frame, projectId]);
+}
+
 /** The deck in an iframe, with a loading state until it has loaded (a 100-slide deck takes a few seconds). */
-function DeckPreview({ src }: { src: string }) {
+function DeckPreview({ src, projectId }: { src: string; projectId: number }) {
   const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
+  const frame = useRef<HTMLIFrameElement>(null);
+  useLatest24hBridge(frame, projectId);
   const isLoading = loadedSrc !== src;
   return (
     <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-50 lg:col-span-2 lg:self-start">
@@ -50,7 +88,9 @@ function DeckPreview({ src }: { src: string }) {
           <span className="text-sm font-medium">Loading the presentation...</span>
         </div>
       )}
-      <iframe title="Presentation preview" src={src} sandbox="allow-scripts" onLoad={() => setLoadedSrc(src)}
+      {/* popups: the deck's article links open in a new tab, outside the sandbox */}
+      <iframe ref={frame} title="Presentation preview" src={src} sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+        onLoad={() => setLoadedSrc(src)}
         className={`h-full w-full bg-black transition-opacity duration-300 ${isLoading ? "opacity-0" : "opacity-100"}`} />
     </div>
   );
@@ -107,7 +147,7 @@ export function StudioDeckCard({ projectId, runId, studio, isRepairing, canRepai
       <DeckColorPanel projectId={projectId} runId={runId}
         onShow={(file) => setShown((s) => ({ file, version: s.version + 1 }))} />
       <div className="grid gap-5 lg:grid-cols-3">
-        <DeckPreview src={previewUrl} />
+        <DeckPreview src={previewUrl} projectId={projectId} />
         <div className="space-y-5 lg:max-h-[34rem] lg:overflow-y-auto lg:pr-1">
           <div>
             <div className="mb-2 flex items-center justify-between gap-3">
