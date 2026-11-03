@@ -2,21 +2,32 @@
 from __future__ import annotations
 
 import base64
+import io
 import logging
+import re
 import threading
 import time
 from pathlib import Path
+
+import requests
+from PIL import Image
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from ...core import config, mailer, store
 from ..deckstudio import data_tables
 from ..research import logo_files
+from ..research.web_research import _COUNTRY_ISO_CODES
+from . import visuals
 
 logger = logging.getLogger(__name__)
 
 SECTION_ID = "email"
 LOGO_CID = "brandlogo"
+FLAG_DIR = config.DATA_DIR / "flags"
+LOGO_PX = 64                # logos are stored at 2x the tallest display size (client logo, 32px chip logos)
+FLAG_PX = 36                # flags show at 18px
+FLAG_FALLBACK = "https://flagcdn.com/w40/{code}.png"     # rectangular, used only when the circle flag cannot render
 _ENV = Environment(loader=FileSystemLoader(config.BACKEND_DIR / "core" / "templates"),
                    autoescape=select_autoescape(["html", "j2"]))
 
@@ -62,7 +73,11 @@ def build_context(project: dict, run: dict, sections: list[dict]) -> dict:
     scope_rows = [("Competitors", ", ".join(map(str, competitors))) if competitors else None,
                   ("Geography", spec.get("geography") or scope.get("geography") or ""),
                   ("Time period", spec.get("time_period") or scope.get("time_period") or "")]
+    geography = spec.get("geography") or scope.get("geography") or ""
     return {
+        "competitors": [str(c) for c in competitors],
+        "countries": [c for c in re.split(r"\s*(?:[,;/&]|\band\b)\s*", geography) if c.strip()]
+                     if isinstance(geography, str) else [],
         "project_name": project.get("project_name") or f"Project {project['id']}",
         "client": client,
         "summary": spec.get("executive_interpretation") or spec.get("research_objective") or "",
@@ -75,15 +90,48 @@ def build_context(project: dict, run: dict, sections: list[dict]) -> dict:
     }
 
 
-def _logo(client: str) -> str | None:
-    """The client's cached logo PNG as base64, else None (the email then has no logo)."""
-    if not client:
+def _png(data: bytes, height: int) -> tuple[str, int, int]:
+    """(base64 PNG, width, height): transparent margins cropped, scaled to `height` px tall (at most 3x as wide)."""
+    img = Image.open(io.BytesIO(data)).convert("RGBA")
+    img = img.crop(img.getchannel("A").getbbox() or (0, 0, *img.size))
+    img.thumbnail((height * 3, height), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    return base64.b64encode(buf.getvalue()).decode("ascii"), img.width, img.height
+
+
+def _logo(name: str) -> dict | None:
+    """{b64, w, h, light} for a brand's cached logo, else None (the email then shows the name only)."""
+    if not name:
         return None
     try:
-        found = logo_files.logo_file(client)
-        return base64.b64encode(found[0].read_bytes()).decode("ascii") if found else None
+        found = logo_files.logo_file(name)
+        if not found:
+            return None
+        b64, w, h = _png(found[0].read_bytes(), LOGO_PX)
+        return {"b64": b64, "w": w, "h": h, "light": found[1]}
     except Exception as e:      # a logo is decoration: never stops the email
-        logger.info("No logo for %s in the ready email: %s", client, type(e).__name__)
+        logger.info("No logo for %s in the ready email: %s", name, type(e).__name__)
+        return None
+
+
+def _flag(country: str) -> dict | None:
+    """{b64, w, h} circle flag (Iconify circle-flags, rendered to PNG once and cached), else None."""
+    code = _COUNTRY_ISO_CODES.get(country.strip().lower(), "").lower()
+    if not code:
+        return None
+    try:
+        path = visuals.icon_png(f"circle-flags:{code}", FLAG_DIR)
+        if path:
+            data = path.read_bytes()
+        else:
+            r = requests.get(FLAG_FALLBACK.format(code=code), timeout=10)
+            r.raise_for_status()
+            data = r.content
+        b64, w, h = _png(data, FLAG_PX)
+        return {"b64": b64, "w": w, "h": h}
+    except Exception as e:      # a flag is decoration: never stops the email
+        logger.info("No flag for %s in the ready email: %s", country, type(e).__name__)
         return None
 
 
@@ -106,13 +154,24 @@ def _text(ctx: dict) -> str:
 
 
 def render(project: dict, run: dict, sections: list[dict], *, inline_logo: bool = True) -> dict:
-    """{subject, html, text, inline_images}. inline_logo=False puts the logo in as a data URI (browser preview)."""
+    """{subject, html, text, inline_images}. inline_logo=False puts the images in as data URIs (browser preview)."""
     ctx = build_context(project, run, sections)
     subject = f"Your Hunter deliverable is ready — {ctx['project_name']}"
-    logo = _logo(ctx["client"])
-    src = (f"cid:{LOGO_CID}" if inline_logo else f"data:image/png;base64,{logo}") if logo else None
-    html = _ENV.get_template("deliverable_ready.html.j2").render(subject=subject, logo_src=src, **ctx)
-    images = [{"cid": LOGO_CID, "mime_type": "image/png", "content": logo}] if logo and inline_logo else []
+    images: list[dict] = []
+
+    def embed(cid: str, img: dict | None) -> dict | None:
+        """The image with its `src` (cid: when sending, data URI in preview); Outlook needs real width/height."""
+        if not img:
+            return None
+        if inline_logo:
+            images.append({"cid": cid, "mime_type": "image/png", "content": img["b64"]})
+        return {**img, "src": f"cid:{cid}" if inline_logo else f"data:image/png;base64,{img['b64']}"}
+
+    client_logo = embed(LOGO_CID, _logo(ctx["client"]))
+    competitors = [{"name": n, "logo": embed(f"logo{i}", _logo(n))} for i, n in enumerate(ctx["competitors"], 1)]
+    countries = [{"name": c, "flag": embed(f"flag{i}", _flag(c))} for i, c in enumerate(ctx["countries"], 1)]
+    html = _ENV.get_template("deliverable_ready.html.j2").render(
+        **{**ctx, "competitors": competitors, "countries": countries}, subject=subject, logo=client_logo)
     return {"subject": subject, "html": html, "text": _text(ctx), "inline_images": images}
 
 
