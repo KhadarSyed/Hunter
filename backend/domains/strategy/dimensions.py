@@ -15,12 +15,16 @@ from ...agents import question_dimensions as qd
 from ...core import store
 
 
+def _brief_brands(project: dict) -> list[str]:
+    """The brief's brand and its competitors, by name (a name may repeat)."""
+    spec = project.get("spec") or {}
+    return [project.get("brand") or ""] + [e.get("name") or "" for e in spec.get("validated_entities") or []
+                                           if e.get("type") in ("brand", "competitor", "primary_brand")]
+
+
 def _brand_terms(project: dict, queries: list[str]) -> list[str]:
     """The project's brand and competitors, plus any OR group every query shares (the brand clause)."""
-    spec = project.get("spec") or {}
-    names = [project.get("brand") or "", project.get("name") or ""]
-    names += [e.get("name") or "" for e in spec.get("validated_entities") or []
-              if e.get("type") in ("brand", "competitor", "primary_brand")]
+    names = [project.get("name") or ""] + _brief_brands(project)
     groups = [{frozenset(g) for g in qd.query_groups(q, [])} for q in queries if q]
     shared = set.intersection(*groups) if len(groups) > 1 else set()
     return [n for n in names if n] + [t for g in shared for t in g]
@@ -45,6 +49,36 @@ def _named_competitors(dims: list[qd.Dimension], brands: list[str]) -> list[qd.D
     return out
 
 
+_BRAND_LABEL = re.compile(r"\b(brands?|competitors?|compan(?:y|ies)|rivals?|manufacturers?)\b", re.I)
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
+def _brief_brand_dimension(dims: list[qd.Dimension], brands: list[str], question: str,
+                           query: str) -> list[qd.Dimension]:
+    """A brand dimension ("Brand", "Competitor", or values that are the brief's brands) lists the brief's brand and
+    competitors, one value each: the brand clause is kept out of the LLM's candidates, so it labelled a category
+    group ("gym OR fitness club") or placeholders ("Brand A") as the brands. The question's own brands (named in its
+    query or text) when two or more are, else all of them; spellings in the query ("L.A. Fitness") are terms too."""
+    names = list(dict.fromkeys(b.strip() for b in brands if b and b.strip()))
+    if len(names) < 2:
+        return dims
+    query_terms = [t.rstrip("*") for g in qd.query_groups(query, []) for t in g]
+    terms = {n: list(dict.fromkeys([n.lower()] + [t for t in query_terms if _norm(t) == _norm(n)])) for n in names}
+    named = [n for n in names if len(terms[n]) > 1 or qd.keyword_hits(f"{question}\n{query}", [n.lower()])]
+    keep = named if len(named) >= 2 else names
+    keys = {_norm(t) for n in names for t in terms[n]}
+    out = []
+    for d in dims:
+        brand_values = sum(1 for v in d.values if _norm(v.name) in keys or any(_norm(t) in keys for t in v.terms))
+        if _BRAND_LABEL.search(d.label) or brand_values >= 2:
+            d = qd.Dimension(key=d.key, label=d.label, values=tuple(qd.Value(name=n, terms=tuple(terms[n])) for n in keep))
+        out.append(d)
+    return out
+
+
 def _signature(question: str, query: str, brands: list[str]) -> str:
     return hashlib.sha1("\n".join([question, query, *sorted(brands)]).encode("utf-8")).hexdigest()
 
@@ -62,7 +96,8 @@ def project_dimensions(project_id: int, llm=None) -> dict[str, list[qd.Dimension
 def _project_dimensions(project_id: int, llm=None) -> dict[str, list[qd.Dimension]]:
     strategy = (store.get_latest_strategy(project_id) or {}).get("strategy") or {}
     questions = strategy.get("research_question_queries") or []
-    brands = _brand_terms(store.get_project(project_id) or {}, [q.get("query") or "" for q in questions])
+    project = store.get_project(project_id) or {}
+    brands = _brand_terms(project, [q.get("query") or "" for q in questions])
     stored = store.get_question_dimensions(project_id)
     llm_ok = llm is not None and getattr(llm, "is_reachable", lambda: False)()
     out: dict[str, list[qd.Dimension]] = {}
@@ -72,11 +107,11 @@ def _project_dimensions(project_id: int, llm=None) -> dict[str, list[qd.Dimensio
         sig = _signature(question, query, brands)
         cached = stored.get(rq_id)
         if cached and cached["signature"] == sig and (cached["source"] == "llm" or not llm_ok):
-            out[rq_id] = _named_competitors(qd.from_json(cached["dimensions"]), brands)
-            continue
-        dims, source = qd.derive_with_source(llm if llm_ok else None, question, query, brands)
-        store.save_question_dimensions(project_id, rq_id, sig, qd.to_json(dims), source)
-        out[rq_id] = _named_competitors(dims, brands)
+            dims = qd.from_json(cached["dimensions"])
+        else:
+            dims, source = qd.derive_with_source(llm if llm_ok else None, question, query, brands)
+            store.save_question_dimensions(project_id, rq_id, sig, qd.to_json(dims), source)
+        out[rq_id] = _brief_brand_dimension(_named_competitors(dims, brands), _brief_brands(project), question, query)
     return out
 
 

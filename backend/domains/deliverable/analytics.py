@@ -556,7 +556,10 @@ def _breakdown(module, rq, rows, base_n, _):
 def _crosstab(module, rq, rows, base_n, _):
     """Share of each column value within each row value, e.g. the injury-type mix of each sport's articles."""
     row_dim, col_dim = qd.from_json(module["dimensions"])
-    per_row = [(_values_of(r, row_dim), _values_of(r, col_dim)) for r in rows]
+    raw = [(_values_of(r, row_dim), _values_of(r, col_dim)) for r in rows]
+    # a tag's spelling ("expansion") counts as the dimension's value ("Expansion"), as in _breakdown
+    names = [unify((v for pair in raw for v in pair[i]), [v.name for v in d.values]) for i, d in enumerate((row_dim, col_dim))]
+    per_row = [tuple(list(dict.fromkeys(names[i].get(v, v) for v in pair[i])) for i in (0, 1)) for pair in raw]
     totals = Counter(v for rv, _ in per_row for v in rv)
     row_names = sorted((v.name for v in row_dim.values if totals.get(v.name)), key=lambda n: -totals[n])[:TOP_N]
     col_totals = Counter(c for rv, cv in per_row if rv for c in cv)
