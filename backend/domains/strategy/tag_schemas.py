@@ -68,7 +68,7 @@ def with_also_questions(dataset: dict, records: list[dict], llm=None) -> tuple[l
     own = dataset.get("research_question_id") or ""
     schemas = project_tag_schemas(dataset["project_id"], llm)
     strategy = (store.get_latest_strategy(dataset["project_id"]) or {}).get("strategy") or {}
-    queries = {q.get("question_id") or f"RQ{i}": q.get("query") or ""
+    queries = {q.get("question_id") or f"RQ{i}": q.get("match_query") or q.get("query") or ""
                for i, q in enumerate(strategy.get("research_question_queries") or [], start=1)}
     others = {rq: s for rq, s in schemas.items() if rq != own and s.tags and queries.get(rq)}
     out = [{**r, "also_questions": [rq for rq in others

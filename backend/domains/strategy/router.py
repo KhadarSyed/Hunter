@@ -426,10 +426,45 @@ def _brand_wide_queries(strategy: dict, spec: dict) -> dict:
         if not _BRAND_WIDE.search(question):
             continue
         names = [brand] + (competitors if _COMPARES.search(question) else [])
-        rq["query"] = " OR ".join(f'"{n}"' for n in names)
-        rq["rationale"] = "All coverage of the brand" + (" and its competitors" if len(names) > 1 else "") + \
-                          ": this question is about overall volume, not one topic"
+        # the question keeps its own query (searching, display); uploaded articles are matched to it on the brand
+        # group and exclusions only, so a topic AND-group can't starve an overall-volume question of its articles
+        rq["match_query"] = _without_topic_groups(rq.get("query") or "", brand, names)
     return strategy
+
+
+def _top_level(query: str) -> list[tuple[str, str]]:
+    """[(operator, clause)] split on the AND / NOT that sit outside any parentheses; the first operator is ""."""
+    parts, depth, start, op, i, quoted = [], 0, 0, "", 0, False
+    while i < len(query):
+        ch = query[i]
+        if ch == '"':
+            quoted = not quoted
+        elif not quoted and ch == "(":
+            depth += 1
+        elif not quoted and ch == ")":
+            depth -= 1
+        elif not quoted and depth == 0 and (m := re.match(r"\s+(AND NOT|AND|NOT)\s+", query[i:])):
+            parts.append((op, query[start:i].strip()))
+            op, start = m.group(1), i + m.end()
+            i += m.end()
+            continue
+        i += 1
+    parts.append((op, query[start:].strip()))
+    return [(o, c) for o, c in parts if c]
+
+
+def _without_topic_groups(query: str, brand: str, names: list[str]) -> str:
+    """The query's own structure minus its topic AND-groups: the brand group (with the variants the builder wrote) and
+    the NOT exclusions stay; a compared competitor missing from the brand group is added to it."""
+    clauses = _top_level(query)
+    group = next((c for o, c in clauses if o in ("", "AND") and brand.lower() in c.lower()), "")
+    inner = group[1:-1].strip() if group.startswith("(") and group.endswith(")") else group
+    terms = [t for t in re.split(r"\s+OR\s+", inner) if t.strip()] if inner else []
+    have = {t.strip().strip('"').lower() for t in terms}
+    terms += [f'"{n}"' for n in names if n.lower() not in have]
+    keep = f"({' OR '.join(terms)})" if len(terms) > 1 else (terms[0] if terms else f'"{brand}"')
+    nots = [c for o, c in clauses if "NOT" in o]
+    return " ".join([keep] + [f"NOT {c}" for c in nots])
 
 
 # shortcut: the common countries, regions and their short forms, not every place name; extend when a brief needs more

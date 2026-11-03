@@ -45,7 +45,8 @@ def country_note(project_id: int) -> str:
 
 def load_rqs(project_id: int) -> list[RQ]:
     strategy = (store.get_latest_strategy(project_id) or {}).get("strategy") or {}
-    return [RQ(id=q.get("question_id") or f"RQ{i}", question=q.get("question") or "", query=q.get("query") or "")
+    return [RQ(id=q.get("question_id") or f"RQ{i}", question=q.get("question") or "",
+               query=q.get("match_query") or q.get("query") or "")   # match_query: what uploads are matched on
             for i, q in enumerate(strategy.get("research_question_queries") or [], start=1)]
 
 
