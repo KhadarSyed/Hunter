@@ -109,10 +109,12 @@ class AppSettings(BaseSettings):
     api_key: str = ""
     brandfetch_api_key: str = ""
     brandfetch_client_id: str = ""
-    # Transactional mail (ZeptoMail). Empty token or sender = mail is skipped with a warning.
-    zeptomail_token: str = ""            # "Zoho-enczapikey <key>" or just the key
-    zeptomail_url: str = "https://api.zeptomail.com/v1.1/email"   # region hosts differ (e.g. api.zeptomail.eu)
-    mail_from: str = ""
+    # Transactional mail (ZeptoMail SMTP, ZEPTO_* in .env). No server, password or sender = mail is skipped.
+    zepto_server: str = ""               # smtp.zeptomail.com (or a regional host)
+    zepto_smtp_port: int = 587           # 587 STARTTLS, 465 SSL
+    zepto_username: str = ""             # "emailapikey" for ZeptoMail
+    zepto_passwd_key: str = ""           # the Send Mail token
+    zepto_from: str = ""                 # verified sender address
     mail_from_name: str = "Hunter"
     app_url: str = "http://localhost:5173"   # the frontend's base URL, for links in emails
 
