@@ -18,7 +18,7 @@ from ...core import config, store, writing_locale
 from ...core.events import broadcast
 from . import (analytics, brand_kit, catalog, engine_insights, extract, factcheck, generic_deck, templates_index,
                visuals, word_brief)
-from . import brand_analytics, chart_choice, entity_relevance, evidence, repair_context, tag_insights
+from . import brand_analytics, chart_choice, entity_relevance, evidence, notify, repair_context, tag_insights
 from ...agents import question_tag_schema
 from . import rows as R
 from .citations import CitationRegistry, domain_of
@@ -801,6 +801,7 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
             logger.exception("[deliverable:%s] progress calibration check failed", run_id)
         broadcast({"type": "deliverable_completed", "project_id": project_id, "run_id": run_id,
                    "ready": report["ready"]})
+        notify.notify_ready(project_id, run_id)
     except Exception as e:
         stage = e.stage if isinstance(e, StageFailed) else current
         logger.error("[deliverable:%s] stage %s failed: %s", run_id, stage, e, exc_info=not isinstance(e, StageFailed))

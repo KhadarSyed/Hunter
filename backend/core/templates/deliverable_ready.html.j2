@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<title>{{ subject }}</title>
+<style>
+  @media only screen and (max-width: 620px) {
+    .container { width: 100% !important; }
+    .pad { padding-left: 20px !important; padding-right: 20px !important; }
+    .stat { display: block !important; width: 100% !important; }
+  }
+</style>
+</head>
+<body style="margin:0;padding:0;background:#F3F1F7;font-family:'Segoe UI',Helvetica,Arial,sans-serif;color:#1F1B2D;">
+<div style="display:none;max-height:0;overflow:hidden;">{{ project_name }}: your deck, brief and data tables are ready.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#F3F1F7;">
+<tr><td align="center" style="padding:24px 12px;">
+  <table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" border="0"
+         style="width:600px;max-width:600px;background:#FFFFFF;border-radius:10px;overflow:hidden;">
+    <tr><td class="pad" style="background:#5B2C9D;padding:28px 36px;">
+      <div style="font-size:13px;letter-spacing:2px;text-transform:uppercase;color:#D9CCF0;font-weight:600;">Hunter</div>
+      <div style="font-size:24px;line-height:32px;color:#FFFFFF;font-weight:700;padding-top:6px;">Your deliverable is ready</div>
+    </td></tr>
+
+    <tr><td class="pad" style="padding:28px 36px 8px 36px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+        {% if logo_src %}
+        <td width="64" valign="middle" style="padding-right:16px;">
+          <img src="{{ logo_src }}" width="56" height="56" alt="{{ client }}"
+               style="display:block;width:56px;height:56px;object-fit:contain;border:1px solid #ECE8F3;border-radius:8px;background:#FFFFFF;">
+        </td>
+        {% endif %}
+        <td valign="middle">
+          <div style="font-size:20px;line-height:26px;font-weight:700;color:#1F1B2D;">{{ project_name }}</div>
+          {% if client %}<div style="font-size:14px;line-height:20px;color:#6B6480;padding-top:2px;">Client: {{ client }}</div>{% endif %}
+        </td>
+      </tr></table>
+    </td></tr>
+
+    <tr><td class="pad" align="center" style="padding:20px 36px 8px 36px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+        <td align="center" bgcolor="#5B2C9D" style="border-radius:6px;">
+          <a href="{{ link }}" target="_blank"
+             style="display:inline-block;padding:14px 32px;font-size:16px;font-weight:600;color:#FFFFFF;text-decoration:none;border-radius:6px;">Open deliverables</a>
+        </td>
+      </tr></table>
+    </td></tr>
+
+    {% if stats %}
+    <tr><td class="pad" style="padding:24px 36px 4px 36px;">
+      <div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#5B2C9D;font-weight:700;padding-bottom:10px;">Deliverable summary</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+        {% for label, value in stats %}
+        <tr>
+          <td style="padding:9px 0;border-bottom:1px solid #ECE8F3;font-size:14px;color:#6B6480;">{{ label }}</td>
+          <td align="right" style="padding:9px 0;border-bottom:1px solid #ECE8F3;font-size:14px;color:#1F1B2D;font-weight:600;">{{ value }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% if files %}
+      <div style="font-size:14px;line-height:22px;color:#1F1B2D;padding-top:14px;">
+        <span style="color:#6B6480;">Files available:</span> {{ files | join(" · ") }}
+      </div>
+      {% endif %}
+    </td></tr>
+    {% endif %}
+
+    <tr><td class="pad" style="padding:24px 36px 4px 36px;">
+      <div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#5B2C9D;font-weight:700;padding-bottom:10px;">Brief &amp; scope</div>
+      {% if summary %}<p style="margin:0 0 14px 0;font-size:14px;line-height:22px;color:#1F1B2D;">{{ summary }}</p>{% endif %}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        {% for label, value in scope %}
+        <tr>
+          <td valign="top" width="120" style="padding:4px 12px 4px 0;font-size:14px;line-height:20px;color:#6B6480;">{{ label }}</td>
+          <td valign="top" style="padding:4px 0;font-size:14px;line-height:20px;color:#1F1B2D;">{{ value }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% if questions %}
+      <div style="font-size:14px;font-weight:600;color:#1F1B2D;padding:14px 0 6px 0;">Research questions</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        {% for q in questions %}
+        <tr>
+          <td valign="top" width="24" style="padding:3px 0;font-size:14px;line-height:21px;color:#5B2C9D;font-weight:700;">{{ loop.index }}.</td>
+          <td valign="top" style="padding:3px 0;font-size:14px;line-height:21px;color:#1F1B2D;">{{ q }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% endif %}
+    </td></tr>
+
+    <tr><td class="pad" style="padding:28px 36px 28px 36px;">
+      <p style="margin:0;font-size:13px;line-height:20px;color:#6B6480;">
+        If the button does not work, paste this link into your browser:<br>
+        <a href="{{ link }}" style="color:#5B2C9D;word-break:break-all;">{{ link }}</a>
+      </p>
+    </td></tr>
+    <tr><td class="pad" style="background:#FAF9FC;padding:16px 36px;border-top:1px solid #ECE8F3;font-size:12px;color:#9A94AA;">
+      Sent by Hunter because a deliverable you own finished building.
+    </td></tr>
+  </table>
+</td></tr>
+</table>
+</body>
+</html>

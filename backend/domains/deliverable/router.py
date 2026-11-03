@@ -6,12 +6,12 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 from ...core import store
 from ...core.auth import require_project_access
 from ..deckstudio import data_tables, revise
-from . import engine, latest24h, repair_run
+from . import engine, latest24h, notify, repair_run
 from . import rows as engine_rows
 from .schemas import (DataCoverageResponse, DeckDesign, DeckDesignChange, DeckDesignResult, DeliverableRunPayload,
                       DeliverableRunStarted)
@@ -192,3 +192,13 @@ def thumbnail(project_id: ProjectId, run_id: RunId, n: Annotated[int, PathParam(
     if n > len(pngs):
         raise HTTPException(404, "Thumbnail not available")
     return FileResponse(pngs[n - 1], media_type="image/png")
+
+
+@router.get("/deliverable/{project_id}/runs/{run_id}/email-preview", response_class=HTMLResponse)
+def email_preview(project_id: ProjectId, run_id: RunId, user: Access):
+    """The "deliverable ready" email as it would be sent (admins only, nothing is sent)."""
+    if user.get("role") not in ("admin", "super_admin"):
+        raise HTTPException(403, "Admins only")
+    run = _owned_run(project_id, run_id)
+    mail = notify.render(store.get_project(project_id), run, store.list_deliverable_sections(run_id), inline_logo=False)
+    return HTMLResponse(mail["html"])
