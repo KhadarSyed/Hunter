@@ -799,7 +799,10 @@ export function EnrichedArticlesTable({ records, loading, dimensions, tagSchemas
                   <td className="px-3 py-2.5 text-xs text-slate-600">{r.author || "—"}</td>
                   <td className="px-3 py-2.5 text-xs text-slate-600">{r.author_type && r.author_type !== "Unknown" ? r.author_type : <span className="text-slate-300">—</span>}</td>
                   {dimColumns.map((d) => {
-                    const tagged = r.question_tags?.[d.key] || [];
+                    // an article another question's query routed here carries that question's tag of the same name
+                    const dyn = r.dynamic_tags?.[d.key];
+                    const tagged = r.question_tags?.[d.key]?.length ? r.question_tags[d.key]
+                      : Array.isArray(dyn) ? dyn : dyn ? [dyn] : [];
                     return (
                       <td key={d.key} className="px-3 py-2.5">
                         <div className="flex flex-wrap gap-1">
