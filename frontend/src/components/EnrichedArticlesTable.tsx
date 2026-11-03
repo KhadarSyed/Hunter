@@ -841,7 +841,7 @@ export function EnrichedArticlesTable({ records, loading, dimensions, tagSchemas
                   <td className="px-3 py-2.5 text-[10px] text-slate-500"
                     style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
                     {entityCount > 0
-                      ? Object.entries(r.entities || {}).filter(([, v]) => v?.length).map(([k, v]) => (
+                      ? Object.entries(r.entities || {}).filter(([, v]) => Array.isArray(v) && v.length).map(([k, v]) => (
                           <div key={k} className="truncate"><span className="text-slate-400 capitalize">{k}:</span> {v.join(", ")}</div>
                         ))
                       : <span className="text-slate-300">—</span>}
