@@ -22,7 +22,7 @@ from ..exclusions import service as exclusions
 from ..datasources import service as ds_service
 from ...core.anthropic_client import get_llm_client
 from ...core.api import OkResponse
-from ...core.auth import require_project_access
+from ...core.auth import get_current_user, require_project_access
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from . import article_extractor
@@ -63,10 +63,12 @@ router = APIRouter()
 
 
 @router.post("/research/start", response_model=ResearchJobStarted)
-def start_background_research(req: StartResearchRequest):
+def start_background_research(req: StartResearchRequest, user: Annotated[dict, Depends(get_current_user)]):
     """Start a live background research job."""
     spec = req.spec
     project_id = req.project_id if req.project_id else store.get_or_create_project(spec)
+    if not req.project_id and not (store.get_project(project_id) or {}).get("owner_user_id"):
+        store.set_project_owner(project_id, user["org_id"], user["id"])     # the creator owns it (and gets its email)
     job_id = f"research_{uuid.uuid4().hex[:12]}"
     store.create_job(job_id, project_id, "background_research")
 

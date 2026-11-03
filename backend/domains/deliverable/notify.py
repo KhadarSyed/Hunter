@@ -10,7 +10,6 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from ...core import config, mailer, store
-from ...core.auth import can_access_project
 from ..deckstudio import data_tables
 from ..research import logo_files
 
@@ -23,12 +22,9 @@ _ENV = Environment(loader=FileSystemLoader(config.BACKEND_DIR / "core" / "templa
 
 
 def recipients(project: dict) -> list[dict]:
-    """The project's owner; a project with no (active) owner goes to every active user who can open it."""
+    """The project's owner -- the user who created it -- or nobody (a project with no known creator is not mailed)."""
     owner = store.get_user_by_id(project["owner_user_id"]) if project.get("owner_user_id") else None
-    if owner and owner.get("email") and not owner.get("archived_at"):
-        return [owner]
-    return [u for u in store.list_users(project.get("org_id"))
-            if u.get("email") and not u.get("archived_at") and can_access_project(project, u)]
+    return [owner] if owner and owner.get("email") and not owner.get("archived_at") else []
 
 
 def _files(run: dict) -> list[str]:
