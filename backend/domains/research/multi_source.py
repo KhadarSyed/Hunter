@@ -64,6 +64,13 @@ def search_brand_term(name: str) -> str:
     return stripped or (name or "").strip()
 
 
+def category_group(category: str) -> str:
+    """A taxonomy label ("Automotive / Electric Vehicles (EV)") as the words articles use: each "/" part and
+    parenthesised alias its own quoted term, OR'd — never the whole label as one phrase no article contains."""
+    parts = [search_brand_term(p) for p in re.split(r"\s*/\s*|\s*[()]\s*", category)]
+    return _or_group(list(dict.fromkeys(p for p in parts if p)))
+
+
 def build_boolean_queries(spec: dict, llm=None) -> list[TopicQuery]:
     """Build one TopicQuery per research angle from an approved Research Specification.
     Every topic includes the brand OR'd with every competitor (brand_or_competitors) — no
@@ -94,15 +101,16 @@ def build_boolean_queries(spec: dict, llm=None) -> list[TopicQuery]:
     ))
 
     if category:
+        category_bool = category_group(category)
         topics.append(TopicQuery(
             topic="competitive_landscape",
-            boolean_query=f'{brand_group_bool} AND "{category}"{exclusion}',
+            boolean_query=f'{brand_group_bool} AND {category_bool}{exclusion}',
             natural_query=f"{brand_group_natural} {category} market",
             display_label="Competitive Landscape",
         ))
         topics.append(TopicQuery(
             topic="category_trends",
-            boolean_query=f'{brand_group_bool} AND "{category}" AND (trend OR market){exclusion}',
+            boolean_query=f'{brand_group_bool} AND {category_bool} AND (trend OR market){exclusion}',
             natural_query=f"{category} market trends: {brand_group_natural}",
             display_label="Category & Market Trends",
         ))
