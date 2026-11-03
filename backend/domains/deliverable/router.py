@@ -110,10 +110,10 @@ def download(project_id: ProjectId, run_id: RunId, kind: str, _: Access):
     return FileResponse(path, media_type=_MEDIA[kind], filename=Path(path).name)
 
 
-# The deck holds model-written HTML: it runs in an opaque origin with no network, so even a sanitiser miss
-# cannot reach the API with the viewer's session
+# The deck holds model-written HTML: it runs sandboxed in an opaque origin with connect-src 'none', so even a sanitiser
+# miss cannot call the API with the viewer's session. It is not network-free: https images (article thumbnails) load
+# and popups (article links) open, so the guarantee covers API access only.
 _DECK_HEADERS = {
-    # popups: article links open in a new tab (outside the sandbox); the deck still reaches no API (connect-src)
     "Content-Security-Policy": ("sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox; default-src 'none'; "
                                 # https images: an article's own picture in the click-through, linked from its site
                                 "img-src data: https:; "

@@ -272,8 +272,8 @@ def _child_links(conn) -> dict[str, list[tuple[str, str]]]:
 
 def delete_project(project_id: int) -> dict[str, int] | None:
     """Delete a project and every row that belongs to it (children first) in one
-    transaction. Returns rows deleted per table, or None if the project doesn't exist.
-    Files on disk (uploads, rendered decks) are left in place."""
+    transaction, then its files on disk inside the data folder (uploads, rendered decks).
+    Returns rows deleted per table plus a "files" count, or None if the project doesn't exist."""
     conn = _conn()
     try:
         if not conn.execute("SELECT 1 FROM intel_projects WHERE id = ?", (project_id,)).fetchone():

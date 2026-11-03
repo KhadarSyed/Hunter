@@ -187,6 +187,10 @@ def send_ready_email(project_id: int, run_id: int) -> bool:
     if not to:
         logger.info("[deliverable:%s] ready email skipped: project %s has no user with an email", run_id, project_id)
         return False
+    settings = config.get_app_settings()
+    if settings.is_production and "localhost" in settings.app_url:
+        logger.warning("[deliverable:%s] APP_URL is %s in production: the ready email's link will not open", run_id,
+                       settings.app_url)
     mail = render(project, run, sections)
     sent = [u for u in to if mailer.send_email(u["email"], u.get("display_name") or "", mail["subject"],
                                                mail["html"], mail["text"], mail["inline_images"])]
