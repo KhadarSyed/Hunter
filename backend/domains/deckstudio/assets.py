@@ -415,6 +415,15 @@ def product_photo(brand: str, name: str, category: str, folder: Path, used: set[
                       fallback=False, judge=make_judge(subjects) if make_judge else None)
 
 
+def brand_photo(brand: str, category: str, folder: Path, used: set[str], make_judge=None) -> Photo:
+    """The client's own brand in its setting (a location, a storefront, the service in use) for the cover when no brief
+    product has a photo: a promotion or programme ("PERKSFEST") is not something a photo shows. Never widened to the
+    category: an anonymous category scene beside the logo would pass for the brand."""
+    subjects = Subjects([brand], [], category, f"{brand} {category} location".strip())
+    return find_photo(f"{brand} {category}".strip(), "panel", folder, used, subjects=subjects, fallback=False,
+                      judge=make_judge(subjects) if make_judge else None)
+
+
 FALLBACK_TRIES = 8
 
 

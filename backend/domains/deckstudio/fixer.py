@@ -338,12 +338,17 @@ def find_cover_product(r: Repair, _row: dict) -> str:
         return (lambda data: vision.matches(r.llm, data, subjects, f"{name} by {r.spec.title}", exact=True)) \
             if r.llm is not None else None
 
+    def brand_judge(subjects):
+        return (lambda data: vision.matches(r.llm, data, subjects, r.spec.title, own_brand=r.spec.title)) \
+            if r.llm is not None else None
+
     attach_product(r.spec, products, lambda name: assets.product_photo(
-        r.spec.title, name, category, r.deck_dir / "photos", set(), make_judge).path)
+        r.spec.title, name, category, r.deck_dir / "photos", set(), make_judge).path,
+        lambda: assets.brand_photo(r.spec.title, category, r.deck_dir / "photos", set(), brand_judge).path)
     if not r.spec.product_image:
-        raise Unfixable(f"no photo found that shows {', '.join(products[:3])} itself")
+        raise Unfixable(f"no photo found that shows {', '.join(products[:3])} or the {r.spec.title} brand itself")
     r.changed = True
-    return f"cover shows the {r.spec.product_name}"
+    return f"cover shows the {r.spec.product_name or r.spec.title + ' brand'}"
 
 
 REMEDIES = (

@@ -70,13 +70,17 @@ def _judge(llm, subjects, label: str, checks: dict, exact: bool = False, own_bra
 MAX_PRODUCT_TRIES = 3
 
 
-def attach_product(spec, products: list[str], find) -> None:
-    """The client's product beside its logo on the cover: the first brief product `find` returns a photo for."""
+def attach_product(spec, products: list[str], find, find_brand=None) -> None:
+    """The client's product beside its logo on the cover: the first brief product `find` returns a photo for; when
+    none has one, the brand's own photo from `find_brand` (no caption: the logo beside it names the brand)."""
     for name in products[:MAX_PRODUCT_TRIES]:
         path = find(name)
         if path:
             spec.product_image, spec.product_name = str(path), name
             return
+    path = find_brand() if products and find_brand else None
+    if path:
+        spec.product_image, spec.product_name = str(path), ""
 
 
 UNMARKED_CHARTS = ("theme_clusters",)
@@ -237,9 +241,14 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     def product_photo(name: str):
         return assets.product_photo(plan_input.title, name, plan_input.category, deck_dir / "photos", used,
                                     lambda subj: _judge(llm, subj, f"{name} by {plan_input.title}", checks, exact=True)).path
-    attach_product(spec, plan_input.brand_products, product_photo)
+
+    def brand_photo():
+        return None if plan_input.is_category else assets.brand_photo(
+            plan_input.title, plan_input.category, deck_dir / "photos", used,
+            lambda subj: _judge(llm, subj, plan_input.title, checks, own_brand=plan_input.title)).path
+    attach_product(spec, plan_input.brand_products, product_photo, brand_photo)
     if spec.product_image:
-        run.log(f"Cover product: {spec.product_name}")
+        run.log(f"Cover product: {spec.product_name or plan_input.title + ' (brand photo: no brief product has one)'}")
     walls = [s for s in spec.slides if s.type == "verbatim_wall"]
     shots: dict[str, str] = {}
 
