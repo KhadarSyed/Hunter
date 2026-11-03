@@ -119,9 +119,9 @@ def _set_cover(slide, title: str, subtitle: str, date_label: str) -> None:
 
 def _source(cfg, theme_metrics=None) -> str:
     if theme_metrics and theme_metrics.get("date_min"):
-        return (f"SOURCE: MELTWATER  |  {month_label(theme_metrics['date_min'][:7])} – "
+        return (f"{month_label(theme_metrics['date_min'][:7])} – "
                 f"{month_label(theme_metrics['date_max'][:7])}")
-    return f"SOURCE: MELTWATER  |  {cfg['period_label']}"
+    return cfg["period_label"]
 
 
 def _content(prs, cfg, m, kicker, title, summary, theme_metrics=None):

@@ -24,7 +24,6 @@ from .qc import estimate_overflow
 logger = logging.getLogger(__name__)
 CITES_PER_PAGE = 14
 CHART_TOP = 1.5
-FOOT_SOURCE = "SOURCE: MELTWATER"
 EMU_PER_IN = 914400
 COVER_IMAGE_TOP = 1.2
 COVER_IMAGE_W = 4.2
@@ -98,7 +97,7 @@ def _shorten(text: str, limit: int) -> str:
 def _slide(prs, inp: DeckInput, kicker: str, title: str, summary: str = "", icon: Path | None = None):
     s = blocks.new_content_slide(prs)
     blocks.add_header(s, kicker, _fit_title(title), summary, font=inp.title_font, accent=inp.accent)
-    blocks.add_footer(s, f"{FOOT_SOURCE}  |  {inp.period_label}", inp.base_n)
+    blocks.add_footer(s, inp.period_label, inp.base_n)
     if icon and icon.exists():
         s.shapes.add_picture(str(icon), Inches(style.SLIDE_W - 0.95), Inches(0.3), height=Inches(0.5))
     return s
