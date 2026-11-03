@@ -29,22 +29,15 @@ CREATIVE_RESTYLE = False
 
 
 def reuse_photos(slides, log=lambda _m: None) -> None:
-    """A photo slide whose search found nothing (search quota spent, no relevant image) reuses one found for another
-    slide, never its neighbours', so no slide is left a bare gradient; with no photo at all, the gradient stays."""
-    found = list(dict.fromkeys(s.image["path"] for s in slides if s.image.get("path")))
-    # the cover and closing reuse only each other's photo (checked as the client's own), never a category photo
-    own = list(dict.fromkeys(s.image["path"] for s in slides if s.image.get("path") and s.type in BRAND_BOOKENDS))
-    k = 0
-    for i, s in enumerate(slides):
-        pool = own if s.type in BRAND_BOOKENDS else found
-        if s.image.get("path") or not pool:
-            continue
-        near = {slides[j].image.get("path") for j in (i - 1, i + 1) if 0 <= j < len(slides)}
-        options = [pool[(k + n) % len(pool)] for n in range(len(pool))]
-        pick = next((p for p in options if p not in near), options[0])
-        k = found.index(pick) + 1
-        s.image["path"] = pick
-        log(f"{s.id}: no photo of its own; reusing one found for another slide")
+    """No picture is shown twice: a photo slide whose search found nothing keeps the brand gradient. Only the cover
+    and closing share one, the client's own photo (checked as the client's), so the deck opens and ends on it."""
+    own = next((s.image["path"] for s in slides if s.image.get("path") and s.type in BRAND_BOOKENDS), None)
+    for s in slides:
+        if s.type in BRAND_BOOKENDS and own and not s.image.get("path"):
+            s.image["path"] = own
+            log(f"{s.id}: the client's photo from the other end of the deck")
+        elif not s.image.get("path"):
+            log(f"{s.id}: no photo of its own; brand gradient kept (no picture repeats)")
 
 
 def _article_urls(slide, plan_input: PlanInput) -> list[str]:
@@ -208,13 +201,21 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
             except Exception as e:         # one slide's failed search costs that slide's photo, not the deck
                 logger.exception("photo search failed for %s", futures[done].id)
                 photos[futures[done].id] = assets.Photo(None, "", "none", f"photo search failed ({type(e).__name__})")
-    taken: set[str] = set()
-    for s in photo_slides:                 # two slides searched at once may have picked the same photo
+    taken: set[str] = set()                # URLs and content fingerprints of the photos placed so far
+
+    def picture(photo) -> bytes:           # the downloaded original: crops for different slide shapes differ
+        raw = Path(photo.path).with_suffix(".src")
+        return (raw if raw.exists() else Path(photo.path)).read_bytes()
+
+    for s in photo_slides:                 # two slides searched at once may have picked the same picture
         photo = photos[s.id]
-        if photo.path and photo.source_url in taken:
-            photo = photo_for(s)           # `used` now holds every photo chosen above
+        if photo.path and (photo.source_url in taken or assets.is_duplicate(picture(photo), taken)):
+            photo = photo_for(s)           # `used` now holds every photo chosen above (URLs and fingerprints)
+            if photo.path and assets.is_duplicate(picture(photo), taken):
+                photo = assets.Photo(None, "", "none", "only pictures already on other slides")
         if photo.path:
             taken.add(photo.source_url)
+            assets.mark_used(picture(photo), taken)
         s.image["path"] = str(photo.path) if photo.path else None
         s.image["why"] = photo.why
         found.append({"slide": s.id, "source": photo.source_url, "licence": photo.licence, "why": photo.why})
