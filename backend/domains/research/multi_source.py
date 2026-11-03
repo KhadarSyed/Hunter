@@ -163,15 +163,19 @@ _STOP = {"what", "which", "where", "when", "does", "how", "much", "many", "most"
          "mentions", "brand", "brands", "frequently", "discussed",
          # question filler that the keyword fallback otherwise picked up ("such", "have", "been", "among", "each")
          "such", "specific", "have", "been", "events", "prompted", "competitive", "among", "each", "related",
-         "examples", "including", "like", "they", "this", "that", "were", "what's", "whose", "both", "also"}
+         "examples", "including", "like", "they", "this", "that", "were", "what's", "whose", "both", "also",
+         # filler that surfaced once duplicate LLM clauses fall back to keywords
+         "occurred", "identified", "over", "driven", "competitor", "conversation", "discussion", "emerge", "patterns",
+         "strongly", "distribution", "proportion", "addresses", "around", "covers", "exposed"}
 LLM_QUERY_TIMEOUT_S = 45
 
 
 def _keyword_clause(question: str, names: list[str]) -> str:
     """Without the LLM: the question's own content words, OR'd (never the question as one quoted phrase)."""
     taken = {w.lower() for n in names for w in n.split()}
-    words = [w.strip(",.?!()\"'’") for w in question.split()]
-    keep = [w for w in dict.fromkeys(words) if len(w) > 3 and w.lower() not in _STOP and w.lower() not in taken][:5]
+    words = [re.sub(r"['’]s$", "", w.strip(",.?!()\"'’")) for w in question.split()]  # "Mazda’s" is "Mazda"
+    keep = [w for w in dict.fromkeys(words) if len(w) > 3 and not w.isdigit()
+            and w.lower() not in _STOP and w.lower() not in taken][:5]
     return "(" + " OR ".join(f'"{w}"' for w in keep) + ")" if keep else "(news OR coverage)"
 
 
@@ -195,8 +199,15 @@ def question_clauses(questions: list[str], names: list[str], llm=None) -> list[s
         return fallback
     finally:
         pool.shutdown(wait=False)
-    return [c if c and not validate_boolean_syntax(c) else fb
-            for c, fb in zip(got + [""] * len(questions), fallback)]
+    picked = [c if c and not validate_boolean_syntax(c) else fb for c, fb in zip(got + [""] * len(questions), fallback)]
+    # a clause an earlier question already searches (the LLM gives every sentiment/volume question the same broad
+    # group) becomes this question's own keyword clause, so each question runs its own search
+    seen: set[str] = set()
+    for i, fb in enumerate(fallback):
+        if picked[i] in seen:
+            picked[i] = fb if fb not in seen else f"{picked[i]} AND {fb}"
+        seen.add(picked[i])
+    return picked
 
 
 def _platform_for_url(url: str) -> str | None:
