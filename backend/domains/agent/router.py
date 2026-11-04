@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from ...core import config, store
 from ...core.auth import get_current_user, require_project_access
-from . import autopilot, copilot
+from . import autopilot, autorun, copilot
 from .api_client import ToolError
 from .schemas import AutopilotStart, CopilotMessage
 from .status import project_status
@@ -84,6 +84,17 @@ def autopilot_start(project_id: ProjectId, body: AutopilotStart, user=Depends(ge
         return autopilot.start(project_id, user["id"], body.input_folder)
     except ToolError as e:
         raise HTTPException(400, str(e))
+
+
+@router.post("/agent/{project_id}/autorun")
+def autorun_start(project_id: ProjectId, user=Depends(get_current_user), _u=Depends(require_project_access)):
+    """After Brief & Scope is approved: research and strategy run and approve themselves up to Data Sources."""
+    return autorun.start(project_id, user["id"])
+
+
+@router.get("/agent/{project_id}/autorun")
+def autorun_status(project_id: ProjectId, _u=Depends(require_project_access)):
+    return autorun.status(project_id)
 
 
 @router.post("/agent/{project_id}/autopilot/stop")

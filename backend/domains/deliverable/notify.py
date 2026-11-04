@@ -220,52 +220,52 @@ def _send(project: dict, mail: dict, tag: str) -> int:
 
 
 def notify_ready(project_id: int, run_id: int) -> None:
-    """Fire and forget: the run is already complete, so the email can neither fail nor slow it."""
-    def _go() -> None:
-        try:
-            send_ready_email(project_id, run_id)
-        except Exception:
-            logger.exception("[deliverable:%s] ready email failed", run_id)
-    threading.Thread(target=_go, name=f"ready-email-{run_id}", daemon=True).start()
+    _background(f"deliverable:{run_id}", lambda: send_ready_email(project_id, run_id))
 
 
-# job type -> (stage name, page the button opens, what the owner does there). Each of these stages waits for a person
-# to approve it in the web app; the deliverable has its own ready email above.
+# job type -> (stage name, page the button opens, what the owner does there). A failed job of these types emails the
+# owner; a completed one emails only where a person acts next (`waits`). Brief & Scope sends nothing: the user is on
+# the page, and research and strategy approve themselves (agent/autorun.py). The deliverable has its own email above.
 STAGE_GATES = {
-    "spec_generation": ("Brief & Scope", "brief-scope-review", "Review and approve the brief and scope"),
-    "background_research": ("Background research", "background-research", "Review the research and approve it"),
-    "search_strategy": ("Search strategy", "search-strategy", "Review and approve the search queries"),
-    "dataset_enrichment": ("Dataset tagging", "data-sources", "Review the tagged datasets and approve them"),
+    "background_research": ("Background research", "background-research", "Open it and run it again"),
+    "search_strategy": ("Search strategy", "search-strategy", "Open it and run it again"),
+    "dataset_enrichment": ("Dataset review", "data-sources", "Review the tagged datasets and approve them"),
 }
+WAITS = {"dataset_enrichment"}
 _SENT: set[tuple] = set()     # shortcut: per process, so a restart mid-stage can send one repeat; fine on one server
 _SENT_LOCK = threading.Lock()
 
 
 def _stage_key(job: dict) -> tuple | None:
-    """What one email covers, or None while it should wait: a project uploads several datasets at once, so its
+    """What one email covers, or None when nothing is sent yet: a project uploads several datasets at once, so its
     enrichment jobs are one email, sent when the last of them finishes."""
-    if job["job_type"] != "dataset_enrichment" or job["status"] == "failed":
-        return (job["id"], job["status"])
-    siblings = store.list_jobs(job["project_id"], "dataset_enrichment")
+    if job["status"] == "failed":
+        return (job["id"], "failed")
+    if job["job_type"] not in WAITS:
+        return None
+    siblings = store.list_jobs(job["project_id"], job["job_type"])
     if any(j["status"] in ("pending", "running") for j in siblings):
         return None
-    return (job["project_id"], "dataset_enrichment", tuple(sorted(j["id"] for j in siblings)))
+    return (job["project_id"], job["job_type"], tuple(sorted(j["id"] for j in siblings)))
+
+
+def owner_email(project: dict, name: str, page: str, action: str, *, error: str = "",
+                inline_logo: bool = True) -> dict:
+    """'<name> is ready for you' with a button to its page, or, with an error, '<name> needs your attention'."""
+    ctx = {**_project_context(project), "files": [], "link": _link(project["id"], page),
+           "stats": [("Stage", name)] + ([("Problem", error[:300])] if error else []) + [("Next step", action)],
+           "heading": f"{name} needs your attention" if error else f"{name} is ready for you",
+           "button": f"Open {name}", "stats_title": "Needs your attention" if error else "Waiting for you",
+           "preheader": f"{name} stopped: {action.lower()}." if error else f"{action}.",
+           "footer": f"Sent by Hunter because a project you own {'stopped at a stage' if error else 'is waiting for you'}."}
+    subject = f"{'Action needed' if error else 'Your turn'}: {name} — {ctx['project_name']}"
+    return _compose(ctx, subject, inline_logo)
 
 
 def stage_email(project: dict, job: dict, *, inline_logo: bool = True) -> dict:
     name, page, action = STAGE_GATES[job["job_type"]]
-    failed = job["status"] == "failed"
-    result = (job.get("error") or "Unknown error") if failed else (job.get("progress_message") or "Complete")
-    ctx = {**_project_context(project), "files": [], "link": _link(project["id"], page),
-           "stats": [("Stage", name), ("Error" if failed else "Result", str(result)[:300]),
-                     ("Next step", f"Open {name} in Hunter and run it again" if failed else action)],
-           "heading": f"{name} needs your attention" if failed else f"{name} is ready for your approval",
-           "button": f"Open {name}", "stats_title": "Needs your attention" if failed else "Waiting for you",
-           "preheader": f"{name} failed: open Hunter to retry it." if failed else f"{action}.",
-           "footer": f"Sent by Hunter because a stage of a project you own "
-                     f"{'failed' if failed else 'is waiting for your approval'}."}
-    subject = f"{'Action needed' if failed else 'Approval needed'}: {name} — {ctx['project_name']}"
-    return _compose(ctx, subject, inline_logo)
+    error = (job.get("error") or "Unknown error") if job["status"] == "failed" else ""
+    return owner_email(project, name, page, action, error=error, inline_logo=inline_logo)
 
 
 def send_stage_email(job_id: str) -> bool:
@@ -283,14 +283,26 @@ def send_stage_email(job_id: str) -> bool:
     return bool(_send(project, stage_email(project, job), f"stage:{job_id}"))
 
 
-def notify_stage(job_id: str) -> None:
-    """Fire and forget from a job's final status: the email never fails or slows the stage."""
+def _background(tag: str, fn) -> None:
+    """Fire and forget: an email never fails or slows the stage that sends it."""
     if not mailer.is_configured():
         return
 
     def _go() -> None:
         try:
-            send_stage_email(job_id)
+            fn()
         except Exception:
-            logger.exception("[stage:%s] approval email failed", job_id)
-    threading.Thread(target=_go, name=f"stage-email-{job_id}", daemon=True).start()
+            logger.exception("[%s] email failed", tag)
+    threading.Thread(target=_go, name=f"email-{tag}", daemon=True).start()
+
+
+def notify_stage(job_id: str) -> None:
+    _background(f"stage:{job_id}", lambda: send_stage_email(job_id))
+
+
+def notify_owner(project_id: int, name: str, page: str, action: str, *, error: str = "") -> None:
+    def send() -> None:
+        project = store.get_project(project_id)
+        if project:
+            _send(project, owner_email(project, name, page, action, error=error), f"owner:{project_id}")
+    _background(f"owner:{project_id}", send)
