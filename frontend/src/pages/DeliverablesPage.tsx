@@ -274,10 +274,6 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
             <p className="mt-1 text-sm text-slate-500">Charts, tables, cited insights and a brand-styled deck, built from your approved data</p>
             <LogoStrip names={Object.keys(logos)} logos={logos} />
           </div>
-          <button onClick={generate} disabled={running}
-            className="rounded-lg bg-[#5B2C9D] px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
-            {generateLabel}
-          </button>
         </div>
       </div>
 

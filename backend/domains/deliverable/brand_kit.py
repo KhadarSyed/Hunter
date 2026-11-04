@@ -13,7 +13,7 @@ import requests
 from PIL import Image
 
 from ..research import logo_files
-from ..research.brandfetch import resolve_brand_domain
+from ..research.brandfetch import LookupUnavailable, resolve_brand_domain
 from . import style
 
 logger = logging.getLogger(__name__)
@@ -115,7 +115,8 @@ def fetch_kit(brand_name: str, folder: Path, judge=None) -> BrandKit:
         if not domain:
             return kit
         data = _brand_api(domain)
-    except (requests.RequestException, ValueError) as e:
+    # LookupUnavailable: Brandfetch timed out or is down; a slow lookup once stopped a whole deck at "render"
+    except (requests.RequestException, ValueError, LookupUnavailable) as e:
         logger.warning("brand kit for %r unavailable: %s", brand_name, type(e).__name__)
         return kit
     kit.domain = domain
@@ -149,7 +150,7 @@ def brand_colors(brand_name: str) -> list[str]:
     try:
         domain = resolve_brand_domain(brand_name)
         data = _brand_api(domain) if domain else {}
-    except (requests.RequestException, ValueError) as e:
+    except (requests.RequestException, ValueError, LookupUnavailable) as e:
         logger.warning("brand colours for %r unavailable: %s", brand_name, type(e).__name__)
         return []
     listed = [c["hex"].lstrip("#").upper() for c in sorted(
