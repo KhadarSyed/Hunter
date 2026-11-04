@@ -16,9 +16,6 @@ from ...core import config, store
 logger = logging.getLogger(__name__)
 MAX_DECK_MB = 50
 SHINGLE = 6
-SLIDE_TYPES = ("cover", "contents", "objectives", "divider", "kpi_dashboard", "sov_doughnut_trend", "bar_with_cards",
-               "trend_with_peaks", "sentiment_split", "theme_cards", "verbatim_wall", "person_cards",
-               "comparison_table", "takeaways", "appendix_list", "closing", "other")
 FAMILY_WORDS = {"audit": ("audit", "c-suite", "csuite"), "travel": ("travel", "7cs", "destination", "hotel", "bahamas"),
                 "brand_social": ("social",), "topic_map": ("topic map",)}
 _BIG_NUMBER = re.compile(r"^\s*\d{1,3}(?:[.,]\d+)?%?\s*$")

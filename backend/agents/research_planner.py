@@ -173,11 +173,6 @@ EXCLUDED_ANALYSIS_KEYWORDS = frozenset({
     "demographic breakdown",
 })
 
-REQUIRED_OBJECTIVE_KEYS = [
-    "objective_id", "business_question_ids", "objective", "priority",
-    "platforms", "search_concepts", "evidence", "methods",
-    "expected_output", "deliverable_mapping",
-]
 
 CONFIDENCE_LEVELS = frozenset({"high", "medium", "low"})
 

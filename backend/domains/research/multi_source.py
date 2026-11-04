@@ -14,7 +14,7 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
 from ..exclusions.service import keep, rules_for_project

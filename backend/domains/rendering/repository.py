@@ -108,23 +108,6 @@ def create_rendered_presentation(job_id: str, presentation_id: int,
     return rid
 
 
-def get_rendered_presentation(rp_id: int) -> dict | None:
-    conn = _conn()
-    row = conn.execute(
-        "SELECT * FROM intel_rendered_presentations WHERE id=?", (rp_id,)
-    ).fetchone()
-    conn.close()
-    if not row:
-        return None
-    d = dict(row)
-    if d.get("metadata_json"):
-        try:
-            d["metadata_json"] = json.loads(d["metadata_json"])
-        except (json.JSONDecodeError, TypeError):
-            pass
-    return d
-
-
 def get_latest_rendered(presentation_id: int) -> dict | None:
     conn = _conn()
     row = conn.execute(
@@ -269,35 +252,6 @@ def list_themes(active_only: bool = True) -> list[dict]:
                 pass
         result.append(d)
     return result
-
-
-def create_template_version(theme_id: str, template_path: str, **kw) -> int:
-    conn = _conn()
-    now = time.time()
-    max_ver = conn.execute(
-        "SELECT COALESCE(MAX(version), 0) as mv FROM intel_template_versions WHERE theme_id=?",
-        (theme_id,),
-    ).fetchone()
-    ver = (max_ver["mv"] if max_ver else 0) + 1
-    cur = conn.execute(
-        "INSERT INTO intel_template_versions (theme_id, version, template_path, changelog, created_at) "
-        "VALUES (?,?,?,?,?)",
-        (theme_id, ver, template_path, kw.get("changelog"), now),
-    )
-    tv_id = cur.lastrowid
-    conn.commit()
-    conn.close()
-    return tv_id
-
-
-def list_template_versions(theme_id: str) -> list[dict]:
-    conn = _conn()
-    rows = conn.execute(
-        "SELECT * FROM intel_template_versions WHERE theme_id=? ORDER BY version DESC",
-        (theme_id,),
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
 
 
 def add_render_history(presentation_id: int, job_id: str, action: str, **kw) -> int:

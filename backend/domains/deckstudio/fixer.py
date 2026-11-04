@@ -26,7 +26,6 @@ from .spec import DeckSpec, SlideSpec
 logger = logging.getLogger(__name__)
 MAX_ROUNDS = 3
 CONTEXT_FILE = "repair_context.json"
-SCOPES = ("checks", "brief", "all")
 
 
 class Unfixable(Exception):

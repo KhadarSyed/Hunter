@@ -465,13 +465,6 @@ CHART_RENDERERS = {
 }
 
 
-def _render_chart(slide, visual_type: str, data: dict, region: str = "chart"):
-    renderer = CHART_RENDERERS.get(visual_type)
-    if renderer:
-        return renderer(slide, data, region)
-    return _render_bar_chart(slide, data, region)
-
-
 # ── Table engine ────────────────────────────────────────────────────
 
 def _render_table(slide, data: dict, region: str = "body"):
@@ -1347,8 +1340,6 @@ PURPOSE_RENDERERS = {
     "sov_competitive": _render_sov_slide,
     "entity_themes": _render_theme_slide,
 }
-
-SECTION_DIVIDER_PURPOSES = set()
 
 
 # ── Main rendering pipeline ────────────────────────────────────────

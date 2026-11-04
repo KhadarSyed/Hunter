@@ -14,7 +14,7 @@ import time
 import uuid
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -58,15 +58,6 @@ def require_api_key(settings: SettingsDep, key: Annotated[str | None, Depends(_a
     if settings.api_key and not (key and secrets.compare_digest(key, settings.api_key)):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or missing API key",
                             headers={"WWW-Authenticate": "APIKey"})
-
-
-async def require_ws_api_key(ws: WebSocket) -> None:
-    """WebSocket variant (browsers cannot set headers on WS): ?api_key=... query param."""
-    expected = get_app_settings().api_key
-    given = ws.query_params.get("api_key") or ws.headers.get("x-api-key") or ""
-    if expected and not secrets.compare_digest(given, expected):
-        await ws.close(code=status.WS_1008_POLICY_VIOLATION)
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or missing API key")
 
 
 # ─── Middleware + error handlers ─────────────────────────────────────────────

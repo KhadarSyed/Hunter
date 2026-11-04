@@ -286,11 +286,6 @@ def build_search_queries(
 # returned, so LiveWebResearchAdapter.search() and run_full_research() need no
 # changes at their call sites.
 
-import logging as _logging
-
-_log = _logging.getLogger(__name__)
-
-_DDG_DELAY = 1.5
 
 
 def _derive_title_from_content(content: str, max_len: int = 80) -> str:

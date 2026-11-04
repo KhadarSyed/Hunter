@@ -20,7 +20,7 @@ import logging
 import os
 import re
 import time
-from typing import Any, Callable
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 

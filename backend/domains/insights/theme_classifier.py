@@ -33,7 +33,6 @@ DISCOVERY_SAMPLE_SIZE = 200
 MAX_RECORDS_FOR_FULL_CLASSIFICATION = 5000
 MAX_RECORDS_FOR_JEV = 2000
 JEV_MIN_CONFIDENCE = 0.5  # below this Jev's theme choice is too spread to trust: the record stays unclassified
-MIN_THEMES = 3
 MAX_THEMES = 6
 UNCLASSIFIED_LABEL = "Other / Unclassified Mentions"
 NARRATIVE_MAX_WORDS = 160

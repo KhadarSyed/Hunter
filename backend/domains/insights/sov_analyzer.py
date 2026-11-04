@@ -50,7 +50,6 @@ PASSIVE_KEYWORDS = [
 
 # Text columns (by canonical mapped field name) to scan for entity mentions
 # and visibility classification, in priority order.
-_DEFAULT_TEXT_FIELDS = ["headline", "title", "snippet", "summary", "content", "body"]
 
 # Candidate raw column-header aliases used when column_mapping is missing or
 # incomplete — matched case-insensitively against the actual file headers.
@@ -65,13 +64,6 @@ _DATE_HEADER_ALIASES = [
     "timestamp", "date/time", "publication date", "created date",
 ]
 
-_SOURCE_HEADER_ALIASES = [
-    "source name", "source", "publication", "outlet", "media outlet",
-]
-
-_MEDIA_TYPE_HEADER_ALIASES = [
-    "information type", "media type", "type", "content type", "source type", "channel",
-]
 
 _MAX_RECORDS_SCANNED = 200_000
 

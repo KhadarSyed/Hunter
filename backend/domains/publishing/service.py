@@ -17,21 +17,12 @@ logger = logging.getLogger(__name__)
 
 # ── Constants ───────────────────────────────────────────────────────────
 
-VALID_APPROVAL_ACTIONS = (
-    "submit_for_review", "approve", "reject", "request_revision",
-    "publish", "archive",
-)
-
-READINESS_CLASSES = ("draft", "internal_review", "client_ready", "blocked")
-
-ISSUE_SEVERITIES = ("critical", "major", "minor", "information")
 
 VALIDATION_DIMENSIONS = (
     "narrative", "evidence", "design", "branding",
     "completeness", "rendering", "consistency",
 )
 
-DELIVERABLE_FILE_TYPES = ("pptx", "docx", "manifest", "evidence_index", "metadata")
 
 RENDERED_DIR = Path(config.DATA_DIR) / "rendered"
 PACKAGES_DIR = Path(config.DATA_DIR) / "packages"
@@ -904,22 +895,6 @@ def get_word_download_path(presentation_id: int) -> str | None:
     if path and Path(path).exists():
         return path
     return None
-
-
-def record_download(project_id: int, file_type: str, file_path: str,
-                    package_id: int = None, actor: str = "system") -> int:
-    size = os.path.getsize(file_path) if Path(file_path).exists() else 0
-    dl_id = store.create_pub_download(
-        project_id, file_type, file_path,
-        package_id=package_id, file_size_bytes=size, downloaded_by=actor,
-    )
-    store.add_pub_audit(project_id, "download", "download_file",
-                        actor=actor, details={
-                            "file_type": file_type,
-                            "file_size": size,
-                            "download_id": dl_id,
-                        })
-    return dl_id
 
 
 # ── Readiness Summary ───────────────────────────────────────────────────

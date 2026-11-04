@@ -25,7 +25,6 @@ from ..slides import retrieval as sr
 logger = logging.getLogger(__name__)
 
 VALID_SLIDE_STATUSES = {"draft", "needs_review", "approved", "rejected"}
-VALID_PRES_STATUSES = {"draft", "needs_review", "approved", "rejected"}
 
 SLIDE_PURPOSES = {
     "cover", "agenda", "executive_summary", "context", "methodology",
@@ -35,11 +34,6 @@ SLIDE_PURPOSES = {
     "sov_competitive", "entity_themes",
 }
 
-CONTENT_BLOCK_TYPES = {
-    "title", "subtitle", "executive_summary", "key_insight", "narrative",
-    "evidence_panel", "metrics", "chart", "callout", "quote", "verbatim",
-    "comparison", "timeline", "recommendation", "footnote", "source",
-}
 
 VISUAL_TYPES = {
     "bar_chart", "stacked_bar", "line_chart", "area", "scatter", "bubble",

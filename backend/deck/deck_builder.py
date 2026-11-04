@@ -33,7 +33,6 @@ BLACK = RGBColor(0x1A, 0x1A, 0x1A)
 # and paragraph_index_map.md in the hunter-report-builder skill).
 TEMPLATE_CONTENT_LIBRARY_INDICES = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
 TEMPLATE_DIVIDER_INDEX = 5
-TEMPLATE_SLIDE_COUNT = 17
 
 
 def _flatten_paragraphs(slide):

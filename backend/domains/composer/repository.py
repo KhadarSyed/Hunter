@@ -75,15 +75,6 @@ def update_pc_presentation(pres_id: int, **kw) -> None:
     conn.close()
 
 
-def delete_pc_presentation(pres_id: int) -> None:
-    conn = _conn()
-    conn.execute("DELETE FROM intel_pc_audit WHERE presentation_id=?", (pres_id,))
-    conn.execute("DELETE FROM intel_pc_slides WHERE presentation_id=?", (pres_id,))
-    conn.execute("DELETE FROM intel_pc_presentations WHERE id=?", (pres_id,))
-    conn.commit()
-    conn.close()
-
-
 def create_pc_slide(presentation_id: int, slide_number: int, slide_purpose: str,
                     title: str, **kw) -> int:
     conn = _conn()
@@ -185,13 +176,6 @@ def update_pc_slide(slide_id: int, **kw) -> None:
     conn.close()
 
 
-def delete_pc_slide(slide_id: int) -> None:
-    conn = _conn()
-    conn.execute("DELETE FROM intel_pc_slides WHERE id=?", (slide_id,))
-    conn.commit()
-    conn.close()
-
-
 def reorder_pc_slides(presentation_id: int, slide_ids: list[int]) -> None:
     conn = _conn()
     now = time.time()
@@ -231,17 +215,3 @@ def get_pc_audit(presentation_id: int, limit: int = 100) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def count_pc_slides(presentation_id: int, status: str | None = None) -> int:
-    conn = _conn()
-    if status:
-        row = conn.execute(
-            "SELECT COUNT(*) as cnt FROM intel_pc_slides WHERE presentation_id=? AND status=?",
-            (presentation_id, status),
-        ).fetchone()
-    else:
-        row = conn.execute(
-            "SELECT COUNT(*) as cnt FROM intel_pc_slides WHERE presentation_id=?",
-            (presentation_id,),
-        ).fetchone()
-    conn.close()
-    return row["cnt"] if row else 0

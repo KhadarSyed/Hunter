@@ -56,10 +56,6 @@ def get_executor(method_name: str) -> BaseMethodExecutor | None:
     return None
 
 
-def list_methods() -> list[str]:
-    return sorted(_REGISTRY.keys())
-
-
 # Import at the bottom so that all @register decorators in executors.py run
 # and populate _REGISTRY as a side effect of importing this module.
 from . import executors  # noqa: E402,F401
