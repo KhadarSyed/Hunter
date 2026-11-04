@@ -26,7 +26,7 @@
 </style>
 </head>
 <body style="margin:0;padding:0;background-color:#F3F1F7;" bgcolor="#F3F1F7">
-<div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">{{ project_name }}: your deck, brief and data tables are ready.</div>
+<div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">{{ project_name }}: {{ preheader }}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#F3F1F7" style="background-color:#F3F1F7;">
 <tr><td align="center" style="padding:24px 12px;">
   <!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td width="600"><![endif]-->
@@ -35,7 +35,7 @@
     <tr><td class="pad" bgcolor="#5B2C9D" style="background-color:#5B2C9D;padding:28px 36px;border-radius:10px 10px 0 0;font-family:{{ FONT }};">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
         <tr><td style="font-family:{{ FONT }};font-size:13px;line-height:18px;letter-spacing:2px;text-transform:uppercase;color:#D9CCF0;font-weight:bold;">Hunter</td></tr>
-        <tr><td style="padding-top:6px;font-family:{{ FONT }};font-size:24px;line-height:32px;color:#FFFFFF;font-weight:bold;">Your deliverable is ready</td></tr>
+        <tr><td style="padding-top:6px;font-family:{{ FONT }};font-size:24px;line-height:32px;color:#FFFFFF;font-weight:bold;">{{ heading }}</td></tr>
       </table>
     </td></tr>
 
@@ -60,14 +60,14 @@
       <div>
         <!--[if mso]>
         <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ link }}"
-                     style="height:48px;v-text-anchor:middle;width:240px;" arcsize="13%" stroke="f" fillcolor="#5B2C9D">
+                     style="height:48px;v-text-anchor:middle;width:300px;" arcsize="13%" stroke="f" fillcolor="#5B2C9D">
           <w:anchorlock/>
-          <center style="color:#FFFFFF;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;">Open deliverables</center>
+          <center style="color:#FFFFFF;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;">{{ button }}</center>
         </v:roundrect>
         <![endif]-->
         <!--[if !mso]><!-- -->
         <a href="{{ link }}" target="_blank"
-           style="background-color:#5B2C9D;border-radius:6px;color:#FFFFFF;display:inline-block;font-family:{{ FONT }};font-size:16px;font-weight:bold;line-height:48px;text-align:center;text-decoration:none;width:240px;-webkit-text-size-adjust:none;">Open deliverables</a>
+           style="background-color:#5B2C9D;border-radius:6px;color:#FFFFFF;display:inline-block;font-family:{{ FONT }};font-size:16px;font-weight:bold;line-height:48px;text-align:center;text-decoration:none;width:300px;-webkit-text-size-adjust:none;">{{ button }}</a>
         <!--<![endif]-->
       </div>
     </td></tr>
@@ -75,7 +75,7 @@
     {% if stats %}
     <tr><td class="pad" style="padding:24px 36px 4px 36px;">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-        <tr><td colspan="2" style="padding-bottom:10px;font-family:{{ FONT }};font-size:12px;line-height:16px;letter-spacing:1.5px;text-transform:uppercase;color:#5B2C9D;font-weight:bold;">Deliverable summary</td></tr>
+        <tr><td colspan="2" style="padding-bottom:10px;font-family:{{ FONT }};font-size:12px;line-height:16px;letter-spacing:1.5px;text-transform:uppercase;color:#5B2C9D;font-weight:bold;">{{ stats_title }}</td></tr>
         {% for label, value in stats %}
         <tr>
           <td style="padding:9px 0;border-bottom:1px solid #ECE8F3;font-family:{{ FONT }};font-size:14px;line-height:20px;color:#6B6480;">{{ label }}</td>
@@ -142,7 +142,7 @@
       <a href="{{ link }}" target="_blank" style="color:#5B2C9D;word-break:break-all;">{{ link }}</a>
     </td></tr>
     <tr><td class="pad" bgcolor="#FAF9FC" style="background-color:#FAF9FC;padding:16px 36px;border-top:1px solid #ECE8F3;border-radius:0 0 10px 10px;font-family:{{ FONT }};font-size:12px;line-height:18px;color:#9A94AA;">
-      Sent by Hunter because a deliverable you own finished building.
+      {{ footer }}
     </td></tr>
   </table>
   <!--[if mso]></td></tr></table><![endif]-->

@@ -35,3 +35,13 @@ from ..domains.deliverable.repository import *  # noqa: F401,F403
 from ..domains.deckstudio.repository import *  # noqa: F401,F403
 from ..domains.agent.repository import *  # noqa: F401,F403
 from ..domains.exclusions.repository import *  # noqa: F401,F403
+
+from ..domains.projects import repository as _projects  # noqa: E402
+
+
+def update_job(job_id: str, **changes) -> None:  # noqa: F811  (wraps the repository's: one hook for every stage)
+    """The repository update, then the owner's approval / needs-attention email when a stage job finishes."""
+    _projects.update_job(job_id, **changes)
+    if changes.get("status") in ("completed", "failed"):
+        from ..domains.deliverable import notify      # lazy: notify imports this module
+        notify.notify_stage(job_id)

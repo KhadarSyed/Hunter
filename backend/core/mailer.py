@@ -15,11 +15,16 @@ logger = logging.getLogger(__name__)
 TIMEOUT_S = 20
 
 
+def is_configured() -> bool:
+    s = get_app_settings()
+    return bool(s.zepto_server.strip() and s.zepto_passwd_key.strip() and s.zepto_from.strip())
+
+
 def send_email(to_address: str, to_name: str, subject: str, html: str, text: str,
                inline_images: list[dict] | None = None) -> bool:
     """inline_images: [{"cid", "mime_type", "content" (base64)}], referenced in the HTML as src="cid:<cid>"."""
     s = get_app_settings()
-    if not (s.zepto_server.strip() and s.zepto_passwd_key.strip() and s.zepto_from.strip()):
+    if not is_configured():
         logger.warning("Mail not configured (ZEPTO_SERVER / ZEPTO_PASSWD_KEY / ZEPTO_FROM): skipped %r", subject)
         return False
     msg = EmailMessage()

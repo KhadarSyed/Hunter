@@ -48,11 +48,12 @@ def _files(run: dict) -> list[str]:
     return [name for name, ok in named if ok]
 
 
+def _link(project_id: int, page: str) -> str:
+    return f"{config.get_app_settings().app_url.rstrip('/')}/{project_id}/{page}"
+
+
 def build_context(project: dict, run: dict, sections: list[dict]) -> dict:
-    spec = project.get("spec") or {}
     by_id = {s.get("id"): s for s in sections}
-    scope = spec.get("included_scope") or {}
-    client = (project.get("brand") or spec.get("client") or "").strip()
     studio, qc = by_id.get("studio") or {}, (by_id.get("qc") or {}).get("report") or {}
     stats = []
     if studio.get("slides"):
@@ -69,6 +70,15 @@ def build_context(project: dict, run: dict, sections: list[dict]) -> dict:
     articles = ((by_id.get("data-collection") or {}).get("data") or {}).get("unique_urls")
     if articles:
         stats.append(("Articles analysed", f"{articles:,}"))
+    return {**_project_context(project), "stats": stats, "files": _files(run),
+            "link": _link(project["id"], "deliverables")}
+
+
+def _project_context(project: dict) -> dict:
+    """Name, client, brief summary, scope and questions: the part every email to the owner shows."""
+    spec = project.get("spec") or {}
+    scope = spec.get("included_scope") or {}
+    client = (project.get("brand") or spec.get("client") or "").strip()
     competitors = scope.get("competitors") or []
     scope_rows = [("Competitors", ", ".join(map(str, competitors))) if competitors else None,
                   ("Geography", spec.get("geography") or scope.get("geography") or ""),
@@ -84,9 +94,6 @@ def build_context(project: dict, run: dict, sections: list[dict]) -> dict:
         "questions": [q.get("question") for q in spec.get("research_questions") or []
                       if isinstance(q, dict) and q.get("question")],
         "scope": [r for r in scope_rows if r and isinstance(r[1], str) and r[1].strip()],
-        "stats": stats,
-        "files": _files(run),
-        "link": f"{config.get_app_settings().app_url.rstrip('/')}/{project['id']}/deliverables",
     }
 
 
@@ -135,13 +142,18 @@ def _flag(country: str) -> dict | None:
         return None
 
 
+READY_COPY = {"heading": "Your deliverable is ready", "button": "Open deliverables",
+              "preheader": "your deck, brief and data tables are ready.", "stats_title": "Deliverable summary",
+              "footer": "Sent by Hunter because a deliverable you own finished building."}
+
+
 def _text(ctx: dict) -> str:
-    lines = ["Your Hunter deliverable is ready", "", ctx["project_name"]]
+    lines = [f"Hunter: {ctx['heading']}", "", ctx["project_name"]]
     if ctx["client"]:
         lines.append(f"Client: {ctx['client']}")
-    lines += ["", f"Open deliverables: {ctx['link']}", ""]
+    lines += ["", f"{ctx['button']}: {ctx['link']}", ""]
     if ctx["stats"]:
-        lines += ["DELIVERABLE SUMMARY"] + [f"- {k}: {v}" for k, v in ctx["stats"]]
+        lines += [ctx["stats_title"].upper()] + [f"- {k}: {v}" for k, v in ctx["stats"]]
     if ctx["files"]:
         lines.append(f"- Files available: {', '.join(ctx['files'])}")
     lines += ["", "BRIEF & SCOPE"]
@@ -155,8 +167,11 @@ def _text(ctx: dict) -> str:
 
 def render(project: dict, run: dict, sections: list[dict], *, inline_logo: bool = True) -> dict:
     """{subject, html, text, inline_images}. inline_logo=False puts the images in as data URIs (browser preview)."""
-    ctx = build_context(project, run, sections)
-    subject = f"Your Hunter deliverable is ready — {ctx['project_name']}"
+    ctx = {**build_context(project, run, sections), **READY_COPY}
+    return _compose(ctx, f"Your Hunter deliverable is ready — {ctx['project_name']}", inline_logo)
+
+
+def _compose(ctx: dict, subject: str, inline_logo: bool = True) -> dict:
     images: list[dict] = []
 
     def embed(cid: str, img: dict | None) -> dict | None:
@@ -183,22 +198,25 @@ def send_ready_email(project_id: int, run_id: int) -> bool:
     project, run = store.get_project(project_id), store.get_deliverable_run(run_id)
     if not project or not run or run.get("status") != "completed":
         return False
-    to = recipients(project)
-    if not to:
-        logger.info("[deliverable:%s] ready email skipped: project %s has no user with an email", run_id, project_id)
-        return False
-    settings = config.get_app_settings()
-    if settings.is_production and "localhost" in settings.app_url:
-        logger.warning("[deliverable:%s] APP_URL is %s in production: the ready email's link will not open", run_id,
-                       settings.app_url)
-    mail = render(project, run, sections)
-    sent = [u for u in to if mailer.send_email(u["email"], u.get("display_name") or "", mail["subject"],
-                                               mail["html"], mail["text"], mail["inline_images"])]
+    sent = _send(project, render(project, run, sections), f"deliverable:{run_id}")
     if sent:
         store.replace_deliverable_section(run_id, {"id": SECTION_ID, "rq_id": None, "module": SECTION_ID,
                                                    "title": "Ready email", "sent_at": time.time(),
-                                                   "recipients": len(sent)})
+                                                   "recipients": sent})
     return bool(sent)
+
+
+def _send(project: dict, mail: dict, tag: str) -> int:
+    """How many of the project's recipients the mail server accepted the email for."""
+    to = recipients(project)
+    if not to:
+        logger.info("[%s] email skipped: project %s has no user with an email", tag, project["id"])
+        return 0
+    settings = config.get_app_settings()
+    if settings.is_production and "localhost" in settings.app_url:
+        logger.warning("[%s] APP_URL is %s in production: the email's link will not open", tag, settings.app_url)
+    return sum(mailer.send_email(u["email"], u.get("display_name") or "", mail["subject"], mail["html"],
+                                 mail["text"], mail["inline_images"]) for u in to)
 
 
 def notify_ready(project_id: int, run_id: int) -> None:
@@ -209,3 +227,70 @@ def notify_ready(project_id: int, run_id: int) -> None:
         except Exception:
             logger.exception("[deliverable:%s] ready email failed", run_id)
     threading.Thread(target=_go, name=f"ready-email-{run_id}", daemon=True).start()
+
+
+# job type -> (stage name, page the button opens, what the owner does there). Each of these stages waits for a person
+# to approve it in the web app; the deliverable has its own ready email above.
+STAGE_GATES = {
+    "spec_generation": ("Brief & Scope", "brief-scope-review", "Review and approve the brief and scope"),
+    "background_research": ("Background research", "background-research", "Review the research and approve it"),
+    "search_strategy": ("Search strategy", "search-strategy", "Review and approve the search queries"),
+    "dataset_enrichment": ("Dataset tagging", "data-sources", "Review the tagged datasets and approve them"),
+}
+_SENT: set[tuple] = set()     # shortcut: per process, so a restart mid-stage can send one repeat; fine on one server
+_SENT_LOCK = threading.Lock()
+
+
+def _stage_key(job: dict) -> tuple | None:
+    """What one email covers, or None while it should wait: a project uploads several datasets at once, so its
+    enrichment jobs are one email, sent when the last of them finishes."""
+    if job["job_type"] != "dataset_enrichment" or job["status"] == "failed":
+        return (job["id"], job["status"])
+    siblings = store.list_jobs(job["project_id"], "dataset_enrichment")
+    if any(j["status"] in ("pending", "running") for j in siblings):
+        return None
+    return (job["project_id"], "dataset_enrichment", tuple(sorted(j["id"] for j in siblings)))
+
+
+def stage_email(project: dict, job: dict, *, inline_logo: bool = True) -> dict:
+    name, page, action = STAGE_GATES[job["job_type"]]
+    failed = job["status"] == "failed"
+    result = (job.get("error") or "Unknown error") if failed else (job.get("progress_message") or "Complete")
+    ctx = {**_project_context(project), "files": [], "link": _link(project["id"], page),
+           "stats": [("Stage", name), ("Error" if failed else "Result", str(result)[:300]),
+                     ("Next step", f"Open {name} in Hunter and run it again" if failed else action)],
+           "heading": f"{name} needs your attention" if failed else f"{name} is ready for your approval",
+           "button": f"Open {name}", "stats_title": "Needs your attention" if failed else "Waiting for you",
+           "preheader": f"{name} failed: open Hunter to retry it." if failed else f"{action}.",
+           "footer": f"Sent by Hunter because a stage of a project you own "
+                     f"{'failed' if failed else 'is waiting for your approval'}."}
+    subject = f"{'Action needed' if failed else 'Approval needed'}: {name} — {ctx['project_name']}"
+    return _compose(ctx, subject, inline_logo)
+
+
+def send_stage_email(job_id: str) -> bool:
+    job = store.get_job(job_id)
+    if not job or job.get("job_type") not in STAGE_GATES or job.get("status") not in ("completed", "failed"):
+        return False
+    project = store.get_project(job["project_id"])
+    if not project:
+        return False
+    with _SENT_LOCK:            # two enrichment jobs finishing together must not both send
+        key = _stage_key(job)
+        if key is None or key in _SENT:
+            return False
+        _SENT.add(key)
+    return bool(_send(project, stage_email(project, job), f"stage:{job_id}"))
+
+
+def notify_stage(job_id: str) -> None:
+    """Fire and forget from a job's final status: the email never fails or slows the stage."""
+    if not mailer.is_configured():
+        return
+
+    def _go() -> None:
+        try:
+            send_stage_email(job_id)
+        except Exception:
+            logger.exception("[stage:%s] approval email failed", job_id)
+    threading.Thread(target=_go, name=f"stage-email-{job_id}", daemon=True).start()
