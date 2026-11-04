@@ -45,21 +45,25 @@ export function useJobStatus<T extends { status: string }>(
     setStatus(null);
     setError(null);
 
-    const intervalId = setInterval(async () => {
+    let stopped = false;
+    const poll = async () => {
       try {
         const result = await fetchStatus();
+        if (stopped) return;
         setStatus(result);
         setError(null);
-        if (isTerminal(result)) {
-          clearInterval(intervalId);
-        }
+        if (isTerminal(result)) stop();
       } catch (e) {
+        if (stopped) return;
         setError(e instanceof Error ? e : new Error("Lost connection to server"));
-        clearInterval(intervalId);
+        stop();
       }
-    }, intervalMs);
+    };
+    const intervalId = setInterval(poll, intervalMs);
+    const stop = () => { stopped = true; clearInterval(intervalId); };
+    void poll();        // the first answer now, not one interval later: a page must know at once if a job is running
 
-    return () => clearInterval(intervalId);
+    return stop;
     // isTerminal is intentionally not a dependency — neither call site passes
     // a changing one, and including it would restart polling on every parent
     // render unless the caller memoizes it.

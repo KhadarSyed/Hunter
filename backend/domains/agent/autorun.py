@@ -7,7 +7,6 @@ from __future__ import annotations
 import logging
 import threading
 
-from ...core import store
 from ..deliverable import notify
 from .api_client import ApiClient
 
@@ -43,11 +42,12 @@ def _set(project_id: int, **changes) -> None:
     _STATE[project_id] = {**_STATE[project_id], **changes}
 
 
-def _job(api: ApiClient, project_id: int, started: dict) -> None:
+def _job(api: ApiClient, project_id: int, started: dict) -> dict:
     _set(project_id, job_id=started["job_id"])
     job = api.wait_job(started["job_id"], JOB_TIMEOUT)
     if job["status"] != "completed":
         raise JobFailed(job.get("error") or f"job {job['status']}")
+    return job.get("result") or {}
 
 
 def _approved(answer: dict) -> None:
@@ -57,10 +57,10 @@ def _approved(answer: dict) -> None:
 
 def _steps(api: ApiClient, project_id: int, reviewer: str) -> None:
     project = api.call("GET", f"/projects/{project_id}")
-    _job(api, project_id, api.call("POST", "/research/start", json={"spec": project["spec"], "project_id": project_id}))
+    done = _job(api, project_id, api.call("POST", "/research/start",
+                                           json={"spec": project["spec"], "project_id": project_id}))
     _set(project_id, step="brief", job_id=None)
-    research = store.get_latest_research(project_id)
-    _approved(api.call("POST", f"/research/{research['id']}/approve", json={"reviewer": reviewer}))
+    _approved(api.call("POST", f"/research/{done['research_id']}/approve", json={"reviewer": reviewer}))
     brief = api.call("POST", "/brief/generate", json={"project_id": project_id})
     api.call("POST", f"/brief/{brief['brief_id']}/approve", json={"reviewer": reviewer})
     _set(project_id, step="strategy")

@@ -786,7 +786,8 @@ export function BackgroundResearch({ onNavigate }: Props) {
 
   // Autorun (after Brief & Scope approval): this page follows its research job, the server writes and approves the
   // brief, then Search Strategy opens. A blocked chain falls back to the manual review below.
-  const autorun = useAutorun(projectId, ["research", "brief"], () => onNavigate("search-strategy"));
+  const autorun = useAutorun(projectId, ["research", "brief"],
+                             (step) => onNavigate(step === "data-sources" ? "data-sources" : "search-strategy"));
   const autorunning = autorun?.status === "running";
   const autorunningRef = useRef(false);      // read when the job finishes, without re-running that effect later
   autorunningRef.current = autorunning;
@@ -796,6 +797,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
     if (autorunning && autorun.step === "research" && autorun.job_id && autorun.job_id !== followedJob.current) {
       followedJob.current = autorun.job_id;
       setResearchJobId(autorun.job_id);
+      setBriefResult(null);       // an older brief must not hide the one this run writes
       setPageState("researching");
       setStartedAt((t) => t ?? Date.now());
     } else if (autorunning && autorun.step === "brief") {
@@ -1099,7 +1101,8 @@ export function BackgroundResearch({ onNavigate }: Props) {
               </button>
               <button
                 onClick={startGeneration}
-                className="px-3 py-2 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                disabled={autorunning}
+                className="disabled:opacity-50 px-3 py-2 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
               >
                 Regenerate
               </button>
@@ -1146,7 +1149,8 @@ export function BackgroundResearch({ onNavigate }: Props) {
             </div>
             <button
               onClick={startGeneration}
-              className="px-6 py-3 text-sm font-medium text-white rounded-lg shadow-sm transition-all hover:shadow-md"
+              disabled={autorunning}
+              className="disabled:opacity-50 px-6 py-3 text-sm font-medium text-white rounded-lg shadow-sm transition-all hover:shadow-md"
               style={{ background: "linear-gradient(135deg, #5B2C9D, #7C4DFF)" }}
             >
               Generate Brief

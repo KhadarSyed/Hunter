@@ -311,6 +311,7 @@ export function SearchStrategy({ onNavigate }: Props) {
   // Autorun (after Brief & Scope approval): follow its strategy job here; Data Sources opens once it is approved.
   // A strategy autorun could not approve (validation issues) stays here for the analyst to review and approve.
   const autorun = useAutorun(projectId, ["strategy"], () => onNavigate("data-sources"));
+  const autorunning = autorun?.status === "running";
   const followedJob = useRef<string | null>(null);
   useEffect(() => {
     if (autorun?.status === "running" && autorun.step === "strategy" && autorun.job_id
@@ -602,7 +603,7 @@ export function SearchStrategy({ onNavigate }: Props) {
               </div>
               <button
                 onClick={generateStrategy}
-                disabled={!projectId}
+                disabled={!projectId || autorunning}
                 className="px-6 py-2.5 text-sm font-medium text-white rounded-lg transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{ background: projectId ? V : "#94a3b8" }}
               >
@@ -1025,7 +1026,8 @@ export function SearchStrategy({ onNavigate }: Props) {
                 {hasData && (
                   <button
                     onClick={generateStrategy}
-                    className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                    disabled={autorunning}
+                    className="disabled:opacity-50 px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
                   >
                     Regenerate
                   </button>
