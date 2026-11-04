@@ -470,8 +470,7 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
   const handleApproveSpec = async () => {
     if (!spec) return;
     try {
-      await intelApi.approveSpec(spec.id);
-      if (activeProjectId) await intelApi.autorunStart(activeProjectId);    // research and strategy now run and approve themselves
+      await intelApi.approveSpec(spec.id);    // the server now runs and approves research and strategy itself
       await loadSpec();
       onNavigate("background-research");
     } catch (err) {

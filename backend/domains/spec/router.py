@@ -11,7 +11,8 @@ from starlette.responses import FileResponse
 
 from ...core import store
 from ...core.llm_provider import get_llm_client
-from ...core.auth import require_project_access
+from ...core.auth import get_current_user, require_project_access
+from ..agent import autorun
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from . import renderer as rsr
@@ -223,7 +224,8 @@ def unlock_spec_section_endpoint(spec_id: Annotated[int, Path(ge=1)], req: LockS
 
 
 @router.post("/spec/{spec_id}/approve", response_model=SpecStatusResponse)
-def approve_full_spec_endpoint(spec_id: Annotated[int, Path(ge=1)], req: ApproveSpecRequest):
+def approve_full_spec_endpoint(spec_id: Annotated[int, Path(ge=1)], req: ApproveSpecRequest,
+                               user: Annotated[dict, Depends(get_current_user)]):
     """Approve the full Research Specification (Gate 1)."""
     ok = store.approve_full_spec(spec_id, req.reviewer)
     if not ok:
@@ -232,6 +234,11 @@ def approve_full_spec_endpoint(spec_id: Annotated[int, Path(ge=1)], req: Approve
             "Cannot approve — blocking issues remain. Resolve all blocking "
             "clarifications and fill mandatory sections first.",
         )
+    # every approval (Approve, Save, the API) starts the chain to Data Sources; the agent's autopilot runs those
+    # steps itself, and a project that already has research is not researched again
+    project_id = (store.get_spec_by_id(spec_id) or {}).get("project_id")
+    if project_id and not req.reviewer.startswith("hunter-agent:") and not store.get_latest_research(project_id):
+        autorun.start(project_id, user["id"])
     return {"status": "approved", "spec_id": spec_id}
 
 

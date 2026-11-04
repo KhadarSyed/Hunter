@@ -1262,7 +1262,6 @@ export const intelApi = {
     post<AgentState["autopilot"]>(`/agent/${projectId}/autopilot/start`, { input_folder: inputFolder || null }),
   agentStop: (projectId: number) => post<{ ok: boolean }>(`/agent/${projectId}/autopilot/stop`, {}),
   /** After Brief & Scope approval: research and strategy run and approve themselves up to Data Sources. */
-  autorunStart: (projectId: number) => post<Autorun>(`/agent/${projectId}/autorun`, {}),
   autorunStatus: (projectId: number) => get<Autorun>(`/agent/${projectId}/autorun`),
   copilotSend: (projectId: number, message: string, confirm?: string) =>
     post<CopilotReply>(`/agent/${projectId}/copilot`, { message, confirm: confirm ?? null }),
