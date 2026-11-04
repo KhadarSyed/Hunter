@@ -38,7 +38,7 @@ STAGES = ("gate", "ingest", "routing", "plan", "classify", "compute", "insights"
 MAX_LOGOS = 40
 RETAIL_CATEGORY = "retail: stores, supermarkets and online marketplaces"
 CITE_POOL = 12          # brand / competitor articles offered to the brand chapter's summaries
-INSIGHT_WORKERS = 4     # questions drafting insights at once (each makes several chat calls)
+INSIGHT_WORKERS = 8     # questions drafting insights at once: every question of a brief, none waits for a free slot
 _lock = threading.Lock()
 
 
