@@ -1149,14 +1149,28 @@ export function DataSources({ onNavigate }: Props) {
               <span className="text-amber-600 font-medium">{reviewSummary.needsReview} pending review</span>,{" "}
               <span className="text-red-600 font-medium">{reviewSummary.excluded} excluded</span>.
             </p>
+            {canApproveAll && (
+              <p className="text-xs text-amber-700 mb-4">
+                Confirming also approves the {uploadedCount - approvedCount} uploaded dataset{uploadedCount - approvedCount === 1 ? "" : "s"} not approved yet.
+              </p>
+            )}
             <div className="flex justify-end gap-2">
               <button onClick={() => setShowProceedConfirm(false)} className="text-sm font-medium px-4 py-2 rounded-lg text-slate-500 hover:bg-slate-100">
                 Cancel
               </button>
               <button onClick={async () => {
                 setShowProceedConfirm(false);
-                // the build starts here; one already running (409) just opens Deliverables to watch it
-                if (projectId) await intelApi.deliverableRun(projectId).catch(() => undefined);
+                // the deck is built from approved datasets only: building before approving failed at once
+                await handleApproveAll();
+                try {
+                  if (projectId) await intelApi.deliverableRun(projectId);
+                } catch (e) {
+                  const msg = e instanceof Error ? e.message : "";
+                  if (!msg.startsWith("409")) {            // 409: a build is already running, open it to watch
+                    setError(msg.replace(/^\d+:\s*/, "") || "Could not start the deliverable");
+                    return;
+                  }
+                }
                 onNavigate("deliverables");
               }}
                 className="text-sm font-medium px-4 py-2 rounded-lg text-white" style={{ background: V }}>
