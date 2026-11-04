@@ -166,6 +166,27 @@ def _build_user_prompt(batch: list[dict], brand: str, competitors: list[str],
     )
 
 
+CHARS_PER_TOKEN = 4                # English text, roughly
+SCHEMA_PROMPT_CHARS = 4000         # brand, competitors, question dimensions and tag schema sent with every batch
+ARTICLE_JSON_CHARS = 60            # an article's id and JSON keys around its title and content
+OUTPUT_TOKENS_PER_ARTICLE = 350    # one article's tags: sentiment, themes, entities, brand scores, tags, reason
+BATCHES_PER_WORKER_MIN = 3         # measured: 8 workers tagged ~25 batches a minute on Band-Aid (2026-11-04)
+
+
+def estimate(records: list[dict], price_in_per_1m: float, price_out_per_1m: float) -> dict:
+    """What tagging these records would take, without calling the model: the same rows, trimming and batches as
+    enrich_dataset, tokens from character counts (an estimate: the real prompt and replies vary by ~20-30%)."""
+    taggable = [r for r in records if (r.get("content") or "").strip()]
+    calls = -(-len(taggable) // BATCH_SIZE)
+    chars = calls * (len(SYSTEM_PROMPT) + SCHEMA_PROMPT_CHARS) + sum(
+        min(len(r.get("title") or ""), 300) + min(len(r["content"]), 1500) + ARTICLE_JSON_CHARS for r in taggable)
+    tokens_in, tokens_out = chars // CHARS_PER_TOKEN, len(taggable) * OUTPUT_TOKENS_PER_ARTICLE
+    return {"articles": len(taggable), "skipped": len(records) - len(taggable), "calls": calls,
+            "input_tokens": tokens_in, "output_tokens": tokens_out,
+            "cost_usd": round(tokens_in * price_in_per_1m / 1e6 + tokens_out * price_out_per_1m / 1e6, 2),
+            "minutes": max(1, round(calls / (WORKERS * BATCHES_PER_WORKER_MIN)))}
+
+
 def tag_batch(llm_client: HybridLLMClient, batch: list[dict], brand: str, competitors: list[str],
               dimensions: list[qd.Dimension] | None = None, tag_schema: ts.TagSchema | None = None,
               also_schemas: dict[str, ts.TagSchema] | None = None) -> list[dict]:

@@ -117,6 +117,9 @@ class AppSettings(BaseSettings):
     zepto_from: str = ""                 # verified sender address
     mail_from_name: str = "Hunter"
     app_url: str = "http://localhost:5173"   # the frontend's base URL, for links in emails
+    # Chat model price in USD per million tokens, for the tagging cost estimate (gpt-4.1 list price; set your Azure rate)
+    llm_price_input_per_1m: float = 2.0
+    llm_price_output_per_1m: float = 8.0
 
     @property
     def is_production(self) -> bool:

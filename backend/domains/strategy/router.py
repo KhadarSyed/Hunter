@@ -25,7 +25,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi import Path as PathParam
 from fastapi.responses import Response
 
-from ...agents.dataset_enrichment import enrich_dataset
+from ...agents.dataset_enrichment import enrich_dataset, estimate as estimate_enrichment
 from ...agents.meltwater_query_builder import run as run_mqb
 from ...agents.meltwater_query_builder import quote_bare_phrases, validate_boolean_syntax
 from ...agents.query_evaluator import evaluate_sample
@@ -35,7 +35,7 @@ from ...core import store
 from ...core.llm_provider import extract_json_object as _extract_json_object, get_llm_client
 from ...core.api import OkResponse
 from ...core.auth import require_dataset_access, require_project_access, require_strategy_access
-from ...core.config import UPLOAD_DIR
+from ...core.config import UPLOAD_DIR, get_app_settings
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from ...core.tabular import decode_text, sniff_delimiter
@@ -1267,6 +1267,25 @@ def _load_all_records(file_path: str, mapped: dict) -> list[dict]:
             "manually_edited": False,
         })
     return records
+
+
+TAG_WARN_ARTICLES = 500    # tagging more than this asks the analyst to confirm the model cost first
+
+
+@router.get("/dataset/{dataset_id}/enrich-estimate")
+def enrich_estimate_route(dataset_id: IdPath, _access: Annotated[dict, Depends(require_dataset_access)]):
+    """The model calls, tokens, cost and minutes tagging this dataset would take (no model is called)."""
+    dataset = store.get_dataset_by_id(dataset_id)
+    if not dataset:
+        raise HTTPException(404, "Dataset not found")
+    records = _load_all_records(dataset["file_path"], dataset["column_mapping"].get("mapped", {}))
+    edited = {str(r.get("id")) for r in json.loads(dataset["enrichment_json"] or "[]") if r.get("manually_edited")}
+    settings = get_app_settings()
+    est = estimate_enrichment([r for r in records if str(r["id"]) not in edited],
+                              settings.llm_price_input_per_1m, settings.llm_price_output_per_1m)
+    return {**est, "warn": est["articles"] > TAG_WARN_ARTICLES, "warn_above": TAG_WARN_ARTICLES,
+            "price_input_per_1m": settings.llm_price_input_per_1m,
+            "price_output_per_1m": settings.llm_price_output_per_1m}
 
 
 @router.post("/dataset/{dataset_id}/enrich", response_model=EnrichmentStartResponse)

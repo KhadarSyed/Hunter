@@ -4,7 +4,7 @@ import { intelApi, type JobStatus } from "../services/intel-api";
 import { useActiveProjectId } from "../context/project-context";
 import { useDemoState } from "../context/demo-state";
 import { EnrichedArticlesTable, loadThreshold, reviewQueueOf } from "../components/EnrichedArticlesTable";
-import type { EnrichedRecord } from "../services/intel-api";
+import type { EnrichedRecord, EnrichEstimate } from "../services/intel-api";
 
 const V = "#5B2C9D";
 
@@ -575,6 +575,7 @@ export function DataSources({ onNavigate }: Props) {
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewTagSchemas, setReviewTagSchemas] = useState<import("../services/intel-api").TagSchemas>({});
   const [showProceedConfirm, setShowProceedConfirm] = useState(false);
+  const [costCheck, setCostCheck] = useState<{ rqId: string; datasetId: number; est: EnrichEstimate } | null>(null);
   const [sampleRun, setSampleRun] = useState<{ running: boolean; message: string }>({ running: false, message: "" });
   // A deliverable already generated: the bottom button opens it instead of starting another
   const [hasDeliverable, setHasDeliverable] = useState(false);
@@ -811,7 +812,15 @@ export function DataSources({ onNavigate }: Props) {
     }
   };
 
+  // Tagging is one model call per few articles: a dataset over the limit shows its estimated cost and asks first.
+  // If the estimate itself fails, tagging starts as before.
   const handleEnrich = async (rqId: string, datasetId: number) => {
+    const est = await intelApi.enrichEstimate(datasetId).catch(() => null);
+    if (est?.warn) setCostCheck({ rqId, datasetId, est });
+    else void startEnrich(rqId, datasetId);
+  };
+
+  const startEnrich = async (rqId: string, datasetId: number) => {
     setEnrichingIds((prev) => new Set(prev).add(datasetId));
     setEnrichLogs((prev) => ({ ...prev, [datasetId]: [{ message: "Starting enrichment...", pct: 0 }] }));
     setError(null);
@@ -1152,6 +1161,49 @@ export function DataSources({ onNavigate }: Props) {
               }}
                 className="text-sm font-medium px-4 py-2 rounded-lg text-white" style={{ background: V }}>
                 Confirm & Build Deliverable
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {costCheck && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setCostCheck(null)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="cost-check-title"
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 id="cost-check-title" className="text-sm font-semibold text-slate-800 mb-1">
+              Tag {formatNumber(costCheck.est.articles)} articles with the AI model?
+            </h3>
+            <p className="text-xs text-amber-700 mb-4">
+              That is more than {formatNumber(costCheck.est.warn_above)} articles: each one is read by the model, which costs money and time.
+            </p>
+            <dl className="grid grid-cols-2 gap-y-2 text-xs mb-4">
+              <dt className="text-slate-500">Estimated cost</dt>
+              <dd className="text-right font-semibold text-slate-800">≈ ${costCheck.est.cost_usd.toFixed(2)}</dd>
+              <dt className="text-slate-500">Estimated time</dt>
+              <dd className="text-right text-slate-800">≈ {costCheck.est.minutes} min</dd>
+              <dt className="text-slate-500">Model calls</dt>
+              <dd className="text-right text-slate-800">{formatNumber(costCheck.est.calls)}</dd>
+              <dt className="text-slate-500">Tokens (in / out)</dt>
+              <dd className="text-right text-slate-800">
+                {formatNumber(costCheck.est.input_tokens)} / {formatNumber(costCheck.est.output_tokens)}
+              </dd>
+              {costCheck.est.skipped > 0 && (<>
+                <dt className="text-slate-500">Skipped (no text)</dt>
+                <dd className="text-right text-slate-800">{formatNumber(costCheck.est.skipped)}</dd>
+              </>)}
+            </dl>
+            <p className="text-[11px] text-slate-400 mb-4">
+              An estimate from the file's text length at ${costCheck.est.price_input_per_1m} / ${costCheck.est.price_output_per_1m} per
+              million input / output tokens; the real figure can differ by about a quarter. Uploading a smaller export costs less.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setCostCheck(null)} className="text-sm font-medium px-4 py-2 rounded-lg text-slate-500 hover:bg-slate-100">
+                Cancel
+              </button>
+              <button onClick={() => { const c = costCheck; setCostCheck(null); void startEnrich(c.rqId, c.datasetId); }}
+                className="text-sm font-medium px-4 py-2 rounded-lg text-white" style={{ background: V }}>
+                Tag {formatNumber(costCheck.est.articles)} articles
               </button>
             </div>
           </div>

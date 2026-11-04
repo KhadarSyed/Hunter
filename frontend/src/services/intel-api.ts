@@ -824,6 +824,8 @@ export const intelApi = {
   deleteDataset: (datasetId: number) =>
     fetch(`${API_BASE}/dataset/${datasetId}`, { method: "DELETE", credentials: CREDENTIALS }).then((r) => json<{ ok: boolean }>(r)),
 
+  /** What tagging a dataset would cost in model calls, tokens, USD and minutes (nothing is called). */
+  enrichEstimate: (datasetId: number) => get<EnrichEstimate>(`/dataset/${datasetId}/enrich-estimate`),
   enrichDataset: (datasetId: number) =>
     post<{ job_id: string; dataset_id: number }>(`/dataset/${datasetId}/enrich`, {}),
 
@@ -1332,7 +1334,10 @@ export interface DeliverableProgress { pct: number; stage: string; label: string
 export type AgentStep = { key: string; label: string; state: "done" | "ready" | "waiting" | "failed" | "todo"; detail: string };
 export type Autorun = { status: "idle" | "running" | "done" | "blocked";
   step?: "research" | "brief" | "strategy" | "data-sources"; job_id?: string | null; error?: string | null };
-export type AgentState = { autopilot: { status: string; note: string; updated_at: number } | null;
+export type EnrichEstimate = { articles: number; skipped: number; calls: number; input_tokens: number;
+  output_tokens: number; cost_usd: number; minutes: number; warn: boolean; warn_above: number;
+  price_input_per_1m: number; price_output_per_1m: number };
+export type AgentState ={ autopilot: { status: string; note: string; updated_at: number } | null;
   status: { project_id: number; name: string; steps: AgentStep[]; next: string | null } };
 export type CopilotReply = { reply: string; actions: { tool: string; ok: boolean; error?: string }[];
   pending: { id: string; tool: string; args: Record<string, unknown>; summary: string } | null };
