@@ -106,7 +106,7 @@ class AzureOpenAIClient:
         format_json: bool = False,
     ) -> str:
         headers = {"api-key": self.api_key, "Content-Type": "application/json"}
-        payload: dict = {"messages": messages, "max_tokens": MAX_OUTPUT_TOKENS}
+        payload: dict = {"messages": messages, "max_completion_tokens": MAX_OUTPUT_TOKENS}
         if format_json:
             payload["response_format"] = {"type": "json_object"}
 
@@ -116,7 +116,7 @@ class AzureOpenAIClient:
                 raise AzureOpenAIError(f"Azure OpenAI chat failed: {r.status_code} {r.text[:300]}")
             choice = r.json()["choices"][0]
             if choice.get("finish_reason") == "length":
-                logger.warning("Azure OpenAI reply cut off at max_tokens=%d", MAX_OUTPUT_TOKENS)
+                logger.warning("Azure OpenAI reply cut off at max_completion_tokens=%d", MAX_OUTPUT_TOKENS)
             return choice["message"]["content"]
 
         payload["stream"] = True
@@ -134,7 +134,7 @@ class AzureOpenAIClient:
                 choices = chunk.get("choices") or []
                 delta = choices[0].get("delta", {}).get("content", "") if choices else ""
                 if choices and choices[0].get("finish_reason") == "length":
-                    logger.warning("Azure OpenAI reply cut off at max_tokens=%d", MAX_OUTPUT_TOKENS)
+                    logger.warning("Azure OpenAI reply cut off at max_completion_tokens=%d", MAX_OUTPUT_TOKENS)
                 if delta:
                     full.append(delta)
                     on_token(delta)
@@ -143,7 +143,7 @@ class AzureOpenAIClient:
     def chat_tools(self, messages: list[dict], tools: list[dict], tool_choice: str = "auto") -> dict:
         """One tool-calling turn: the reply's text and the tool calls it asks for, arguments parsed."""
         headers = {"api-key": self.api_key, "Content-Type": "application/json"}
-        payload: dict = {"messages": messages, "max_tokens": MAX_OUTPUT_TOKENS}
+        payload: dict = {"messages": messages, "max_completion_tokens": MAX_OUTPUT_TOKENS}
         if tools:
             payload.update(tools=tools, tool_choice=tool_choice)
         r = _post(self._url(), headers, payload)
