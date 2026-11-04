@@ -10,9 +10,10 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 THUMB_PX = 512
 _PROMPT = ("Answer YES or NO first. Is this photo a good, on-topic image for a presentation slide about {label}, "
-           "for the {category} category{brands}{products}? Say NO for logos alone, charts, screenshots of text, "
-           "watermarked stock, unrelated scenes, a different brand's product, or an older generation or vintage model "
-           "instead of the current one.")
+           "for the {category} category{brands}{products}? An unbranded scene of the category fits: the brand need not "
+           "be visible. Say NO for logos alone, charts, screenshots of text, watermarked stock, unrelated scenes, a "
+           "product clearly branded as a different brand, or an older generation or vintage model instead of the "
+           "current one.")
 # the cover's product box names one product: on-topic is not enough, it must be that product and recognisably so
 _EXACT_PROMPT = ("Answer YES or NO first. Does this photo clearly show the {product} by {brand} itself -- that exact "
                  "product or model, current generation? Say NO when it shows a different model or product of the same "
