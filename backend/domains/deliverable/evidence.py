@@ -45,7 +45,7 @@ def _original_case(term: str, query: str) -> str:
 def brand_set(primary: str, competitors: list[str], queries: list[str], products: list[str] = ()) -> list[Brand]:
     """The primary brand (all its spellings and products) and every competitor named in the brief or in the
     queries' brand clause."""
-    names = [primary] + [c for c in competitors if _norm(c) != _norm(primary)]
+    names = ([primary] if primary else []) + [c for c in competitors if _norm(c) != _norm(primary)]
     terms: dict[str, list[str]] = {n: [n.lower()] for n in names}
     keys = {_norm(n): n for n in names}
     for query in queries:
@@ -61,7 +61,8 @@ def brand_set(primary: str, competitors: list[str], queries: list[str], products
                     terms[owner] = [owner.lower()]
                 if t not in terms[owner]:
                     terms[owner].append(t)
-    terms[primary] += [p.lower() for p in products if p and p.lower() not in terms[primary]]
+    if primary:
+        terms[primary] += [p.lower() for p in products if p and p.lower() not in terms[primary]]
     return [Brand(name=n, terms=tuple(ts), primary=(n == primary)) for n, ts in terms.items()]
 
 

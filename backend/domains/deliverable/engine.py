@@ -58,8 +58,15 @@ def _gate_reasons(project_id: int) -> list[str]:
         reasons.append("Scope is not approved")
     if (store.get_latest_strategy(project_id) or {}).get("approval_status") != "approved":
         reasons.append("Search strategy is not approved")
-    if not [d for d in store.get_datasets_by_project(project_id) if d.get("approval_status") == "approved"]:
+    datasets = store.get_datasets_by_project(project_id)
+    if not [d for d in datasets if d.get("approval_status") == "approved"]:
         reasons.append("No approved dataset")
+    # a run started mid-review drafts from articles the review will drop: every GPT call of it is spent twice
+    open_ = [d.get("file_name") or f"#{d.get('id')}" for d in datasets
+             if d.get("enrichment_status") == "running" or (d.get("processing_status") or "done") == "processing"
+             or d.get("approval_status") not in ("approved", "disapproved")]
+    if open_:
+        reasons.append(f"Finish the data review first (approve or disapprove): {', '.join(open_)}")
     return reasons
 
 
@@ -552,7 +559,7 @@ def _plan_input(project: dict, inp, rqs, overview, sections_by_rq, insights_by_r
                      geography=str(geography), sources="Meltwater", verbatims_by_rq=verbatims_by_rq or {},
                      products=_products(project), category=_category(project, inp.title),
                      section_summaries=section_summaries or {},
-                     is_category="category" in str(spec.get("research_type") or "").lower(),
+                     is_category=_is_category(spec),
                      objective=str(spec.get("research_objective") or ""), media=_media(spec),
                      time_period=str(spec.get("time_period") or ""),
                      brand_products=[e["name"] for e in (spec.get("validated_entities") or [])
@@ -631,11 +638,17 @@ def _verbatims_by_rq(rqs, rows_by_rq, insights_by_rq, registry, brands, dims_by_
     return out
 
 
+def _is_category(spec: dict) -> bool:
+    return "category" in str(spec.get("research_type") or "").lower()
+
+
 def _brands(project: dict, rqs) -> list:
     """The primary brand (its spellings and products) and its competitors, from the brief and the queries."""
     spec = project.get("spec") or {}
     entities = [e for e in spec.get("validated_entities") or [] if isinstance(e, dict) and e.get("name")]
     primary = (spec.get("commissioning_brand") or {}).get("name") or project.get("brand") or project.get("name") or ""
+    if _is_category(spec):      # 'Baby Skincare' is the category: counted as a brand, its query clause made brands
+        primary = ""
     return evidence.brand_set(primary, [e["name"] for e in entities if e.get("type") == "competitor"],
                               [q.query for q in rqs], [e["name"] for e in entities if e.get("type") == "product"])
 

@@ -24,7 +24,8 @@ from . import validate, verbatims, vision
 from .spec import DeckSpec, SlideSpec
 
 logger = logging.getLogger(__name__)
-MAX_ROUNDS = 3
+# later rounds mostly redraft cards the judge just rejected (run 117: 25+ min of GPT in round 1); Fix runs one more
+MAX_ROUNDS = 1
 CONTEXT_FILE = "repair_context.json"
 
 
