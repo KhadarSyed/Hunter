@@ -1,4 +1,3 @@
-import { formatDateTime as formatDateTimeUS } from "../utils/format";
 import { useState, useEffect, useCallback } from "react";
 import { intelApi } from "../services/intel-api";
 import type {
@@ -68,19 +67,6 @@ const LAYOUT_COLORS: Record<string, string> = {
   table_focused: "text-cyan-700 bg-cyan-50 border-cyan-200",
   mixed: "text-amber-700 bg-amber-50 border-amber-200",
 };
-
-function formatDateTime(ts: number | null | undefined): string {
-  if (!ts) return "--";
-  const d = new Date(ts < 1e12 ? ts * 1000 : ts);
-  if (isNaN(d.getTime())) return "--";
-  return formatDateTimeUS(d);
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 // ─── Icons ─────────────────────────────────────────────────────────────────
 
@@ -508,13 +494,11 @@ function SlideDrawer({
 function LibraryTab({
   slides,
   loading,
-  presentations,
   dashboard,
   onRefresh,
 }: {
   slides: SISlide[];
   loading: boolean;
-  presentations: SIPresentation[];
   dashboard: SIDashboard | null;
   onRefresh: () => void;
 }) {
@@ -1296,7 +1280,6 @@ export function SlideIntelligencePage({ onNavigate }: { onNavigate: (page: strin
         <LibraryTab
           slides={slides}
           loading={loading}
-          presentations={presentations}
           dashboard={dashboard}
           onRefresh={loadData}
         />

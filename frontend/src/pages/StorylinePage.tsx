@@ -1,13 +1,11 @@
 import { formatDateTime as formatDateTimeUS } from "../utils/format";
 import { useState, useEffect, useCallback } from "react";
 import { intelApi } from "../services/intel-api";
-import type { Storyline, StorylineDetail, StorylineSummary, StoryNodeEnriched } from "../types/contracts";
+import type { StorylineDetail, StorylineSummary, StoryNodeEnriched } from "../types/contracts";
 import { useActiveProjectId, useProject } from "../context/project-context";
 import { PexelsHeaderBanner } from "../components/PexelsHeaderBanner";
 
 // ─── Constants ─────────────────────────────────────────────────────────────
-
-const NODE_STATUSES = ["draft", "needs_review", "approved", "rejected"];
 
 const SECTION_TYPE_COLORS: Record<string, string> = {
   opening: "text-indigo-700 bg-indigo-50 border-indigo-200",
@@ -349,7 +347,6 @@ export function StorylinePage({ onNavigate }: Props) {
   const [prereqError, setPrereqError] = useState<string | null>(null);
   const [checkingPrereqs, setCheckingPrereqs] = useState(false);
 
-  const [storylines, setStorylines] = useState<Storyline[]>([]);
   const [activeStoryline, setActiveStoryline] = useState<StorylineDetail | null>(null);
   const [summary, setSummary] = useState<StorylineSummary | null>(null);
   const [nodes, setNodes] = useState<StoryNodeEnriched[]>([]);
@@ -404,7 +401,6 @@ export function StorylinePage({ onNavigate }: Props) {
     setError(null);
     try {
       const data = await intelApi.getStoryline(projectId);
-      setStorylines(data);
       // Load the latest storyline detail
       if (data.length > 0) {
         const latest = data[data.length - 1];

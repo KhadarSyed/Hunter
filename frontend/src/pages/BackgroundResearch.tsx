@@ -1,7 +1,7 @@
 import { formatDate } from "../utils/format";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { intelApi, type BriefResult, type BriefData, type BriefSection, type JobStatus, type SourceRef } from "../services/intel-api";
+import { intelApi, type BriefResult, type BriefSection, type JobStatus, type SourceRef } from "../services/intel-api";
 import { useDemoState } from "../context/demo-state";
 import { useProject, useActiveProjectId } from "../context/project-context";
 import { useJobStatus } from "../hooks/useJobStatus";

@@ -1,4 +1,4 @@
-import type { Insight, InsightDetail, InsightsSummary, InsightValidation, InsightEvidence, Storyline, StorylineDetail, StorylineSummary, StorylineValidation, StoryNodeEnriched, StoryNode, SIDashboard, SIPresentation, SISlide, SITemplateFamily, SIDetectedProject, SIRecommendation, PCPresentation, PCSlide, PCPresentationDetail, PCPresentationSummary, PCValidation, RenderJob, RenderResult, RenderSummary, RenderTheme, RenderValidation, RenderMetric, RenderHistory, WordRenderResult, WordRenderJob, WordDocument, WordRenderMetric, WordRenderHistory, WordRenderSummary, WordValidation, PubValidationResult, PubValidation, PubDiffReport, PubVersion, PubPackage, PubPackageResult, PubApproval, PubApprovalResult, PubReadinessSummary, PubAuditEntry, PubDownload, PubVersionResult } from "../types/contracts";
+import type { Insight, InsightDetail, InsightsSummary, InsightValidation, InsightEvidence, Storyline, StorylineDetail, StorylineSummary, StorylineValidation, StoryNodeEnriched, StoryNode, SIDashboard, SIPresentation, SISlide, SITemplateFamily, SIDetectedProject, SIRecommendation, PCPresentation, PCSlide, PCPresentationDetail, PCPresentationSummary, PCValidation, RenderJob, RenderResult, RenderSummary, RenderTheme, RenderValidation, RenderMetric, RenderHistory, WordRenderResult, WordRenderJob, WordRenderMetric, WordRenderHistory, WordRenderSummary, WordValidation, PubValidationResult, PubValidation, PubDiffReport, PubVersion, PubPackage, PubPackageResult, PubApproval, PubApprovalResult, PubReadinessSummary, PubAuditEntry, PubDownload, PubVersionResult } from "../types/contracts";
 
 // Empty by default (relative paths), matching same-origin deploys where the backend
 // serves the built SPA directly. Set VITE_API_BASE_URL (e.g. "https://api.example.com")
@@ -1296,9 +1296,6 @@ export const intelApi = {
 
   composerSelectLayout: (slideId: number, layout: string, rationale?: string) =>
     post<PCSlide>(`/composer/slide/${slideId}/layout`, { layout, rationale }),
-
-  composerSelectVisual: (slideId: number, visual: string) =>
-    post<PCSlide>(`/composer/slide/${slideId}/visual`, { visual }),
 
   composerReorder: (presId: number, slideIds: number[]) =>
     post<{ reordered: boolean }>(`/composer/${presId}/reorder`, { slide_ids: slideIds }),
