@@ -11,6 +11,7 @@ from typing import Callable
 
 from ...core import config, store
 from . import memory
+from ..memory import service as user_memory
 from .api_client import ApiClient, ToolError  # noqa: F401  (ToolError re-exported)
 from .status import project_status
 
@@ -274,6 +275,8 @@ def _read_run(ctx, args):
 
 def _remember(ctx, args):
     memory.remember(ctx.project_id, args["kind"], args["key"], args["value"])
+    if args["kind"] == "preference":    # user memory: the preference follows the user into their next projects
+        user_memory.remember_user(ctx.user_id, args["key"], args["value"])
     return {"saved": args["key"]}
 
 

@@ -478,7 +478,8 @@ async def run(
         "research_questions": rq_count,
     })
 
-    user_message = _build_user_prompt(spec, brand_intelligence)
+    from ..domains.memory import service as memory
+    user_message = _build_user_prompt(spec, brand_intelligence) + memory.lessons("query_builder")
 
     queries: dict | None = None
     all_errors: list[str] = []
@@ -551,6 +552,7 @@ async def run(
 
         if not all_errors:
             break
+        memory.reflect("query_builder", all_errors)
 
     elapsed = round(time.time() - start, 1)
 

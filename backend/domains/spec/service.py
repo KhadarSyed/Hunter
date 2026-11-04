@@ -13,6 +13,7 @@ import time
 from typing import Any, Callable, Optional
 
 from ...core import store
+from ..memory import service as memory
 from .repository import FORM_FIELDS
 
 SECTION_TITLES = {
@@ -134,6 +135,8 @@ def generate_spec(
             max_retries=2,
             client_name=_client_name(project),
             emit=emit,
+            known_facts=memory.entity_prompt(project_id, _client_name(project)),
+            project_id=project_id,
         )
         if result.get("spec"):
             _emit("grounding_entities")
@@ -141,6 +144,7 @@ def generate_spec(
             _emit("merging_form_context")
             project_spec = _apply_form_context(grounded_spec, project_spec)
             store.update_project_spec(project_id, project_spec)
+            memory.learn_from_spec(project_id, grounded_spec)
         else:
             raise ValueError(_analysis_failed(result, "Nothing was saved — click Analyze Brief to try again."))
 
@@ -237,6 +241,8 @@ def regenerate_spec(
             max_retries=2,
             client_name=_client_name(project),
             emit=emit,
+            known_facts=memory.entity_prompt(project_id, _client_name(project)),
+            project_id=project_id,
         )
         if result.get("spec"):
             _emit("grounding_entities")
@@ -244,6 +250,7 @@ def regenerate_spec(
             _emit("merging_form_context")
             project_spec = _apply_form_context(grounded_spec, project_spec)
             store.update_project_spec(project_id, project_spec)
+            memory.learn_from_spec(project_id, grounded_spec)
         else:
             raise ValueError(_analysis_failed(result, "The previous specification is unchanged — click Reanalyze to try again."))
 
@@ -902,10 +909,32 @@ def _replace_standin_brand(spec: dict, client: str) -> dict:
     return out
 
 
+def _grounded_kind(e: dict) -> str:
+    """The two kinds ground_missing_entities adds: "executive", or "new_launch" for a launched product."""
+    if e.get("type") == "executive":
+        return "executive"
+    return "new_launch" if e.get("type") in ("product", "product_group") and e.get("group") == "new_launch" else ""
+
+
 def _ground_scope_spec(spec: dict, project: dict, llm_client) -> dict:
     """Fix a stand-in commissioning brand, then web-ground executive/launch entities for a real brand only
     (ground_missing_entities skips placeholder and category names)."""
     from ...agents.entity_grounding import ground_missing_entities
     fixed = _replace_standin_brand(spec, _client_name(project))
     brand_name = (fixed.get("commissioning_brand") or {}).get("name") or ""
-    return ground_missing_entities(fixed, brand_name, llm_client)
+    known = {(e.get("name"), e.get("type")) for e in fixed.get("validated_entities") or []}
+    remembered = memory.recall_grounding(project.get("id"), brand_name)
+    kinds = {_grounded_kind(e) for e in fixed.get("validated_entities") or []}
+    missing = {"executive", "new_launch"} - kinds
+    if remembered is not None and missing <= {_grounded_kind(e) for e in remembered}:
+        # entity memory: this org web-grounded every missing kind for the brand recently, skip search + GPT
+        return {**fixed, "validated_entities": list(fixed.get("validated_entities") or [])
+                + [e for e in remembered if (e.get("name"), e.get("type")) not in known
+                   and _grounded_kind(e) in missing]}
+    grounded = ground_missing_entities(fixed, brand_name, llm_client)
+    added = [e for e in grounded.get("validated_entities") or [] if (e.get("name"), e.get("type")) not in known]
+    if added:                           # replace the kinds just grounded, keep the others remembered
+        fresh_kinds = {_grounded_kind(e) for e in added}
+        memory.remember_grounding(project.get("id"), brand_name,
+                                  [e for e in remembered or [] if _grounded_kind(e) not in fresh_kinds] + added)
+    return grounded

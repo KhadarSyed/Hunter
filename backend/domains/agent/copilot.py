@@ -85,7 +85,7 @@ def _reply(ctx: ToolContext, message: str, llm, confirm: str | None) -> dict:
     if llm is None or not getattr(llm, "is_reachable", lambda: False)():
         return _no_llm(ctx)
     messages = [{"role": "system", "content": _SYSTEM},
-                {"role": "user", "content": memory.context(project_id, llm)},
+                {"role": "user", "content": memory.context(project_id, llm, user_id=user_id)},
                 {"role": "user", "content": message}]
     actions: list[dict] = []
     for _ in range(MAX_TOOL_TURNS):

@@ -162,6 +162,12 @@ to each other. Their shared UI pieces live in `components/stage-ui.tsx`.
   lose already-fetched web research.
 - **`__pycache__` can mask code changes**, especially with uvicorn `--reload`. If an edit doesn't
   seem to take effect, clear it and restart without `--reload` (see Quick Start).
+- **Agentic memory sits under every GPT call** (`domains/memory/service.py`, table `memory_items`).
+  `HybridLLMClient.chat()` answers an identical prompt from memory for 7 days (a repeat on the same client
+  is a retry and goes to GPT). Brief & Scope gets the org's known brand facts and procedural lessons, and
+  reuses the org's web grounding for 14 days; validation failures in brief_scope, research_planner and
+  the query builder become lessons. Any user-triggered "Regenerate"/"Reanalyze" must run inside
+  `memory.fresh()` (inside the worker thread — contextvars don't cross threads) or it gets the old answer back.
 - **Only one Brief-to-Deck run executes at a time** (`_run_lock` / `_run_busy` in `main.py`) — a
   second trigger while busy broadcasts `run_queued_conflict` instead of queuing.
 

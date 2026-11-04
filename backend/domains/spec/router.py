@@ -13,6 +13,7 @@ from ...core import store
 from ...core.llm_provider import get_llm_client
 from ...core.auth import get_current_user, require_project_access
 from ..agent import autorun
+from ..memory import service as memory
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from . import renderer as rsr
@@ -287,14 +288,15 @@ def regenerate_spec_endpoint(spec_id: Annotated[int, Path(ge=1)], req: Regenerat
                          "progress_pct": last_pct, "message": msg, "step": step})
 
         try:
-            result = rss.regenerate_spec(
-                spec_id=spec_id,
-                raw_brief_text=req.raw_brief_text,
-                use_llm=req.use_llm,
-                llm_client=llm_client,
-                confirm_overwrite_locked=req.confirm_overwrite_locked,
-                emit=on_event,
-            )
+            with memory.fresh():        # Reanalyze asks GPT again instead of recalling the last answer
+                result = rss.regenerate_spec(
+                    spec_id=spec_id,
+                    raw_brief_text=req.raw_brief_text,
+                    use_llm=req.use_llm,
+                    llm_client=llm_client,
+                    confirm_overwrite_locked=req.confirm_overwrite_locked,
+                    emit=on_event,
+                )
             store.update_job(job_id, status="completed", progress_pct=100, progress_message="Specification ready",
                              result={"spec_id": result["spec_id"]})
             _broadcast({"type": "intel_job_update", "job_id": job_id, "project_id": project_id,

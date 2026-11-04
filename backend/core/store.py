@@ -35,6 +35,7 @@ from ..domains.deliverable.repository import *  # noqa: F401,F403
 from ..domains.deckstudio.repository import *  # noqa: F401,F403
 from ..domains.agent.repository import *  # noqa: F401,F403
 from ..domains.exclusions.repository import *  # noqa: F401,F403
+from ..domains.memory.repository import *  # noqa: F401,F403
 
 from ..domains.projects import repository as _projects  # noqa: E402
 
@@ -44,4 +45,6 @@ def update_job(job_id: str, **changes) -> None:  # noqa: F811  (wraps the reposi
     _projects.update_job(job_id, **changes)
     if changes.get("status") in ("completed", "failed"):
         from ..domains.deliverable import notify      # lazy: notify imports this module
+        from ..domains.memory import service as memory
+        memory.record_episode(job_id, changes["status"], changes.get("error") or "")
         notify.notify_stage(job_id)

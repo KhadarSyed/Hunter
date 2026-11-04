@@ -608,7 +608,8 @@ def run(
         "client": client_name,
     })
 
-    user_message = _build_user_prompt(spec)
+    from ..domains.memory import service as memory
+    user_message = _build_user_prompt(spec) + memory.lessons("research_planner")
 
     plan = None
     all_errors: list[ValidationError] = []
@@ -667,6 +668,7 @@ def run(
 
         if not hard_errors:
             break
+        memory.reflect("research_planner", hard_errors)
 
     elapsed = round(time.time() - start, 1)
 

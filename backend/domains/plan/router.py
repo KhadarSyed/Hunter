@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from contextlib import nullcontext
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path
@@ -13,6 +14,7 @@ from ...core.auth import require_project_access
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from ..strategy.schemas import GenerateStrategyRequest
+from ..memory import service as memory
 from . import service as planner_service
 from .schemas import (
     PlanApproveRequest,
@@ -30,7 +32,7 @@ router = APIRouter()
 
 
 @router.post("/plan/generate", response_model=PlanJobStarted | PlanBlocked)
-def generate_research_plan(req: GenerateStrategyRequest):
+def generate_research_plan(req: GenerateStrategyRequest, fresh: bool = False):
     """Generate a Research Plan for the given project."""
 
     project = store.get_project(req.project_id)
@@ -60,7 +62,8 @@ def generate_research_plan(req: GenerateStrategyRequest):
                 _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
                              "progress_pct": 50, "message": str(payload.get("status", event_type))})
 
-            result = planner_service.generate_plan(req.project_id, emit=emit)
+            with memory.fresh() if fresh else nullcontext():    # Regenerate asks GPT again
+                result = planner_service.generate_plan(req.project_id, emit=emit)
 
             if result.get("status") == "completed":
                 store.update_job(job_id, status="completed", progress_pct=100,
@@ -115,7 +118,7 @@ def reject_research_plan(plan_id: Annotated[int, Path(ge=1)], req: PlanRejectReq
 @router.post("/plan/regenerate", response_model=PlanJobStarted | PlanBlocked)
 def regenerate_research_plan(req: PlanRegenerateRequest):
     """Regenerate a plan — same as generate but implies a prior plan exists."""
-    return generate_research_plan(GenerateStrategyRequest(project_id=req.project_id))
+    return generate_research_plan(GenerateStrategyRequest(project_id=req.project_id), fresh=True)
 
 
 @router.post("/plan/validate", response_model=PlanPrerequisitesResponse)

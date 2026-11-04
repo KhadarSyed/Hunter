@@ -803,8 +803,13 @@ def run(
     brief_filename: str = "",
     max_retries: int = 2,
     client_name: str = "",
+    known_facts: str = "",
+    project_id: Optional[int] = None,
 ) -> dict:
     """Execute the Brief & Scope Agent.
+
+    known_facts: what earlier projects of the org learned about the brand (memory.entity_prompt); project_id
+    scopes the reflection written when an attempt fails validation.
 
     Returns a dict with keys:
       spec: the validated ProjectSpecification
@@ -821,7 +826,9 @@ def run(
         "filename": brief_filename,
     })
 
-    user_message = _build_user_prompt(brief_text, brief_filename, client_name=client_name)
+    from ..domains.memory import service as memory
+    user_message = (_build_user_prompt(brief_text, brief_filename, client_name=client_name)
+                    + known_facts + memory.lessons("brief_scope"))
 
     spec = None
     all_errors: list[ValidationError] = []
@@ -894,6 +901,7 @@ def run(
 
         if not hard_errors:
             break
+        memory.reflect("brief_scope", hard_errors, project_id)
 
     elapsed = round(time.time() - start, 1)
 

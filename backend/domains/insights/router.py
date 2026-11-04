@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from ...core import store
 from ...core.auth import require_project_access
+from ..memory import service as memory
 from . import service as igen
 from .schemas import (
     GenerateInsightsRequest,
@@ -116,7 +117,8 @@ def update_insight_notes(insight_id: IdPath, req: NotesRequest):
 
 @router.post("/insights/{insight_id}/regenerate", response_model=InsightRecord)
 def regenerate_insight(insight_id: IdPath):
-    result = igen.regenerate_insight(insight_id)
+    with memory.fresh():                # Regenerate asks GPT again instead of recalling the last answer
+        result = igen.regenerate_insight(insight_id)
     if isinstance(result, dict) and "error" in result:
         raise HTTPException(400, result["error"])
     return result

@@ -1448,6 +1448,15 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             charts_json TEXT, articles_json TEXT, error TEXT)""",
         "CREATE INDEX IF NOT EXISTS idx_latest24h_project ON intel_latest24h_refreshes(project_id, id)",
     ]),
+    # Agentic memory shared by every stage (domains/memory): scope is global / org / project / user, scope_id the
+    # org, project or user id (or "" for global), type one of domains/memory/service.TYPES.
+    (32, "agentic memory", [
+        """CREATE TABLE IF NOT EXISTS memory_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, scope TEXT NOT NULL, scope_id TEXT NOT NULL, type TEXT NOT NULL,
+            key TEXT NOT NULL, value_json TEXT NOT NULL, hits INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL,
+            updated_at REAL NOT NULL, expires_at REAL, UNIQUE(scope, scope_id, type, key))""",
+        "CREATE INDEX IF NOT EXISTS idx_memory_items_lookup ON memory_items(scope, scope_id, type, updated_at)",
+    ]),
 ]
 
 

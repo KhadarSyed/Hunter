@@ -317,6 +317,9 @@ def delete_project(project_id: int) -> dict[str, int] | None:
                     marks = ",".join("?" * len(chunk))
                     deleted[table] = deleted.get(table, 0) + conn.execute(
                         f'DELETE FROM "{table}" WHERE id IN ({marks})', chunk).rowcount
+            # project-scoped memory is keyed by scope/scope_id, not a project_id column, so _child_links misses it
+            deleted["memory_items"] = conn.execute("DELETE FROM memory_items WHERE scope = 'project' AND scope_id = ?",
+                                                   (str(project_id),)).rowcount
         # its files go with its rows, after the commit (a failed delete keeps both): what the rows pointed at, the
         # project's deliverables folder
         from ...core import config

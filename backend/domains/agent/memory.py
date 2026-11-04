@@ -9,6 +9,7 @@ from collections import Counter
 
 from ...core import store
 from ...core.events import broadcast
+from ..memory import service as user_memory
 
 logger = logging.getLogger(__name__)
 MEMORY_KINDS = ("preference", "decision", "fact", "fix")
@@ -65,9 +66,12 @@ def _summary(project_id: int, older: list[dict], llm) -> str:
     return text
 
 
-def context(project_id: int, llm=None, budget: int = PROMPT_BUDGET_TOKENS) -> str:
+def context(project_id: int, llm=None, budget: int = PROMPT_BUDGET_TOKENS, user_id: int | None = None) -> str:
     rows = [m for m in store.list_memory(project_id) if m["kind"] in MEMORY_KINDS]
     facts = "\n".join(f"{m['kind']}: {m['key']} = {json.dumps(m['value'], default=str)[:400]}" for m in rows)
+    project_prefs = {m["key"] for m in rows if m["kind"] == "preference"}
+    facts += "".join(f"\nuser preference: {k} = {json.dumps(v, default=str)[:400]}"   # a project's own wins
+                     for k, v in user_memory.user_prefs(user_id).items() if k not in project_prefs)
     head = _clip("Project memory:\n" + (facts or "(none)"), budget // 3)
     events = store.list_agent_events(project_id, limit=5000)
     recent, older = events[:RECENT_EVENTS], events[RECENT_EVENTS:]

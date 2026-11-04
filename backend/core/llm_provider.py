@@ -96,6 +96,7 @@ class HybridLLMClient:
     def __init__(self, settings: Settings):
         self._chat_backend, chat_name = _build_chat_backend(settings)
         self._embed_backend, embed_name = _build_embed_backend()
+        self._asked: set[str] = set()
         logger.info(
             "LLM provider selected — chat: %s, embed: %s",
             chat_name or "none", embed_name or "none",
@@ -120,7 +121,20 @@ class HybridLLMClient:
                 "No chat LLM configured — set AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT "
                 "and AZURE_OPENAI_MODEL"
             )
-        return self._chat_backend.chat(messages, on_token=on_token, format_json=format_json)
+        from ..domains.memory import service as memory     # lazy: memory imports store, which imports core
+        backend = self._chat_backend
+        key = memory.llm_key(f"{getattr(backend, 'deployment', '')}:{getattr(backend, 'reasoning_effort', '')}",
+                             messages, format_json)
+        # the same prompt twice on one client is a retry of an answer the caller rejected: ask GPT again
+        cached = memory.recall_llm(key) if key not in self._asked else None
+        self._asked.add(key)
+        if cached is not None:
+            if on_token:
+                on_token(cached)
+            return cached
+        text = backend.chat(messages, on_token=on_token, format_json=format_json)
+        memory.remember_llm(key, text)
+        return text
 
     def chat_tools(self, messages: list[dict], tools: list[dict], tool_choice: str = "auto") -> dict:
         if self._chat_backend is None:
