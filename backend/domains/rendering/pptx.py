@@ -29,8 +29,6 @@ from ...core import config, store
 
 logger = logging.getLogger(__name__)
 
-VALID_JOB_TYPES = {"full", "slide", "section"}
-VALID_JOB_STATUSES = {"pending", "running", "completed", "failed", "cancelled"}
 
 # ── Brand colours (from Hunter PR reference decks) ───────────────────
 

@@ -30,8 +30,6 @@ from ...core import config, store
 
 logger = logging.getLogger(__name__)
 
-VALID_JOB_TYPES = {"full", "section"}
-VALID_JOB_STATUSES = {"pending", "running", "completed", "failed", "cancelled"}
 
 SECTION_ORDER = [
     "cover", "confidentiality", "executive_summary", "methodology",
