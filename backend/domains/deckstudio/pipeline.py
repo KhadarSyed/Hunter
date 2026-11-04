@@ -221,11 +221,22 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
                                               own_brand=plan_input.title if s.type in BRAND_BOOKENDS
                                               and not plan_input.is_category else ""))
 
+    # a slide whose search is unchanged reuses the photo an earlier run of this project found (Regenerate)
+    cache = config.DELIVERABLE_DIR / f"project_{project_id}" / "photo_cache"
+
+    def cached_photo_for(s):
+        key = assets.cache_key(s.id, s.image["query"], _role(s), plan_input.title)
+        photo = assets.cached_photo(cache, key, deck_dir / "photos", used)
+        if photo is None:
+            photo = photo_for(s)
+            assets.remember_photo(cache, key, photo)
+        return photo
+
     # Each slide's photo search is independent (30-75s of search and vision checks), so several run at once;
     # threads only search, the run log is written here
     photos = {}
     with ThreadPoolExecutor(max_workers=PHOTO_WORKERS) as pool:
-        futures = {pool.submit(photo_for, s): s for s in photo_slides}
+        futures = {pool.submit(cached_photo_for, s): s for s in photo_slides}
         for k, done in enumerate(as_completed(futures), start=1):
             run.within("assets", 0.8 * k / max(1, len(photo_slides)), f"Finding photos: {k} of {len(photo_slides)}")
             try:

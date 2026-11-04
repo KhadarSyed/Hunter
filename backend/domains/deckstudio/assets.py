@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import logging
 import os
 import re
+import shutil
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date
@@ -366,6 +368,45 @@ def mark_used(data: bytes, used: set[str]) -> None:
     h = dhash(data)
     if h is not None:
         used.add(f"{_HASH}{h:016x}")
+
+
+def cache_key(*parts: str) -> str:
+    return hashlib.sha1("|".join(parts).encode()).hexdigest()[:16]
+
+
+def cached_photo(cache: Path, key: str, folder: Path, used: set[str]) -> Photo | None:
+    """The photo an earlier run of this project chose for the same slide and search, reused with no search and no
+    vision check (Regenerate spends nothing on photos it already has). None when there is none or its file is gone."""
+    jpg, src = cache / f"{key}.jpg", cache / f"{key}.src"
+    try:
+        meta = json.loads((cache / f"{key}.json").read_text(encoding="utf-8"))
+        if not jpg.exists():
+            return None
+        folder.mkdir(parents=True, exist_ok=True)
+        out = folder / f"cached-{key}.jpg"
+        shutil.copyfile(jpg, out)
+        if src.exists():
+            shutil.copyfile(src, out.with_suffix(".src"))
+        used.add(meta["source_url"])
+        mark_used((src if src.exists() else jpg).read_bytes(), used)
+        return Photo(out, meta["source_url"], meta["licence"], f"{meta['why']} (reused from an earlier run)")
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def remember_photo(cache: Path, key: str, photo: Photo) -> None:
+    """Keep a found photo for the project's next run. A slide with no photo is not kept: it searches again."""
+    if not photo.path:
+        return
+    try:
+        cache.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(photo.path, cache / f"{key}.jpg")
+        if Path(photo.path).with_suffix(".src").exists():
+            shutil.copyfile(Path(photo.path).with_suffix(".src"), cache / f"{key}.src")
+        (cache / f"{key}.json").write_text(json.dumps({"source_url": photo.source_url, "licence": photo.licence,
+                                                       "why": photo.why}), encoding="utf-8")
+    except OSError as e:          # a cache that cannot be written only costs the next run a search
+        logger.warning("photo cache write failed: %s", e)
 
 
 def _keep(data: bytes, url: str, licence: str, why: str, role: str, folder: Path, slug: str, used: set[str],
