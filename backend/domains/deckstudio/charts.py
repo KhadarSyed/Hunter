@@ -92,6 +92,8 @@ def _bars(c, t, logos, w, h, light=frozenset()):
 
 def _line(c, t, w, h):
     cats, vals = c["categories"], [float(v) for v in c["values"]]
+    if not vals:                         # a chart with no rows draws nothing instead of failing the deck
+        return []
     top, n = (max(vals) or 1), max(1, len(vals) - 1)
     pl, pb, pt = 60, 46, 40
     xs = [pl + (w - pl - 30) * i / n for i in range(len(vals))]
