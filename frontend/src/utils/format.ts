@@ -48,6 +48,13 @@ export function formatDateTime(value: DateInput | null | undefined, opts?: Intl.
   );
 }
 
+/** An epoch timestamp in seconds or milliseconds as formatDateTime, "--" when missing or invalid. */
+export function formatEpoch(ts: number | null | undefined): string {
+  if (!ts) return "--";
+  const d = new Date(ts < 1e12 ? ts * 1000 : ts);
+  return isNaN(d.getTime()) ? "--" : formatDateTime(d);
+}
+
 /** "3:05 PM" (pass `{ seconds: true }` for "3:05:09 PM"). */
 export function formatTime(value: DateInput, { seconds = false }: { seconds?: boolean } = {}): string {
   const d = toDate(value);

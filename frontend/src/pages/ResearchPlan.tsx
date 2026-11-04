@@ -4,6 +4,7 @@ import { useDemoState } from "../context/demo-state";
 import { intelApi, type PlanResult, type JobStatus } from "../services/intel-api";
 import { useActiveProjectId, useProject } from "../context/project-context";
 import { PexelsHeaderBanner } from "../components/PexelsHeaderBanner";
+import { SectionHeader } from "../components/stage-ui";
 import type {
   ResearchPlanData,
   PlanObjective,
@@ -33,18 +34,6 @@ function Badge({ label, variant }: { label: string; variant: "high" | "medium" |
     <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded border ${colors[variant] || colors.low}`}>
       {label}
     </span>
-  );
-}
-
-function SectionHeader({ title, count }: { title: string; count?: number }) {
-  return (
-    <div className="flex items-center gap-3 mb-4">
-      <div className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">{title}</div>
-      {count !== undefined && (
-        <span className="text-[10px] text-slate-400 font-medium tabular-nums">{count} items</span>
-      )}
-      <div className="flex-1 border-t border-slate-200" />
-    </div>
   );
 }
 
