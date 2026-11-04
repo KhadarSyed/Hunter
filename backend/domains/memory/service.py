@@ -91,7 +91,9 @@ def remember_llm(key: str, text: str) -> None:
 
 def _org(project_id: Optional[int]) -> str:
     project = store.get_project(project_id) if project_id else None
-    return str((project or {}).get("org_id") or "")
+    if not project:
+        return ""
+    return str(project.get("org_id") or "default")     # projects made before organisations share one scope
 
 
 @_safe(None)
