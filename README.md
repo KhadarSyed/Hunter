@@ -121,7 +121,7 @@ git clone https://github.com/KhadarSyed/Hunter.git
 cd Hunter
 
 # 1. Database
-docker compose -f database/docker-compose.postgres.yml up -d
+docker compose -f deploy/docker-compose.postgres.yml up -d
 copy .env.example .env        # then set DATABASE_URL and your API keys
 
 # 2. Backend
@@ -170,7 +170,7 @@ backend/
   domains/<stage>/ one folder per stage: router.py · schemas.py · repository.py · services
   deck/            legacy Brief-to-Deck agent (PowerPoint COM)
   agents/ tools/   LLM agents and deterministic analysis methods
-database/          schema + migrations (db.py), Postgres adapter (pg.py), local Postgres compose file
+deploy/            schema + migrations (db.py), Postgres adapter (pg.py), local Postgres compose file
 deploy/            Dockerfile, render.yaml, start.ps1
 docs/              product and subsystem docs, handover notes, README images
 ```

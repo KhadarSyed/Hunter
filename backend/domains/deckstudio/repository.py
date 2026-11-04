@@ -5,7 +5,7 @@ import json
 import time
 from typing import Optional
 
-from database.db import _conn
+from ...core.db import _conn
 
 
 def upsert_library_deck(path: str, digest: str, family: str, n_slides: int) -> int:

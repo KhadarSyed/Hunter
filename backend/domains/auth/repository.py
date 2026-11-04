@@ -4,7 +4,7 @@ from __future__ import annotations
 import secrets
 import time
 
-from database.db import _conn
+from ...core.db import _conn
 from .service import FAILED_LOGIN_LIMIT, LOCKOUT_SECONDS, SESSION_TTL_SECONDS
 
 

@@ -6,7 +6,7 @@ import json
 import time
 from typing import Optional
 
-from database.db import _conn
+from ...core.db import _conn
 
 # ─── QC Reports ─────────────────────────────────────────────────────────────
 

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from ...core import config
-from database.db import _conn
+from ...core.db import _conn
 
 logger = logging.getLogger(__name__)
 

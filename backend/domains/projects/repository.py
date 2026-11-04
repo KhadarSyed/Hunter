@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from database.db import _PATH_COLUMNS, _conn, declared_foreign_keys, table_columns, table_names
+from ...core.db import _PATH_COLUMNS, _conn, declared_foreign_keys, table_columns, table_names
 
 # ─── Projects ────────────────────────────────────────────────────────────────
 
@@ -327,7 +327,7 @@ def delete_project(project_id: int) -> dict[str, int] | None:
 
 
 def _referenced_files(conn, plan: list[tuple[str, list]]) -> list[Path]:
-    """Every file or folder the project's rows point at (database.db._PATH_COLUMNS)."""
+    """Every file or folder the project's rows point at (core.db._PATH_COLUMNS)."""
     out = []
     for table, ids in plan:
         for col in (c for t, c in _PATH_COLUMNS if t == table and not c.endswith("_json")):

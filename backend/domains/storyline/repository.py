@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any, Optional
 
-from database.db import _conn
+from ...core.db import _conn
 
 # ─── Storyline Store ──────────────────────────────────────────────────────
 

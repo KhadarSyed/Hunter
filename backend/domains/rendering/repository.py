@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import time
 
-from database.db import _conn
+from ...core.db import _conn
 
 # ── PowerPoint Renderer store functions ──────────────────────────────
 

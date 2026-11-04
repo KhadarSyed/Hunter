@@ -9,7 +9,7 @@ import ast
 import re
 from fnmatch import fnmatch
 
-NEVER = (".env*", "*/.env*", "backend/core/auth.py", "backend/domains/auth/*", "database/db.py",
+NEVER = (".env*", "*/.env*", "backend/core/auth.py", "backend/domains/auth/*", "backend/core/db.py",
          "backend/core/config.py", "requirements*.txt", "pyproject.toml", "frontend/package.json", "frontend/package-lock.json",
          "data/*", "backend/domains/agent/*", "backend/supervisor.py", "*.ps1", "*.bat", "*.sh")
 AUTO_ANY = ("backend/domains/deckstudio/templates/*",)

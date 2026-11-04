@@ -5,7 +5,7 @@ import json
 import time
 from typing import Optional
 
-from database.db import _conn
+from ...core.db import _conn
 
 OPEN_ISSUE_STATES = ("open", "triage", "fixing", "proposed", "needs_llm")
 _FIX_FIELDS = {"status", "note", "commit_sha", "diff", "tier", "tests"}

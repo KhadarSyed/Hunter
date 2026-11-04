@@ -12,7 +12,7 @@ import re
 import time
 from typing import Optional
 
-from backend.core import config
+from . import config
 
 from . import pg
 
@@ -1532,7 +1532,7 @@ CREATE TABLE IF NOT EXISTS qc_exports (
 
 
 MISSING_DATABASE = ("DATABASE_URL is not set. Hunter runs on Postgres only: start the local database with "
-                    "`docker compose -f database/docker-compose.postgres.yml up -d` and set DATABASE_URL in .env.")
+                    "`docker compose -f deploy/docker-compose.postgres.yml up -d` and set DATABASE_URL in .env.")
 
 
 def _conn() -> pg.Connection:

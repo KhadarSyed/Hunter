@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import time
 
-from database.db import _conn
+from ...core.db import _conn
 
 SOURCES = ("tavily", "serpapi")
 

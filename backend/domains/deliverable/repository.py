@@ -5,7 +5,7 @@ import json
 import time
 from typing import Any, Optional
 
-from database.db import _conn
+from ...core.db import _conn
 
 _RUN_FIELDS = {"status", "stage", "pptx_path", "docx_path", "thumbs_dir", "error", "finished_at",
                "html_path", "pdf_path", "studio_pptx_path", "deck_dir"}

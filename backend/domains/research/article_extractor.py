@@ -23,7 +23,7 @@ from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup, Tag
 
-from database.db import _conn
+from ...core.db import _conn
 
 logger = logging.getLogger(__name__)
 

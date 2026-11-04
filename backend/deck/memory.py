@@ -11,7 +11,7 @@ import time
 from contextlib import contextmanager
 from typing import Optional
 
-from database import db
+from ..core import db
 
 
 _local = threading.local()

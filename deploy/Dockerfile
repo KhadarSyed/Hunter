@@ -14,7 +14,6 @@ COPY backend/requirements.txt backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt \
     && python -m playwright install --with-deps chromium
 COPY backend/ backend/
-COPY database/ database/
 COPY data/ data/
 COPY --from=frontend-build /app/backend/static /app/backend/static
 

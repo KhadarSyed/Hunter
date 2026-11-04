@@ -10,7 +10,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 
 from ...core.auth import get_current_user
-from database.db import _conn
+from ...core.db import _conn
 from . import repository as ds_repo
 from . import service
 from .schemas import DataSourceRecord, UpsertKeyRequest, ValidateResult

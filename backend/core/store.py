@@ -13,8 +13,8 @@ wins on a name clash, so keep it (tests/test_intelligence_store.py covers the su
 from __future__ import annotations
 
 # isort: skip_file
-from database.db import *  # noqa: F401,F403
-from database.db import _conn  # noqa: F401  (star import skips _names; qc code calls store._conn())
+from .db import *  # noqa: F401,F403
+from .db import _conn  # noqa: F401  (star import skips _names; qc code calls store._conn())
 from ..domains.projects.repository import *  # noqa: F401,F403
 from ..domains.research.repository import *  # noqa: F401,F403
 from ..domains.strategy.repository import *  # noqa: F401,F403

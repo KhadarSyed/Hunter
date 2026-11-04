@@ -30,10 +30,9 @@ mostly disjoint code paths.
 frontend/        React SPA (Vite); `npm run build` writes into backend/static/
 backend/         FastAPI app — main.py, core/, domains/<stage>/, deck/, supervisor.py, requirements.txt
   agents/        LLM agents (brief scope, query builder, enrichment, tag schemas, …)
-database/        db.py (connection, schema, migrations), pg.py (Postgres adapter),
-                 docker-compose.postgres.yml (local Postgres)
 data/            runtime data (gitignored) + the shipped house templates
-deploy/          Dockerfile (build from the repo root), render.yaml (reference), start.ps1
+deploy/          Dockerfile (build from the repo root), render.yaml (reference), start.ps1,
+                 docker-compose.postgres.yml (local Postgres)
 docs/            product/subsystem docs, docs/handover/
 .claude/skills/  Claude Code skills (deck-studio) — must stay here for Claude Code to load them
 .mcp.json        MCP servers (Playwright, Brandfetch) — must stay at the repo root
@@ -49,12 +48,12 @@ docs/            product/subsystem docs, docs/handover/
   into `backend/static/` so the FastAPI server can serve the built SPA directly from port 8002 with
   no Vite involved. Type-check only: `cd frontend && npx tsc --noEmit`.
 - **Docker:** `docker build -f deploy/Dockerfile .` from the repo root.
-- **Local Postgres:** `docker compose -f database/docker-compose.postgres.yml up -d`, then set
+- **Local Postgres:** `docker compose -f deploy/docker-compose.postgres.yml up -d`, then set
   `DATABASE_URL` in `.env`.
 - If plain `python`/`pip` resolve to a broken Microsoft Store stub on a given machine, use the full
   path to the real interpreter instead — check with `where python3`.
 - **Clear stale bytecode** (uvicorn `--reload` sometimes misses changes):
-  `Get-ChildItem -Path "backend","database" -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force`
+  `Get-ChildItem -Path "backend" -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force`
 
 ## Architecture
 
@@ -64,18 +63,18 @@ docs/            product/subsystem docs, docs/handover/
 backend/
   main.py              FastAPI app: mounts domains router, /ws, Brief-to-Deck REST, serves SPA
   core/                shared infra — config.py (DATA_DIR/UPLOAD_DIR/EXPORT_DIR), events.py
-                       (WebSocket broadcast), store.py (facade that re-exports database.db and every
+                       (WebSocket broadcast), db.py (_conn, schema bootstrap, MIGRATIONS), pg.py
+                       (sqlite3-like Postgres adapter), store.py (facade that re-exports core.db and every
                        domain repository), LLM clients (llm_provider.py & co.)
   domains/<stage>/     router.py (APIRouter, bare sub-paths) · schemas.py (Pydantic) ·
-                       repository.py (SQL via database.db._conn) · service modules (service.py, …)
+                       repository.py (SQL via core.db._conn) · service modules (service.py, …)
   deck/                Brief-to-Deck product
   agents/              LLM agents
-database/              db.py (_conn, schema bootstrap, MIGRATIONS), pg.py (sqlite3-like Postgres adapter)
 ```
 
 Rules: services call persistence through `from ...core import store` (add new SQL functions to
 the owning `domains/<stage>/repository.py`, never to `store.py`); repositories import `_conn` from
-`database.db`; build file paths from `core.config` constants, never from `Path(__file__)`; services
+`core.db`; build file paths from `core.config` constants, never from `Path(__file__)`; services
 never import a `router.py`. Frontend (`frontend/src/`): `pages/` · `components/` · `context/`
 (React providers) · `hooks/` · `services/` (REST + WebSocket clients) · `types/` · `data/` (demo fixtures).
 
@@ -87,7 +86,7 @@ never import a `router.py`. Frontend (`frontend/src/`): `pages/` · `components/
   `frontend/src/pages/`, one per pipeline stage or QC step.
 - **Database:** Postgres only, one database for both products: local Docker Postgres or Render
   Postgres in production, via `DATABASE_URL` (required — the server refuses to start without it).
-  Repositories write SQLite-style SQL (`?` placeholders, `INSERT OR IGNORE`), which `database/pg.py`
+  Repositories write SQLite-style SQL (`?` placeholders, `INSERT OR IGNORE`), which `core/pg.py`
   translates; there is no SQLite fallback. Older docs describing `intelligence.db` or
   `data/memory.db` are out of date. Both
   Brief-to-Deck tables (runs/events/chat/slide_index) and every Intelligence Platform table
