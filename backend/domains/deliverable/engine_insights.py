@@ -6,6 +6,7 @@ import re
 from ...agents import question_dimensions as qd
 from .citations import CitationRegistry
 from .engine_types import RQ, EngineRow, Section
+from . import insights_batch
 from .insights import draft_section
 from .tag_insights import tag_answer
 
@@ -69,6 +70,32 @@ def _breakdown_answer(rq: RQ, sections: list[Section]) -> dict | None:
     return {"rq_id": rq.id, "question": rq.question, "value": f"{pct}%", "answer": text}
 
 
+def _section_inputs(rq: RQ, s: Section, rows: list[EngineRow], evidence, relevant, related: set[str]) -> dict:
+    """What a chart's summary is drafted from: its categories, each category's own articles that also answer the
+    question (the evidence set) -- a post matching a keyword in another sense ('cut deals with rivals') never
+    becomes the example -- the candidate articles, and the question's other theme-like categories."""
+    segments = chart_segments(s)
+    by_url = {r.article.norm_url: r.article for r in rows}
+    answering = relevant if relevant else ({r.article.norm_url for r in evidence} if evidence else set(by_url))
+    owned: dict[str, list[str]] = {}          # article -> every category it is counted in
+    for seg in segments:
+        mine = [u for u in s.segment_urls.get(seg, []) if u in by_url]
+        for u in ([u for u in mine if u in answering] or mine)[:SEGMENT_ARTICLES]:
+            owned.setdefault(u, []).append(seg)
+    cands = ([by_url[u] for u in dict.fromkeys(owned)] if owned else _candidates([s], rows, evidence))
+    return {"section": f"{rq.question} - {s.title}", "facts": s.facts, "candidates": cands,
+            "segments": segments or None, "article_segments": owned or None,
+            "related": related if not _NAMED_THINGS.search(s.id) else set()}
+
+
+def _summarised(sections: list[Section]) -> list[Section]:
+    return [s for s in sections if not s.skipped and (s.chart or s.table)
+            and (s.chart or {}).get("kind") != "kpi" and s.facts]
+
+
+WHY_ASK = "explain WHY the leading result looks this way and what it means for the client"
+
+
 def section_summaries(rq: RQ, sections: list[Section], rows: list[EngineRow], registry: CitationRegistry, llm,
                       evidence: list[EngineRow] | None = None, avoid: list[dict] | None = None,
                       relevant: set[str] | None = None) -> dict[str, list[dict]]:
@@ -78,41 +105,66 @@ def section_summaries(rq: RQ, sections: list[Section], rows: list[EngineRow], re
     said = [f"{c.get('headline', '')}: {c.get('text', '')}" for c in avoid or []]
     # the categories of the question's other theme-like charts: a card that opens on one of them is off its own
     related = {g.strip().lower() for s in sections if not _NAMED_THINGS.search(s.id) for g in chart_segments(s)}
-    for s in sections:
-        if s.skipped or not (s.chart or s.table) or (s.chart or {}).get("kind") == "kpi" or not s.facts:
-            continue
-        segments = chart_segments(s)
-        by_url = {r.article.norm_url: r.article for r in rows}
-        # a category's card is written from its own articles that also answer the question (the evidence set):
-        # a post matching a keyword in another sense ('cut deals with rivals') never becomes the example
-        answering = relevant if relevant else ({r.article.norm_url for r in evidence} if evidence else set(by_url))
-        owned: dict[str, list[str]] = {}          # article -> every category it is counted in
-        for seg in segments:
-            mine = [u for u in s.segment_urls.get(seg, []) if u in by_url]
-            for u in ([u for u in mine if u in answering] or mine)[:SEGMENT_ARTICLES]:
-                owned.setdefault(u, []).append(seg)
-        cands = ([by_url[u] for u in dict.fromkeys(owned)] if owned else _candidates([s], rows, evidence))
-        mine = related if not _NAMED_THINGS.search(s.id) else set()
-        summary = draft_section(f"{rq.question} - {s.title}", s.facts, cands, registry, llm, 1,
-                                avoid=said, segments=segments or None, article_segments=owned or None,
-                                related_segments=mine)
+    if insights_batch.enabled():
+        return _batched_summaries(rq, sections, rows, registry, llm, evidence, relevant, related, said)
+    for s in _summarised(sections):
+        inp = _section_inputs(rq, s, rows, evidence, relevant, related)
+        segments = inp["segments"] or []
+        summary = draft_section(inp["section"], s.facts, inp["candidates"], registry, llm, 1,
+                                avoid=said, segments=inp["segments"], article_segments=inp["article_segments"],
+                                related_segments=inp["related"])
         cards = _segment_cards(summary, segments) if summary else []
         missing = [g for g in segments if g.lower() not in _by_headline(cards)]
         if cards and missing:            # one more try for the categories whose card was rejected
-            more = draft_section(f"{rq.question} - {s.title}", s.facts, cands, registry, llm, 1,
+            more = draft_section(inp["section"], s.facts, inp["candidates"], registry, llm, 1,
                                  avoid=said + [f"{c['headline']}: {c['text']}" for c in cards],
-                                 segments=missing, article_segments=owned or None, related_segments=mine)
+                                 segments=missing, article_segments=inp["article_segments"],
+                                 related_segments=inp["related"])
             found = {**_by_headline(more or []), **_by_headline(cards)}
             cards = [found[g.lower()] for g in segments if g.lower() in found]     # back in the chart's order
         if summary and len(cards) < 2 and all(c.get("fact_only") for c in summary[:1]):
             # only a restated statistic came back: ask once more for what drives it, in the client's terms
-            why = draft_section(f"{rq.question} - {s.title}: explain WHY the leading result looks this way and what "
-                                "it means for the client", s.facts, cands, registry, llm, 1, avoid=said)
+            why = draft_section(f"{rq.question} - {s.title}: {WHY_ASK}", s.facts, inp["candidates"], registry, llm, 1,
+                                avoid=said)
             summary = [c for c in why if not c.get("fact_only")][:1] or summary
         if summary:
             out[s.id] = (cards if len(cards) >= 2 else []) or summary[:1]
             said += [f"{c.get('headline', '')}: {c.get('text', '')}" for c in out[s.id]]
     return out
+
+
+def _batched_summaries(rq: RQ, sections: list[Section], rows: list[EngineRow], registry: CitationRegistry, llm,
+                       evidence, relevant, related: set[str], said: list[str]) -> dict[str, list[dict]]:
+    """section_summaries with every chart drafted in one batch (insights_batch), then one batch for the second
+    tries: the categories whose card was rejected, and the "why" ask where only a restated statistic came back.
+    The sections are told the question's insights; the batch prompt keeps them from repeating each other."""
+    secs = _summarised(sections)
+    inputs = [_section_inputs(rq, s, rows, evidence, relevant, related) for s in secs]
+
+    def job(inp: dict, **over) -> insights_batch.Job:
+        return insights_batch.Job(section=over.get("section", inp["section"]), facts=inp["facts"],
+                                  candidates=inp["candidates"], avoid=over.get("avoid", said),
+                                  segments=over.get("segments", inp["segments"]),
+                                  article_segments=inp["article_segments"], related=inp["related"])
+
+    first = insights_batch.draft_sections([job(inp) for inp in inputs], registry, llm)
+    cards = [_segment_cards(summary, inp["segments"] or []) if summary else [] for summary, inp in zip(first, inputs)]
+    retry: list[tuple[int, str, insights_batch.Job]] = []
+    for i, (summary, inp) in enumerate(zip(first, inputs)):
+        missing = [g for g in inp["segments"] or [] if g.lower() not in _by_headline(cards[i])]
+        if cards[i] and missing:
+            retry.append((i, "missing", job(inp, segments=missing,
+                                            avoid=said + [f"{c['headline']}: {c['text']}" for c in cards[i]])))
+        elif summary and len(cards[i]) < 2 and all(c.get("fact_only") for c in summary[:1]):
+            retry.append((i, "why", job(inp, section=f"{inp['section']}: {WHY_ASK}", segments=None)))
+    second = insights_batch.draft_sections([j for _, _, j in retry], registry, llm) if retry else []
+    for (i, kind, _), more in zip(retry, second):
+        if kind == "missing":
+            found = {**_by_headline(more or []), **_by_headline(cards[i])}
+            cards[i] = [found[g.lower()] for g in inputs[i]["segments"] if g.lower() in found]
+        else:
+            first[i] = [c for c in more if not c.get("fact_only")][:1] or first[i]
+    return {s.id: (cards[i] if len(cards[i]) >= 2 else []) or first[i][:1] for i, s in enumerate(secs) if first[i]}
 
 
 # brand, outlet and people charts: their cards name brands and people by design (see deckstudio.validate)

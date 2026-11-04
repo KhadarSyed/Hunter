@@ -177,6 +177,37 @@ def _segment_ask(segments: list[str]) -> str:
             '{"insights":[{"headline":"<segment name>","text":"<45-70 words>","citations":[ids]}]}')
 
 
+_DRAFT_SYSTEM = ("You write insights for a media-research deck, the way a senior media analyst "
+    "does. The chart beside each insight already shows the shares and counts, so an insight never restates the "
+    "headline figure; it explains WHY the pattern exists -- its drivers. Name the specific outlets, brands, products, people, "
+    "events and months from the ARTICLES that drive it (e.g. 'The December peak came from holiday gift-guide "
+    "round-ups in USA Today and Living Rich With Coupons, featuring Aveeno Baby and Tom's of Maine'), then end "
+    "with the so-what for the client: the opportunity, risk or action it points to. Each insight covers a "
+    "different driver; never repeat a point or a figure another insight makes. Never mention article ids in the "
+    "text (no '(article 2)'); name the outlet instead -- the citations list carries the ids. Use at most one number per "
+    "insight, and only as evidence for a driver. Each insight is a complete thought, never a bare 'X of Y "
+    "articles'. Use ONLY numbers that appear "
+    "in FACTS, with the same unit. Every insight must cite 1-3 article ids from ARTICLES: for a claim about "
+    "specific coverage, cite the articles that state it; for a statistic from FACTS, cite articles that are "
+    "examples of what is being counted. never leave citations empty. Comparisons ('more than', 'fewer than', "
+    "'most', 'all', 'each') must hold exactly for every item named — e.g. never put a brand with 10 articles in "
+    "a 'fewer than 10' list. Do not exaggerate: words like 'common', 'majority', 'dominates' must match the "
+    "numbers (4 of 17 is about a quarter, not 'common'). Add no time qualifier the FACTS don't give "
+    "(late/early, 'summer'); a month is just the month. Keep one figure per clause and never imply a monthly "
+    "count equals an overall share. Return JSON only.")
+
+_JUDGE_SYSTEM = ("You fact-check insights for a media-research deck. Judge the factual content "
+    "only — numbers, names, dates, events, rankings. Mark a claim unsupported only if a factual element is "
+    "contradicted by, or absent from, FACTS and its own EVIDENCE articles. Reasonable interpretation that "
+    "follows from supported facts (e.g. 'indicating strong interest') is allowed. Check every comparison or "
+    "quantifier ('fewer than 10', 'most', 'each', 'common', 'majority') against the exact FACTS numbers for "
+    "every item it covers; one item that breaks it makes the claim unsupported. Check ratio words ('twice', "
+    "'double', 'triple', 'x times') by arithmetic on the FACTS numbers (60.2% vs 28.9% is about twice, not "
+    "triple). An interpretation must not contradict FACTS (a topic that FACTS rank first is not 'minimal'). "
+    "Also judge whether its EVIDENCE articles are relevant to the claim's subject; if none of them is "
+    "relevant, mark it unsupported. Return JSON only.")
+
+
 def draft_section(section: str, facts: list[str], candidates: list[Article], registry: CitationRegistry,
                   llm, n_insights: int = 3, entities: list[str] | None = None,
                   avoid: list[str] | None = None, segments: list[str] | None = None,
@@ -198,24 +229,7 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
             for i, a in local.items()]
     owners = _segment_owners(local, article_segments)
     messages = [
-        {"role": "system", "content": "You write insights for a media-research deck, the way a senior media analyst "
-         "does. The chart beside each insight already shows the shares and counts, so an insight never restates the "
-         "headline figure; it explains WHY the pattern exists -- its drivers. Name the specific outlets, brands, products, people, "
-         "events and months from the ARTICLES that drive it (e.g. 'The December peak came from holiday gift-guide "
-         "round-ups in USA Today and Living Rich With Coupons, featuring Aveeno Baby and Tom's of Maine'), then end "
-         "with the so-what for the client: the opportunity, risk or action it points to. Each insight covers a "
-         "different driver; never repeat a point or a figure another insight makes. Never mention article ids in the "
-         "text (no '(article 2)'); name the outlet instead -- the citations list carries the ids. Use at most one number per "
-         "insight, and only as evidence for a driver. Each insight is a complete thought, never a bare 'X of Y "
-         "articles'. Use ONLY numbers that appear "
-         "in FACTS, with the same unit. Every insight must cite 1-3 article ids from ARTICLES: for a claim about "
-         "specific coverage, cite the articles that state it; for a statistic from FACTS, cite articles that are "
-         "examples of what is being counted. never leave citations empty. Comparisons ('more than', 'fewer than', "
-         "'most', 'all', 'each') must hold exactly for every item named — e.g. never put a brand with 10 articles in "
-         "a 'fewer than 10' list. Do not exaggerate: words like 'common', 'majority', 'dominates' must match the "
-         "numbers (4 of 17 is about a quarter, not 'common'). Add no time qualifier the FACTS don't give "
-         "(late/early, 'summer'); a month is just the month. Keep one figure per clause and never imply a monthly "
-         "count equals an overall share. Return JSON only."},
+        {"role": "system", "content": _DRAFT_SYSTEM},
         {"role": "user", "content": f"Section: {section}\nFACTS:\n" + "\n".join(f"- {f}" for f in facts) +
          f"\nARTICLES:\n{json.dumps(arts, ensure_ascii=False)}\n" +
          ("ALREADY SAID on this question (the reader has seen these; make a different point, do not restate "
@@ -429,16 +443,7 @@ def _verify_claims(section: str, valid: list[tuple], facts: list[str], local: di
               "evidence": [{"title": local[c].title, "excerpt": local[c].text[:600]} for c in cs]}
              for i, (h, t, cs) in enumerate(valid)]
     messages = [
-        {"role": "system", "content": "You fact-check insights for a media-research deck. Judge the factual content "
-         "only — numbers, names, dates, events, rankings. Mark a claim unsupported only if a factual element is "
-         "contradicted by, or absent from, FACTS and its own EVIDENCE articles. Reasonable interpretation that "
-         "follows from supported facts (e.g. 'indicating strong interest') is allowed. Check every comparison or "
-         "quantifier ('fewer than 10', 'most', 'each', 'common', 'majority') against the exact FACTS numbers for "
-         "every item it covers; one item that breaks it makes the claim unsupported. Check ratio words ('twice', "
-         "'double', 'triple', 'x times') by arithmetic on the FACTS numbers (60.2% vs 28.9% is about twice, not "
-         "triple). An interpretation must not contradict FACTS (a topic that FACTS rank first is not 'minimal'). "
-         "Also judge whether its EVIDENCE articles are relevant to the claim's subject; if none of them is "
-         "relevant, mark it unsupported. Return JSON only."},
+        {"role": "system", "content": _JUDGE_SYSTEM},
         {"role": "user", "content": f"Section: {section}\nFACTS:\n" + "\n".join(f"- {f}" for f in facts) +
          f"\nCLAIMS:\n{json.dumps(items, ensure_ascii=False)}\n"
          'Return {"verdicts":[{"index":0,"supported":true}]} with one verdict per claim.'},
