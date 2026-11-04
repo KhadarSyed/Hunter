@@ -20,7 +20,7 @@ from ...core import store, writing_locale
 from ..datasources import repository as ds_repo
 from ..exclusions import service as exclusions
 from ..datasources import service as ds_service
-from ...core.anthropic_client import get_llm_client
+from ...core.llm_provider import get_llm_client
 from ...core.api import OkResponse
 from ...core.auth import get_current_user, require_project_access
 from ...core.events import broadcast as _broadcast

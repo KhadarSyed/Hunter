@@ -31,7 +31,7 @@ def _api(user_id: int):
 
 def _llm():
     try:
-        from ...core.anthropic_client import get_llm_client
+        from ...core.llm_provider import get_llm_client
         return get_llm_client()
     except Exception as e:
         logger.warning("autopilot runs deterministically: %s", type(e).__name__)

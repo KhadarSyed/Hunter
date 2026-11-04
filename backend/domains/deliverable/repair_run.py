@@ -31,7 +31,7 @@ def start(project_id: int, run_id: int, scope: str, *, llm=None, threaded: bool 
         store.update_deliverable_run(run_id, status="running", stage="repair")
     if llm is None:
         try:
-            from ...core.anthropic_client import get_llm_client
+            from ...core.llm_provider import get_llm_client
             llm = get_llm_client()
         except Exception as e:      # the agent still repairs what needs no drafting (logos, icons, screenshots)
             logger.warning("[repair:%s] no LLM: %s", run_id, type(e).__name__)

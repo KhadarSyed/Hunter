@@ -146,3 +146,17 @@ class HybridLLMClient:
 
 def build_llm_client(settings: Settings) -> HybridLLMClient:
     return HybridLLMClient(settings)
+
+
+def get_llm_client() -> HybridLLMClient | None:
+    """The HybridLLMClient from .env settings when its chat backend is reachable, else None."""
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    from .config import load_settings
+    client = build_llm_client(load_settings())
+    if client.is_reachable():
+        return client
+
+    logger.warning("No LLM provider available")
+    return None

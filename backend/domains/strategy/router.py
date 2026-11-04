@@ -31,7 +31,7 @@ from ...agents.query_evaluator import evaluate_sample
 from ...agents.question_dimensions import keyword_hits as qd_keyword_hits, query_groups as qd_query_groups
 from ...agents.question_dimensions import to_json as qd_to_json
 from ...core import store
-from ...core.anthropic_client import get_llm_client
+from ...core.llm_provider import extract_json_object as _extract_json_object, get_llm_client
 from ...core.api import OkResponse
 from ...core.auth import require_dataset_access, require_project_access, require_strategy_access
 from ...core.config import UPLOAD_DIR
@@ -61,7 +61,6 @@ from .schemas import (
     SearchStrategyResponse,
     StrategyJobStarted,
 )
-from ...core.llm_provider import extract_json_object as _extract_json_object
 
 logger = logging.getLogger(__name__)
 

@@ -645,7 +645,7 @@ def start(project_id: int, *, llm=None, threaded: bool = True) -> int:
 def _run_with_client(refresh_id: int, project_id: int, llm=None) -> None:
     """The background thread: the LLM client is resolved here (its reachability check is a network call)."""
     if llm is None:
-        from ...core.anthropic_client import get_llm_client
+        from ...core.llm_provider import get_llm_client
         try:
             llm = get_llm_client()
         except Exception as e:

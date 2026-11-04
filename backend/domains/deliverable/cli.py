@@ -18,7 +18,7 @@ import requests
 from PIL import Image, UnidentifiedImageError
 from pptx import Presentation
 
-from ...core.anthropic_client import get_llm_client
+from ...core.llm_provider import get_llm_client
 from ..research.brandfetch import resolve_logo
 from . import classify, config, deck, gauge, ingest, insights, metrics, qc
 from .citations import CitationRegistry

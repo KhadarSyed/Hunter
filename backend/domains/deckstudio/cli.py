@@ -41,7 +41,7 @@ def main(argv: list[str] | None = None) -> int:
     elif a.cmd == "render":
         llm = None
         if not a.no_creative:
-            from ...core.anthropic_client import get_llm_client
+            from ...core.llm_provider import get_llm_client
             llm = get_llm_client()
         path, report = compose(_load(a.spec), Path(a.out), llm, indexer.reference_text_shingles())
         print(json.dumps({"html": str(path), "slides": report}))

@@ -180,7 +180,7 @@ def start_run(project_id: int, *, llm=None, threaded: bool = True) -> int:
     if threaded:
         if llm is None:
             try:
-                from ...core.anthropic_client import get_llm_client
+                from ...core.llm_provider import get_llm_client
                 llm = get_llm_client()
             except Exception as e:      # never leave a 'running' row behind: it would block Generate for good
                 logger.error("[deliverable:%s] LLM client unavailable: %s", run_id, e)

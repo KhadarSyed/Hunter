@@ -242,6 +242,8 @@ The live workflow had four blocking issues:
 
 ## Research Executor Sprint (2026-07-23)
 
+> Removed 2026-11-04: the `/execution/*` endpoints, run service and `backend/tools/` executors (no caller after the Execution page was removed); the DB tables stay.
+
 ### Completed
 
 | Deliverable | Status |

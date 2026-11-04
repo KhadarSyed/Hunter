@@ -217,7 +217,7 @@ def compose_brief(project_id: int, research_id: int, spec: dict, research_data: 
 def _get_llm():
     """Azure OpenAI, or None. No fallback — see core/llm_provider.py."""
     try:
-        from ...core.anthropic_client import get_llm_client
+        from ...core.llm_provider import get_llm_client
         client = get_llm_client()
         if client and client.is_reachable():
             return client

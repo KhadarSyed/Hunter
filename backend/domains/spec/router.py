@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path
 from starlette.responses import FileResponse
 
 from ...core import store
-from ...core.anthropic_client import get_llm_client
+from ...core.llm_provider import get_llm_client
 from ...core.auth import require_project_access
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit

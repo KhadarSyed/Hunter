@@ -454,7 +454,7 @@ class LiveWebResearchAdapter:
         validator = EntityValidator(search_brand_term(brand_name), category, geography, exclude_patterns)
 
         try:
-            from ...core.anthropic_client import get_llm_client
+            from ...core.llm_provider import get_llm_client
             llm = get_llm_client()
         except Exception:       # no chat model: the research questions get keyword clauses
             llm = None
