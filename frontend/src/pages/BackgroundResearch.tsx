@@ -5,6 +5,8 @@ import { intelApi, type BriefResult, type BriefSection, type JobStatus, type Sou
 import { useDemoState } from "../context/demo-state";
 import { useProject, useActiveProjectId } from "../context/project-context";
 import { useJobStatus } from "../hooks/useJobStatus";
+import { useAutorun } from "../hooks/useAutorun";
+import { AutorunNote } from "../components/AutorunNote";
 import { useAgentSocket } from "../hooks/useAgentSocket";
 import type { WsMessage } from "../services/ws";
 import { BrandLogo } from "../components/BrandLogo";
@@ -782,12 +784,36 @@ export function BackgroundResearch({ onNavigate }: Props) {
     }
   }, [projectId]);
 
+  // Autorun (after Brief & Scope approval): this page follows its research job, the server writes and approves the
+  // brief, then Search Strategy opens. A blocked chain falls back to the manual review below.
+  const autorun = useAutorun(projectId, ["research", "brief"], () => onNavigate("search-strategy"));
+  const autorunning = autorun?.status === "running";
+  const autorunningRef = useRef(false);      // read when the job finishes, without re-running that effect later
+  autorunningRef.current = autorunning;
+  const followedJob = useRef<string | null>(null);
+  useEffect(() => {
+    if (!autorun || !["research", "brief"].includes(autorun.step ?? "")) return;
+    if (autorunning && autorun.step === "research" && autorun.job_id && autorun.job_id !== followedJob.current) {
+      followedJob.current = autorun.job_id;
+      setResearchJobId(autorun.job_id);
+      setPageState("researching");
+      setStartedAt((t) => t ?? Date.now());
+    } else if (autorunning && autorun.step === "brief") {
+      setPageState("composing");
+      setProgress((prev) => mergeProgress(prev, 95, "Writing and approving the analyst brief..."));
+    } else if (autorun.status === "blocked" && pageState === "composing" && !briefResult) {
+      void proceedToComposing();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autorun]);
+
   useEffect(() => {
     if (!researchStatus) return;
     setProgress((prev) => mergeProgress(prev, researchStatus.progress_pct, researchStatus.progress_message));
     if (researchStatus.status === "completed") {
       setResearchJobId(null);
-      void proceedToComposing();
+      if (autorunningRef.current) setPageState("composing");     // the server writes and approves the brief
+      else void proceedToComposing();
     } else if (researchStatus.status === "failed") {
       setResearchJobId(null);
       setError(researchStatus.error || "Research failed");
@@ -1227,6 +1253,8 @@ export function BackgroundResearch({ onNavigate }: Props) {
           </div>
         </div>
       )}
+
+      <AutorunNote autorun={autorun} steps={["research", "brief"]} />
 
       {/* Tabbed Content Layout */}
       {pageState === "ready" && brief && (

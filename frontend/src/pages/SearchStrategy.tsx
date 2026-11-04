@@ -3,6 +3,8 @@ import * as XLSX from "xlsx";
 import { intelApi, type StrategyResult, type JobStatus } from "../services/intel-api";
 import { useActiveProjectId, useProject } from "../context/project-context";
 import { useDemoState } from "../context/demo-state";
+import { useAutorun } from "../hooks/useAutorun";
+import { AutorunNote } from "../components/AutorunNote";
 import { PexelsHeaderBanner } from "../components/PexelsHeaderBanner";
 import { BrandLogo } from "../components/BrandLogo";
 import { CountryFlag } from "../components/CountryFlag";
@@ -253,52 +255,71 @@ export function SearchStrategy({ onNavigate }: Props) {
       setLiveState("failed");
       return;
     }
-    setError(null);
-    setLiveState("generating");
-    setJobProgress({ pct: 0, message: "Starting..." });
-    setJobLog([{ message: "Starting...", pct: 0, at: Date.now() }]);
     try {
-      const result = await intelApi.generateStrategy(projectId);
-      pollRef.current = setInterval(async () => {
-        try {
-          const status: JobStatus = await intelApi.getJob(result.job_id);
-          setJobProgress({ pct: status.progress_pct, message: status.progress_message });
-          if (status.progress_message) {
-            setJobLog((prev) => (
-              prev[prev.length - 1]?.message === status.progress_message
-                ? prev
-                : [...prev, { message: status.progress_message, pct: status.progress_pct, at: Date.now() }].slice(-30)
-            ));
-          }
-          if (status.status === "completed") {
-            stopPolling();
-            const s = await intelApi.getStrategy(projectId);
-            setStrategy(s);
-            setLiveState("completed");
-            // Every regenerate produces a brand-new, unapproved version — never carry
-            // forward the previous version's approval state (it would otherwise show
-            // the fresh draft as already "Approved" with the button disabled).
-            const isApproved = s.approval_status === "approved";
-            setApproved(isApproved);
-            demo.setStrategyApproved(isApproved);
-            const strat = s.strategy as Record<string, unknown>;
-            setValidationIssues((strat?._validation_issues as string[]) || []);
-          } else if (status.status === "failed") {
-            stopPolling();
-            setError(status.error || "Strategy generation failed");
-            setLiveState("failed");
-          }
-        } catch {
-          stopPolling();
-          setError("Lost connection to server");
-          setLiveState("failed");
-        }
-      }, 2000);
+      watchJob((await intelApi.generateStrategy(projectId)).job_id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to start strategy generation");
       setLiveState("failed");
     }
   };
+
+  /** Shows a strategy job's progress until it ends: one this page started, or one autorun started. */
+  const watchJob = (jobId: string) => {
+    if (!projectId) return;
+    stopPolling();
+    setError(null);
+    setLiveState("generating");
+    setJobProgress({ pct: 0, message: "Starting..." });
+    setJobLog([{ message: "Starting...", pct: 0, at: Date.now() }]);
+    pollRef.current = setInterval(async () => {
+      try {
+        const status: JobStatus = await intelApi.getJob(jobId);
+        setJobProgress({ pct: status.progress_pct, message: status.progress_message });
+        if (status.progress_message) {
+          setJobLog((prev) => (
+            prev[prev.length - 1]?.message === status.progress_message
+              ? prev
+              : [...prev, { message: status.progress_message, pct: status.progress_pct, at: Date.now() }].slice(-30)
+          ));
+        }
+        if (status.status === "completed") {
+          stopPolling();
+          const s = await intelApi.getStrategy(projectId);
+          setStrategy(s);
+          setLiveState("completed");
+          // Every regenerate produces a brand-new, unapproved version — never carry
+          // forward the previous version's approval state (it would otherwise show
+          // the fresh draft as already "Approved" with the button disabled).
+          const isApproved = s.approval_status === "approved";
+          setApproved(isApproved);
+          demo.setStrategyApproved(isApproved);
+          const strat = s.strategy as Record<string, unknown>;
+          setValidationIssues((strat?._validation_issues as string[]) || []);
+        } else if (status.status === "failed") {
+          stopPolling();
+          setError(status.error || "Strategy generation failed");
+          setLiveState("failed");
+        }
+      } catch {
+        stopPolling();
+        setError("Lost connection to server");
+        setLiveState("failed");
+      }
+    }, 2000);
+  };
+
+  // Autorun (after Brief & Scope approval): follow its strategy job here; Data Sources opens once it is approved.
+  // A strategy autorun could not approve (validation issues) stays here for the analyst to review and approve.
+  const autorun = useAutorun(projectId, ["strategy"], () => onNavigate("data-sources"));
+  const followedJob = useRef<string | null>(null);
+  useEffect(() => {
+    if (autorun?.status === "running" && autorun.step === "strategy" && autorun.job_id
+        && autorun.job_id !== followedJob.current) {
+      followedJob.current = autorun.job_id;
+      watchJob(autorun.job_id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autorun]);
 
   const handleQueryEdit = async (queryType: string, queryText: string) => {
     if (!strategy) return;
@@ -517,6 +538,7 @@ export function SearchStrategy({ onNavigate }: Props) {
        * the video being confined to a small top strip or just the empty idle state. */}
       <PexelsHeaderBanner brandName={activeProject?.brand || activeProject?.name} variant="fullscreen" />
       <div className="relative z-10 h-full flex flex-col min-h-0">
+      <AutorunNote autorun={autorun} steps={["strategy"]} />
       {/* ── Header ── */}
       <div className="shrink-0 px-8 pt-6 pb-4 border-b border-white/15">
         <div className="flex items-center justify-between mb-1">

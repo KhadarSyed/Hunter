@@ -1144,9 +1144,14 @@ export function DataSources({ onNavigate }: Props) {
               <button onClick={() => setShowProceedConfirm(false)} className="text-sm font-medium px-4 py-2 rounded-lg text-slate-500 hover:bg-slate-100">
                 Cancel
               </button>
-              <button onClick={() => { setShowProceedConfirm(false); onNavigate("deliverables"); }}
+              <button onClick={async () => {
+                setShowProceedConfirm(false);
+                // the build starts here; one already running (409) just opens Deliverables to watch it
+                if (projectId) await intelApi.deliverableRun(projectId).catch(() => undefined);
+                onNavigate("deliverables");
+              }}
                 className="text-sm font-medium px-4 py-2 rounded-lg text-white" style={{ background: V }}>
-                Confirm & Proceed
+                Confirm & Build Deliverable
               </button>
             </div>
           </div>

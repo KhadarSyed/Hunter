@@ -471,8 +471,9 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
     if (!spec) return;
     try {
       await intelApi.approveSpec(spec.id);
+      if (activeProjectId) await intelApi.autorunStart(activeProjectId);    // research and strategy now run and approve themselves
       await loadSpec();
-      setTimeout(() => onNavigate("background-research"), 600);
+      onNavigate("background-research");
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : "Approval failed");
     }
@@ -1214,7 +1215,7 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
               className="px-5 py-2.5 text-sm font-medium text-white rounded-lg transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ backgroundColor: "#5B2C9D" }}
             >
-              {unresolvedBlocking.length > 0 ? `${unresolvedBlocking.length} questions remaining` : "Approve & Proceed"}
+              {unresolvedBlocking.length > 0 ? `${unresolvedBlocking.length} questions remaining` : "Approve"}
             </button>
           </div>
         </div>

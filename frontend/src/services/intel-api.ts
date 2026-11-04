@@ -1259,6 +1259,9 @@ export const intelApi = {
   agentStart: (projectId: number, inputFolder?: string) =>
     post<AgentState["autopilot"]>(`/agent/${projectId}/autopilot/start`, { input_folder: inputFolder || null }),
   agentStop: (projectId: number) => post<{ ok: boolean }>(`/agent/${projectId}/autopilot/stop`, {}),
+  /** After Brief & Scope approval: research and strategy run and approve themselves up to Data Sources. */
+  autorunStart: (projectId: number) => post<Autorun>(`/agent/${projectId}/autorun`, {}),
+  autorunStatus: (projectId: number) => get<Autorun>(`/agent/${projectId}/autorun`),
   copilotSend: (projectId: number, message: string, confirm?: string) =>
     post<CopilotReply>(`/agent/${projectId}/copilot`, { message, confirm: confirm ?? null }),
   adminIssues: (status?: string) => get<AgentIssue[]>(`/agent/admin/issues${status ? `?status=${status}` : ""}`),
@@ -1327,6 +1330,8 @@ export interface DeliverableSection {
 }
 export interface DeliverableProgress { pct: number; stage: string; label: string; started_at: number; typical_seconds?: number | null }
 export type AgentStep = { key: string; label: string; state: "done" | "ready" | "waiting" | "failed" | "todo"; detail: string };
+export type Autorun = { status: "idle" | "running" | "done" | "blocked";
+  step?: "research" | "brief" | "strategy" | "data-sources"; job_id?: string | null; error?: string | null };
 export type AgentState = { autopilot: { status: string; note: string; updated_at: number } | null;
   status: { project_id: number; name: string; steps: AgentStep[]; next: string | null } };
 export type CopilotReply = { reply: string; actions: { tool: string; ok: boolean; error?: string }[];
