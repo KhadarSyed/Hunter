@@ -66,10 +66,3 @@ def mark_status(org_id: int, source: str, status: str, error: str | None = None)
     conn.close()
 
 
-def list_expired(org_id: int) -> list[dict]:
-    conn = _conn()
-    rows = conn.execute(
-        "SELECT * FROM org_data_sources WHERE org_id = ? AND status = 'expired'", (org_id,)
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]

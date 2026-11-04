@@ -29,8 +29,6 @@ from ...core import config, store
 
 logger = logging.getLogger(__name__)
 
-VALID_JOB_TYPES = {"full", "slide", "section"}
-VALID_JOB_STATUSES = {"pending", "running", "completed", "failed", "cancelled"}
 
 # ── Brand colours (from Hunter PR reference decks) ───────────────────
 
@@ -463,13 +461,6 @@ CHART_RENDERERS = {
     "pie": _render_pie_chart,
     "donut": _render_donut_chart,
 }
-
-
-def _render_chart(slide, visual_type: str, data: dict, region: str = "chart"):
-    renderer = CHART_RENDERERS.get(visual_type)
-    if renderer:
-        return renderer(slide, data, region)
-    return _render_bar_chart(slide, data, region)
 
 
 # ── Table engine ────────────────────────────────────────────────────
@@ -1347,8 +1338,6 @@ PURPOSE_RENDERERS = {
     "sov_competitive": _render_sov_slide,
     "entity_themes": _render_theme_slide,
 }
-
-SECTION_DIVIDER_PURPOSES = set()
 
 
 # ── Main rendering pipeline ────────────────────────────────────────

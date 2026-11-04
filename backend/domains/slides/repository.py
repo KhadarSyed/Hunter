@@ -54,25 +54,6 @@ def update_si_presentation(pres_id: int, **kwargs: Any) -> bool:
     return True
 
 
-def delete_si_presentation(pres_id: int):
-    conn = _conn()
-    slide_ids = [r["id"] for r in conn.execute(
-        "SELECT id FROM intel_si_slides WHERE presentation_id = ?", (pres_id,)
-    ).fetchall()]
-    for sid in slide_ids:
-        conn.execute("DELETE FROM intel_si_template_members WHERE slide_id = ?", (sid,))
-        conn.execute("DELETE FROM intel_si_corrections WHERE slide_id = ?", (sid,))
-        conn.execute("DELETE FROM intel_si_embeddings WHERE slide_id = ?", (sid,))
-        conn.execute("DELETE FROM intel_si_storyline_matches WHERE slide_id = ?", (sid,))
-    conn.execute("DELETE FROM intel_si_slides WHERE presentation_id = ?", (pres_id,))
-    conn.execute("DELETE FROM intel_si_detected_projects WHERE presentation_id = ?", (pres_id,))
-    conn.execute("DELETE FROM intel_si_style_patterns WHERE presentation_id = ?", (pres_id,))
-    conn.execute("DELETE FROM intel_si_processing_logs WHERE presentation_id = ?", (pres_id,))
-    conn.execute("DELETE FROM intel_si_presentations WHERE id = ?", (pres_id,))
-    conn.commit()
-    conn.close()
-
-
 # ─── Slide Intelligence: Slides ────────────────────────────────────────────
 
 def create_si_slide(presentation_id: int, slide_number: int, **kwargs: Any) -> int:
@@ -199,33 +180,6 @@ def update_si_slide(slide_id: int, **kwargs: Any) -> bool:
     return True
 
 
-def delete_si_slide(slide_id: int):
-    conn = _conn()
-    conn.execute("DELETE FROM intel_si_template_members WHERE slide_id = ?", (slide_id,))
-    conn.execute("DELETE FROM intel_si_corrections WHERE slide_id = ?", (slide_id,))
-    conn.execute("DELETE FROM intel_si_embeddings WHERE slide_id = ?", (slide_id,))
-    conn.execute("DELETE FROM intel_si_storyline_matches WHERE slide_id = ?", (slide_id,))
-    conn.execute("DELETE FROM intel_si_slides WHERE id = ?", (slide_id,))
-    conn.commit()
-    conn.close()
-
-
-def count_si_slides(presentation_id: int | None = None, **filters) -> int:
-    conn = _conn()
-    clauses, params = [], []
-    if presentation_id is not None:
-        clauses.append("presentation_id = ?")
-        params.append(presentation_id)
-    for k in ("slide_purpose", "layout_type", "visual_type", "client", "status"):
-        if k in filters and filters[k] is not None:
-            clauses.append(f"{k} = ?")
-            params.append(filters[k])
-    where = " AND ".join(clauses) if clauses else "1=1"
-    cnt = conn.execute(f"SELECT COUNT(*) FROM intel_si_slides WHERE {where}", params).fetchone()[0]
-    conn.close()
-    return cnt
-
-
 # ─── Slide Intelligence: Template Families ─────────────────────────────────
 
 def create_si_template_family(family_name: str, typical_layout: str | None = None,
@@ -306,14 +260,6 @@ def update_si_template_family(family_id: int, **kwargs: Any) -> bool:
     return True
 
 
-def delete_si_template_family(family_id: int):
-    conn = _conn()
-    conn.execute("DELETE FROM intel_si_template_members WHERE family_id = ?", (family_id,))
-    conn.execute("DELETE FROM intel_si_template_families WHERE id = ?", (family_id,))
-    conn.commit()
-    conn.close()
-
-
 def add_si_template_member(family_id: int, slide_id: int,
                            is_representative: bool = False,
                            similarity_score: float = 0.0) -> int:
@@ -373,23 +319,6 @@ def list_si_detected_projects(presentation_id: int) -> list[dict]:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
-
-
-def update_si_detected_project(project_id: int, **kwargs: Any) -> bool:
-    allowed = {"project_name", "client_name", "brand_name", "analyst_name",
-               "start_slide", "end_slide", "slide_count", "confidence", "is_confirmed"}
-    fields = {k: v for k, v in kwargs.items() if k in allowed}
-    if not fields:
-        return False
-    if "is_confirmed" in fields and isinstance(fields["is_confirmed"], bool):
-        fields["is_confirmed"] = int(fields["is_confirmed"])
-    conn = _conn()
-    sets = ", ".join(f"{k} = ?" for k in fields)
-    vals = list(fields.values()) + [project_id]
-    conn.execute(f"UPDATE intel_si_detected_projects SET {sets} WHERE id = ?", vals)
-    conn.commit()
-    conn.close()
-    return True
 
 
 # ─── Slide Intelligence: Style Patterns ────────────────────────────────────
@@ -571,34 +500,6 @@ def get_si_corrections(slide_id: int) -> list[dict]:
 
 
 # ─── Slide Intelligence: Embeddings ────────────────────────────────────────
-
-def save_si_embedding(slide_id: int, embedding_blob: bytes, model_name: str = "nomic-embed-text"):
-    conn = _conn()
-    now = time.time()
-    conn.execute(
-        "INSERT INTO intel_si_embeddings (slide_id, embedding_blob, model_name, created_at) VALUES (?, ?, ?, ?) "
-        "ON CONFLICT (slide_id) DO UPDATE SET embedding_blob = excluded.embedding_blob, "
-        "model_name = excluded.model_name, created_at = excluded.created_at",
-        (slide_id, embedding_blob, model_name, now),
-    )
-    conn.commit()
-    conn.close()
-
-
-def get_si_embedding(slide_id: int) -> Optional[bytes]:
-    conn = _conn()
-    row = conn.execute(
-        "SELECT embedding_blob FROM intel_si_embeddings WHERE slide_id = ?", (slide_id,)
-    ).fetchone()
-    conn.close()
-    return row["embedding_blob"] if row else None
-
-
-def get_all_si_embeddings() -> list[dict]:
-    conn = _conn()
-    rows = conn.execute("SELECT slide_id, embedding_blob FROM intel_si_embeddings").fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
 
 
 # ─── Slide Intelligence: Retrieval History ─────────────────────────────────

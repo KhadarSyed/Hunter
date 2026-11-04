@@ -129,22 +129,6 @@ def list_library_items(project_id: int, *, review_status: str | None = None, obj
     return [_row_to_library_item(dict(r)) for r in rows]
 
 
-def count_library_items(project_id: int, *, review_status: str | None = None) -> int:
-    conn = _conn()
-    if review_status is not None:
-        row = conn.execute(
-            "SELECT COUNT(*) as c FROM intel_library_items WHERE project_id = ? AND review_status = ?",
-            (project_id, review_status),
-        ).fetchone()
-    else:
-        row = conn.execute(
-            "SELECT COUNT(*) as c FROM intel_library_items WHERE project_id = ?",
-            (project_id,),
-        ).fetchone()
-    conn.close()
-    return row["c"] if row else 0
-
-
 def update_library_item(item_id: int, *, review_status: str | None = None, quality_score: float | None = None,
                          quality_components: dict | None = None, relevance_score: float | None = None,
                          is_representative: bool | None = None, is_high_value: bool | None = None,

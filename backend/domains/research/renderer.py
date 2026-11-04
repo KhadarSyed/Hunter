@@ -47,7 +47,6 @@ MUTED_TEXT = RGBColor(0x99, 0x99, 0x99)
 TAG_COLOR = RGBColor(0x7B, 0x4C, 0xBD)
 WHITE = RGBColor(0xFF, 0xFF, 0xFF)
 ACCENT_BG = "F5F0FF"
-VIOLET_BG = "5B2C9D"
 
 SECTION_SUBTITLES = {
     "company_introduction": "The brand in context",
@@ -476,48 +475,6 @@ def _set_paragraph_shading(paragraph, color_hex: str) -> None:
 
 # ── KPI block ──────────────────────────────────────────────────────────
 
-def _add_kpi_row(doc: Document, kpis: list[dict]) -> None:
-    """Render a row of KPI values with labels underneath."""
-    if not kpis:
-        return
-
-    table = doc.add_table(rows=2, cols=len(kpis))
-    table.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-    for i, kpi in enumerate(kpis):
-        cell = table.cell(0, i)
-        p = cell.paragraphs[0]
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = p.add_run(str(kpi.get("value", "")))
-        run.font.size = Pt(24)
-        run.font.color.rgb = BRAND_VIOLET
-        run.font.bold = True
-        run.font.name = "Calibri"
-
-        cell = table.cell(1, i)
-        p = cell.paragraphs[0]
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = p.add_run(kpi.get("label", "").upper())
-        run.font.size = Pt(7)
-        run.font.color.rgb = MUTED_TEXT
-        run.font.bold = True
-        run.font.name = "Calibri"
-        _add_letter_spacing(run, 60)
-
-    for row in table.rows:
-        for cell in row.cells:
-            tc = cell._element
-            tcPr = tc.get_or_add_tcPr()
-            borders = OxmlElement("w:tcBorders")
-            for edge in ("top", "left", "bottom", "right"):
-                el = OxmlElement(f"w:{edge}")
-                el.set(qn("w:val"), "none")
-                el.set(qn("w:sz"), "0")
-                borders.append(el)
-            tcPr.append(borders)
-
-    doc.add_paragraph()
-
 
 # ── Takeaway block ─────────────────────────────────────────────────────
 
@@ -559,8 +516,6 @@ def _render_executive_summary(doc: Document, content: str) -> None:
 
     lines = content.split("\n")
     takeaway_num = 0
-    in_takeaway = False
-    takeaway_title = ""
 
     for line in lines:
         stripped = line.strip()
@@ -790,7 +745,6 @@ def _render_source_register(doc: Document, content: str) -> None:
         ref_match = re.match(r'^\[?(S\d+)\]?\s*\|?\s*(.*)', stripped)
         if ref_match and ref_match.group(1):
             source_num += 1
-            ref = ref_match.group(1)
             rest = ref_match.group(2)
 
             p = doc.add_paragraph()

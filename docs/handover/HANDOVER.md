@@ -82,7 +82,7 @@ Each stage is a backend module + a frontend page. Stages run sequentially per pr
 | 5 | **Data Sources** | `intelligence_api.py` (data source endpoints) | `DataSources.tsx` | UI exists |
 | 6 | **Research Execution** | `research.py` + `executor_service.py` | — | UI removed 2026-10-16 (deck engine analyses datasets directly) |
 | 7 | **Evidence Library** | `evidence_library.py` | `EvidenceLibrary.tsx` | UI exists |
-| 8 | **Analysis & Insights** | `insight_generator.py` + `sov_analyzer.py` + `theme_classifier.py` | `InsightsPage.tsx` | Analysis page removed 2026-10-16; deck insights show on Deliverables |
+| 8 | **Analysis & Insights** | `insight_generator.py` | `InsightsPage.tsx` | Analysis page removed 2026-10-16; deck insights show on Deliverables |
 | 9 | **Storyline** | `storyline_builder.py` | `StorylinePage.tsx` | UI exists |
 | 10 | **Slide Intelligence** | `slide_intelligence.py` | `SlideIntelligencePage.tsx` | UI exists |
 | 11 | **Presentation Composer** | `presentation_composer.py` | `PresentationComposerPage.tsx` | UI exists |
@@ -107,7 +107,6 @@ Each stage is a backend module + a frontend page. Stages run sequentially per pr
 | `agent/app/background_brief_service.py` | Brief composition engine — `compose_brief()`, rule-based builders, LLM synthesis |
 | `agent/app/web_research_adapter.py` | Web research via DuckDuckGo — competitor extraction, entity search |
 | `agent/app/core/azure_openai_client.py` | Azure OpenAI chat client |
-| `agent/app/core/anthropic_client.py` | Unused — kept only so the client class still imports cleanly |
 | `agent/app/config.py` | Settings dataclass, paths, load/save from `data/settings.json` |
 
 ### Frontend Core
@@ -142,19 +141,14 @@ This is implemented via `_get_llm()` in `background_brief_service.py` and `get_l
 
 **Important:** Anthropic is unused — the chat chain is Azure OpenAI only. Features fall through to deterministic when Azure OpenAI/NVIDIA NIM aren't configured or reachable. The deterministic fallbacks are NOT stubs — they produce real analytical content.
 
-### `_compose_with_llm()` returns a tuple
-```python
-(sections_dict, llm_succeeded_bool)
-```
-The boolean tracks whether the LLM actually produced the content vs. the function catching an exception and returning rule-based fallback. This drives the `enrichment_status` field: `"llm_synthesized"` vs `"rule_based"`.
+### `llm_succeeded` drives `enrichment_status`
+In `domains/research/service.py::compose_brief()`, `llm_succeeded` is set only when map-reduce summarization actually returned sections (not when an exception was caught and the rule-based fallback used). This drives the `enrichment_status` field: `"llm_synthesized"` vs `"rule_based"`.
 
 ### Competitor Extraction — Multi-Pattern Regex
-Competitors are extracted from natural-language brief text using multiple regex patterns in THREE files:
-- `agent/app/intelligence_api.py` → `_extract_competitors_from_text()`
-- `agent/app/background_brief_service.py` → `_extract_competitors()`
-- `agent/app/web_research_adapter.py` → `_extract_competitors()`
-
-All three must stay in sync. Patterns handle formats like:
+Competitors are extracted from natural-language brief text with one shared pattern list,
+`COMPETITOR_PATTERNS` / `competitors_from_text()` in `domains/research/web_research.py`, used by
+`domains/research/service.py`, `web_research.py` and `domains/strategy/router.py`
+(`_extract_competitors_from_text()`). Change the patterns there only. They handle formats like:
 - "The core competitive set includes Apple, Beats, Bose..."
 - "Competitors: Apple, Beats, Bose"
 - "Competitors are Apple, Beats, and Bose."
@@ -285,7 +279,6 @@ Sweta Claude Code/
 │   │   ├── background_brief_service.py  # Brief composition engine
 │   │   ├── web_research_adapter.py      # Web research + competitor extraction
 │   │   ├── azure_openai_client.py # Azure OpenAI chat client
-│   │   ├── anthropic_client.py   # Unused — kept only so the class still imports cleanly
 │   │   ├── config.py             # Settings, paths
 │   │   ├── brief_parser.py       # Parse uploaded brief files
 │   │   ├── research.py           # Research execution
@@ -298,8 +291,6 @@ Sweta Claude Code/
 │   │   ├── word_renderer.py      # Word document rendering
 │   │   ├── pipeline_orchestrator.py     # Full pipeline orchestration
 │   │   ├── publishing_gateway.py # Export/publishing
-│   │   ├── sov_analyzer.py       # Share-of-voice analysis
-│   │   ├── theme_classifier.py   # Theme classification
 │   │   ├── qc_service.py         # QC service
 │   │   ├── agents/
 │   │   │   ├── brief_scope.py    # Brief → spec (LLM agent)

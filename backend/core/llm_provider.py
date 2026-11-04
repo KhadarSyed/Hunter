@@ -13,8 +13,10 @@ call site already expects: `is_reachable()`, `chat(...)`, `embed(...)`,
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
+import re
 from typing import Callable, Optional
 
 import numpy as np
@@ -22,6 +24,40 @@ import numpy as np
 from .config import Settings
 
 logger = logging.getLogger(__name__)
+
+
+def extract_json_object(text: str) -> dict:
+    """The first JSON object in chat output, tolerating markdown fences, preamble and trailing commentary.
+    Raises ValueError (json.JSONDecodeError included) when there is none."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```\s*$", "", text)
+    brace_start = text.find("{")
+    if brace_start == -1:
+        raise ValueError("No JSON object found in LLM response")
+    depth = 0
+    in_string = False
+    escape_next = False
+    for i, ch in enumerate(text[brace_start:], start=brace_start):
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == "\\":
+            escape_next = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return json.loads(text[brace_start:i + 1])
+    return json.loads(text[brace_start:])
 
 
 class NoChatProviderError(RuntimeError):
@@ -110,3 +146,17 @@ class HybridLLMClient:
 
 def build_llm_client(settings: Settings) -> HybridLLMClient:
     return HybridLLMClient(settings)
+
+
+def get_llm_client() -> HybridLLMClient | None:
+    """The HybridLLMClient from .env settings when its chat backend is reachable, else None."""
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    from .config import load_settings
+    client = build_llm_client(load_settings())
+    if client.is_reachable():
+        return client
+
+    logger.warning("No LLM provider available")
+    return None

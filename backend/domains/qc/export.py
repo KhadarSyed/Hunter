@@ -23,15 +23,12 @@ def export_qc_results(run_id: int) -> dict:
         return {"error": "Report not found"}
 
     findings = store.get_qc_findings(run_id)
-    mapping = report.get("field_mapping") or {}
 
     try:
         import openpyxl
         from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     except ImportError:
         return {"error": "openpyxl not installed"}
-
-    rows = qc_parser.get_rows_from_file(report["file_path"], mapping)
 
     row_findings: dict[int, list[dict]] = {}
     for f in findings:
@@ -75,9 +72,6 @@ def export_qc_results(run_id: int) -> dict:
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center")
         cell.border = thin_border
-
-    original_data = qc_parser.parse_file(report["file_path"])
-    raw_preview = original_data.get("preview", []) if "error" not in original_data else []
 
     all_raw_rows = _read_all_original(report["file_path"], original_cols)
 

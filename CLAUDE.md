@@ -30,7 +30,6 @@ mostly disjoint code paths.
 frontend/        React SPA (Vite); `npm run build` writes into backend/static/
 backend/         FastAPI app — main.py, core/, domains/<stage>/, deck/, supervisor.py, requirements.txt
   agents/        LLM agents (brief scope, query builder, enrichment, tag schemas, …)
-  tools/         pluggable deterministic analysis methods (decorator-registered executors)
 database/        db.py (connection, schema, migrations), pg.py (Postgres adapter),
                  docker-compose.postgres.yml (local Postgres)
 data/            runtime data (gitignored) + the shipped house templates
@@ -70,7 +69,7 @@ backend/
   domains/<stage>/     router.py (APIRouter, bare sub-paths) · schemas.py (Pydantic) ·
                        repository.py (SQL via database.db._conn) · service modules (service.py, …)
   deck/                Brief-to-Deck product
-  agents/  tools/      LLM agents and pluggable deterministic analysis methods
+  agents/              LLM agents
 database/              db.py (_conn, schema bootstrap, MIGRATIONS), pg.py (sqlite3-like Postgres adapter)
 ```
 
@@ -96,7 +95,7 @@ never import a `router.py`. Frontend (`frontend/src/`): `pages/` · `components/
   Uploaded dataset files are also kept in `intel_dataset_files`, since a hosted server's disk may
   not survive a restart.
 - **LLM chain:** `backend/core/llm_provider.py::build_llm_client(settings)` is the single factory
-  used everywhere a chat/embedding client is needed (`get_llm_client()` in `core/anthropic_client.py`,
+  used everywhere a chat/embedding client is needed (`get_llm_client()` in the same module,
   and every other call site — `deck/pipeline.py`, `domains/plan/service.py`,
   `core/llm_synthesis.py`, the `agents/*.py` modules). All clients live in `core/`. It returns a
   `HybridLLMClient` with no cross-provider fallback on either side:
@@ -114,7 +113,7 @@ never import a `router.py`. Frontend (`frontend/src/`): `pages/` · `components/
 ### Intelligence Platform stage → module map
 
 Each stage is a `domains/<stage>/` folder + one or more frontend pages (paths below are relative
-to `backend/domains/` unless they start with `agents/` or `tools/`). Consult
+to `backend/domains/` unless they start with `agents/`). Consult
 `docs/CURRENT_STATUS.md` for exhaustive per-stage detail (DB tables, endpoint counts, test
 counts) before assuming a stage is unbuilt — most of the pipeline is fully implemented and tested,
 not scaffolding.
@@ -125,9 +124,9 @@ not scaffolding.
 | Brief & Scope | `brief/parser.py`, `agents/brief_scope.py`, `spec/service.py`, `spec/renderer.py` | `NewProject.tsx`, `BriefScopeReview.tsx` |
 | Background Research | `research/service.py`, `research/web_research.py`, `research/news_search.py`, `agents/brand_intelligence.py` | `BackgroundResearch.tsx` |
 | Search Strategy + dataset evaluation | `strategy/router.py` (`_build_deterministic_strategy()`), `agents/meltwater_query_builder.py`, `agents/query_evaluator.py` | `SearchStrategy.tsx`, `QueryEvaluation.tsx` |
-| Research Plan / Execution | `plan/service.py`, `execution/service.py`, `tools/` (12 pluggable deterministic analysis methods, decorator-registered) | `ResearchPlan.tsx` (Execution page removed 2026-10-16: the deck engine analyses datasets itself) |
+| Research Plan | `plan/service.py`; `execution/service.py` keeps only the dataset loaders used by `deliverable/` and `strategy/` | `ResearchPlan.tsx` (Execution page and its `/execution/*` API removed: the deck engine analyses datasets itself) |
 | Evidence Library | `library/service.py` | `EvidenceLibrary.tsx` |
-| Analysis & Insights | `insights/service.py`, `insights/sov_analyzer.py`, `insights/theme_classifier.py` | `InsightsPage.tsx` (Analysis page removed 2026-10-16; deck insights show on `DeliverablesPage.tsx`) |
+| Analysis & Insights | `insights/service.py` | `InsightsPage.tsx` (Analysis page removed 2026-10-16; deck insights show on `DeliverablesPage.tsx`) |
 | Storyline | `storyline/service.py` | `StorylinePage.tsx` |
 | Slide Intelligence | `slides/extractor.py`, `slides/retrieval.py`, `slides/service.py` | `SlideIntelligencePage.tsx` |
 | Presentation Composer | `composer/service.py` | `PresentationComposerPage.tsx` |
@@ -144,16 +143,16 @@ to each other. Their shared UI pieces live in `components/stage-ui.tsx`.
 ## Critical Patterns
 
 - **LLM fallback chain:** implemented via `_get_llm()` in `domains/research/service.py` and
-  `get_llm_client()` (`core/anthropic_client.py`, used by the research/strategy/spec routers). `_compose_with_llm()` returns `(sections, bool)` —
-  the bool tracks whether the LLM *actually* produced the content (vs. an exception being caught
-  and rule-based fallback silently substituted). This drives the `enrichment_status` field
-  (`"llm_synthesized"` vs `"web_only"` vs `"rule_based"`) — never infer LLM success from whether a
-  client object is truthy.
-- **Competitor extraction stays in sync across three files.** Natural-language brief text is
-  parsed with multiple regex patterns duplicated in `domains/strategy/router.py`
-  (`_extract_competitors_from_text`), `domains/research/service.py` (`_extract_competitors`), and
-  `domains/research/web_research.py` (`_extract_competitors`). Changing one without the other two
-  reintroduces the bug this was built to fix.
+  `get_llm_client()` (`core/llm_provider.py`, used by the research/strategy/spec routers). In
+  `compose_brief()`, `llm_succeeded` is set only when map-reduce summarization *actually* returned
+  sections (vs. an exception being caught and rule-based fallback substituted). This drives the
+  `enrichment_status` field (`"llm_synthesized"` vs `"rule_based"`) — never infer LLM success from
+  whether a client object is truthy.
+- **Competitor extraction shares one pattern list.** Natural-language brief text is parsed with
+  `COMPETITOR_PATTERNS` / `competitors_from_text()` in `domains/research/web_research.py`, used by
+  `domains/research/service.py` (`_extract_competitors`), `web_research.py` (`_extract_competitors`)
+  and `domains/strategy/router.py` (`_extract_competitors_from_text`, which keeps its own
+  all-matches parse). Change the patterns there only.
 - **Strategy generation always resolves to deterministic.** In `domains/strategy/router.py`, four
   failure paths (no LLM reachable, LLM timeout, LLM exception, empty LLM result) all funnel into
   `_build_deterministic_strategy(spec, raw_brief_text)` rather than returning an error — a failed

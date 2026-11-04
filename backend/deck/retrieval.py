@@ -54,14 +54,3 @@ def search(query_text: str, llm_client: HybridLLMClient, top_k: int = 8, exclude
     return results
 
 
-def search_multi(query_texts: list[str], llm_client: HybridLLMClient, top_k_each: int = 8) -> list[dict]:
-    """Search with several query strings (e.g. one per brief section) and merge,
-    keeping the best score per unique (deck_path, slide_no)."""
-    best: dict[tuple[str, int], dict] = {}
-    for q in query_texts:
-        for r in search(q, llm_client, top_k=top_k_each):
-            key = (r["deck_path"], r["slide_no"])
-            if key not in best or r["score"] > best[key]["score"]:
-                best[key] = r
-    merged = sorted(best.values(), key=lambda r: r["score"], reverse=True)
-    return merged

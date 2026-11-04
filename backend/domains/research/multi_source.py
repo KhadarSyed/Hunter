@@ -14,7 +14,7 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
 from ..exclusions.service import keep, rules_for_project
@@ -270,7 +270,7 @@ ACCESS_WORKERS = 8
 def _embed_for_relations(project_id: int) -> None:
     """Embed the project's new items now, while the fetch job runs, so the All Articles table's Syndicated /
     Similar counts don't wait on embedding. Best-effort: the table embeds whatever is still missing."""
-    from ...core.anthropic_client import get_llm_client
+    from ...core.llm_provider import get_llm_client
     try:
         relations.ensure_vectors(repository.get_research_items(project_id), get_llm_client())
     except Exception:

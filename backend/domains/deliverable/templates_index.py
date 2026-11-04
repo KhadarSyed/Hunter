@@ -61,10 +61,6 @@ def _cosine(a, b) -> float:
     return dot / (na * nb) if na and nb else 0.0
 
 
-def choose_template(scope_text: str, llm=None) -> Path:
-    return choose_template_explained(scope_text, llm)[0]
-
-
 def choose_template_explained(scope_text: str, llm=None) -> tuple[Path, str]:
     """The template deck and a one-line reason a person can read in the run log."""
     path, score, count = _choose_scored(scope_text, llm)

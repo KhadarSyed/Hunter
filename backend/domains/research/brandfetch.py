@@ -40,10 +40,6 @@ NOT_FOUND_RETRY_S = 7 * 86_400  # re-check brands with no logo after a week
 MIN_TOKEN_LEN = 3
 
 
-class BrandfetchError(RuntimeError):
-    pass
-
-
 class LookupUnavailable(RuntimeError):
     """A logo source could not answer right now (timeout, 5xx, rate limit) — don't cache."""
 

@@ -217,18 +217,6 @@ def get_insight_evidence(insight_id: int) -> list[dict]:
     return result
 
 
-def remove_insight_evidence(insight_id: int, library_item_id: int) -> bool:
-    conn = _conn()
-    cur = conn.execute(
-        "DELETE FROM intel_insight_evidence WHERE insight_id = ? AND library_item_id = ?",
-        (insight_id, library_item_id),
-    )
-    deleted = cur.rowcount > 0
-    conn.commit()
-    conn.close()
-    return deleted
-
-
 def add_insight_audit(
     insight_id: int,
     action: str,
@@ -263,22 +251,6 @@ def get_insight_audit(insight_id: int) -> list[dict]:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
-
-
-def count_insights(project_id: int, *, status: str | None = None) -> int:
-    conn = _conn()
-    if status is not None:
-        row = conn.execute(
-            "SELECT COUNT(*) as c FROM intel_insights WHERE project_id = ? AND status = ?",
-            (project_id, status),
-        ).fetchone()
-    else:
-        row = conn.execute(
-            "SELECT COUNT(*) as c FROM intel_insights WHERE project_id = ?",
-            (project_id,),
-        ).fetchone()
-    conn.close()
-    return row["c"] if row else 0
 
 
 def supersede_insights(project_id: int, keep_generation_id: str) -> int:
@@ -350,13 +322,3 @@ def get_node_insights(node_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def remove_node_insight(node_id: int, insight_id: int) -> bool:
-    conn = _conn()
-    cur = conn.execute(
-        "DELETE FROM intel_story_node_insights WHERE node_id = ? AND insight_id = ?",
-        (node_id, insight_id),
-    )
-    deleted = cur.rowcount > 0
-    conn.commit()
-    conn.close()
-    return deleted

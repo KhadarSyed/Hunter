@@ -24,8 +24,6 @@ def ingest_presentation(file_path: str) -> dict:
     if not os.path.isfile(file_path):
         return {"error": f"File not found: {file_path}"}
 
-    filename = os.path.basename(file_path)
-    file_size = os.path.getsize(file_path)
     file_hash = extractor._file_hash(file_path)
 
     existing = store.list_si_presentations()

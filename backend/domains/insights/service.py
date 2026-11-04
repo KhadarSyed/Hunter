@@ -29,7 +29,6 @@ INSIGHT_TYPES = {
 }
 
 MIN_EVIDENCE_FOR_INSIGHT = 1
-CONFIDENCE_THRESHOLDS = {"high": 0.75, "medium": 0.50, "low": 0.25}
 
 # Sentiment word lists for contradiction detection
 _POSITIVE_WORDS = {

@@ -30,34 +30,12 @@ from ...core import config, store
 
 logger = logging.getLogger(__name__)
 
-VALID_JOB_TYPES = {"full", "section"}
-VALID_JOB_STATUSES = {"pending", "running", "completed", "failed", "cancelled"}
 
 SECTION_ORDER = [
     "cover", "confidentiality", "executive_summary", "methodology",
     "key_findings", "supporting_evidence", "business_impact",
     "recommendations", "conclusion", "appendix",
 ]
-
-PURPOSE_TO_SECTION = {
-    "cover": "cover",
-    "agenda": "executive_summary",
-    "executive_summary": "executive_summary",
-    "methodology": "methodology",
-    "key_finding": "key_findings",
-    "trend": "key_findings",
-    "consumer_insight": "key_findings",
-    "sentiment": "key_findings",
-    "competitive": "key_findings",
-    "crisis": "key_findings",
-    "opportunity": "business_impact",
-    "risk": "business_impact",
-    "recommendation": "recommendations",
-    "conclusion": "conclusion",
-    "appendix": "appendix",
-    "divider": None,
-    "content": "key_findings",
-}
 
 
 # ── Theme Engine ──────────────────────────────────────────────────────
@@ -720,23 +698,6 @@ def _render_chart_as_table(doc: Document, theme: dict, visual_type: str,
 
 
 # ── Citation Manager ──────────────────────────────────────────────────
-
-def _collect_evidence_refs(slides: list[dict]) -> list[dict]:
-    refs = []
-    seen = set()
-    for slide in slides:
-        evidence_ids = slide.get("evidence_ids_json", [])
-        if isinstance(evidence_ids, str):
-            try:
-                evidence_ids = json.loads(evidence_ids)
-            except (json.JSONDecodeError, TypeError):
-                evidence_ids = []
-        for eid in evidence_ids:
-            if eid not in seen:
-                seen.add(eid)
-                refs.append({"evidence_id": eid, "source": f"Evidence #{eid}",
-                             "text": f"Evidence record {eid}"})
-    return refs
 
 
 # ── TOC ───────────────────────────────────────────────────────────────

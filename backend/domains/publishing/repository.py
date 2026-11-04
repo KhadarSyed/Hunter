@@ -112,16 +112,6 @@ def create_pub_diff_report(validation_id: int, project_id: int,
     return did
 
 
-def get_pub_diff_report(diff_id: int) -> dict | None:
-    conn = _conn()
-    row = conn.execute("SELECT * FROM intel_pub_diff_reports WHERE id=?",
-                       (diff_id,)).fetchone()
-    conn.close()
-    if not row:
-        return None
-    return _parse_json_fields(dict(row), ["differences_json", "summary_json"])
-
-
 def get_latest_diff_report(presentation_id: int) -> dict | None:
     conn = _conn()
     row = conn.execute(
@@ -153,14 +143,6 @@ def create_pub_version(project_id: int, presentation_id: int, **kw) -> int:
     conn.commit()
     conn.close()
     return vid
-
-
-def get_pub_version(version_id: int) -> dict | None:
-    conn = _conn()
-    row = conn.execute("SELECT * FROM intel_pub_versions WHERE id=?",
-                       (version_id,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
 
 
 def get_latest_pub_version(presentation_id: int) -> dict | None:
@@ -294,21 +276,6 @@ def list_pub_approvals(presentation_id: int, limit: int = 50) -> list[dict]:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
-
-
-def create_pub_download(project_id: int, file_type: str, file_path: str, **kw) -> int:
-    conn = _conn()
-    cur = conn.execute(
-        "INSERT INTO intel_pub_downloads "
-        "(project_id, package_id, file_type, file_path, file_size_bytes, downloaded_by, created_at) "
-        "VALUES (?,?,?,?,?,?,?)",
-        (project_id, kw.get("package_id"), file_type, file_path,
-         kw.get("file_size_bytes", 0), kw.get("downloaded_by", "system"), time.time()),
-    )
-    did = cur.lastrowid
-    conn.commit()
-    conn.close()
-    return did
 
 
 def list_pub_downloads(project_id: int, limit: int = 50) -> list[dict]:

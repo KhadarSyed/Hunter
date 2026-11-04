@@ -141,22 +141,6 @@ def get_qc_runs_for_report(report_id: int) -> list[dict]:
 
 # ─── QC Findings ────────────────────────────────────────────────────────────
 
-def add_qc_finding(run_id: int, report_id: int, check_type: str, severity: str,
-                   message: str, row_number: int | None = None, column_name: str | None = None,
-                   expected: str | None = None, actual: str | None = None,
-                   source_url: str | None = None) -> int:
-    conn = _conn()
-    now = time.time()
-    cur = conn.execute(
-        "INSERT INTO qc_findings (run_id, report_id, check_type, row_number, column_name, severity, message, expected, actual, source_url, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (run_id, report_id, check_type, row_number, column_name, severity, message, expected, actual, source_url, now),
-    )
-    fid = cur.lastrowid
-    conn.commit()
-    conn.close()
-    return fid
-
 
 def add_qc_findings_batch(findings: list[dict]) -> int:
     if not findings:

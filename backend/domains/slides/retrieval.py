@@ -34,28 +34,6 @@ _SECTION_TO_PURPOSE = {
 
 # ─── Archetype definitions for template matching ──────────────────────────
 
-ARCHETYPES = {
-    "sov_competitive": {
-        "name": "Competitive SOV + Trend + Competitor Narratives",
-        "required_elements": [
-            "title_area", "executive_takeaway", "overall_sov_visual",
-            "trend_visual", "competitor_narrative_blocks", "sample_metadata",
-        ],
-        "preferred_layouts": ["sov_archetype", "dashboard", "two_panel"],
-        "preferred_visuals": ["donut", "pie", "stacked_bar"],
-        "preferred_charts": ["donut", "line_chart"],
-    },
-    "entity_themes": {
-        "name": "Entity Themes + Theme Trend + Theme Narratives",
-        "required_elements": [
-            "entity_title", "executive_takeaway", "ranked_theme_visual",
-            "theme_trend_visual", "theme_narrative_blocks", "sample_metadata",
-        ],
-        "preferred_layouts": ["theme_archetype", "dashboard", "two_panel"],
-        "preferred_visuals": ["bar_chart", "horizontal_bar"],
-        "preferred_charts": ["bar_chart", "line_chart"],
-    },
-}
 
 _SECTION_TO_LAYOUT = {
     "executive_summary": ["dashboard", "kpi_cards", "text_led"],
@@ -96,8 +74,6 @@ def retrieve_for_node(node_id: int, top_k: int = 10) -> dict:
 
     section_type = node.get("section_type", "key_findings")
     title = node.get("title", "")
-    narrative = node.get("narrative_summary", "")
-    suggested_visual = node.get("suggested_visual", "")
 
     preferred_purposes = _SECTION_TO_PURPOSE.get(section_type, ["key_finding"])
     preferred_layouts = _SECTION_TO_LAYOUT.get(section_type, [])

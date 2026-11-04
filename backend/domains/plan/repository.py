@@ -68,12 +68,3 @@ def reject_plan(plan_id: int, notes: str = "") -> bool:
     return changed
 
 
-def update_plan_status(plan_id: int, status: str) -> bool:
-    conn = _conn()
-    conn.execute(
-        "UPDATE intel_research_plans SET status = ? WHERE id = ?",
-        (status, plan_id),
-    )
-    conn.commit()
-    conn.close()
-    return True

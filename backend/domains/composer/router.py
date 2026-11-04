@@ -7,13 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from ...core import store
 from ...core.auth import require_project_access
-from ..insights import sov_analyzer, theme_classifier
 from . import service as pc
 from .schemas import (
     ApprovePCRequest,
     GeneratePresentationRequest,
     GeneratePresentationResponse,
-    GenerateSOVPresentationResponse,
     PCAuditEntry,
     PCPresentation,
     PCSlide,
@@ -26,8 +24,6 @@ from .schemas import (
     ReviewPCSlideRequest,
     SelectLayoutRequest,
     SelectVisualRequest,
-    SOVAnalysisResponse,
-    ThemeClassificationResponse,
     TransitionsResponse,
     UpdatePCSlideRequest,
 )
@@ -48,31 +44,6 @@ def generate_presentation_route(req: GeneratePresentationRequest):
 @router.post("/composer/validate-prereqs", response_model=PrerequisiteCheckResponse)
 def validate_composer_prereqs(req: GeneratePresentationRequest):
     return pc.validate_prerequisites(req.project_id)
-
-
-@router.post("/sov/generate", response_model=GenerateSOVPresentationResponse)
-def generate_sov_presentation_route(req: GeneratePresentationRequest):
-    result = pc.generate_sov_presentation(req.project_id, req.reviewer)
-    if isinstance(result, dict) and "error" in result:
-        raise HTTPException(400, result)
-    return result
-
-
-@router.get("/sov/analyze/{project_id}", response_model=SOVAnalysisResponse)
-def analyze_sov_route(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)]):
-    result = sov_analyzer.analyze_sov(project_id)
-    if isinstance(result, dict) and "error" in result:
-        raise HTTPException(400, result)
-    return result
-
-
-@router.get("/sov/themes/{project_id}/{entity_name}", response_model=ThemeClassificationResponse)
-def classify_themes_route(project_id: IdPath, entity_name: str,
-                           _access: Annotated[dict, Depends(require_project_access)]):
-    result = theme_classifier.classify_themes(project_id, entity_name)
-    if isinstance(result, dict) and "error" in result:
-        raise HTTPException(400, result)
-    return result
 
 
 @router.get("/composer/{project_id}", response_model=list[PCPresentation])

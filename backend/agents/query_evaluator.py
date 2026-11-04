@@ -464,35 +464,6 @@ def _extract_content_words(text: str) -> list[str]:
 # Record classification
 # ---------------------------------------------------------------------------
 
-def classify_record(record: dict, spec: dict, strategy: dict) -> dict:
-    """Classify a single record against the spec and strategy.
-
-    Parameters
-    ----------
-    record : dict
-        A normalised record with logical field names.
-    spec : dict
-        The approved project specification.
-    strategy : dict
-        The approved search strategy (from meltwater_query_builder).
-
-    Returns
-    -------
-    dict
-        Keys:
-          classification : "relevant" | "partially_relevant" | "irrelevant" | "uncertain"
-          confidence : "high" | "medium" | "low"
-          matched_brand_terms : list of matched brand terms
-          matched_rq_ids : list of research question IDs with matches
-          matched_strategy_terms : list of strategy include terms found
-          matched_exclusion_terms : list of exclusion terms found
-          reasons : list of human-readable classification reasons
-    """
-    spec_keywords = _extract_spec_keywords(spec)
-    strategy_terms = _extract_strategy_terms(strategy)
-
-    return _classify_record_impl(record, spec_keywords, strategy_terms)
-
 
 def _classify_record_impl(
     record: dict,

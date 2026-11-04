@@ -23,7 +23,6 @@ from .composer.router import router as composer
 from .datasources.router import router as datasources
 from .deliverable.router import router as deliverable
 from .exclusions.router import router as exclusions
-from .execution.router import router as execution
 from .insights.router import router as insights
 from .library.router import router as library
 from .plan.router import router as plan
@@ -45,7 +44,7 @@ router = APIRouter(
 # Pipeline order. Domains own disjoint path prefixes, so include order only
 # matters within a domain router (literal paths before parameterised ones).
 for domain_router in (
-    projects, research, brief, spec, strategy, plan, execution, library,
+    projects, research, brief, spec, strategy, plan, library,
     insights, storyline, slides, composer, rendering, publishing, qc,
     datasources, deliverable, agent_router, exclusions,
 ):

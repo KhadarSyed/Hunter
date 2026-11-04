@@ -125,14 +125,6 @@ class SpecGenerationStarted(ApiModel):
     status: str = "started"
 
 
-class GeneratedSpecResponse(ApiModel):
-    """Result of generate/regenerate; `clarifications` is present only on generate."""
-
-    spec_id: int
-    spec: dict | None = None
-    readiness: dict | None = None
-
-
 class SpecSectionStatusResponse(ApiModel):
     status: str
     section_key: str

@@ -9,21 +9,11 @@ from database.db import _conn
 
 # ─── Storyline Store ──────────────────────────────────────────────────────
 
-_STORYLINE_SORT_COLUMNS = {
-    "created_at", "updated_at", "title", "status", "narrative_pattern", "id",
-}
-
 
 _STORYLINE_UPDATABLE_FIELDS = {
     "narrative_pattern", "title", "executive_summary", "total_duration_minutes",
     "node_count", "status", "generated_by", "approved_by", "approved_at",
     "generation_id",
-}
-
-
-_NODE_SORT_COLUMNS = {
-    "order_position", "created_at", "title", "priority", "status",
-    "confidence_score", "id",
 }
 
 
@@ -123,25 +113,6 @@ def update_storyline(storyline_id: int, **kwargs: Any) -> bool:
     conn.commit()
     conn.close()
     return changed
-
-
-def delete_storyline(storyline_id: int) -> bool:
-    conn = _conn()
-    node_ids = [
-        r["id"] for r in conn.execute(
-            "SELECT id FROM intel_story_nodes WHERE storyline_id = ?",
-            (storyline_id,),
-        ).fetchall()
-    ]
-    for nid in node_ids:
-        conn.execute("DELETE FROM intel_story_node_insights WHERE node_id = ?", (nid,))
-    conn.execute("DELETE FROM intel_story_nodes WHERE storyline_id = ?", (storyline_id,))
-    conn.execute("DELETE FROM intel_storyline_audit WHERE storyline_id = ?", (storyline_id,))
-    cur = conn.execute("DELETE FROM intel_storylines WHERE id = ?", (storyline_id,))
-    deleted = cur.rowcount > 0
-    conn.commit()
-    conn.close()
-    return deleted
 
 
 def create_story_node(

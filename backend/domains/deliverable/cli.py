@@ -18,18 +18,38 @@ import requests
 from PIL import Image, UnidentifiedImageError
 from pptx import Presentation
 
-from ...core.anthropic_client import get_llm_client
+from ...core.llm_provider import get_llm_client
 from ..research.brandfetch import resolve_logo
-from . import classify, config, deck, gauge, ingest, insights, metrics, qc
+from . import classify, deck, gauge, ingest, insights, metrics, qc
 from .citations import CitationRegistry
 
 logger = logging.getLogger("deliverable")
+REPO_ROOT = Path(__file__).resolve().parents[4]  # relative paths in a project config resolve against this
 THEMES = ("deal", "parenting", "expert", "celebrity")
 MAX_CANDIDATES = 12
 LOGO_TIMEOUT_S = 20
 # Brandfetch's CDN serves an HTML page to non-browser clients; a browser UA gets the image.
 LOGO_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                               "(KHTML, like Gecko) Chrome/126.0 Safari/537.36", "Accept": "image/png,image/*"}
+
+
+def _resolve(p: str) -> str:
+    path = Path(p)
+    return str(path if path.is_absolute() else REPO_ROOT / path)
+
+
+def load_config(path: str | Path) -> dict:
+    """A per-project deliverable config, with its file paths resolved."""
+    cfg = json.loads(Path(path).read_text(encoding="utf-8"))
+    for key in ("title", "themes", "reference_deck", "output_dir", "output_name"):
+        if key not in cfg:
+            raise ValueError(f"deliverable config missing '{key}'")
+    cfg["reference_deck"] = _resolve(cfg["reference_deck"])
+    cfg["output_dir"] = _resolve(cfg["output_dir"])
+    for theme in cfg["themes"]:
+        for f in theme["files"]:
+            f["path"] = _resolve(f["path"])
+    return cfg
 
 
 def logo_png_url(info: dict) -> str | None:
@@ -230,7 +250,7 @@ def exec_backfill(m: dict, cm: dict, labels: dict, cites: dict[str, list[int]]) 
 
 def main(argv: list[str]) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    cfg = config.load_config(argv[0])
+    cfg = load_config(argv[0])
     out_dir = Path(cfg["output_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
     llm = get_llm_client()

@@ -26,11 +26,6 @@ SLIDE_PURPOSES = {
     "other",
 }
 
-LAYOUT_TYPES = {
-    "title_body", "single_insight", "two_column", "three_column", "dashboard",
-    "kpi_cards", "comparison", "timeline", "matrix", "heatmap", "quote",
-    "chart_led", "text_led", "mixed", "title_only", "blank",
-}
 
 VISUAL_TYPES = {
     "kpi", "bar_chart", "stacked_bar", "line_chart", "area_chart", "pie",
@@ -39,16 +34,6 @@ VISUAL_TYPES = {
     "mixed_chart", "none",
 }
 
-NARRATIVE_ROLES = {
-    "context", "evidence", "finding", "interpretation", "business_impact",
-    "recommendation", "transition", "summary",
-}
-
-REPORT_TYPES = {
-    "crisis", "reputation", "campaign", "consumer", "brand_health",
-    "competitive", "media_monitoring", "social_listening",
-    "executive_briefing", "new_business_pitch", "unknown",
-}
 
 _COVER_KEYWORDS = {"hunter pr research", "hunter pr", "monthly report",
                    "editorial analysis", "social listening", "media analysis",

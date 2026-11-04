@@ -32,7 +32,7 @@ from ...agents.query_evaluator import evaluate_sample
 from ...agents.question_dimensions import keyword_hits as qd_keyword_hits, query_groups as qd_query_groups
 from ...agents.question_dimensions import to_json as qd_to_json
 from ...core import store
-from ...core.anthropic_client import get_llm_client
+from ...core.llm_provider import extract_json_object as _extract_json_object, get_llm_client
 from ...core.api import OkResponse
 from ...core.auth import require_dataset_access, require_project_access, require_strategy_access
 from ...core.config import UPLOAD_DIR
@@ -40,6 +40,7 @@ from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from ...core.tabular import decode_text, sniff_delimiter
 from ..research.schemas import ApproveRequest
+from ..research.web_research import COMPETITOR_PATTERNS
 from . import sample_enrichment, tag_schemas
 from ...agents import question_tag_schema as tag_schema
 from .dimensions import dimensions_for_dataset, project_dimensions
@@ -71,7 +72,6 @@ IdPath = Annotated[int, PathParam(ge=1)]
 router = APIRouter()
 
 
-
 def _date_range(values: list[str]) -> dict:
     """Earliest and latest as real dates (ISO), so day-first exports (25-09-2026) are not compared as text, and the
     count of dates that parsed; when none parse, the text order of the raw values."""
@@ -86,13 +86,7 @@ def _date_range(values: list[str]) -> dict:
 def _extract_competitors_from_text(text: str, brand_name: str) -> list[str]:
     """Extract competitor names from natural-language brief text."""
     competitors = []
-    patterns = [
-        r'competitive set includes?\s+(.+?)(?:\.|,\s*while)',
-        r'competitors?\s+(?:are|include|includes)\s+(.+?)(?:\.|$)',
-        r'[Cc]ompetitors?\s*\n+(.+?)(?:\n\n|\n[A-Z]|$)',
-        r'[Cc]ompetitors?:\s*(.+?)(?:\n\n|\n[A-Z]|$)',
-    ]
-    for pat in patterns:
+    for pat in COMPETITOR_PATTERNS:
         for m in re.finditer(pat, text, re.MULTILINE | re.DOTALL):
             chunk = m.group(1)
             names = re.split(r',\s*|\s+and\s+', chunk)
@@ -114,7 +108,6 @@ def _build_deterministic_strategy(spec: dict, raw_brief_text: str = "") -> dict:
     brand_name = brand.get("name", "")
     category = brand.get("category", "")
     products = brand.get("products", [])
-    parent = brand.get("parent_company", "")
 
     excluded = spec.get("excluded_scope", [])
     not_terms = []
@@ -843,39 +836,6 @@ def _auto_map_columns(file_columns: list[str]) -> dict:
                 break
     unmapped = [c for c in file_columns if c not in mapping.values()]
     return {"mapped": mapping, "unmapped": unmapped}
-
-
-def _extract_json_object(text: str) -> dict:
-    """Pull the first valid JSON object from LLM output, tolerating markdown fences."""
-    text = text.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```\s*$", "", text)
-    brace_start = text.find("{")
-    if brace_start == -1:
-        raise ValueError("No JSON object found in LLM response")
-    depth = 0
-    in_string = False
-    escape_next = False
-    for i, ch in enumerate(text[brace_start:], start=brace_start):
-        if escape_next:
-            escape_next = False
-            continue
-        if ch == "\\":
-            escape_next = True
-            continue
-        if ch == '"':
-            in_string = not in_string
-            continue
-        if in_string:
-            continue
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return json.loads(text[brace_start:i + 1])
-    raise ValueError("Unbalanced JSON object in LLM response")
 
 
 def _llm_assisted_column_mapping(headers: list[str], sample_rows: list[dict]) -> dict:

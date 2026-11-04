@@ -324,23 +324,6 @@ def get_datasets_by_project(project_id: int) -> list[dict]:
     return results
 
 
-def get_dataset_for_rq(project_id: int, research_question_id: str) -> dict | None:
-    conn = _conn()
-    row = conn.execute(
-        "SELECT * FROM intel_datasets WHERE project_id = ? AND research_question_id = ? "
-        "ORDER BY created_at DESC, id DESC LIMIT 1",
-        (project_id, research_question_id),
-    ).fetchone()
-    conn.close()
-    if not row:
-        return None
-    d = dict(row)
-    d["column_mapping"] = json.loads(d["column_mapping_json"]) if d.get("column_mapping_json") else {}
-    d["stats"] = json.loads(d["stats_json"]) if d.get("stats_json") else {}
-    d["preview"] = json.loads(d["preview_json"]) if d.get("preview_json") else []
-    return _restored(d)
-
-
 def approve_dataset(dataset_id: int, reviewer: str = "analyst") -> bool:
     conn = _conn()
     conn.execute(

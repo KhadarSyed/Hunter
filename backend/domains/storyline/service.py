@@ -26,17 +26,7 @@ from ...core import store
 logger = logging.getLogger(__name__)
 
 VALID_NODE_STATUSES = {"draft", "needs_review", "approved", "rejected"}
-VALID_STORYLINE_STATUSES = {"draft", "needs_review", "approved", "rejected"}
 
-SECTION_TYPES = {
-    "executive_summary", "situation", "key_findings", "supporting_evidence",
-    "emerging_themes", "risks", "opportunities", "competitive_perspective",
-    "recommendations", "conclusion", "brand_perception", "audience_response",
-    "crisis_timeline", "public_reaction", "brand_impact", "campaign_overview",
-    "audience_engagement", "media_coverage", "market_overview",
-    "strengths_weaknesses", "behavioral_patterns", "trends",
-    "consumer_needs", "whitespace", "reputation_overview", "public_sentiment",
-}
 
 VISUAL_TYPES = {
     "kpi_card", "timeline", "line_chart", "bar_chart", "stacked_bar",

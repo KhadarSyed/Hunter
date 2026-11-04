@@ -126,34 +126,8 @@ class GeneratePresentationResponse(ApiModel):
     generation_id: str
 
 
-class GenerateSOVPresentationResponse(GeneratePresentationResponse):
-    entities_analyzed: int
-
-
 class PrerequisiteCheckResponse(ApiModel):
     valid: bool
-
-
-class SOVAnalysisResponse(ApiModel):
-    entities: list[dict]
-    total_qualifying_records: int
-    trend: dict
-    date_range: dict
-    dataset_source: str
-    context_label: str
-    narratives: dict
-
-
-class ThemeClassificationResponse(ApiModel):
-    entity: str
-    total_records: int
-    classification_method: str
-    themes: list[dict]
-    executive_takeaway: Any = None
-    date_range: Any = None
-    dataset_source: Any = None
-    context_label: Any = None
-    sample_based: bool
 
 
 class PresentationSummaryResponse(ApiModel):

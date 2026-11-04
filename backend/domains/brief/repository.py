@@ -54,16 +54,6 @@ def get_brief_by_id(brief_id: int) -> Optional[dict]:
     return d
 
 
-def update_brief(brief_id: int, brief: dict):
-    conn = _conn()
-    conn.execute(
-        "UPDATE intel_background_briefs SET brief_json = ?, updated_at = ? WHERE id = ?",
-        (json.dumps(brief), time.time(), brief_id),
-    )
-    conn.commit()
-    conn.close()
-
-
 def update_brief_section(brief_id: int, section_key: str, content: str, analyst_note: str = ""):
     conn = _conn()
     now = time.time()
