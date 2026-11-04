@@ -28,16 +28,35 @@ WALL_WORKERS = 1 if config.low_memory() else 3
 CREATIVE_RESTYLE = False
 
 
-def reuse_photos(slides, log=lambda _m: None) -> None:
-    """No picture is shown twice: a photo slide whose search found nothing keeps the brand gradient. Only the cover
-    and closing share one, the client's own photo (checked as the client's), so the deck opens and ends on it."""
+def reuse_photos(slides, log=lambda _m: None, fit=lambda path, _slide: path) -> None:
+    """A photo slide whose search found nothing borrows the nearest slide's own photo: not the photo slide right next
+    to it while another exists (no picture twice in a row), then one from its own question. `fit` crops a borrowed
+    photo for this slide's shape and returns None when it would blur, so the next nearest is tried. The cover and
+    closing share the client's own photo. The brand gradient stays only when no photo fits."""
     own = next((s.image["path"] for s in slides if s.image.get("path") and s.type in BRAND_BOOKENDS), None)
-    for s in slides:
-        if s.type in BRAND_BOOKENDS and own and not s.image.get("path"):
+    lenders = [(i, s) for i, s in enumerate(slides) if s.image.get("path") and s.type not in BRAND_BOOKENDS]
+    for i, s in enumerate(slides):
+        if s.image.get("path"):
+            continue
+        if s.type in BRAND_BOOKENDS and own:
             s.image["path"] = own
             log(f"{s.id}: the client's photo from the other end of the deck")
-        elif not s.image.get("path"):
-            log(f"{s.id}: no photo of its own; brand gradient kept (no picture repeats)")
+            continue
+        nearest = sorted(lenders, key=lambda f: (abs(f[0] - i) == 1, _section(f[1]) != _section(s), abs(f[0] - i)))
+        near, path = next(((n, p) for _, n in nearest if (p := fit(n.image["path"], s))), (None, None))
+        if path:
+            s.image["path"] = str(path)
+            log(f"{s.id}: no photo of its own; the nearest slide's photo, from {near.id}")
+        else:
+            log(f"{s.id}: no photo in the deck fits this slide; brand gradient kept")
+
+
+def _section(slide) -> str:
+    return slide.id.split("-", 1)[0]          # "rq1-divider" -> "rq1": the slides of one research question
+
+
+def _role(slide) -> str:
+    return "panel" if slide.treatment == "C" or slide.type == "objectives" else "background"
 
 
 def _article_urls(slide, plan_input: PlanInput) -> list[str]:
@@ -180,7 +199,7 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
         add_chart_logos(s, logos)
 
     def photo_for(s):
-        role = "panel" if s.treatment == "C" or s.type == "objectives" else "background"
+        role = _role(s)
         k = photo_slides.index(s) % max(1, len(shown))      # each slide leads with the next product, so photos vary
         subjects = image_brief.subjects_for(s, plan_input.brands, shown[k:] + shown[:k], plan_input.category,
                                             scene_by_id.get(s.id, ""))
@@ -236,7 +255,8 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
             run.log(f"Photo for {s.id}: {photo.licence} - {photo.why} - {photo.source_url[:90]}")
         else:
             run.log(f"No relevant photo for {s.id} ({photo.why}); brand gradient kept")
-    reuse_photos(photo_slides, run.log)
+    reuse_photos(photo_slides, run.log,
+                 lambda path, s: assets.refit(Path(path), _role(s), deck_dir / "photos" / f"{s.id}-nearest.jpg"))
 
     def product_photo(name: str):
         return assets.product_photo(plan_input.title, name, plan_input.category, deck_dir / "photos", used,

@@ -264,6 +264,17 @@ def upscale(width: int, height: int, role: str) -> float:
     return max(w / max(width, 1), h / max(height, 1))
 
 
+def refit(path: Path, role: str, out: Path) -> Path | None:
+    """Another slide's photo cropped again from its download for this slot, or None when that would blur it: a
+    tall panel photo cannot fill a full-slide background."""
+    raw = Path(path).with_suffix(".src")
+    src = raw if raw.exists() else Path(path)
+    with Image.open(src) as img:
+        if upscale(*img.size, role) > GOOD_UPSCALE:
+            return None
+    return crop_to(src, role, out)
+
+
 def is_hd(width: int, height: int, role: str) -> bool:
     return upscale(width, height, role) <= 1
 
