@@ -18,13 +18,13 @@ import requests
 from PIL import Image, UnidentifiedImageError
 from pptx import Presentation
 
+from ...core.config import REPO_ROOT  # relative paths in a project config resolve against this
 from ...core.llm_provider import get_llm_client
 from ..research.brandfetch import resolve_logo
 from . import classify, deck, gauge, ingest, insights, metrics, qc
 from .citations import CitationRegistry
 
 logger = logging.getLogger("deliverable")
-REPO_ROOT = Path(__file__).resolve().parents[4]  # relative paths in a project config resolve against this
 THEMES = ("deal", "parenting", "expert", "celebrity")
 MAX_CANDIDATES = 12
 LOGO_TIMEOUT_S = 20
