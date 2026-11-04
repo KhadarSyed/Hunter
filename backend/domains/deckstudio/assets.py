@@ -3,6 +3,7 @@ when SerpAPI finds nothing on-topic; every candidate passes the same relevance c
 never the same image twice; cropped to the slide treatment. Keys come from the environment and are never logged."""
 from __future__ import annotations
 
+import base64
 import hashlib
 import logging
 import os
@@ -191,8 +192,9 @@ class _TooBig(Exception):
     pass
 
 
-def _download(url: str) -> bytes | None:
-    """An image from a public host only (every redirect hop re-checked), at most MAX_DOWNLOAD_BYTES."""
+def _download(url: str, browser: bool = True) -> bytes | None:
+    """An image from a public host only (every redirect hop re-checked), at most MAX_DOWNLOAD_BYTES. `browser=False`
+    takes a refusal as the answer instead of retrying through a browser."""
     start = url
     try:
         for _ in range(MAX_REDIRECTS + 1):
@@ -215,6 +217,8 @@ def _download(url: str) -> bytes | None:
         return None
     except requests.RequestException:
         pass
+    if not browser:
+        return None
     try:      # some sites refuse plain requests; Scrapling fetches like a browser
         return _scrapling_download(start)
     except Exception as e:
@@ -262,6 +266,28 @@ def upscale(width: int, height: int, role: str) -> float:
     stretched to a tall panel is blurred even when its width looks ample."""
     w, h = SIZES[role]
     return max(w / max(width, 1), h / max(height, 1))
+
+
+THUMB_PX = 240         # a click-through card's picture: shown about 110 px wide, sharp on a 2x screen
+# Social networks sign their image links for a few days only: a deck opened later shows nothing unless it carries a copy
+EXPIRING_IMAGE_HOSTS = ("fbcdn.net", "cdninstagram.com", "tiktokcdn")
+
+
+def thumbnail_data_uri(url: str) -> str | None:
+    """The post's picture from its export link, shrunk and inlined so the deck keeps it after the link expires;
+    None when the link no longer loads (the card then shows the platform's icon)."""
+    data = _download(url, browser=False)
+    if not data:
+        return None
+    try:
+        with Image.open(BytesIO(data)) as img:
+            small = img.convert("RGB")
+            small.thumbnail((THUMB_PX, THUMB_PX))
+        out = BytesIO()
+        small.save(out, "JPEG", quality=72)
+    except (OSError, ValueError):       # not a picture after all
+        return None
+    return "data:image/jpeg;base64," + base64.b64encode(out.getvalue()).decode("ascii")
 
 
 def refit(path: Path, role: str, out: Path) -> Path | None:

@@ -50,9 +50,11 @@
     var c = node("article", "drill-card");
     var thumb = node("div", "drill-thumb");
     thumb.appendChild(mark(r));
-    if (web(r.i)) {                      // the article's own picture, linked from its site (not carried in the deck)
+    // the article's own picture: linked from its site, or carried in the deck when its link expires (social posts)
+    var picture = web(r.i) || (/^data:image\//.test(r.i || "") ? r.i : "");
+    if (picture) {
       var pic = node("img", "drill-pic");
-      pic.src = r.i;
+      pic.src = picture;
       pic.alt = "";
       pic.loading = "lazy";
       pic.referrerPolicy = "no-referrer";

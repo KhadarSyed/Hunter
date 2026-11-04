@@ -26,7 +26,7 @@ from .ingest import normalize_url
 from .engine_types import RQ, Section
 from ..agent import memory as agent_memory
 from ..agent.repair import issues
-from ..deckstudio import verbatims, vision
+from ..deckstudio import assets, verbatims, vision
 from ..deckstudio.pipeline import run_studio
 from ..deckstudio.checklist import brief_asks
 from ..deckstudio.planner import BRAND_KEY, GEO_KEY, PlanInput
@@ -444,6 +444,7 @@ def _outlet_icon_files(refresh: dict | None, folder: Path) -> dict[str, str]:
 DRILL_SUMMARY_CHARS = 220    # an article's 1-2 line summary in the deck's click-through (the export's own text)
 DRILL_ICON_SITES = 400       # site icons fetched for it (cached on disk); the rest show the outlet's initial
 DRILL_ICON_WORKERS = 8
+DRILL_THUMBS = 800           # social pictures carried in the deck (~6 KB each); posts past it show their platform icon
 
 
 def _drill_articles(rows, folder: Path) -> tuple[dict[str, dict], dict[str, str]]:
@@ -458,8 +459,15 @@ def _drill_articles(rows, folder: Path) -> tuple[dict[str, dict], dict[str, str]
                                 "i": a.image if a.image.lower().startswith("https://") else "",
                                 "s": "" if summary == a.title else summary}
     sites = list(dict.fromkeys(v["d"] for v in articles.values() if v["d"]))[:DRILL_ICON_SITES]
+    # a social post's picture link expires within days, so the deck carries a small copy of it; a link already dead
+    # leaves the card with its platform's icon
+    expiring = [v for v in articles.values() if any(h in v["i"] for h in assets.EXPIRING_IMAGE_HOSTS)]
     with ThreadPoolExecutor(max_workers=DRILL_ICON_WORKERS) as pool:
         found = dict(zip(sites, pool.map(lambda d: visuals.favicon_png(d, folder), sites)))
+        for v, thumb in zip(expiring, pool.map(assets.thumbnail_data_uri, [v["i"] for v in expiring[:DRILL_THUMBS]])):
+            v["i"] = thumb or ""
+    for v in expiring[DRILL_THUMBS:]:
+        v["i"] = ""
     return articles, {d: str(p) for d, p in found.items() if p}
 
 
