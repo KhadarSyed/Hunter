@@ -2,6 +2,7 @@ import { formatDate as formatDateUS } from "../utils/format";
 import { useState, useEffect } from "react";
 import { useProject, type ProjectType } from "../context/project-context";
 import { intelApi } from "../services/intel-api";
+import { agentSocket } from "../services/ws";
 
 interface RecentProject {
   id: number;
@@ -18,17 +19,25 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
   const [counts, setCounts] = useState({ research: 0, qc: 0 });
 
   useEffect(() => {
-    intelApi
-      .listProjects()
-      .then((list) => {
-        setRecent(list.slice(0, 5));
-        setCounts({
-          research: list.filter((p) => p.project_type !== "monitoring_qc").length,
-          qc: list.filter((p) => p.project_type === "monitoring_qc").length,
-        });
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    const load = () =>
+      intelApi
+        .listProjects()
+        .then((list) => {
+          setRecent(list.slice(0, 5));
+          setCounts({
+            research: list.filter((p) => p.project_type !== "monitoring_qc").length,
+            qc: list.filter((p) => p.project_type === "monitoring_qc").length,
+          });
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    load();
+    // Live: any client creating or deleting a project re-fetches the (role-scoped) list
+    agentSocket.connect();
+    const off = agentSocket.onMessage((msg) => {
+      if (msg.type === "project_created" || msg.type === "project_deleted") load();
+    });
+    return () => { off(); };
   }, []);
 
   const handleWorkflow = (type: ProjectType) => {

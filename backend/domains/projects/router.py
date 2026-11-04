@@ -47,6 +47,7 @@ def create_project_route(
     pid = store.create_project(req.project_name, req.spec, project_type=req.project_type, brand=req.brand)
     store.set_project_owner(pid, user["org_id"], user["id"])
     project = store.get_project(pid)
+    _broadcast({"type": "project_created", "project_id": pid})
     return project
 
 
