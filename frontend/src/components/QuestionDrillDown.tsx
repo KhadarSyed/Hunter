@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { EnrichedRecord } from "../services/intel-api";
 
-const humanize = (name: string) => name.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+export const humanize = (name: string) => name.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** A query term as a pattern: a trailing * matches word endings (cream* -> creams). */
 const termPattern = (t: string) => escape(t.replace(/\*$/, "")).replace(/\s+/g, "\\s+") + (t.endsWith("*") ? "\\w*" : "");
