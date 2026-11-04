@@ -29,9 +29,6 @@ function toDate(value: DateInput): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-/** Converts a Unix timestamp in seconds to a Date input. */
-export const fromUnix = (seconds: number): Date => new Date(seconds * 1000);
-
 /** "Oct 14, 2026". Falls back to the raw input when it is not a valid date. */
 export function formatDate(value: DateInput | null | undefined, opts?: Intl.DateTimeFormatOptions): string {
   if (value === null || value === undefined || value === "") return "";
@@ -49,6 +46,13 @@ export function formatDateTime(value: DateInput | null | undefined, opts?: Intl.
     LOCALE,
     opts ?? { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" },
   );
+}
+
+/** An epoch timestamp in seconds or milliseconds as formatDateTime, "--" when missing or invalid. */
+export function formatEpoch(ts: number | null | undefined): string {
+  if (!ts) return "--";
+  const d = new Date(ts < 1e12 ? ts * 1000 : ts);
+  return isNaN(d.getTime()) ? "--" : formatDateTime(d);
 }
 
 /** "3:05 PM" (pass `{ seconds: true }` for "3:05:09 PM"). */

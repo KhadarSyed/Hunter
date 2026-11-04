@@ -1,4 +1,4 @@
-import type { Insight, InsightDetail, InsightsSummary, InsightValidation, InsightEvidence, Storyline, StorylineDetail, StorylineSummary, StorylineValidation, StoryNodeEnriched, StoryNode, SIDashboard, SIPresentation, SISlide, SITemplateFamily, SIDetectedProject, SIRecommendation, PCPresentation, PCSlide, PCPresentationDetail, PCPresentationSummary, PCValidation, RenderJob, RenderResult, RenderSummary, RenderTheme, RenderValidation, RenderMetric, RenderHistory, WordRenderResult, WordRenderJob, WordDocument, WordRenderMetric, WordRenderHistory, WordRenderSummary, WordValidation, PubValidationResult, PubValidation, PubDiffReport, PubVersion, PubPackage, PubPackageResult, PubApproval, PubApprovalResult, PubReadinessSummary, PubAuditEntry, PubDownload, PubVersionResult } from "../types/contracts";
+import type { Insight, InsightDetail, InsightsSummary, Storyline, StorylineDetail, StorylineSummary, StorylineValidation, StoryNodeEnriched, StoryNode, SIDashboard, SIPresentation, SISlide, SITemplateFamily, SIDetectedProject, PCPresentation, PCSlide, PCPresentationDetail, PCPresentationSummary, PCValidation, RenderResult, RenderSummary, RenderTheme, RenderValidation, RenderMetric, RenderHistory, WordRenderResult, WordRenderJob, WordRenderMetric, WordRenderHistory, WordRenderSummary, WordValidation, PubValidationResult, PubDiffReport, PubVersion, PubPackage, PubPackageResult, PubApproval, PubApprovalResult, PubReadinessSummary, PubAuditEntry, PubVersionResult } from "../types/contracts";
 
 // Empty by default (relative paths), matching same-origin deploys where the backend
 // serves the built SPA directly. Set VITE_API_BASE_URL (e.g. "https://api.example.com")
@@ -127,12 +127,6 @@ export interface AuthOrganizationRow {
   admin_name: string | null;
   admin_email: string | null;
   archived_at: number | null;
-}
-
-export interface AuthArchivedSummary {
-  organizations: { id: number; name: string }[];
-  users: { id: number; email: string; display_name: string; org_id: number | null }[];
-  projects: { id: number; project_name: string; org_id: number | null }[];
 }
 
 async function authUpload<T>(path: string, form: FormData): Promise<T> {
@@ -298,13 +292,6 @@ export interface StrategyResult {
   created_at: number;
 }
 
-export interface EvaluationResult {
-  id: number;
-  file_name: string;
-  status: string;
-  evaluation: Record<string, unknown> | null;
-}
-
 export interface BrandSentiment {
   brand: string;
   is_primary: boolean;
@@ -467,16 +454,6 @@ export interface BriefResult {
   updated_at: number;
 }
 
-export interface BriefVersion {
-  id: number;
-  version: number;
-  status: string;
-  approval_status: string;
-  docx_path: string | null;
-  created_at: number;
-  updated_at: number;
-}
-
 // Research Specification types
 
 export interface SpecSection {
@@ -555,37 +532,6 @@ export interface SpecResult {
   updated_at: number;
 }
 
-export interface SpecVersion {
-  id: number;
-  version: number;
-  status: string;
-  readiness_status: string;
-  approval_status: string;
-  generation_source: string;
-  docx_path: string | null;
-  created_at: number;
-  updated_at: number;
-}
-
-export interface SpecAuditEntry {
-  id: number;
-  spec_id: number;
-  action: string;
-  section_key: string | null;
-  field: string | null;
-  old_value: string | null;
-  new_value: string | null;
-  actor: string;
-  created_at: number;
-}
-
-export interface GenerateSpecResult {
-  spec_id: number;
-  spec: SpecData;
-  readiness: SpecReadiness;
-  clarifications: { question: string; section_key: string; is_blocking: boolean }[];
-}
-
 /** Ack for POST /spec/generate — the job runs in the background; track it via `job_id`
  * (WS `intel_job_update` messages carrying this job_id, or poll with `getJob`). */
 export interface SpecGenerationStarted {
@@ -659,20 +605,15 @@ export const intelApi = {
   listUsers: (orgId?: number) =>
     authGet<AuthUserRow[]>(orgId ? `/users?org_id=${orgId}` : "/users"),
   archiveUser: (userId: number) => authPost<{ ok: boolean }>(`/users/${userId}/archive`),
-  reactivateUser: (userId: number) => authPost<{ ok: boolean }>(`/users/${userId}/reactivate`),
-  reassignProjects: (userId: number, toUserId: number) =>
-    authPost<{ ok: boolean; reassigned: number }>(`/users/${userId}/reassign-projects`, { to_user_id: toUserId }),
   createOrganization: (name: string, adminEmail: string, adminDisplayName: string) =>
     authPost<AuthOrganizationRow>("/organizations", {
       name, admin_email: adminEmail, admin_display_name: adminDisplayName,
     }),
   listOrganizations: () => authGet<AuthOrganizationRow[]>("/organizations"),
   archiveOrganization: (orgId: number) => authPost<{ ok: boolean }>(`/organizations/${orgId}/archive`),
-  reactivateOrganization: (orgId: number) => authPost<{ ok: boolean }>(`/organizations/${orgId}/reactivate`),
   deleteOrganization: (orgId: number) => authDelete<{ ok: boolean }>(`/organizations/${orgId}`),
   deleteUser: (userId: number) => authDelete<{ ok: boolean }>(`/users/${userId}`),
   listMyOrganizations: () => authGet<UserOrganizationRow[]>("/me/organizations"),
-  listArchived: () => authGet<AuthArchivedSummary>("/archived"),
 
   // Projects
   listProjects: (type?: string) => get<ProjectSummary[]>(type ? `/projects?type=${type}` : "/projects"),
@@ -718,19 +659,6 @@ export const intelApi = {
   getArticleFullText: (itemId: number, force = false) =>
     get<ArticleFullTextResponse>(`/research/items/${itemId}/full-text${force ? "?force=true" : ""}`),
 
-  approveResearch: (researchId: number, reviewer = "analyst") =>
-    post<{ ok: boolean }>(`/research/${researchId}/approve`, { reviewer }),
-
-  reviseResearch: (researchId: number, notes: string) =>
-    post<{ ok: boolean }>(`/research/${researchId}/revise`, { notes }),
-
-  approveNewsItem: (researchId: number, itemIndex: number, status: string, notes = "") =>
-    post<{ ok: boolean }>(`/research/${researchId}/news-approval`, {
-      item_index: itemIndex,
-      status,
-      notes,
-    }),
-
   // Analyst Orientation Brief
   generateBrief: (projectId: number) =>
     post<{ brief_id: number; brief: BriefData }>("/brief/generate", { project_id: projectId }),
@@ -760,9 +688,6 @@ export const intelApi = {
       return r.blob();
     }),
 
-  listBriefVersions: (projectId: number) =>
-    get<BriefVersion[]>(`/brief/versions/${projectId}`),
-
   // Research Specification
   /** Starts spec generation in the background; returns immediately with a job_id.
    * Track progress via WS `intel_job_update` messages or `intelApi.getJob(job_id)`. */
@@ -776,9 +701,6 @@ export const intelApi = {
   getSpec: (projectId: number) =>
     get<SpecResult>(`/spec/${projectId}`),
 
-  getSpecDetail: (specId: number) =>
-    get<SpecResult>(`/spec/detail/${specId}`),
-
   updateSpecSection: (specId: number, sectionKey: string, content: string | Record<string, unknown> | unknown[], analystNote = "") =>
     post<{ status: string; section_key: string }>(`/spec/${specId}/section`, {
       section_key: sectionKey,
@@ -789,29 +711,8 @@ export const intelApi = {
   updateSpecIndustry: (specId: number, name: string, reasoning = "") =>
     post<{ status: string; spec_id: number }>(`/spec/${specId}/industry`, { name, reasoning }),
 
-  approveSpecSection: (specId: number, sectionKey: string, reviewer = "analyst") =>
-    post<{ status: string; section_key: string }>(`/spec/${specId}/section/approve`, {
-      section_key: sectionKey,
-      reviewer,
-    }),
-
-  lockSpecSection: (specId: number, sectionKey: string, lockedBy = "analyst") =>
-    post<{ status: string; section_key: string }>(`/spec/${specId}/section/lock`, {
-      section_key: sectionKey,
-      locked_by: lockedBy,
-    }),
-
-  unlockSpecSection: (specId: number, sectionKey: string, lockedBy = "analyst") =>
-    post<{ status: string; section_key: string }>(`/spec/${specId}/section/unlock`, {
-      section_key: sectionKey,
-      locked_by: lockedBy,
-    }),
-
   approveSpec: (specId: number, reviewer = "analyst") =>
     post<{ status: string; spec_id: number }>(`/spec/${specId}/approve`, { reviewer }),
-
-  rejectSpec: (specId: number, reason = "", reviewer = "analyst") =>
-    post<{ status: string; spec_id: number }>(`/spec/${specId}/reject`, { reason, reviewer }),
 
   /** Starts spec re-analysis ("Reanalyze") in the background; returns immediately with
    * a job_id — same async pattern as generateSpec(). */
@@ -822,9 +723,6 @@ export const intelApi = {
       confirm_overwrite_locked: confirmOverwriteLocked,
     }),
 
-  getSpecReadiness: (specId: number) =>
-    get<SpecReadiness>(`/spec/${specId}/readiness`),
-
   renderSpecDocx: (specId: number) =>
     post<{ status: string; docx_path: string }>(`/spec/${specId}/render`),
 
@@ -832,22 +730,6 @@ export const intelApi = {
     fetch(`${API_BASE}/spec/${specId}/download`, { credentials: CREDENTIALS }).then((r) => {
       if (!r.ok) throw new Error("Download failed");
       return r.blob();
-    }),
-
-  listSpecVersions: (projectId: number) =>
-    get<SpecVersion[]>(`/spec/versions/${projectId}`),
-
-  getSpecAudit: (specId: number) =>
-    get<SpecAuditEntry[]>(`/spec/${specId}/audit`),
-
-  getSpecClarifications: (specId: number, unresolvedOnly = false) =>
-    get<SpecClarification[]>(`/spec/${specId}/clarifications${unresolvedOnly ? "?unresolved_only=true" : ""}`),
-
-  addSpecClarification: (specId: number, question: string, sectionKey = "", isBlocking = true) =>
-    post<{ status: string; clarification_id: number }>(`/spec/${specId}/clarification`, {
-      question,
-      section_key: sectionKey,
-      is_blocking: isBlocking,
     }),
 
   resolveSpecClarification: (clarificationId: number, answer: string, resolvedBy = "analyst") =>
@@ -870,9 +752,6 @@ export const intelApi = {
       `/strategy/${strategyId}/edit-query`,
       { query_type: queryType, query_text: queryText },
     ),
-
-  getQueryVersions: (strategyId: number) =>
-    get<unknown[]>(`/strategy/${strategyId}/versions`),
 
   approveStrategy: (strategyId: number, reviewer = "analyst") =>
     post<{ ok: boolean }>(`/strategy/${strategyId}/approve`, { reviewer }),
@@ -914,20 +793,6 @@ export const intelApi = {
   getSectionVideo: (query: string, brandName: string) =>
     get<SectionVideoResponse>(`/video/section?query=${encodeURIComponent(query)}&brand_name=${encodeURIComponent(brandName)}`),
 
-  // Sample Evaluation
-  uploadSample: async (projectId: number, strategyId: number, file: File) => {
-    const formData = new FormData();
-    formData.append("file", file);
-    const res = await fetch(
-      `${API_BASE}/evaluation/upload?project_id=${projectId}&strategy_id=${strategyId}`,
-      { method: "POST", credentials: CREDENTIALS, body: formData },
-    );
-    return json<{ job_id: string; eval_id: number }>(res);
-  },
-
-  getEvaluation: (projectId: number) =>
-    get<EvaluationResult>(`/evaluation/${projectId}`),
-
   // Dataset
   uploadDataset: async (projectId: number, file: File, researchQuestionId?: string) => {
     const form = new FormData();
@@ -950,9 +815,6 @@ export const intelApi = {
     return res.json();
   },
 
-  getDataset: (projectId: number) =>
-    get<any>(`/dataset/${projectId}`),
-
   getAllDatasets: (projectId: number) =>
     get<any[]>(`/dataset/${projectId}?scope=all`),
 
@@ -969,29 +831,11 @@ export const intelApi = {
   enrichSample: (projectId: number) =>
     post<{ job_id: string; project_id: number }>(`/dataset/enrich-sample/${projectId}`, {}),
 
-  getDatasetEnriched: (datasetId: number) =>
-    get<{ dataset_id: number; status: string | null; error: string | null; records: EnrichedRecord[] }>(`/dataset/${datasetId}/enriched`),
-
   getProjectEnriched: (projectId: number) =>
     get<{ records: EnrichedRecord[]; dimensions?: Record<string, QuestionDimension[]>; tag_schemas?: TagSchemas }>(`/dataset/enriched/${projectId}`),
 
   updateEnrichedRecord: (datasetId: number, recordId: string, updates: Partial<EnrichedRecord>) =>
     patch<EnrichedRecord>(`/dataset/${datasetId}/enriched/${recordId}`, updates),
-
-  // Final Approval
-  finalApproval: (projectId: number, opts: {
-    reviewer?: string;
-    sample_evaluation_waived?: boolean;
-    acknowledge_meltwater_validation?: boolean;
-  }) =>
-    post<{ approved: boolean; blocking_reasons?: string[]; strategy_id?: number }>(
-      `/strategy/${projectId}/final-approve`,
-      {
-        reviewer: opts.reviewer || "analyst",
-        sample_evaluation_waived: opts.sample_evaluation_waived || false,
-        acknowledge_meltwater_validation: opts.acknowledge_meltwater_validation || false,
-      },
-    ),
 
   // Research Plan
   generatePlan: (projectId: number) =>
@@ -1009,11 +853,6 @@ export const intelApi = {
   rejectPlan: (planId: number, notes = "") =>
     post<{ ok: boolean }>(`/plan/${planId}/reject`, { notes }),
 
-  regeneratePlan: (projectId: number) =>
-    post<{ job_id: string; project_id: number }>("/plan/regenerate", {
-      project_id: projectId,
-    }),
-
   validatePlanPrereqs: (projectId: number) =>
     post<{
       ready: boolean;
@@ -1021,12 +860,6 @@ export const intelApi = {
     }>("/plan/validate", { project_id: projectId }),
 
   // Evidence Library
-  ingestEvidence: (projectId: number, runId: number) =>
-    post<{ ingested: number; skipped: number; duplicates_found: number; total: number }>(
-      "/library/ingest",
-      { project_id: projectId, run_id: runId },
-    ),
-
   listLibraryItems: (
     projectId: number,
     opts?: {
@@ -1071,11 +904,6 @@ export const intelApi = {
       reviewer,
     }),
 
-  updateClassification: (
-    itemId: number,
-    opts: { objective_id?: string; unit_id?: string; confidence?: string; reviewer?: string },
-  ) => post<{ ok: boolean }>(`/library/${itemId}/classify`, opts),
-
   markRepresentative: (itemId: number, value = true) =>
     post<{ ok: boolean }>(`/library/${itemId}/representative`, {
       is_representative: value,
@@ -1085,9 +913,6 @@ export const intelApi = {
     post<{ ok: boolean }>(`/library/${itemId}/high-value`, {
       is_high_value: value,
     }),
-
-  restoreRejected: (itemId: number) =>
-    post<unknown>(`/library/${itemId}/restore`),
 
   getLibrarySummary: (projectId: number) =>
     get<{
@@ -1102,26 +927,6 @@ export const intelApi = {
       objectives_covered: number;
       objectives_insufficient: number;
     }>(`/library/${projectId}/summary`),
-
-  getLibraryCoverage: (projectId: number) =>
-    get<{
-      objectives: unknown[];
-      summary: {
-        total_objectives: number;
-        covered: number;
-        partial: number;
-        insufficient: number;
-        blocking_gaps: number;
-      };
-    }>(`/library/${projectId}/coverage`),
-
-  getDuplicateGroups: (projectId: number) =>
-    get<{ group: string; count: number; canonical_id: number | null }[]>(
-      `/library/${projectId}/duplicates`,
-    ),
-
-  getAuditHistory: (itemId: number) =>
-    get<unknown[]>(`/library/audit/${itemId}`),
 
   // Jobs
   listJobs: (projectId: number, jobType?: string) =>
@@ -1163,12 +968,6 @@ export const intelApi = {
   getInsightsSummary: (projectId: number) =>
     get<InsightsSummary>(`/insights/${projectId}/summary`),
 
-  validateInsight: (insightId: number) =>
-    get<InsightValidation>(`/insights/${insightId}/validate`),
-
-  getInsightEvidence: (insightId: number) =>
-    get<InsightEvidence[]>(`/insights/${insightId}/evidence`),
-
   validateInsightPrereqs: (projectId: number) =>
     post<{ valid: boolean; blockers?: string[] }>("/insights/validate-prereqs", { project_id: projectId }),
 
@@ -1193,9 +992,6 @@ export const intelApi = {
 
   validateStoryline: (storylineId: number) =>
     get<StorylineValidation>(`/storyline/${storylineId}/validate`),
-
-  reorderNodes: (storylineId: number, nodeIds: number[]) =>
-    post<{ ok: boolean }>(`/storyline/${storylineId}/reorder`, { node_ids: nodeIds }),
 
   mergeNodes: (storylineId: number, nodeIdA: number, nodeIdB: number) =>
     post<StoryNodeEnriched>(`/storyline/${storylineId}/merge`, { node_id_a: nodeIdA, node_id_b: nodeIdB }),
@@ -1224,14 +1020,12 @@ export const intelApi = {
   siIngest: (filePath: string) => post<any>('/slide-intel/ingest', { file_path: filePath }),
   siDashboard: () => get<SIDashboard>('/slide-intel/dashboard'),
   siPresentations: () => get<SIPresentation[]>('/slide-intel/presentations'),
-  siPresentation: (id: number) => get<any>(`/slide-intel/presentations/${id}`),
   siSlides: (params?: Record<string, any>) => {
     const qs = params ? '?' + new URLSearchParams(
       Object.fromEntries(Object.entries(params).filter(([_, v]) => v != null).map(([k, v]) => [k, String(v)]))
     ).toString() : '';
     return get<SISlide[]>(`/slide-intel/slides${qs}`);
   },
-  siSlide: (id: number) => get<any>(`/slide-intel/slides/${id}`),
   siUpdateMetadata: (id: number, updates: Record<string, string>) =>
     fetch(`${API_BASE}/slide-intel/slides/${id}/metadata`, {
       method: 'PUT',
@@ -1246,21 +1040,13 @@ export const intelApi = {
   siTemplate: (id: number) => get<any>(`/slide-intel/templates/${id}`),
   siApproveTemplate: (id: number) => post<any>(`/slide-intel/templates/${id}/approve`, {}),
   siDetectedProjects: (presId: number) => get<SIDetectedProject[]>(`/slide-intel/detected-projects/${presId}`),
-  siStylePatterns: (presId?: number) => get<any[]>(`/slide-intel/style-patterns${presId ? `?presentation_id=${presId}` : ''}`),
   siSearch: (query: string, filters?: Record<string, any>) => post<any>('/slide-intel/search', { query, ...filters }),
-  siRetrieve: (nodeId: number, topK?: number) => post<any>('/slide-intel/retrieve', { node_id: nodeId, top_k: topK || 10 }),
   siMatchStoryline: (storylineId: number) => post<any>('/slide-intel/match-storyline', { storyline_id: storylineId }),
   siStorylineMatches: (storylineId: number) => get<any>(`/slide-intel/storyline-matches/${storylineId}`),
-  siRecommend: (nodeId: number) => get<SIRecommendation>(`/slide-intel/recommend/${nodeId}`),
-  siDuplicates: (presId?: number) => get<any>(`/slide-intel/duplicates${presId ? `?presentation_id=${presId}` : ''}`),
-  siProcessingLog: (presId: number) => get<any[]>(`/slide-intel/processing-log/${presId}`),
 
   // Presentation Composer
   composerGenerate: (projectId: number) =>
     post<{ presentation_id: number; slides_created: number; estimated_duration_minutes: number; generation_id: string }>("/composer/generate", { project_id: projectId }),
-
-  composerValidatePrereqs: (projectId: number) =>
-    post<{ valid: boolean; blockers?: string[] }>("/composer/validate-prereqs", { project_id: projectId }),
 
   composerList: (projectId: number) =>
     get<PCPresentation[]>(`/composer/${projectId}`),
@@ -1270,12 +1056,6 @@ export const intelApi = {
 
   composerDetail: (presId: number) =>
     get<PCPresentationDetail>(`/composer/detail/${presId}`),
-
-  composerSlides: (presId: number) =>
-    get<PCSlide[]>(`/composer/slides/${presId}`),
-
-  composerSlide: (slideId: number) =>
-    get<PCSlide>(`/composer/slide/${slideId}`),
 
   composerUpdateSlide: (slideId: number, updates: Partial<{ title: string; subtitle: string; narrative: string; key_message: string; recommended_visual: string; recommended_chart: string; layout_recommendation: string; speaker_notes: string; slide_purpose: string }>) =>
     fetch(`${API_BASE}/composer/slide/${slideId}`, {
@@ -1297,12 +1077,6 @@ export const intelApi = {
   composerSelectLayout: (slideId: number, layout: string, rationale?: string) =>
     post<PCSlide>(`/composer/slide/${slideId}/layout`, { layout, rationale }),
 
-  composerSelectVisual: (slideId: number, visual: string) =>
-    post<PCSlide>(`/composer/slide/${slideId}/visual`, { visual }),
-
-  composerReorder: (presId: number, slideIds: number[]) =>
-    post<{ reordered: boolean }>(`/composer/${presId}/reorder`, { slide_ids: slideIds }),
-
   composerApprove: (presId: number, reviewer?: string) =>
     post<PCPresentation>(`/composer/${presId}/approve`, { reviewer }),
 
@@ -1312,24 +1086,12 @@ export const intelApi = {
   composerValidate: (presId: number) =>
     get<PCValidation>(`/composer/${presId}/validate`),
 
-  composerTransitions: (presId: number) =>
-    post<{ transitions_updated: number }>(`/composer/${presId}/transitions`, {}),
-
-  composerAudit: (presId: number) =>
-    get<any[]>(`/composer/audit/${presId}`),
-
   // PowerPoint Renderer
   rendererRender: (presentationId: number, themeId?: string) =>
     post<RenderResult>("/renderer/render", { presentation_id: presentationId, theme_id: themeId || "hunter_default" }),
 
   rendererRenderSlide: (slideId: number, themeId?: string) =>
     post<RenderResult>(`/renderer/render-slide/${slideId}`, { theme_id: themeId || "hunter_default" }),
-
-  rendererRenderSection: (presId: number, purpose: string, themeId?: string) =>
-    post<RenderResult>(`/renderer/render-section/${presId}`, { purpose, theme_id: themeId || "hunter_default" }),
-
-  rendererStatus: (jobId: string) =>
-    get<RenderJob>(`/renderer/status/${jobId}`),
 
   rendererDownloadUrl: (jobId: string) =>
     `${API_BASE}/renderer/download/${jobId}`,
@@ -1342,9 +1104,6 @@ export const intelApi = {
 
   rendererSummary: (presId: number) =>
     get<RenderSummary>(`/renderer/summary/${presId}`),
-
-  rendererJobs: (presId: number) =>
-    get<RenderJob[]>(`/renderer/jobs/${presId}`),
 
   rendererHistory: (presId: number) =>
     get<RenderHistory[]>(`/renderer/history/${presId}`),
@@ -1362,9 +1121,6 @@ export const intelApi = {
 
   wordValidate: (presId: number) =>
     post<WordValidation>(`/word-renderer/validate/${presId}`),
-
-  wordRenderStatus: (jobId: string) =>
-    get<WordRenderJob>(`/word-renderer/status/${jobId}`),
 
   wordDownloadUrl: (jobId: string) =>
     `${API_BASE}/word-renderer/download/${jobId}`,
@@ -1425,17 +1181,8 @@ export const intelApi = {
   pubAudit: (projectId: number, limit = 100) =>
     get<PubAuditEntry[]>(`/publishing/audit/${projectId}?limit=${limit}`),
 
-  pubValidationDetail: (validationId: number) =>
-    get<PubValidation>(`/publishing/validation/${validationId}`),
-
-  pubValidations: (presId: number) =>
-    get<PubValidation[]>(`/publishing/validations/${presId}`),
-
   pubDiff: (presId: number) =>
     get<PubDiffReport>(`/publishing/diff/${presId}`),
-
-  pubPackageDetail: (packageId: number) =>
-    get<PubPackage>(`/publishing/package/${packageId}`),
 
   pubPackages: (presId: number) =>
     get<PubPackage[]>(`/publishing/packages/${presId}`),
@@ -1449,14 +1196,8 @@ export const intelApi = {
   pubDownloadWordUrl: (presId: number) =>
     `${API_BASE}/publishing/download/word/${presId}`,
 
-  pubDownloads: (projectId: number, limit = 50) =>
-    get<PubDownload[]>(`/publishing/downloads/${projectId}?limit=${limit}`),
-
   pubApprovals: (presId: number, limit = 50) =>
     get<PubApproval[]>(`/publishing/approvals/${presId}?limit=${limit}`),
-
-  pubStats: (projectId: number) =>
-    get<Record<string, number>>(`/publishing/stats/${projectId}`),
 
   // ─── Monitoring QC ───────────────────────────────────────────────────
 
@@ -1485,12 +1226,6 @@ export const intelApi = {
     const qs = params.toString();
     return get<Record<string, unknown>[]>(`/qc/results/${runId}${qs ? `?${qs}` : ""}`);
   },
-
-  qcGetSummary: (runId: number) =>
-    get<Record<string, unknown>>(`/qc/summary/${runId}`),
-
-  qcFindingAction: (findingId: number, action: string) =>
-    post<{ ok: boolean }>(`/qc/finding/${findingId}/action`, { action }),
 
   qcExport: (runId: number) =>
     post<{ export_id: number; file_name: string }>(`/qc/export/${runId}`),
@@ -1530,7 +1265,6 @@ export const intelApi = {
   adminFixes: (status?: string) => get<AgentFix[]>(`/agent/admin/fixes${status ? `?status=${status}` : ""}`),
   adminApplyFix: (id: number) => post<{ status: string; reason: string }>(`/agent/admin/fixes/${id}/apply`, {}),
   adminRejectFix: (id: number, reason: string) => post<{ ok: boolean }>(`/agent/admin/fixes/${id}/reject`, { reason }),
-  adminRetryIssue: (id: number) => post<{ ok: boolean }>(`/agent/admin/issues/${id}/retry`, {}),
   adminProposeFix: (id: number) => post<{ ok: boolean; status: string }>(`/agent/admin/issues/${id}/propose`, {}),
   agentEvents: (projectId: number, limit = 10) => get<AgentEvent[]>(`/agent/${projectId}/events?limit=${limit}`),
   deliverableDownloadUrl: (projectId: number, runId: number, kind: "pptx" | "docx" | "html" | "pdf" | "studio_pptx" | "xlsx") =>

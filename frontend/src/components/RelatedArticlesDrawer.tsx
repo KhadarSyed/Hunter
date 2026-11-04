@@ -21,13 +21,7 @@ type Props = {
   onClose: () => void;
 };
 
-function formatDate(ts: number): string {
-  try {
-    return formatDateUS(ts * 1000);
-  } catch {
-    return "";
-  }
-}
+const formatDate = (ts: number) => formatDateUS(ts * 1000);  // epoch seconds; formatDateUS never throws
 
 export function AccessBadge({ access }: { access: ResearchItem["access"] }) {
   if (!access) return <span className="text-slate-300">—</span>;

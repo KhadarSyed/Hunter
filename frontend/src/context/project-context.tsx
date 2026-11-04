@@ -55,11 +55,6 @@ export function useActiveProjectId(): number | null {
   return activeProject?.id ?? null;
 }
 
-export function useProjectType(): ProjectType {
-  const { activeProject } = useProject();
-  return activeProject?.project_type ?? "research";
-}
-
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const [activeProject, setActiveProjectRaw] = useState<ActiveProject | null>(loadPersistedProject);
   const [projectVersion, setProjectVersion] = useState(0);

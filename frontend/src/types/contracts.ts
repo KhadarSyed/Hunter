@@ -95,19 +95,6 @@ export interface BrandIntelligenceOutput {
 
 // ─── Meltwater Search Strategy ────────────────────────────────────────────
 
-export interface SearchTermRecord {
-  term_id: string;
-  workspace_id: string;
-  term: string;
-  term_type: "brand" | "product" | "audience" | "topic" | "behaviour" | "tension" | "resolution" | "geography" | "language" | "platform" | "exclusion";
-  source: "brief" | "background-research" | "analyst" | "inferred";
-  rationale: string;
-  inclusion_status: "included" | "excluded" | "candidate";
-  ambiguity_risk: "high" | "medium" | "low" | "none";
-  false_positive_risk: "high" | "medium" | "low" | "none";
-  related_research_questions: string[];
-}
-
 export interface QueryModule {
   module_name: string;
   module_type: "brand" | "product" | "audience" | "topic" | "behaviour" | "tension" | "resolution" | "geography" | "language" | "platform" | "exclusion";
@@ -120,26 +107,6 @@ export interface QueryVersion {
   description: string;
   recall_level: "broad" | "balanced" | "precise";
   precision_level: "low" | "medium" | "high";
-}
-
-export interface MeltwaterQueryRecord {
-  query_id: string;
-  workspace_id: string;
-  version: number;
-  query_name: string;
-  query_type: "master" | "research-question" | "audience-segment" | "topic";
-  boolean_string: string;
-  query_modules: QueryModule[];
-  research_questions: string[];
-  recommended_filters: FilterRecommendations;
-  exclusions: { term: string; reason: string }[];
-  recall_level: "broad" | "balanced" | "precise";
-  precision_level: "low" | "medium" | "high";
-  quality_score: QueryQualityScore;
-  warnings: string[];
-  approval_status: "draft" | "review" | "approved" | "rejected";
-  created_at: string;
-  approved_at: string | null;
 }
 
 export interface FilterRecommendations {
@@ -178,23 +145,6 @@ export interface ResearchQuestionQuery {
   boolean_string: string;
   query_type: "standalone" | "additive" | "filter";
   coverage_notes: string;
-}
-
-export interface QueryEvaluationRecord {
-  evaluation_id: string;
-  query_id: string;
-  sample_dataset_id: string;
-  total_records: number;
-  relevant_records: number;
-  irrelevant_records: number;
-  relevance_rate: number;
-  false_positive_rate: number;
-  missed_terms: string[];
-  noisy_terms: string[];
-  recommended_additions: string[];
-  recommended_exclusions: string[];
-  recommended_revisions: string[];
-  approval_status: "pending" | "approved" | "rejected";
 }
 
 export interface MeltwaterStrategyOutput {
@@ -358,80 +308,7 @@ export interface ResearchPlanData {
   };
 }
 
-export interface ResearchPlanRecord {
-  id: number;
-  project_id: number;
-  version: number;
-  status: string;
-  plan_json: ResearchPlanData;
-  source: "llm" | "deterministic";
-  approval_status: "pending" | "approved" | "rejected";
-  approved_by: string | null;
-  approved_at: number | null;
-  notes: string | null;
-  created_at: number;
-}
-
 // ─── Research Execution ───────────────────────────────────────────────────
-
-export interface ExecutionRunStatus {
-  run_id: number;
-  project_id: number;
-  plan_id: number;
-  status: "pending" | "running" | "paused" | "completed" | "completed_with_errors" | "failed" | "cancelled";
-  total_units: number;
-  completed_units: number;
-  failed_units: number;
-  skipped_units: number;
-  total_evidence: number;
-  elapsed_seconds: number | null;
-  started_at: number | null;
-  finished_at: number | null;
-  units: ExecutionUnitStatus[];
-  logs: ExecutionLogEntry[];
-}
-
-export interface ExecutionUnitStatus {
-  id: number;
-  unit_id: string;
-  objective_id: string;
-  method: string;
-  status: "pending" | "running" | "completed" | "failed" | "skipped" | "cancelled";
-  progress_pct: number;
-  records_processed: number;
-  evidence_count: number;
-  error: string | null;
-}
-
-export interface ExecutionLogEntry {
-  level: "info" | "warn" | "error";
-  message: string;
-  unit_id: string | null;
-  created_at: number;
-}
-
-export interface EvidenceRecord {
-  id: number;
-  run_id: number;
-  unit_id: string;
-  objective_id: string;
-  evidence_type: string;
-  method: string;
-  platform: string | null;
-  source: string | null;
-  date: string | null;
-  text_excerpt: string;
-  metrics: Record<string, unknown> | null;
-  confidence: "high" | "medium" | "low";
-  rationale: string;
-  dataset: string | null;
-  created_at: number;
-}
-
-export interface ExecutionStartResult {
-  job_id: string;
-  project_id: number;
-}
 
 // ─── Evidence Library ─────────────────────────────────────────────────────
 
@@ -483,48 +360,6 @@ export interface LibraryAuditEntry {
   new_value: string | null;
   actor: string;
   created_at: number;
-}
-
-export interface LibrarySummaryMetrics {
-  total: number;
-  unreviewed: number;
-  accepted: number;
-  rejected: number;
-  needs_review: number;
-  representative: number;
-  high_value: number;
-  duplicate_groups: number;
-  objectives_covered: number;
-  objectives_insufficient: number;
-}
-
-export interface ObjectiveCoverage {
-  objective_id: string;
-  objective: string;
-  total_evidence: number;
-  accepted_evidence: number;
-  rejected_evidence: number;
-  unreviewed_evidence: number;
-  coverage_status: "sufficient" | "partial" | "insufficient";
-  confidence_distribution: Record<string, number>;
-  platform_gaps: string[];
-}
-
-export interface CoverageReport {
-  objectives: ObjectiveCoverage[];
-  summary: {
-    total_objectives: number;
-    covered: number;
-    partial: number;
-    insufficient: number;
-    blocking_gaps: number;
-  };
-}
-
-export interface DuplicateGroup {
-  group: string;
-  count: number;
-  canonical_id: number | null;
 }
 
 export interface EvidenceDetail {
@@ -589,12 +424,6 @@ export interface InsightsSummary {
   avg_confidence: number;
   total_evidence_mapped: number;
   objectives_covered: number;
-}
-
-export interface InsightValidation {
-  valid: boolean;
-  issues?: string[];
-  warnings?: string[];
 }
 
 // ─── Storyline ──────────────────────────────────────────────────────────
@@ -768,39 +597,6 @@ export interface SIDetectedProject {
   end_slide: number;
   slide_count: number;
   confidence: number;
-}
-
-export interface SIStorylineMatch {
-  id: number;
-  storyline_id: number;
-  node_id: number;
-  slide_id: number;
-  similarity_score: number;
-  match_reason?: string;
-  recommended_elements?: string[];
-  elements_not_to_reuse?: string[];
-  recommended_layout?: string;
-  recommended_visual?: string;
-  confidence: number;
-  slide_number?: number;
-  title_text?: string;
-  slide_purpose?: string;
-  layout_type?: string;
-  client?: string;
-}
-
-export interface SIRecommendation {
-  node_id: number;
-  section_type: string;
-  best_layout: string;
-  best_visual: string;
-  best_chart?: string;
-  best_content_hierarchy: string[];
-  best_callout_style: string;
-  best_evidence_placement: string;
-  best_title_style: string;
-  historical_slides: any[];
-  alternative_layouts: string[];
 }
 
 // ─── Presentation Composer ────────────────────────────────────────────────
@@ -1125,24 +921,6 @@ export interface PubValidationResult {
   duration_ms: number;
 }
 
-export interface PubValidation {
-  id: number;
-  project_id: number;
-  presentation_id: number;
-  status: string;
-  readiness_score: number;
-  readiness_class: string;
-  scores_json: Record<string, number>;
-  issues_json: PubIssue[];
-  warnings_json: string[];
-  pptx_job_id: string | null;
-  word_job_id: string | null;
-  validated_by: string;
-  started_at: number | null;
-  finished_at: number | null;
-  created_at: number;
-}
-
 export interface PubDiffReport {
   diff_id: number;
   match_pct: number;
@@ -1264,17 +1042,6 @@ export interface PubAuditEntry {
   action: string;
   actor: string;
   details_json: Record<string, any>;
-  created_at: number;
-}
-
-export interface PubDownload {
-  id: number;
-  project_id: number;
-  package_id: number | null;
-  file_type: string;
-  file_path: string;
-  file_size_bytes: number;
-  downloaded_by: string;
   created_at: number;
 }
 

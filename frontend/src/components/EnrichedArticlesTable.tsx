@@ -2,7 +2,7 @@ import { formatDateTime, formatDate } from "../utils/format";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { intelApi, type EnrichedRecord, type BrandSentiment, type QuestionDimension, type DynamicTagDef, type TagSchemas } from "../services/intel-api";
 import { TagSchemaPanel } from "./TagSchemaPanel";
-import { QuestionDrillDown } from "./QuestionDrillDown";
+import { QuestionDrillDown, humanize } from "./QuestionDrillDown";
 import { CountryFlag } from "./CountryFlag";
 
 const V = "#5B2C9D";
@@ -443,7 +443,6 @@ function tagColumns(schemas: TagSchemas | undefined): DynamicTagDef[] {
   return [...byName.values()];
 }
 
-const humanize = (name: string) => name.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 
 function DynamicTagCell({ record, tag }: { record: EnrichedRecord; tag: DynamicTagDef }) {
   const raw = record.dynamic_tags?.[tag.tag_name];

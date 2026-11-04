@@ -7,7 +7,6 @@ import type {
   PCPresentation,
   PCSlide,
   PCPresentationDetail,
-  RenderJob,
   RenderResult,
   RenderSummary,
   RenderTheme,

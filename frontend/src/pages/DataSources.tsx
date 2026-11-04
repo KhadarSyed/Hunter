@@ -1,7 +1,7 @@
 import { formatNumber } from "../utils/format";
 import { useState, useEffect, useRef } from "react";
 import { intelApi, type JobStatus } from "../services/intel-api";
-import { useActiveProjectId, useProject } from "../context/project-context";
+import { useActiveProjectId } from "../context/project-context";
 import { useDemoState } from "../context/demo-state";
 import { EnrichedArticlesTable, loadThreshold, reviewQueueOf } from "../components/EnrichedArticlesTable";
 import type { EnrichedRecord } from "../services/intel-api";
@@ -554,7 +554,6 @@ function reviewSummaryText(s: ReviewSummary): string {
 
 export function DataSources({ onNavigate }: Props) {
   const projectId = useActiveProjectId();
-  const { activeProject } = useProject();
   const demo = useDemoState();
 
   const [researchQuestions, setResearchQuestions] = useState<RQ[]>([]);
@@ -921,7 +920,6 @@ export function DataSources({ onNavigate }: Props) {
   const totalRQs = researchQuestions.length;
   const uploadedCount = researchQuestions.filter((rq) => (datasets[rq.id] || []).some((d) => d.processing_status === "done")).length;
   const approvedCount = researchQuestions.filter((rq) => (datasets[rq.id] || []).some((d) => d.approval_status === "approved")).length;
-  const allUploaded = totalRQs > 0 && uploadedCount === totalRQs;
   // every uploaded dataset approved: a question may rightly have no upload of its own (another upload answers it)
   const allApproved = uploadedCount > 0 && approvedCount === uploadedCount;
   const canApproveAll = uploadedCount > approvedCount;

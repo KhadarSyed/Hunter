@@ -1,22 +1,16 @@
-import { formatDateTime as formatDateTimeUS, formatDate, usSpelling } from "../utils/format";
+import { formatEpoch, formatDate, usSpelling } from "../utils/format";
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { ReactNode, RefObject } from "react";
 import { intelApi } from "../services/intel-api";
 import type { LibraryItem, EvidenceDetail } from "../types/contracts";
 import { useActiveProjectId, useProject } from "../context/project-context";
 import { PexelsHeaderBanner } from "../components/PexelsHeaderBanner";
+import { LockIcon, MetricCard, SectionHeader } from "../components/stage-ui";
 
 const REVIEW_STATUSES = ["unreviewed", "accepted", "rejected", "needs_review", "superseded"];
 const CONFIDENCES = ["high", "medium", "low"];
 const SORT_FIELDS: Record<string, string> = { quality_score: "Quality Score", date: "Date", created_at: "Created At", confidence: "Confidence" };
 const LIMIT = 20;
-
-function formatDateTime(ts: number | null | undefined): string {
-  if (!ts) return "--";
-  const d = new Date(ts < 1e12 ? ts * 1000 : ts);
-  if (isNaN(d.getTime())) return "--";
-  return formatDateTimeUS(d);
-}
 
 function scorePct(v: number | null | undefined): number {
   const n = v ?? 0;
@@ -34,7 +28,6 @@ const GemIcon = () => <svg {...ip}><path d="M6 3h12l4 6-10 12L2 9z" /><path d="M
 const PenIcon = () => <svg {...ip}><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>;
 const ExpandIcon = () => <svg {...ip}><path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="M21 3l-7 7" /><path d="M3 21l7-7" /></svg>;
 const CloseIcon = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>;
-const LockIcon = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="text-slate-400"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>;
 
 // ─── Shared UI ──────────────────────────────────────────────────────────────
 
@@ -51,28 +44,6 @@ const STATUS_COLORS: Record<string, string> = {
 
 function Badge({ label, variant }: { label: string; variant: string }) {
   return <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded border whitespace-nowrap ${STATUS_COLORS[variant] || STATUS_COLORS.unreviewed}`}>{label.replace(/_/g, " ")}</span>;
-}
-
-function SectionHeader({ title, count }: { title: string; count?: number }) {
-  return (
-    <div className="flex items-center gap-3 mb-4">
-      <div className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">{title}</div>
-      {count !== undefined && <span className="text-[10px] text-slate-400 font-medium tabular-nums">{count} items</span>}
-      <div className="flex-1 border-t border-slate-200" />
-    </div>
-  );
-}
-
-function MetricCard({ label, value, dot }: { label: string; value: number; dot: string }) {
-  return (
-    <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm">
-      <div className="flex items-center gap-1.5 mb-1.5">
-        <span className={`w-2 h-2 rounded-full shrink-0 ${dot}`} />
-        <span className="text-[9px] text-slate-400 font-semibold uppercase tracking-wide leading-tight">{label}</span>
-      </div>
-      <div className="text-xl font-bold text-slate-900 tabular-nums">{value}</div>
-    </div>
-  );
 }
 
 function QualityBar({ score }: { score: number | null | undefined }) {
@@ -304,7 +275,7 @@ function DetailDrawer({ itemId, detail, loading, busy, noteDraft, setNoteDraft, 
               <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">Review Status</div>
               <div className="flex items-center gap-2 mb-3 flex-wrap">
                 <Badge label={detail.item.review_status} variant={detail.item.review_status} />
-                {detail.item.reviewed_by && <span className="text-[11px] text-slate-400">by {detail.item.reviewed_by} &middot; {formatDateTime(detail.item.reviewed_at)}</span>}
+                {detail.item.reviewed_by && <span className="text-[11px] text-slate-400">by {detail.item.reviewed_by} &middot; {formatEpoch(detail.item.reviewed_at)}</span>}
               </div>
               <ItemActions item={detail.item} busy={busy} onReview={onReview} onToggleRep={onToggleRep} onToggleHV={onToggleHV} compact />
             </div>
@@ -339,7 +310,7 @@ function DetailDrawer({ itemId, detail, loading, busy, noteDraft, setNoteDraft, 
                   <div key={a.id} className="bg-slate-50 rounded-lg p-2.5">
                     <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
                       <span className="font-semibold text-slate-500">{a.author}</span>
-                      <span>{formatDateTime(a.created_at)}</span>
+                      <span>{formatEpoch(a.created_at)}</span>
                     </div>
                     <p className="text-[12px] text-slate-700 leading-relaxed">{a.note}</p>
                   </div>
@@ -363,7 +334,7 @@ function DetailDrawer({ itemId, detail, loading, busy, noteDraft, setNoteDraft, 
                       <span className="text-slate-600 font-medium">{a.actor}</span>
                       <span className="text-slate-400"> {a.action}{a.field ? ` – ${a.field}` : ""}</span>
                       {a.old_value && a.new_value && <span className="text-slate-400"> ({a.old_value} &rarr; {a.new_value})</span>}
-                      <div className="text-[10px] text-slate-300">{formatDateTime(a.created_at)}</div>
+                      <div className="text-[10px] text-slate-300">{formatEpoch(a.created_at)}</div>
                     </div>
                   </div>
                 ))}

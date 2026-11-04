@@ -1,6 +1,6 @@
-import { formatDateTime as formatDateTimeUS } from "../utils/format";
 import { useState, useEffect, useCallback } from "react";
 import { intelApi } from "../services/intel-api";
+import { CloseIcon, Badge, MetricCard, ConfidenceBar, SectionHeader } from "../components/stage-ui";
 import type {
   SIDashboard,
   SISlide,
@@ -69,38 +69,7 @@ const LAYOUT_COLORS: Record<string, string> = {
   mixed: "text-amber-700 bg-amber-50 border-amber-200",
 };
 
-function formatDateTime(ts: number | null | undefined): string {
-  if (!ts) return "--";
-  const d = new Date(ts < 1e12 ? ts * 1000 : ts);
-  if (isNaN(d.getTime())) return "--";
-  return formatDateTimeUS(d);
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 // ─── Icons ─────────────────────────────────────────────────────────────────
-
-const ip = {
-  width: 14,
-  height: 14,
-  viewBox: "0 0 24 24",
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 2,
-  strokeLinecap: "round" as const,
-  strokeLinejoin: "round" as const,
-};
-
-const CloseIcon = () => (
-  <svg {...ip}>
-    <line x1="18" y1="6" x2="6" y2="18" />
-    <line x1="6" y1="6" x2="18" y2="18" />
-  </svg>
-);
 
 const ChartIcon = () => (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -141,77 +110,6 @@ const SearchIcon = () => (
 );
 
 // ─── Shared UI ─────────────────────────────────────────────────────────────
-
-function Badge({ label, colors }: { label: string; colors: string }) {
-  return (
-    <span
-      className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded border whitespace-nowrap ${colors}`}
-    >
-      {label.replace(/_/g, " ")}
-    </span>
-  );
-}
-
-function MetricCard({
-  label,
-  value,
-  dot,
-}: {
-  label: string;
-  value: number | string;
-  dot: string;
-}) {
-  return (
-    <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm">
-      <div className="flex items-center gap-1.5 mb-1.5">
-        <span className={`w-2 h-2 rounded-full shrink-0 ${dot}`} />
-        <span className="text-[9px] text-slate-400 font-semibold uppercase tracking-wide leading-tight">
-          {label}
-        </span>
-      </div>
-      <div className="text-xl font-bold text-slate-900 tabular-nums">{value}</div>
-    </div>
-  );
-}
-
-function ConfidenceBar({ score }: { score: number }) {
-  const pct = Math.max(0, Math.min(100, score * 100));
-  const color =
-    pct >= 70
-      ? "from-emerald-500 to-emerald-400"
-      : pct >= 40
-        ? "from-amber-500 to-yellow-400"
-        : "from-red-500 to-red-400";
-  return (
-    <div className="flex items-center gap-2">
-      <div className="h-1.5 flex-1 bg-slate-100 rounded-full overflow-hidden">
-        <div
-          className={`h-full bg-gradient-to-r ${color} transition-all`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <span className="text-[11px] tabular-nums text-slate-500 w-8 text-right">
-        {Math.round(pct)}%
-      </span>
-    </div>
-  );
-}
-
-function SectionHeader({ title, count }: { title: string; count?: number }) {
-  return (
-    <div className="flex items-center gap-3 mb-4">
-      <div className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">
-        {title}
-      </div>
-      {count !== undefined && (
-        <span className="text-[10px] text-slate-400 font-medium tabular-nums">
-          {count} items
-        </span>
-      )}
-      <div className="flex-1 border-t border-slate-200" />
-    </div>
-  );
-}
 
 function FilterSelect({
   label,
@@ -508,13 +406,11 @@ function SlideDrawer({
 function LibraryTab({
   slides,
   loading,
-  presentations,
   dashboard,
   onRefresh,
 }: {
   slides: SISlide[];
   loading: boolean;
-  presentations: SIPresentation[];
   dashboard: SIDashboard | null;
   onRefresh: () => void;
 }) {
@@ -1296,7 +1192,6 @@ export function SlideIntelligencePage({ onNavigate }: { onNavigate: (page: strin
         <LibraryTab
           slides={slides}
           loading={loading}
-          presentations={presentations}
           dashboard={dashboard}
           onRefresh={loadData}
         />

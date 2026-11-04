@@ -1,7 +1,7 @@
 import { usSpelling } from "../utils/format";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { intelApi } from "../services/intel-api";
-import type { PCPresentation, PCSlide, PCPresentationDetail, PCPresentationSummary, PCValidation } from "../types/contracts";
+import type { PCSlide, PCPresentationDetail, PCPresentationSummary, PCValidation } from "../types/contracts";
 import { useActiveProjectId, useProject } from "../context/project-context";
 import { PexelsHeaderBanner } from "../components/PexelsHeaderBanner";
 
@@ -188,16 +188,6 @@ export function PresentationComposerPage({ onNavigate }: { onNavigate: (p: strin
 
   const handleSelectLayout = async (slideId: number, layout: string) => {
     await intelApi.composerSelectLayout(slideId, layout, "Manually selected alternative");
-    if (detail) {
-      const d = await intelApi.composerDetail(detail.presentation.id);
-      setDetail(d);
-      const s = d.slides.find((sl) => sl.id === slideId);
-      if (s) setSelectedSlide(s);
-    }
-  };
-
-  const handleSelectVisual = async (slideId: number, visual: string) => {
-    await intelApi.composerSelectVisual(slideId, visual);
     if (detail) {
       const d = await intelApi.composerDetail(detail.presentation.id);
       setDetail(d);

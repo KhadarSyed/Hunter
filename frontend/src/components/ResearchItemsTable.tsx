@@ -40,13 +40,7 @@ function sourceLabel(sourceApi: string): string {
   return sourceApi.split(",").filter(Boolean).map(singleSourceLabel).join(" + ");
 }
 
-function formatDate(ts: number): string {
-  try {
-    return formatDateUS(ts * 1000);
-  } catch {
-    return "";
-  }
-}
+const formatDate = (ts: number) => formatDateUS(ts * 1000);  // epoch seconds; formatDateUS never throws
 
 const ABOUT_BRAND_MIN = 0.5; // matches backend classify.ABOUT_BRAND_MIN
 
