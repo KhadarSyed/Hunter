@@ -155,13 +155,13 @@ def _next(t: datetime, grain: str) -> datetime:
     return t + {"week": timedelta(weeks=1), "day": timedelta(days=1), "hour": timedelta(hours=1)}[grain]
 
 
-def _label(t: datetime, grain: str) -> str:
+def _grain_label(t: datetime, grain: str) -> str:
     return {"year": f"{t.year}", "month": t.strftime("%b-%y"), "week": f"Wk {t.day} {t:%b}",
             "day": f"{t.day} {t:%b}", "hour": f"{t.day} {t:%b} {t:%H}:00"}[grain]
 
 
 def period_label(d: date, grain: str, hour: int | None = None) -> str:
-    return _label(_bucket(d, grain, hour), grain)
+    return _grain_label(_bucket(d, grain, hour), grain)
 
 
 def row_periods(rows, grain: str) -> dict[int, str]:
@@ -174,7 +174,7 @@ def period_labels(rows, grain: str) -> list[str]:
     stamps = [_bucket(r.article.date, grain, r.article.hour) for r in rows]
     t, out = min(stamps), []
     while t <= max(stamps):
-        out.append(_label(t, grain))
+        out.append(_grain_label(t, grain))
         t = _next(t, grain)
     return out
 
