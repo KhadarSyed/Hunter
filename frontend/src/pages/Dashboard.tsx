@@ -90,11 +90,9 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
       { id: "deliverables", label: "Deliverables", page: "deliverables", status: "pending", detail: s.pptxReady || s.wordReady ? "Downloads ready" : undefined },
     ];
 
-    if (s.briefApproved) result[0].status = "completed";
-    if (s.backgroundApproved) result[1].status = "completed";
-    if (s.strategyApproved) result[2].status = "completed";
-    if (s.datasetApproved) result[3].status = "completed";
-    if (s.pptxReady || s.wordReady) result[4].status = "completed";
+    // a stage is complete only when every stage before it is: the pipeline runs in order
+    const done = [s.briefApproved, s.backgroundApproved, s.strategyApproved, s.datasetApproved, s.pptxReady || s.wordReady];
+    for (let i = 0; i < done.length && done[i]; i++) result[i].status = "completed";
 
     let foundPending = false;
     for (const stage of result) {
@@ -131,7 +129,12 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
         s.briefApproved = prereqs.prerequisites.brief_scope?.status === "approved";
         s.backgroundApproved = prereqs.prerequisites.background_research?.status === "approved";
         s.strategyApproved = prereqs.prerequisites.search_strategy?.status === "approved";
-        s.datasetApproved = prereqs.prerequisites.dataset?.status === "approved";
+      } catch {}
+
+      try {
+        // an uploaded dataset someone approved, as the deck's gate requires (the plan check also accepts web research)
+        const datasets = await intelApi.getAllDatasets(activeProjectId);
+        s.datasetApproved = datasets.some((d) => d.approval_status === "approved");
       } catch {}
 
       try {
@@ -306,11 +309,15 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
             {stages.map((stage, i) => {
               const isCompleted = stage.status === "completed";
               const isActive = stage.status === "active";
+              // a stage opens only once the one before it is complete (approved)
+              const isLocked = i > 0 && stages[i - 1].status !== "completed";
               return (
                 <div key={stage.id} className="flex-1 flex flex-col items-center relative">
                   <button
                     onClick={() => onNavigate(stage.page)}
-                    className="relative z-10 flex flex-col items-center group cursor-pointer"
+                    disabled={isLocked}
+                    title={isLocked ? `Complete ${stages[i - 1].label} first` : undefined}
+                    className="relative z-10 flex flex-col items-center group cursor-pointer disabled:cursor-not-allowed"
                   >
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
                       isCompleted
@@ -331,7 +338,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
                     </div>
                     <div className={`mt-2 text-center text-[11px] font-medium transition-colors ${
                       isCompleted ? "text-[#5B2C9D]" : isActive ? "text-slate-800" : "text-slate-400"
-                    } group-hover:text-[#5B2C9D]`}>
+                    } ${isLocked ? "" : "group-hover:text-[#5B2C9D]"}`}>
                       {stage.label}
                     </div>
                     {stage.detail && (
