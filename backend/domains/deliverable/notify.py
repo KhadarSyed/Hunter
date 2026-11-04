@@ -88,6 +88,7 @@ def _project_context(project: dict) -> dict:
         "competitors": [str(c) for c in competitors],
         "countries": [c for c in re.split(r"\s*(?:[,;/&]|\band\b)\s*", geography) if c.strip()]
                      if isinstance(geography, str) else [],
+        "project_id": project["id"],
         "project_name": project.get("project_name") or f"Project {project['id']}",
         "client": client,
         "summary": spec.get("executive_interpretation") or spec.get("research_objective") or "",
@@ -119,6 +120,25 @@ def _logo(name: str) -> dict | None:
         return {"b64": b64, "w": w, "h": h, "light": found[1]}
     except Exception as e:      # a logo is decoration: never stops the email
         logger.info("No logo for %s in the ready email: %s", name, type(e).__name__)
+        return None
+
+
+def _theme_logo(project_id: int | None) -> dict | None:
+    """A photo of the brief's theme when the client has no usable logo: a category such as "Baby Skincare"."""
+    project = store.get_project(project_id) if project_id else None
+    if not project:
+        return None
+    try:
+        from ..projects.logo import theme_image        # lazy: the projects domain imports deliverable services
+        _theme, url = theme_image(project)
+        if not url or not url.startswith("http"):
+            return None
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        b64, w, h = _png(r.content, LOGO_PX)
+        return {"b64": b64, "w": w, "h": h, "light": False}
+    except Exception as e:      # a logo is decoration: never stops the email
+        logger.info("No theme image for project %s in the email: %s", project_id, type(e).__name__)
         return None
 
 
@@ -182,7 +202,7 @@ def _compose(ctx: dict, subject: str, inline_logo: bool = True) -> dict:
             images.append({"cid": cid, "mime_type": "image/png", "content": img["b64"]})
         return {**img, "src": f"cid:{cid}" if inline_logo else f"data:image/png;base64,{img['b64']}"}
 
-    client_logo = embed(LOGO_CID, _logo(ctx["client"]))
+    client_logo = embed(LOGO_CID, _logo(ctx["client"]) or _theme_logo(ctx.get("project_id")))
     competitors = [{"name": n, "logo": embed(f"logo{i}", _logo(n))} for i, n in enumerate(ctx["competitors"], 1)]
     countries = [{"name": c, "flag": embed(f"flag{i}", _flag(c))} for i, c in enumerate(ctx["countries"], 1)]
     html = _ENV.get_template("deliverable_ready.html.j2").render(

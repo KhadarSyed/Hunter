@@ -82,10 +82,15 @@ def project_logo(project_id: int) -> dict | None:
         logo = logo_files.public_logo(brand, f"/api/intel/brandfetch/logo/image?brand_name={quote(brand)}")
         if logo.get("logo_url"):
             return {**result, "logo_url": logo["logo_url"], "is_light": bool(logo.get("is_light")), "source": "brand"}
-    theme = brief_theme(project)
-    if theme:
-        # web search first, Pexels' stock photos only when the search finds nothing
-        image = _web_theme_image(theme) or pexels.resolve_background_image(theme).get("image_url")
-        if image:
-            return {**result, "logo_url": image, "source": "theme", "theme": theme}
+    theme, image = theme_image(project)
+    if image:
+        return {**result, "logo_url": image, "source": "theme", "theme": theme}
     return {**result, "theme": theme or None}
+
+
+def theme_image(project: dict) -> tuple[str, str | None]:
+    """(the brief's theme, a photo URL for it): web search first, Pexels' stock photos only when it finds nothing."""
+    theme = brief_theme(project)
+    if not theme:
+        return "", None
+    return theme, _web_theme_image(theme) or pexels.resolve_background_image(theme).get("image_url")

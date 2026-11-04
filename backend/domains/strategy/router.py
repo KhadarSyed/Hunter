@@ -13,6 +13,7 @@ import itertools
 import json
 import logging
 import re
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -1288,6 +1289,11 @@ def enrich_estimate_route(dataset_id: IdPath, _access: Annotated[dict, Depends(r
             "price_output_per_1m": settings.llm_price_output_per_1m}
 
 
+# shortcut: per process (one server); a restart clears it, which is right since the threads die with it
+_ENRICHING: set[int] = set()
+_ENRICHING_LOCK = threading.Lock()
+
+
 @router.post("/dataset/{dataset_id}/enrich", response_model=EnrichmentStartResponse)
 def enrich_dataset_route(dataset_id: IdPath, _access: Annotated[dict, Depends(require_dataset_access)]):
     dataset = store.get_dataset_by_id(dataset_id)
@@ -1305,9 +1311,19 @@ def enrich_dataset_route(dataset_id: IdPath, _access: Annotated[dict, Depends(re
     raw_brief_text = (latest_spec_row or {}).get("raw_brief_text", "") or ""
     competitors = _extract_competitors_from_text(raw_brief_text, brand_name)
 
+    with _ENRICHING_LOCK:      # a second click while it runs would tag every record twice (twice the GPT calls)
+        if dataset_id in _ENRICHING:
+            raise HTTPException(409, "This dataset is already being enriched")
+        _ENRICHING.add(dataset_id)
+
     job_id = f"enrich_{uuid.uuid4().hex[:12]}"
     store.create_job(job_id, dataset["project_id"], "dataset_enrichment")
     store.update_dataset_enrichment(dataset_id, "processing")
+
+    def progress(message: str) -> None:
+        store.update_job(job_id, status="running", progress_pct=5, progress_message=message)
+        _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running", "progress_pct": 5,
+                    "message": message})
 
     def worker():
         def on_event(event_type: str, payload: dict):
@@ -1330,6 +1346,7 @@ def enrich_dataset_route(dataset_id: IdPath, _access: Annotated[dict, Depends(re
             llm_client = get_llm_client()
             if not llm_client or not llm_client.is_reachable():
                 raise RuntimeError("No LLM reachable — dataset enrichment requires Azure OpenAI")
+            progress("Reading the dataset")
             records = _load_all_records(dataset["file_path"], dataset["column_mapping"].get("mapped", {}))
 
             # A re-enrich run (e.g. retried after a partial failure) must never
@@ -1341,11 +1358,16 @@ def enrich_dataset_route(dataset_id: IdPath, _access: Annotated[dict, Depends(re
             to_tag = [r for r in records if str(r["id"]) not in preserved_by_id]
             # Tag against what this file's research question asks about (sport, injury type, ...), not only the
             # fixed sentiment/theme/entity schema
+            # these three ask GPT what to tag for this question before any record is tagged: say so, or the job
+            # sits silently at "pending" for minutes
+            progress("Working out what to tag for this research question (1/3)")
             dimensions = dimensions_for_dataset(dataset, llm_client)
+            progress("Matching other research questions this data also answers (2/3)")
             to_tag, also = tag_schemas.with_also_questions(dataset, to_tag, llm_client)
+            progress("Building the tag schema (3/3)")
+            schema = tag_schemas.schema_for_dataset(dataset, llm_client)
             result = enrich_dataset(to_tag, brand_name, competitors, llm_client=llm_client, emit=on_event,
-                                    dimensions=dimensions, tag_schema=tag_schemas.schema_for_dataset(dataset, llm_client),
-                                    also_schemas=also)
+                                    dimensions=dimensions, tag_schema=schema, also_schemas=also)
             tagged_by_id = {str(r["id"]): r for r in result["records"]}
             merged = [preserved_by_id.get(str(r["id"])) or tagged_by_id[str(r["id"])] for r in records]
 
@@ -1358,6 +1380,9 @@ def enrich_dataset_route(dataset_id: IdPath, _access: Annotated[dict, Depends(re
             store.update_dataset_enrichment(dataset_id, "error", error=str(e))
             store.update_job(job_id, status="failed", error=str(e))
             _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "failed", "error": str(e)})
+        finally:
+            with _ENRICHING_LOCK:
+                _ENRICHING.discard(dataset_id)
 
     submit(worker, name="strategy:dataset-enrich")
     return {"job_id": job_id, "dataset_id": dataset_id}
