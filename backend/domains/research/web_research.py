@@ -288,6 +288,33 @@ def build_search_queries(
 
 
 
+# "Competitors are X, Y and Z" phrasings in a brief. Shared by research/service.py and strategy/router.py:
+# change the patterns here only.
+COMPETITOR_PATTERNS = [
+    r'competitive set includes?\s+(.+?)(?:\.|,\s*while)',
+    r'competitors?\s+(?:are|include|includes)\s+(.+?)(?:\.|$)',
+    r'[Cc]ompetitors?\s*\n+(.+?)(?:\n\n|\n[A-Z]|$)',
+    r'[Cc]ompetitors?:\s*(.+?)(?:\n\n|\n[A-Z]|$)',
+]
+
+
+def competitors_from_text(text: str) -> list[str]:
+    """Competitor names from the first pattern that yields any; "and" and commas separate names."""
+    names = []
+    for pat in COMPETITOR_PATTERNS:
+        match = re.search(pat, text, re.DOTALL)
+        if match:
+            comp_str = re.sub(r'\band\b', ',', match.group(1))
+            comp_str = re.sub(r'\bwhile\b.*', '', comp_str)
+            for part in comp_str.split(','):
+                part = part.strip().rstrip('.')
+                if part and 1 < len(part) < 40:
+                    names.append(part)
+            if names:
+                break
+    return names
+
+
 def _derive_title_from_content(content: str, max_len: int = 80) -> str:
     """Social-media items (news_search.py's SocialMediaItem) have no title field —
     derive a short one from the leading chars of content."""
@@ -786,24 +813,7 @@ class LiveWebResearchAdapter:
             rs_desc = rs.get("description", "") if isinstance(rs, dict) else ""
             text_to_search = f"{raw}\n{rs_desc}"
             if text_to_search.strip():
-                patterns = [
-                    r'competitive set includes?\s+(.+?)(?:\.|,\s*while)',
-                    r'competitors?\s+(?:are|include|includes)\s+(.+?)(?:\.|$)',
-                    r'[Cc]ompetitors?\s*\n+(.+?)(?:\n\n|\n[A-Z]|$)',
-                    r'[Cc]ompetitors?:\s*(.+?)(?:\n\n|\n[A-Z]|$)',
-                ]
-                for pat in patterns:
-                    match = re.search(pat, text_to_search, re.DOTALL)
-                    if match:
-                        comp_str = match.group(1)
-                        comp_str = re.sub(r'\band\b', ',', comp_str)
-                        comp_str = re.sub(r'\bwhile\b.*', '', comp_str)
-                        for part in comp_str.split(','):
-                            part = part.strip().rstrip('.')
-                            if part and len(part) > 1 and len(part) < 40:
-                                names.append(part)
-                        if names:
-                            break
+                names = competitors_from_text(text_to_search)
         return names[:8]
 
     def _extract_exclusions(self, spec: dict) -> list[str]:

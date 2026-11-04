@@ -39,6 +39,7 @@ from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from ...core.tabular import decode_text, sniff_delimiter
 from ..research.schemas import ApproveRequest
+from ..research.web_research import COMPETITOR_PATTERNS
 from . import sample_enrichment, tag_schemas
 from ...agents import question_tag_schema as tag_schema
 from .dimensions import dimensions_for_dataset, project_dimensions
@@ -85,13 +86,7 @@ def _date_range(values: list[str]) -> dict:
 def _extract_competitors_from_text(text: str, brand_name: str) -> list[str]:
     """Extract competitor names from natural-language brief text."""
     competitors = []
-    patterns = [
-        r'competitive set includes?\s+(.+?)(?:\.|,\s*while)',
-        r'competitors?\s+(?:are|include|includes)\s+(.+?)(?:\.|$)',
-        r'[Cc]ompetitors?\s*\n+(.+?)(?:\n\n|\n[A-Z]|$)',
-        r'[Cc]ompetitors?:\s*(.+?)(?:\n\n|\n[A-Z]|$)',
-    ]
-    for pat in patterns:
+    for pat in COMPETITOR_PATTERNS:
         for m in re.finditer(pat, text, re.MULTILINE | re.DOTALL):
             chunk = m.group(1)
             names = re.split(r',\s*|\s+and\s+', chunk)

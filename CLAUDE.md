@@ -143,16 +143,16 @@ Note: 10 pages (`ResearchPlan`, `EvidenceLibrary`, `InsightsPage`, `StorylinePag
 ## Critical Patterns
 
 - **LLM fallback chain:** implemented via `_get_llm()` in `domains/research/service.py` and
-  `get_llm_client()` (`core/anthropic_client.py`, used by the research/strategy/spec routers). `_compose_with_llm()` returns `(sections, bool)` —
-  the bool tracks whether the LLM *actually* produced the content (vs. an exception being caught
-  and rule-based fallback silently substituted). This drives the `enrichment_status` field
-  (`"llm_synthesized"` vs `"web_only"` vs `"rule_based"`) — never infer LLM success from whether a
-  client object is truthy.
-- **Competitor extraction stays in sync across three files.** Natural-language brief text is
-  parsed with multiple regex patterns duplicated in `domains/strategy/router.py`
-  (`_extract_competitors_from_text`), `domains/research/service.py` (`_extract_competitors`), and
-  `domains/research/web_research.py` (`_extract_competitors`). Changing one without the other two
-  reintroduces the bug this was built to fix.
+  `get_llm_client()` (`core/anthropic_client.py`, used by the research/strategy/spec routers). In
+  `compose_brief()`, `llm_succeeded` is set only when map-reduce summarization *actually* returned
+  sections (vs. an exception being caught and rule-based fallback substituted). This drives the
+  `enrichment_status` field (`"llm_synthesized"` vs `"rule_based"`) — never infer LLM success from
+  whether a client object is truthy.
+- **Competitor extraction shares one pattern list.** Natural-language brief text is parsed with
+  `COMPETITOR_PATTERNS` / `competitors_from_text()` in `domains/research/web_research.py`, used by
+  `domains/research/service.py` (`_extract_competitors`), `web_research.py` (`_extract_competitors`)
+  and `domains/strategy/router.py` (`_extract_competitors_from_text`, which keeps its own
+  all-matches parse). Change the patterns there only.
 - **Strategy generation always resolves to deterministic.** In `domains/strategy/router.py`, four
   failure paths (no LLM reachable, LLM timeout, LLM exception, empty LLM result) all funnel into
   `_build_deterministic_strategy(spec, raw_brief_text)` rather than returning an error — a failed

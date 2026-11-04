@@ -8,12 +8,12 @@ a senior analyst's competitive intelligence brief.
 from __future__ import annotations
 
 import logging
-import re
 from datetime import datetime
 from typing import Optional
 
 from ...core import store
 from . import citations
+from .web_research import competitors_from_text
 
 logger = logging.getLogger(__name__)
 
@@ -622,24 +622,7 @@ def _extract_competitors(spec: dict) -> list[str]:
             rs_desc = rs.get("description", "")
         text_to_search = f"{raw}\n{rs_desc}"
         if text_to_search.strip():
-            patterns = [
-                r'competitive set includes?\s+(.+?)(?:\.|,\s*while)',
-                r'competitors?\s+(?:are|include|includes)\s+(.+?)(?:\.|$)',
-                r'[Cc]ompetitors?\s*\n+(.+?)(?:\n\n|\n[A-Z]|$)',
-                r'[Cc]ompetitors?:\s*(.+?)(?:\n\n|\n[A-Z]|$)',
-            ]
-            for pat in patterns:
-                match = re.search(pat, text_to_search, re.DOTALL)
-                if match:
-                    comp_str = match.group(1)
-                    comp_str = re.sub(r'\band\b', ',', comp_str)
-                    comp_str = re.sub(r'\bwhile\b.*', '', comp_str)
-                    for part in comp_str.split(','):
-                        part = part.strip().rstrip('.')
-                        if part and len(part) > 1 and len(part) < 40:
-                            names.append(part)
-                    if names:
-                        break
+            names = competitors_from_text(text_to_search)
     return names
 
 
