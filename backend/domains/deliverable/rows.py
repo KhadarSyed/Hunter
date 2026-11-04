@@ -10,7 +10,7 @@ from ..exclusions.service import excluded as excluded_by, rules_for_project
 from ..execution.service import _is_excluded, _load_dataset
 from .boolean_query import matches
 from .engine_types import RQ, EngineRow
-from .ingest import Article, infer_date_order, normalize_url, parse_date
+from .ingest import Article, infer_date_order, normalize_url, parse_date, parse_hour
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +107,7 @@ def _row(rec: dict, rq: str | None, source_file: str, index: int, date_order: st
                       reach=_to_float(rec.get("reach")), source_file=source_file, row_index=index,
                       image=str(rec.get("image") or "").strip(), country=str(rec.get("country") or "").strip(),
                       state=str(rec.get("state") or "").strip(), region=str(rec.get("region") or "").strip(),
-                      author=author_of(rec, url))
+                      author=author_of(rec, url), hour=parse_hour(rec.get("time"), rec.get("date")))
     return EngineRow(article=article, rq_ids={rq} if rq else set(), media_type=str(rec.get("media_type") or ""),
                      themes=_theme_labels(rec.get("themes")), entities=rec.get("entities") or {},
                      tags=rec.get("question_tags") if isinstance(rec.get("question_tags"), dict) else {},

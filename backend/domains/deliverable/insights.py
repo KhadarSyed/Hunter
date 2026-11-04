@@ -7,6 +7,7 @@ import re
 from collections import Counter
 from decimal import ROUND_HALF_UP, Decimal
 
+from .analytics import GRAINS, period_label
 from .citations import CitationRegistry
 from .ingest import Article
 
@@ -100,7 +101,6 @@ def _fact_headline(fact: str) -> str:
     return lead or "Key finding"
 
 
-_MONTH = re.compile(r":\s*([A-Z][a-z]{2}-\d{2})\b")
 _OUTLET_NAME = re.compile(r"^Top outlet for .+?:\s*(.+?) with \d")
 
 
@@ -111,9 +111,10 @@ def _norm(s: str) -> str:
 def _fact_evidence(fact: str, candidates: list[Article]) -> list[Article]:
     """Articles that actually illustrate this fact. Entity facts (peak month, outlet, brand/celebrity) only cite
     matching articles — none matching means no card; aggregate facts cite the section's example articles."""
-    if _PEAK.match(fact):
-        month = _MONTH.search(fact)
-        return [a for a in candidates if month and a.date and a.date.strftime("%b-%y") == month.group(1)][:2]
+    if _PEAK.match(fact):           # "Peak 1: <period> with ..." -- the period is at the trend's own grain
+        period = fact.split(":", 1)[1].split(" with ")[0].strip()
+        return [a for a in candidates
+                if a.date and period in {period_label(a.date, g, a.hour) for g in GRAINS}][:2]
     outlet = _OUTLET_NAME.match(fact)
     if outlet:
         return [a for a in candidates if _norm(a.outlet) == _norm(outlet.group(1))][:2]

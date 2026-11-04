@@ -33,6 +33,25 @@ class Article:
     state: str = ""
     region: str = ""
     author: str = ""           # the journalist, or the social account (@handle) that posted it
+    hour: int | None = None    # the hour it was published (Meltwater's Time column), for an hourly trend
+
+
+_CLOCK = re.compile(r"^\s*(\d{1,2}):\d{2}")
+_STAMP_HOUR = re.compile(r"T(\d{1,2}):\d{2}")
+
+
+def parse_hour(time_value, date_value=None) -> int | None:
+    """The publishing hour from a Time column ("13:30", or a time cell) or a timestamp date ("2026-03-05T10:00:00Z").
+    A bare date, or a datetime at exactly midnight (Excel's date-only cell), has no hour."""
+    if hasattr(time_value, "hour"):
+        return int(time_value.hour)
+    m = _CLOCK.match(str(time_value or ""))
+    if m and int(m.group(1)) < 24:
+        return int(m.group(1))
+    if isinstance(date_value, datetime) and (date_value.hour or date_value.minute):
+        return date_value.hour
+    m = _STAMP_HOUR.search(str(date_value or ""))
+    return int(m.group(1)) if m and int(m.group(1)) < 24 else None
 
 
 def normalize_url(url: str) -> str:

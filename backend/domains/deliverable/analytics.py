@@ -4,7 +4,7 @@ from __future__ import annotations
 import dataclasses
 import re
 from collections import Counter
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from ...agents import question_dimensions as qd
 from . import extract as extract_mod, us_locations
@@ -80,14 +80,6 @@ def _share_kpi(module, rq, rows, base_n, _):
                     candidate_urls=[r.article.norm_url for r in rows[:12]])
 
 
-def _months(first: str, last: str) -> list[str]:
-    y, m, out = int(first[:4]), int(first[5:]), []
-    while f"{y:04d}-{m:02d}" <= last:
-        out.append(f"{y:04d}-{m:02d}")
-        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
-    return out
-
-
 def _drill(pairs) -> dict[str, list[str]]:
     """{chart element: its articles} from (element, row) pairs, for the deck's click-through (any order: the deck
     sorts them by date)."""
@@ -101,46 +93,90 @@ def _trend(module, rq, rows, base_n, _):
     dated = [r for r in rows if r.article.date]
     if not dated:
         return _section(module, rq, skipped="No dated articles")
-    by_month = Counter(r.article.date.strftime("%Y-%m") for r in dated)
-    series = _months(min(by_month), max(by_month))
-    values = [by_month.get(k, 0) for k in series]
+    grain = time_grain([r.article.date for r in dated], all(r.article.hour is not None for r in dated))
+    labels = row_periods(dated, grain)
+    by_period = Counter(labels.values())
+    series = period_labels(dated, grain)
+    values = [by_period.get(k, 0) for k in series]
     top = _spaced_peaks(values)
     facts, cands = [], []
     for rank, i in enumerate(top, start=1):
-        drivers = [r for r in dated if r.article.date.strftime("%Y-%m") == series[i]]
+        drivers = [r for r in dated if labels[id(r)] == series[i]]
         lead = max(drivers, key=lambda r: (r.copies, r.article.reach))
-        facts.append(f"Peak {rank}: {month_label(series[i])} with {values[i]} articles, led by \"{lead.article.title}\"")
+        facts.append(f"Peak {rank}: {series[i]} with {values[i]} articles, led by \"{lead.article.title}\"")
         cands.append(lead.article.norm_url)
     undated = len(rows) - len(dated)
     plural = "s" if undated != 1 else ""
     notes = [f"{undated} undated article{plural} not shown on the trend"] if undated else []
     facts += notes
-    return _section(module, rq, chart={"kind": "line_peaks", "categories": [month_label(k) for k in series],
-                                       "values": values, "peaks": sorted(top), "unit": "count", "series_label": "Articles"},
+    return _section(module, rq, chart={"kind": "line_peaks", "categories": series, "values": values,
+                                       "peaks": sorted(top), "unit": "count", "series_label": "Articles", "grain": grain},
                     facts=facts, candidate_urls=cands, notes=notes,
-                    drill_urls=_drill((month_label(r.article.date.strftime("%Y-%m")), r) for r in dated))
+                    drill_urls=_drill((labels[id(r)], r) for r in dated))
 
 
 BRAND_LINES = 6           # lines one chart keeps readable
-WEEK_SPAN_DAYS = 92       # up to about three months of data, a week per point; longer, a month
+# A trend's point by the data's span: two days or less by the hour (when the export gives times), more than two
+# days by the day, more than three weeks by the week, more than three months by the month, more than three years
+# by the year.
+GRAINS = ("hour", "day", "week", "month", "year")
+HOUR_SPAN_DAYS = 2
+WEEK_SPAN_DAYS = 21
+MONTH_SPAN_DAYS = 92
+YEAR_SPAN_DAYS = 3 * 365
 
 
-def _period(d, grain: str) -> str:
-    return (d - timedelta(days=d.weekday())).isoformat() if grain == "week" else d.strftime("%Y-%m")
+def time_grain(days: list[date], has_hours: bool = False) -> str:
+    span = (max(days) - min(days)).days
+    if span > YEAR_SPAN_DAYS:
+        return "year"
+    if span > MONTH_SPAN_DAYS:
+        return "month"
+    if span > WEEK_SPAN_DAYS:
+        return "week"
+    return "hour" if has_hours and span <= HOUR_SPAN_DAYS else "day"
 
 
-def _period_keys(first, last, grain: str) -> list[str]:
+def _bucket(d: date, grain: str, hour: int | None = None) -> datetime:
+    if grain == "year":
+        return datetime(d.year, 1, 1)
     if grain == "month":
-        return _months(_period(first, grain), _period(last, grain))
-    start, end = first - timedelta(days=first.weekday()), last
-    return [(start + timedelta(weeks=i)).isoformat() for i in range((end - start).days // 7 + 1)]
+        return datetime(d.year, d.month, 1)
+    if grain == "week":
+        d = d - timedelta(days=d.weekday())
+    return datetime(d.year, d.month, d.day, (hour or 0) if grain == "hour" else 0)
 
 
-def _period_label(key: str, grain: str) -> str:
+def _next(t: datetime, grain: str) -> datetime:
+    if grain == "year":
+        return t.replace(year=t.year + 1)
     if grain == "month":
-        return month_label(key)
-    d = date.fromisoformat(key)
-    return f"Wk {d.day} {d:%b}"
+        return t.replace(year=t.year + (t.month == 12), month=t.month % 12 + 1)
+    return t + {"week": timedelta(weeks=1), "day": timedelta(days=1), "hour": timedelta(hours=1)}[grain]
+
+
+def _label(t: datetime, grain: str) -> str:
+    return {"year": f"{t.year}", "month": t.strftime("%b-%y"), "week": f"Wk {t.day} {t:%b}",
+            "day": f"{t.day} {t:%b}", "hour": f"{t.day} {t:%b} {t:%H}:00"}[grain]
+
+
+def period_label(d: date, grain: str, hour: int | None = None) -> str:
+    return _label(_bucket(d, grain, hour), grain)
+
+
+def row_periods(rows, grain: str) -> dict[int, str]:
+    """{id(row): its period's label} for dated rows."""
+    return {id(r): period_label(r.article.date, grain, r.article.hour) for r in rows}
+
+
+def period_labels(rows, grain: str) -> list[str]:
+    """Every period from the first dated row's to the last's, empty ones included, as labels in order."""
+    stamps = [_bucket(r.article.date, grain, r.article.hour) for r in rows]
+    t, out = min(stamps), []
+    while t <= max(stamps):
+        out.append(_label(t, grain))
+        t = _next(t, grain)
+    return out
 
 
 def brand_lines(section: Section, rows: list[EngineRow], brands) -> Section:
@@ -157,25 +193,23 @@ def brand_lines(section: Section, rows: list[EngineRow], brands) -> Section:
     names = sorted(counts, key=lambda n: (n != primary, -counts[n], n))[:BRAND_LINES]
     if len(names) < 2:
         return section
-    days = [r.article.date for r in dated]
-    grain = "week" if (max(days) - min(days)).days <= WEEK_SPAN_DAYS else "month"
-    keys = _period_keys(min(days), max(days), grain)
-    labels = [_period_label(k, grain) for k in keys]
-    totals = Counter(_period(r.article.date, grain) for r in dated)
+    grain = time_grain([r.article.date for r in dated], all(r.article.hour is not None for r in dated))
+    of = row_periods(dated, grain)
+    labels = period_labels(dated, grain)
+    totals = Counter(of.values())
     series, facts, drill = [], [], {}
     for n in names:
-        per = Counter(_period(r.article.date, grain) for r, ns in named if n in ns)
-        vals = [per.get(k, 0) for k in keys]
+        per = Counter(of[id(r)] for r, ns in named if n in ns)
+        vals = [per.get(k, 0) for k in labels]
         peaks = sorted(_spaced_peaks(vals)) if n == primary else []
         series.append({"name": n, "values": vals, "peaks": peaks, "client": n == primary})
         top = max(range(len(vals)), key=lambda i: vals[i])
         facts.append(f"{n}: {counts[n]} dated articles, most in {labels[top]} ({vals[top]})")
-        drill.update(_drill((f"{n}\t{labels[keys.index(_period(r.article.date, grain))]}", r)
-                            for r, ns in named if n in ns))
-    values = [totals.get(k, 0) for k in keys]
+        drill.update(_drill((f"{n}\t{of[id(r)]}", r) for r, ns in named if n in ns))
+    values = [totals.get(k, 0) for k in labels]
     chart = {**section.chart, "categories": labels, "values": values, "peaks": sorted(_spaced_peaks(values)),
              "brand_series": series, "grain": grain}
-    period_drill = _drill((labels[keys.index(_period(r.article.date, grain))], r) for r in dated)
+    period_drill = _drill((of[id(r)], r) for r in dated)
     return dataclasses.replace(section, chart=chart, facts=section.facts + facts,
                                drill_urls={**period_drill, **drill})
 

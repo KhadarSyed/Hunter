@@ -120,11 +120,18 @@
       return am5.Bullet.new(root, { sprite: am5.Label.new(root, { text: "{valueY}", populateText: true, centerX: am5.p50, centerY: am5.p100, dy: -12, fontSize: 21, fontWeight: "700", fill: c(cfg.primary) }) });
     });
     series.data.setAll(cfg.data);
-    if (!exportMode) {
-      var cursor = chart.set("cursor", am5xy.XYCursor.new(root, { behavior: "none", xAxis: x }));
-      cursor.lineY.set("visible", false);
-    }
+    zoomable(root, chart, x, cfg.data.length);
     return [chart, series];
+  }
+
+  // a trend is live: drag across it to zoom into those periods (amCharts' own zoom-out button returns), and a long
+  // one gets a scrollbar to pan; the wheel stays the deck's, it turns the slides. Export draws the whole range.
+  var ZOOM_SCROLLBAR_POINTS = 12;
+  function zoomable(root, chart, x, points) {
+    if (exportMode) return;
+    var cursor = chart.set("cursor", am5xy.XYCursor.new(root, { behavior: "zoomX", xAxis: x }));
+    cursor.lineY.set("forceHidden", true);
+    if (points > ZOOM_SCROLLBAR_POINTS) chart.set("scrollbarX", am5.Scrollbar.new(root, { orientation: "horizontal", opposite: true }));
   }
 
   // each legend entry's logo beside its name, its name in its colour (as amCharts' images-as-markers)
@@ -179,10 +186,7 @@
     });
     legend.data.setAll(chart.series.values);
     legendLogos(root, legend, cfg.lines);
-    if (!exportMode) {
-      var cursor = chart.set("cursor", am5xy.XYCursor.new(root, { behavior: "none", xAxis: x }));
-      cursor.lineY.set("visible", false);
-    }
+    zoomable(root, chart, x, cfg.data.length);
     return [chart, all];
   }
 
