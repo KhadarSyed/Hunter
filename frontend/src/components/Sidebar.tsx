@@ -2,7 +2,6 @@ import { useState } from "react";
 import type { Page } from "../App";
 import { useProject } from "../context/project-context";
 import { intelApi } from "../services/intel-api";
-import { PencilIcon } from "./icons";
 import { BrandLogo } from "./BrandLogo";
 import { ProfileMenu } from "./ProfileMenu";
 import { ProjectSwitcher } from "./ProjectSwitcher";
