@@ -258,11 +258,12 @@
     function polygons(geo, extra) {
       var s = chart.series.push(am5map.MapPolygonSeries.new(root, Object.assign({ geoJSON: geo, valueField: "value", calculateAggregates: true, tooltip: tooltip(root, cfg) }, extra)));
       s.mapPolygons.template.setAll({ tooltipText: "{name}: [bold]{value}[/] articles", fill: c("#E4E4EA"), stroke: c("#FFFFFF"), strokeWidth: 0.8, interactive: true });
-      // the total, then where it ran: "California: 23 articles — Facebook 8 · X 5 · News 7"
+      // the total, then one line per channel it ran on: "California: 23 articles\nFacebook 8\nX 5\nNews 7"
       s.mapPolygons.template.adapters.add("tooltipText", function (text, target) {
         var di = target.dataItem;
         if (!di || di.get("value") == null) return "{name}: no articles";
-        return (di.dataContext || {}).channels ? text + " — {channels}" : text;
+        var channels = (di.dataContext || {}).channels;
+        return channels ? text + "\n" + String(channels).split(" · ").join("\n") : text;
       });
       // a click on a state or county also lists its articles
       s.mapPolygons.template.events.on("click", function (ev) {
