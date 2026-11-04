@@ -29,9 +29,6 @@ function toDate(value: DateInput): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-/** Converts a Unix timestamp in seconds to a Date input. */
-export const fromUnix = (seconds: number): Date => new Date(seconds * 1000);
-
 /** "Oct 14, 2026". Falls back to the raw input when it is not a valid date. */
 export function formatDate(value: DateInput | null | undefined, opts?: Intl.DateTimeFormatOptions): string {
   if (value === null || value === undefined || value === "") return "";
