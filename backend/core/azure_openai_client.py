@@ -88,7 +88,15 @@ class AzureOpenAIClient:
         self.api_key = api_key or os.getenv("AZURE_OPENAI_API_KEY", "")
         self.endpoint = (endpoint or os.getenv("AZURE_OPENAI_ENDPOINT", "")).rstrip("/")
         self.deployment = deployment or os.getenv("AZURE_OPENAI_MODEL", "")
-        self.api_version = api_version or os.getenv("AZURE_OPENAI_API_VERSION", "2024-06-01")
+        # max_completion_tokens (gpt-5 rejects max_tokens) needs 2024-09-01-preview or later
+        self.api_version = api_version or os.getenv("AZURE_OPENAI_API_VERSION", "2025-01-01-preview")
+        self.reasoning_effort = os.getenv("AZURE_OPENAI_REASONING_EFFORT", "").strip().lower()
+
+    def _payload(self, messages: list[dict]) -> dict:
+        payload: dict = {"messages": messages, "max_completion_tokens": MAX_OUTPUT_TOKENS}
+        if self.reasoning_effort:       # unset: the model's own default
+            payload["reasoning_effort"] = self.reasoning_effort
+        return payload
 
     def is_reachable(self) -> bool:
         return bool(self.api_key and self.endpoint and self.deployment)
@@ -106,7 +114,7 @@ class AzureOpenAIClient:
         format_json: bool = False,
     ) -> str:
         headers = {"api-key": self.api_key, "Content-Type": "application/json"}
-        payload: dict = {"messages": messages, "max_completion_tokens": MAX_OUTPUT_TOKENS}
+        payload = self._payload(messages)
         if format_json:
             payload["response_format"] = {"type": "json_object"}
 
@@ -143,7 +151,7 @@ class AzureOpenAIClient:
     def chat_tools(self, messages: list[dict], tools: list[dict], tool_choice: str = "auto") -> dict:
         """One tool-calling turn: the reply's text and the tool calls it asks for, arguments parsed."""
         headers = {"api-key": self.api_key, "Content-Type": "application/json"}
-        payload: dict = {"messages": messages, "max_completion_tokens": MAX_OUTPUT_TOKENS}
+        payload = self._payload(messages)
         if tools:
             payload.update(tools=tools, tool_choice=tool_choice)
         r = _post(self._url(), headers, payload)

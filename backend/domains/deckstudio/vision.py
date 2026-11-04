@@ -1,4 +1,4 @@
-"""Ask Azure OpenAI (gpt-4.1, image input) whether a candidate photo fits the slide. None = could not judge."""
+"""Ask Azure OpenAI (gpt-5, image input) whether a candidate photo fits the slide. None = could not judge."""
 from __future__ import annotations
 
 import base64
