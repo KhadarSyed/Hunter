@@ -23,13 +23,17 @@ DELIVERED = re.compile(r"written summary|executive summary|report|deck|presentat
                        r"quantitative|findings", re.I)
 NOT_STATED = re.compile(r"not stated", re.I)
 DATA_EXPORT = re.compile(r"excel|csv|spreadsheet|data tables?|raw data|data set|dataset|xlsx", re.I)
+# how the analyst codes the articles, not an analysis the deck shows: never a deck check, never a repair round
+METHOD = re.compile(r"\bcoding\b|codebook|inter-?coder|reliability|de-?duplicat|syndicat|methodolog|"
+                    r"frequency and percentage", re.I)
 
 
 def brief_asks(project_id: int) -> list[tuple[str, str]]:
     spec = (store.get_latest_spec(project_id) or {}).get("spec") or {}
     scope = (spec.get("source_spec") or {}).get("included_scope") or {}
-    return [("analysis", a) for a in scope.get("expected_analyses") or []] + \
+    asks = [("analysis", a) for a in scope.get("expected_analyses") or []] + \
            [("deliverable", d) for d in scope.get("deliverables") or []]
+    return [(kind, a) for kind, a in asks if not METHOD.search(a)]
 
 
 def _keys(section: Section) -> set[str]:
