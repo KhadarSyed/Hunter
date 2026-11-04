@@ -20,6 +20,7 @@ from email.utils import parsedate_to_datetime
 from typing import Callable
 from urllib.parse import urlparse
 
+from ...agents.entity_grounding import is_placeholder_brand
 from ...core import store
 from ...core.events import broadcast
 from ..exclusions.service import keep, rules_for_project
@@ -318,6 +319,14 @@ def project_country(spec: dict) -> str:
     return geo.upper() if len(geo) == 2 else _COUNTRY_ISO_CODES.get(geo.lower(), "")
 
 
+def category_terms(brand: str, spec: dict) -> list[str]:
+    """A category study's own words, which make category news its coverage as a brand's name makes a brand's:
+    'Baby Skincare Category' with industry 'Personal Care / Baby Skincare' -> 'Baby Skincare', 'Personal Care'."""
+    industry = str((spec.get("industry") or {}).get("name") or "") if isinstance(spec.get("industry"), dict) else ""
+    parts = [brand, *re.split(r"\s*/\s*|\s*[()]\s*", industry)]
+    return list(dict.fromkeys(t for p in parts if (t := search_brand_term(p))))
+
+
 def _rank(articles: list[dict]) -> list[dict]:
     """Top stories first: carried by more sources/queries, then newer."""
     return sorted(articles, key=lambda a: (-a["copies"], -(parse_utc(a["date"]) or datetime.min.replace(
@@ -582,7 +591,10 @@ def run_refresh(refresh_id: int, project_id: int, llm=None, now: datetime | None
         with ThreadPoolExecutor(max_workers=len(FETCHERS)) as pool:
             list(pool.map(fetch_source, FETCHERS))
 
-        brands = brand_set(names[0], names[1:], [], ctx["products"] if ctx["brand"] else [])
+        category = bool(ctx["brand"]) and is_placeholder_brand(ctx["brand"])
+        brands = brand_set(names[0], names[1:], [],
+                           category_terms(ctx["brand"], project.get("spec") or {}) if category
+                           else ctx["products"] if ctx["brand"] else [])
         unique = dedupe(fetched)
         for a in unique:
             a["brands"] = mentions(f"{a['title']}\n{a['snippet']}", brands)
