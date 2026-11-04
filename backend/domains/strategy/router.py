@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 import openpyxl
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi import Path as PathParam
+from fastapi.responses import Response
 
 from ...agents.dataset_enrichment import enrich_dataset
 from ...agents.meltwater_query_builder import run as run_mqb
@@ -1455,10 +1456,12 @@ def get_project_enriched(project_id: IdPath, _access: Annotated[dict, Depends(re
     for r in records:              # which of its question's search keywords the article actually contains
         r["keyword_matches"] = qd_keyword_hits(f"{r.get('title') or ''}\n{r.get('content') or ''}",
                                                terms.get(r.get("research_question_id") or "", []))
-    return {"records": records,
+    body = {"records": records,
             "dimensions": {rq: qd_to_json(d) for rq, d in dims.items()},
             "tag_schemas": {rq: {"schema": tag_schema.to_json(s), "review_mapping": tag_schema.review_mapping(s)}
                             for rq, s in schemas.items()}}
+    # encoded once here: FastAPI's field-by-field encoder took ~10 s on a 50k-article project
+    return Response(json.dumps(body, default=str), media_type="application/json")
 
 
 # Fields that constitute an analyst edit to a record's tagging (as opposed to

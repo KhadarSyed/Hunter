@@ -256,15 +256,25 @@ def derive_with_source(llm, question: str, query: str, brands: list[str]) -> tup
 
 
 @lru_cache(maxsize=4096)
+@lru_cache(maxsize=4096)
 def _pattern(term: str) -> re.Pattern:
     wild = term.endswith("*")
     body = r"\s+".join(re.escape(part) for part in _base(term).split())
     return re.compile(rf"(?<![\w-]){body}" + (r"[\w-]*" if wild else r"(?![\w-])"), re.IGNORECASE)
 
 
+@lru_cache(maxsize=256)
+def _prepared(terms: tuple[str, ...]) -> list[tuple[str, str, re.Pattern]]:
+    """(term, its first word, pattern) once per term list: callers match one list against thousands of articles."""
+    return [(t, (_base(t).split() or [""])[0], _pattern(t)) for t in dict.fromkeys(t for t in terms if t)]
+
+
 def keyword_hits(text: str, terms: list[str]) -> list[str]:
     """The search terms the text actually contains, in the query's order (a trailing * matches word endings)."""
-    return [t for t in dict.fromkeys(t for t in terms if t) if _pattern(t).search(text or "")]
+    text = text or ""
+    lower = text.lower()
+    # a term's first word must appear as plain text: that cheap test skips the regex for most terms
+    return [t for t, first, pattern in _prepared(tuple(terms)) if first in lower and pattern.search(text)]
 
 
 def tag_text(text: str, dims: list[Dimension]) -> dict[str, list[str]]:
