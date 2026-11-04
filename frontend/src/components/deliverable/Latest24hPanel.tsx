@@ -67,7 +67,7 @@ export function Latest24hPanel({ projectId }: { projectId: number }) {
       const { refresh_id } = await intelApi.latest24hRefresh(projectId);
       setLive((l) => (l && l.refreshId === refresh_id ? l : { refreshId: refresh_id, total: 0, kept: null }));
     } catch (e) {
-      setError(e instanceof Error ? e.message.replace(/^\d+:\s*/, "") : "Could not start the 24h refresh");
+      setError(e instanceof Error ? e.message.replace(/^\d+:\s*/, "") : "Could not start the refresh");
     }
   };
 
@@ -84,7 +84,7 @@ export function Latest24hPanel({ projectId }: { projectId: number }) {
           <Icon icon="lucide:chevron-right" width={18} className={`shrink-0 text-slate-500 transition-transform ${isOpen ? "rotate-90" : ""}`} />
           <span className="min-w-0">
             <span id="latest24h-heading" className="flex items-center gap-2 text-base font-semibold text-slate-900">
-              <Icon icon="lucide:radio" width={18} className="text-[#5B2C9D]" /> What's new in the last 24h
+              <Icon icon="lucide:radio" width={18} className="text-[#5B2C9D]" /> What's new in the last 7 days
             </span>
             <span className="block text-xs text-slate-500" aria-live="polite">
               {live
@@ -98,7 +98,7 @@ export function Latest24hPanel({ projectId }: { projectId: number }) {
         <button onClick={start} disabled={running}
           className="inline-flex items-center gap-2 rounded-lg border border-[#5B2C9D] px-4 py-2 text-sm font-medium text-[#5B2C9D] hover:bg-violet-50 disabled:opacity-50">
           <Icon icon="lucide:refresh-cw" width={15} className={running ? "animate-spin" : ""} />
-          {running ? "Refreshing…" : "Refresh latest 24h"}
+          {running ? "Refreshing…" : "Refresh last 7 days"}
         </button>
       </div>
 
@@ -112,7 +112,7 @@ export function Latest24hPanel({ projectId }: { projectId: number }) {
       {!live && refresh?.status === "completed" && (
         <>
           {articles.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">No new coverage in the last 24h</p>
+            <p className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">No new coverage in the last 7 days</p>
           ) : (
             <>
               <ul className="space-y-2">
@@ -126,19 +126,19 @@ export function Latest24hPanel({ projectId }: { projectId: number }) {
               <div className="grid gap-3 md:grid-cols-2">
                 {charts.share && (
                   <div className="rounded-xl border border-slate-200 p-3">
-                    <p className="mb-1 text-sm font-semibold text-slate-800">Share of 24h coverage by brand</p>
+                    <p className="mb-1 text-sm font-semibold text-slate-800">Share of coverage by brand</p>
                     <ChartRenderer spec={charts.share} height={300} palette={BRAND_TINTS} legend />
                   </div>
                 )}
                 {charts.timeline && (
                   <div className="rounded-xl border border-slate-200 p-3">
-                    <p className="mb-1 text-sm font-semibold text-slate-800">Articles per hour (UTC)</p>
+                    <p className="mb-1 text-sm font-semibold text-slate-800">Articles per day (UTC)</p>
                     <ChartRenderer spec={charts.timeline} height={300} />
                   </div>
                 )}
                 {charts.outlets && (
                   <div className="rounded-xl border border-slate-200 p-3 md:col-span-2">
-                    <p className="mb-1 text-sm font-semibold text-slate-800">Top outlets in the last 24h</p>
+                    <p className="mb-1 text-sm font-semibold text-slate-800">Top outlets in the last 7 days</p>
                     <ChartRenderer spec={charts.outlets} height={260} />
                   </div>
                 )}

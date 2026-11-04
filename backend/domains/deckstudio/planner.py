@@ -200,7 +200,7 @@ _LIVE_KEYS = ("title", "url", "outlet", "date", "brands", "copies", "snippet", "
 
 
 def live_data(refresh: dict | None) -> dict:
-    """What the deck needs to draw (and redraw) the last-24h slides from one stored refresh: {} when none is done."""
+    """What the deck needs to draw (and redraw) the last-7-days slides from one stored refresh: {} when none is done."""
     if not refresh or refresh.get("status") != "completed":
         return {}
     charts = refresh.get("charts") or {}
@@ -211,29 +211,23 @@ def live_data(refresh: dict | None) -> dict:
             "icons": charts.get("icons") or {}}
 
 
-def hour_label(category: str) -> str:
-    """'02 Nov 14:00' -> '14:00': 24 hourly points along one axis have room for the hour only."""
-    return str(category)[-5:]
-
-
 def live_charts(refresh: dict | None) -> list[dict]:
-    """The dashboard's three charts (share by brand as ranked bars beside each brand's logo, articles per hour, top
+    """The dashboard's three charts (share by brand as ranked bars beside each brand's logo, articles per day, top
     outlets beside their icons), empty when there is nothing yet, so the deck can fill them on refresh."""
     charts = ((refresh or {}).get("charts") or {}) if live_data(refresh) else {}
     share = charts.get("share") or {}
     ranked = sorted(zip(share.get("categories") or [], share.get("values") or []), key=lambda p: -p[1])
     empty = {"categories": [], "values": [], "peaks": []}
-    return [{**empty, "kind": "bar", "unit": "percent", "series_label": "Share of 24h coverage by brand",
+    return [{**empty, "kind": "bar", "unit": "percent", "series_label": "Share of coverage by brand (last 7 days)",
              "categories": [c for c, _ in ranked], "values": [v for _, v in ranked], "drill": share.get("drill") or {},
              "choice": "share of voice: each brand's share of the day's brand mentions, ranked, beside its logo",
              "alternatives": "a doughnut (logos and close shares read better on a common axis)"},
-            {**empty, "kind": "line_peaks", "unit": "count", "series_label": "Articles per hour (UTC)",
+            {**empty, "kind": "line_peaks", "unit": "count", "series_label": "Articles per day (UTC)",
              **{k: (charts.get("timeline") or {}).get(k, v) for k, v in empty.items()},
-             "categories": [hour_label(c) for c in (charts.get("timeline") or {}).get("categories") or []],
-             "drill": {hour_label(k): v for k, v in ((charts.get("timeline") or {}).get("drill") or {}).items()},
-             "choice": "change over time: 24 hourly points as a line, the peak marked",
-             "alternatives": "columns (24 bars crowd the slide)"},
-            {**empty, "kind": "bar", "unit": "count", "series_label": "Top outlets in the last 24h",
+             "drill": (charts.get("timeline") or {}).get("drill") or {},
+             "choice": "change over time: 7 daily points as a line, the peak marked",
+             "alternatives": "columns (a line shows the week's rise and fall)"},
+            {**empty, "kind": "bar", "unit": "count", "series_label": "Top outlets in the last 7 days",
              **{k: (charts.get("outlets") or {}).get(k, v) for k, v in empty.items()},
              "drill": (charts.get("outlets") or {}).get("drill") or {},
              "choice": "ranking: the day's most active outlets as sorted bars",
@@ -241,15 +235,15 @@ def live_charts(refresh: dict | None) -> list[dict]:
 
 
 def _live_slides(inp: PlanInput) -> list[SlideSpec]:
-    """'What's new in the last 24h' and its dashboard, right after the executive summary: the latest stored refresh,
+    """'What's new in the last 7 days' and its dashboard, right after the executive summary: the latest stored refresh,
     which the HTML deck re-fetches in place (Refresh button) when it is shown inside Hunter. None without one."""
     data = live_data(inp.latest24h)
     if not data:
         return []
-    return [SlideSpec(id=LIVE_ID, type="latest24h", treatment="plain", kicker="Live · last 24 hours",
-                      title="What's new in the last 24h", live=data),
-            SlideSpec(id=LIVE_DASHBOARD_ID, type="latest24h_dashboard", treatment="plain", kicker="Live · last 24 hours",
-                      title="The last 24 hours at a glance", charts=live_charts(inp.latest24h), live=data,
+    return [SlideSpec(id=LIVE_ID, type="latest24h", treatment="plain", kicker="Live · last 7 days",
+                      title="What's new in the last 7 days", live=data),
+            SlideSpec(id=LIVE_DASHBOARD_ID, type="latest24h_dashboard", treatment="plain", kicker="Live · last 7 days",
+                      title="The last 7 days at a glance", charts=live_charts(inp.latest24h), live=data,
                       logos=dict(inp.latest24h_icons))]
 
 

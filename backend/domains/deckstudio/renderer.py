@@ -48,7 +48,7 @@ FRONTEND_CSS = (Path(__file__).parent / "frontend_slides" / "viewport-base.css")
 CHART_SIZE = {"A": (1000, 540), "C": (1100, 600), "plain": (1600, 600), "full": (900, 420), "S": (620, 640)}
 CHART_SIZE_WITH_CARDS = {"C": (1100, 370)}         # the photo-panel slide's summary cards sit under the chart
 KPI_ROW_H = 130                                     # the KPI tiles above a chart take this much of its height
-LIVE_CHART_SIZES = [(870, 400), (1780, 300), (870, 400)]  # the 24h dashboard: brands | outlets over the hourly line
+LIVE_CHART_SIZES = [(870, 400), (1780, 300), (870, 400)]  # the last-7-days dashboard: brands | outlets over the daily line
 
 
 def _asset(path: str | None, out_dir: Path) -> str | None:

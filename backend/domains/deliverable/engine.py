@@ -409,11 +409,11 @@ LATEST24H_POLL_S = 3
 
 
 def _latest24h(project_id: int, llm, log) -> dict | None:
-    """The latest completed "last 24h" refresh for the deck's live slides; with none stored, or only one older than
-    the window (its news is stale), one is run (bounded)."""
+    """The latest completed "last 7 days" refresh for the deck's live slides; with none stored, or only one older
+    than REFRESH_MAX_AGE (its week no longer ends today), one is run (bounded)."""
     refresh = store.get_latest_latest24h_refresh(project_id)
     if (refresh and refresh["status"] == "completed"
-            and time.time() - (refresh.get("finished_at") or 0) < latest24h.WINDOW.total_seconds()):
+            and time.time() - (refresh.get("finished_at") or 0) < latest24h.REFRESH_MAX_AGE.total_seconds()):
         return refresh
     try:
         latest24h.start(project_id, llm=llm)
@@ -426,9 +426,9 @@ def _latest24h(project_id: int, llm, log) -> dict | None:
             break
         time.sleep(LATEST24H_POLL_S)
     if refresh and refresh["status"] == "completed":
-        log(f"Last 24h: {refresh['kept']} articles kept of {refresh['fetched']} fetched")
+        log(f"Last 7 days: {refresh['kept']} articles kept of {refresh['fetched']} fetched")
         return refresh
-    log("Last 24h: no refresh finished in time; the deck has no last-24h slides")
+    log("Last 7 days: no refresh finished in time; the deck has no last-7-days slides")
     return None
 
 

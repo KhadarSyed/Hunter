@@ -60,7 +60,7 @@ function useLatest24hBridge(frame: RefObject<HTMLIFrameElement | null>, projectI
         intelApi.latest24hRefresh(projectId).catch((err: unknown) => {
           // one already running (409): its progress and result still stream to the deck
           const text = err instanceof Error ? err.message : "";
-          if (!text.startsWith("409")) post({ event: "error", message: "Could not start the 24h refresh" });
+          if (!text.startsWith("409")) post({ event: "error", message: "Could not start the refresh" });
         });
       }
     };

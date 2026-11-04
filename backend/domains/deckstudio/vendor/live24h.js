@@ -59,9 +59,9 @@
     var list = textSlide.querySelector(".live-stories ol");
     list.textContent = "";
     if (!live.articles) {
-      return empty(bullets, framed ? "Refresh to load the last 24h" : "No 24h refresh stored yet: open this deck in Hunter and press Refresh latest 24h");
+      return empty(bullets, framed ? "Refresh to load the last 7 days" : "No refresh stored yet: open this deck in Hunter and press Refresh last 7 days");
     }
-    if (!live.articles.length) return empty(bullets, "No new coverage in the last 24 hours");
+    if (!live.articles.length) return empty(bullets, "No new coverage in the last 7 days");
     var byN = {};
     live.articles.forEach(function (a) { byN[a.n] = a; });
     bullets.textContent = "";
@@ -89,7 +89,7 @@
       var t = link(a.url);
       t.textContent = a.title || a.url;
       body.appendChild(t);
-      var when = utc(a.date, { hour: "2-digit", minute: "2-digit" });
+      var when = utc(a.date, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
       body.appendChild(node("small", null, [a.outlet, when, (a.brands || []).join(", ")].filter(Boolean).join(" · ")));
       li.appendChild(body);
       list.appendChild(li);
@@ -115,12 +115,10 @@
     }
     var t = charts.timeline || {};
     var peaks = t.peaks || [];
-    var hours = {};                     // "02 Nov 14:00" -> "14:00", as the axis shows it
-    Object.keys(t.drill || {}).forEach(function (k) { hours[String(k).slice(-5)] = t.drill[k]; });
     return [
       old[0] && bars(old[0], charts.share || {}, {}),
-      old[1] && Object.assign({}, old[1], { drill: hours, live: true, data: (t.categories || []).map(function (k, i) {
-        return { category: String(k).slice(-5), value: t.values[i], peak: peaks.indexOf(i) >= 0, color: old[1].accent };
+      old[1] && Object.assign({}, old[1], { drill: t.drill || {}, live: true, data: (t.categories || []).map(function (k, i) {
+        return { category: String(k), value: t.values[i], peak: peaks.indexOf(i) >= 0, color: old[1].accent };
       }) }),
       old[2] && bars(old[2], charts.outlets || {}, (charts.icons || {}))
     ];
@@ -139,7 +137,7 @@
 
   function done(message) {
     btn.disabled = false;
-    btn.textContent = "Refresh latest 24h";
+    btn.textContent = "Refresh last 7 days";
     if (message) { box.hidden = false; box.textContent = message; } else box.hidden = true;
   }
 

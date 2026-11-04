@@ -1,10 +1,10 @@
-"""'Refresh latest 24h' on the Deliverables page: articles from the last 24 hours about the brand and its competitors,
+"""'Refresh last 7 days' on the Deliverables page: articles from the last 7 days about the brand and its competitors,
 streamed per source over /ws, then deduped, relevance-checked, summarised (cited) and charted, and saved.
 
-Sources (all three honour a time window at the API and every item carries a date, re-checked here to <= 24h):
-  - SerpAPI google_news: `when:1d` operator.
-  - Tavily news: start_date/end_date (day granularity, so the per-item date filter does the 24h cut).
-  - Google News RSS: `when:24h` operator.
+Sources (all three honour a time window at the API and every item carries a date, re-checked here to the window):
+  - SerpAPI google_news: `when:7d` operator.
+  - Tavily news: start_date/end_date (day granularity, so the per-item date filter does the exact cut).
+  - Google News RSS: `when:168h` operator.
 """
 from __future__ import annotations
 
@@ -32,7 +32,8 @@ from .evidence import brand_set, mentions
 
 logger = logging.getLogger(__name__)
 
-WINDOW = timedelta(hours=24)
+WINDOW = timedelta(days=7)
+REFRESH_MAX_AGE = timedelta(hours=6)   # a deck reuses a stored refresh this long, then fetches up to today again
 MAX_PER_QUERY = 40
 MAX_BRANDS = 6              # the brand + up to five competitors: one query each, per source
 LLM_TIMEOUT_S = 60
@@ -101,7 +102,7 @@ class RefreshBusy(RuntimeError):
 
 def parse_utc(date_str: str) -> datetime | None:
     """A source's date as an aware UTC datetime; None when unparseable. Offsets are honoured (news_search._parse_date
-    drops them), which matters inside a 24h window."""
+    drops them), which matters at the window's edge."""
     s = (date_str or "").strip()
     if not s:
         return None
@@ -116,7 +117,7 @@ def parse_utc(date_str: str) -> datetime | None:
 
 
 def within_window(date_str: str, now: datetime) -> bool:
-    """Published in (now - 24h, now + 5min]: an undated item fails, a few minutes of clock skew pass."""
+    """Published in (now - WINDOW, now + 5min]: an undated item fails, a few minutes of clock skew pass."""
     dt = parse_utc(date_str)
     return dt is not None and now - WINDOW < dt <= now + timedelta(minutes=5)
 
@@ -334,39 +335,34 @@ def _rank(articles: list[dict]) -> list[dict]:
 
 
 def build_charts(articles: list[dict], brands: list[str], now: datetime) -> dict:
-    """What 24h news data supports: share of coverage by brand, hourly volume, top outlets (when there are a few)."""
+    """What a week of news supports: share of coverage by brand, daily volume, top outlets (when there are a few)."""
     named = Counter(b for a in articles for b in a["brands"])
     total = sum(named.values()) or 1
     share_brands = [b for b in brands if named[b]]
     share = {"kind": "doughnut", "categories": share_brands,
              "values": [round(100 * named[b] / total, 1) for b in share_brands], "unit": "percent",
-             "series_label": "Share of 24h coverage by brand", "counts": [named[b] for b in share_brands]}
-    start = (now - WINDOW).replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-    hours = [start + timedelta(hours=i) for i in range(24)]
-    per_hour = Counter()
-    for a in articles:
-        dt = parse_utc(a["date"])
-        if dt:
-            per_hour[dt.replace(minute=0, second=0, microsecond=0)] += 1
-    values = [per_hour[h] for h in hours]
+             "series_label": "Share of coverage by brand (last 7 days)", "counts": [named[b] for b in share_brands]}
+    first = (now - WINDOW).date()           # the window's first (partial) day through today: every kept article is on it
+    days = [first + timedelta(days=i) for i in range((now.date() - first).days + 1)]
+    per_day = Counter(dt.date() for a in articles if (dt := parse_utc(a["date"])))
+    values = [per_day[d] for d in days]
     peak = max(values) if values else 0
-    timeline = {"kind": "line_peaks", "categories": [h.strftime("%d %b %H:00") for h in hours], "values": values,
+    timeline = {"kind": "line_peaks", "categories": [d.strftime("%d %b") for d in days], "values": values,
                 "peaks": [i for i, v in enumerate(values) if peak and v == peak][:1], "unit": "count",
-                "series_label": "Articles per hour (UTC)"}
+                "series_label": "Articles per day (UTC)"}
     shown: dict[str, str] = {}                  # "motor1.com" and "Motor1.com" are one outlet, shown as first seen
     for a in articles:
         if a["outlet"]:
             shown.setdefault(a["outlet"].casefold(), a["outlet"])
     outlets = [(shown[k], n) for k, n in Counter(a["outlet"].casefold() for a in articles if a["outlet"]).most_common(8)]
-    # each bar / hour's articles (by n), listed when the deck's chart element is clicked
+    # each bar / day's articles (by n), listed when the deck's chart element is clicked
     share["drill"] = {b: [a["n"] for a in articles if b in a["brands"]] for b in share_brands}
-    timeline["drill"] = {h.strftime("%d %b %H:00"): [a["n"] for a in articles if (dt := parse_utc(a["date"]))
-                                                     and dt.replace(minute=0, second=0, microsecond=0) == h]
-                         for h in hours}
+    timeline["drill"] = {d.strftime("%d %b"): [a["n"] for a in articles if (dt := parse_utc(a["date"])) and dt.date() == d]
+                         for d in days}
     charts = {"share": share, "timeline": timeline}
     if len(outlets) >= 3:
         charts["outlets"] = {"kind": "bar", "categories": [o for o, _ in outlets], "values": [n for _, n in outlets],
-                             "unit": "count", "series_label": "Top outlets in the last 24h",
+                             "unit": "count", "series_label": "Top outlets in the last 7 days",
                              "drill": {o: [a["n"] for a in articles if (a["outlet"] or "").casefold() == o.casefold()]
                                        for o, _ in outlets}}
     return charts
@@ -394,7 +390,7 @@ def outlet_icons(articles: list[dict]) -> dict[str, str]:
 
 def _hhmm(a: dict) -> str:
     dt = parse_utc(a["date"])
-    return dt.strftime("%H:%M UTC") if dt else ""
+    return dt.strftime("%d %b %H:%M UTC") if dt else ""
 
 
 def deterministic_summary(articles: list[dict], brands: list[str], questions: list[dict], now: datetime) -> list[dict]:
@@ -405,8 +401,8 @@ def deterministic_summary(articles: list[dict], brands: list[str], questions: li
     named = Counter(b for a in articles for b in a["brands"])
     lead, lead_n = named.most_common(1)[0]
     lead_story = next(a for a in articles if lead in a["brands"])
-    bullets.append({"text": f"{len(articles)} new {'article' if len(articles) == 1 else 'articles'} in the last 24 "
-                            f"hours; {lead} is named in {lead_n} of them, the most of any brand tracked.",
+    bullets.append({"text": f"{len(articles)} new {'article' if len(articles) == 1 else 'articles'} in the last 7 "
+                            f"days; {lead} is named in {lead_n} of them, the most of any brand tracked.",
                     "citations": [lead_story["n"]]})
     for brand in brands:
         story = next((a for a in articles if brand in a["brands"]), None)
@@ -414,15 +410,11 @@ def deterministic_summary(articles: list[dict], brands: list[str], questions: li
             when = _hhmm(story)
             bullets.append({"text": f"Latest on {brand}: \"{story['title']}\" ({story['outlet'] or 'unknown outlet'}"
                                     f"{', ' + when if when else ''}).", "citations": [story["n"]]})
-    hourly = Counter()
-    for a in articles:
-        dt = parse_utc(a["date"])
-        if dt:
-            hourly[dt.strftime("%H:00 UTC")] += 1
-    if hourly:
-        hour, k = hourly.most_common(1)[0]
-        cites = [a["n"] for a in articles if (parse_utc(a["date"]) or now).strftime("%H:00 UTC") == hour][:3]
-        bullets.append({"text": f"Coverage peaked at {hour} with {k} {'article' if k == 1 else 'articles'}.",
+    daily = Counter(dt.strftime("%d %b") for a in articles if (dt := parse_utc(a["date"])))
+    if daily:
+        day, k = daily.most_common(1)[0]
+        cites = [a["n"] for a in articles if (parse_utc(a["date"]) or now).strftime("%d %b") == day][:3]
+        bullets.append({"text": f"Coverage peaked on {day} with {k} {'article' if k == 1 else 'articles'}.",
                         "citations": cites})
     for q in questions:
         words = {w for w in re.findall(r"[a-z]{4,}", q["question"].lower()) if w not in _STOP}
@@ -441,8 +433,8 @@ def _llm_summary(llm, articles: list[dict], brands: list[str], questions: list[d
                         f" | {a['snippet'][:200]}" for a in articles[:60])
     qs = "\n".join(f"{q['id']}: {q['question']}" for q in questions) or "(none)"
     prompt = (f"Brands tracked: {', '.join(brands)}.\nDeck headline: {headline or '(none)'}\nResearch questions:\n{qs}\n\n"
-              f"Articles from the last 24 hours:\n{listing}\n\n"
-              "Write 3-6 short bullets on what is new in the last 24 hours, tied to the research questions where the "
+              f"Articles from the last 7 days:\n{listing}\n\n"
+              "Write 3-6 short bullets on what is new in the last 7 days, tied to the research questions where the "
               "articles allow. Use only facts in these articles; the articles carry no sentiment scores, so do not claim a "
               "sentiment trend. Each bullet is a plain insight sentence: never mention articles, sources or coverage "
               "of the event (no 'covered in articles [1] and [2]', no '[3] reports'), and put no article numbers in the "
@@ -490,7 +482,7 @@ def summarize(articles: list[dict], brands: list[str], questions: list[dict], he
 # ─── Sources ────────────────────────────────────────────────────────────────
 
 def _serpapi(query: str, natural: str, country: str, keys: dict, ok: Callable) -> list[dict]:
-    raw = news_search._search_serpapi(query, country, MAX_PER_QUERY, 1, keys.get("serpapi"), ok)
+    raw = news_search._search_serpapi(query, country, MAX_PER_QUERY, WINDOW.days, keys.get("serpapi"), ok)
     return [news_search._normalize_serpapi_item(i) for i in raw]
 
 
@@ -502,7 +494,7 @@ def _tavily(query: str, natural: str, country: str, keys: dict, ok: Callable) ->
 
 
 def _rss(query: str, natural: str, country: str, keys: dict, ok: Callable) -> list[dict]:
-    raw = news_search._search_google_news_rss(query, 24, country)
+    raw = news_search._search_google_news_rss(query, int(WINDOW.total_seconds() // 3600), country)
     ok(True, None)              # shortcut: the RSS helper returns [] on failure too, so an RSS outage reads as 0 found
     return [news_search._normalize_rss_item(i) for i in raw[:MAX_PER_QUERY]]
 
@@ -639,7 +631,7 @@ def start(project_id: int, *, llm=None, threaded: bool = True) -> int:
     """Start a refresh for the project; one at a time per project."""
     with _busy_lock:
         if project_id in _busy:
-            raise RefreshBusy("A 24h refresh is already running for this project")
+            raise RefreshBusy("A last-7-days refresh is already running for this project")
         _busy.add(project_id)
     try:
         refresh_id = store.create_latest24h_refresh(project_id)

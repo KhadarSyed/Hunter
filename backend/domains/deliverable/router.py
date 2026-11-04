@@ -80,7 +80,7 @@ def latest(project_id: ProjectId, _: Access):
 
 @router.post("/deliverable/{project_id}/latest24h", status_code=202)
 def refresh_latest24h(project_id: ProjectId, _: Access):
-    """Fetch the last 24 hours of coverage about the brand and its competitors; progress streams on /ws."""
+    """Fetch the last 7 days of coverage about the brand and its competitors; progress streams on /ws."""
     try:
         return {"refresh_id": latest24h.start(project_id)}
     except latest24h.RefreshBusy as e:
