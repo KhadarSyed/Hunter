@@ -6,6 +6,7 @@ import { CountryFlag } from "../components/CountryFlag";
 import { useAuth } from "../context/auth-context";
 import { useProject, type ProjectType } from "../context/project-context";
 import { intelApi, type BriefSource, type ProjectSummary } from "../services/intel-api";
+import { agentSocket } from "../services/ws";
 import { formatRelativeOrDate } from "../utils/time";
 
 interface Props {
@@ -246,6 +247,21 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
       .catch((e) => setError(e instanceof Error ? e.message : "Could not load projects"));
   };
   useEffect(load, [projectType]);
+
+  // Live: a project created or deleted anywhere swaps in the fresh list without the loading flash,
+  // dropping any selected ids that no longer exist
+  useEffect(() => {
+    agentSocket.connect();
+    const off = agentSocket.onMessage((msg) => {
+      if (msg.type !== "project_created" && msg.type !== "project_deleted") return;
+      intelApi.listProjects(projectType).then((list) => {
+        setProjects(list);
+        const ids = new Set(list.map((p) => p.id));
+        setSelected((prev) => new Set([...prev].filter((id) => ids.has(id))));
+      }).catch(() => {});
+    });
+    return () => { off(); };
+  }, [projectType]);
 
   // Admins see every project in their org grouped by owning Analyser — resolve
   // owner ids to display names once (the project list itself is already scoped
