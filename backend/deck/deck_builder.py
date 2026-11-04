@@ -132,7 +132,6 @@ def _add_divider_slide(prs, title: str, parenthetical: str = ""):
     """Creates a section divider slide with violet styling."""
     slide = prs.slides.add_slide(_blank_layout(prs))
     width = prs.slide_width
-    height = prs.slide_height
 
     title_box = slide.shapes.add_textbox(Inches(0.8), Inches(2.5), width - Inches(1.6), Inches(1.2))
     tf = title_box.text_frame

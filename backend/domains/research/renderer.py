@@ -516,8 +516,6 @@ def _render_executive_summary(doc: Document, content: str) -> None:
 
     lines = content.split("\n")
     takeaway_num = 0
-    in_takeaway = False
-    takeaway_title = ""
 
     for line in lines:
         stripped = line.strip()
@@ -747,7 +745,6 @@ def _render_source_register(doc: Document, content: str) -> None:
         ref_match = re.match(r'^\[?(S\d+)\]?\s*\|?\s*(.*)', stripped)
         if ref_match and ref_match.group(1):
             source_num += 1
-            ref = ref_match.group(1)
             rest = ref_match.group(2)
 
             p = doc.add_paragraph()

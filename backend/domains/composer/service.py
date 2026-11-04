@@ -320,7 +320,6 @@ def generate_presentation(project_id: int, reviewer: str = "system") -> dict:
         speaker_notes = _build_speaker_notes(slide_purpose, content_node, node_insights)
         business_obj = _infer_business_objective(slide_purpose, node)
 
-        flow_stage = _SECTION_TO_FLOW_STAGE.get(section_type, "insights")
         duration = _PURPOSE_DURATION.get(slide_purpose, 2.0)
 
         hist_refs = [

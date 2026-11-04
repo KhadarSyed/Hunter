@@ -212,7 +212,6 @@ def run_pipeline(
 
         plan = _build_deck_plan(analysis, candidates, brief_text, step)
 
-        today_str = date.today().strftime("%B %Y")
         client_name = analysis.get("client") or client_hint
         if _is_placeholder(client_name):
             client_name = _extract_client_from_brief(brief_text) or client_hint

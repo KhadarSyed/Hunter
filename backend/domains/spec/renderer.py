@@ -148,7 +148,7 @@ def _add_table_of_contents(
     doc: Document, section_order: list, section_titles: dict, sections: dict
 ):
     doc.add_page_break()
-    h = doc.add_heading("Table of Contents", level=1)
+    doc.add_heading("Table of Contents", level=1)
 
     for i, key in enumerate(section_order, 1):
         sec = sections.get(key, {})
@@ -161,7 +161,7 @@ def _add_table_of_contents(
 
 
 def _add_section_heading(doc: Document, title: str):
-    h = doc.add_heading(title, level=1)
+    doc.add_heading(title, level=1)
     _add_violet_divider(doc)
 
 

@@ -358,8 +358,6 @@ def _enrich_plan_with_metadata(
 def _build_execution_units(objectives: list, dataset_meta: dict, spec: dict) -> list:
     """Transform research objectives into independently executable units."""
     units = []
-    available_fields = set(dataset_meta.get("fields", []))
-    platforms_in_dataset = set(dataset_meta.get("platforms", []))
 
     for obj in objectives:
         methods = obj.get("methods", ["Thematic Analysis"])

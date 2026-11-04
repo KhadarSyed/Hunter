@@ -113,7 +113,6 @@ def _build_deterministic_strategy(spec: dict, raw_brief_text: str = "") -> dict:
     brand_name = brand.get("name", "")
     category = brand.get("category", "")
     products = brand.get("products", [])
-    parent = brand.get("parent_company", "")
 
     excluded = spec.get("excluded_scope", [])
     not_terms = []

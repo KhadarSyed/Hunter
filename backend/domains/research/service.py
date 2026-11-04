@@ -406,7 +406,6 @@ def _build_brand_narrative_basic(brand_items, brand_name, source_lookup):
         headline = (item.get("headline") or "").lower()
         summary = (item.get("summary") or "").lower()
         text = headline + " " + summary
-        family = item.get("family", "")
         if any(w in text for w in ["launch", "new product", "release", "unveil", "introduce", "debut"]):
             themes.setdefault("Product & Innovation", []).append(item)
         elif any(w in text for w in ["partner", "collaborat", "sponsor", "endorse", "ambassador"]):

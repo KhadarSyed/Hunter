@@ -74,8 +74,6 @@ def retrieve_for_node(node_id: int, top_k: int = 10) -> dict:
 
     section_type = node.get("section_type", "key_findings")
     title = node.get("title", "")
-    narrative = node.get("narrative_summary", "")
-    suggested_visual = node.get("suggested_visual", "")
 
     preferred_purposes = _SECTION_TO_PURPOSE.get(section_type, ["key_finding"])
     preferred_layouts = _SECTION_TO_LAYOUT.get(section_type, [])
