@@ -61,6 +61,11 @@ BLOCKED_DOMAINS = {
 BLOCKED_TLDS = {".in", ".co.in", ".org.in", ".net.in", ".ind.in"}
 
 
+def spec_competitors(spec: dict) -> list[str]:
+    return [e["name"] for e in spec.get("validated_entities") or []
+            if isinstance(e, dict) and e.get("type") == "competitor" and e.get("name")]
+
+
 def _extract_domain(url: str) -> str:
     try:
         parsed = urlparse(url)
@@ -166,9 +171,11 @@ class EntityValidator:
     """Validates whether a search result is relevant to the target entity."""
 
     def __init__(self, brand_name: str, category: str, geography: str,
-                 exclude_patterns: list[str] | None = None):
+                 exclude_patterns: list[str] | None = None, competitors: list[str] | None = None):
         self.brand_name = brand_name
         self.brand_lower = _normalize_text(brand_name.lower())
+        # the searches name the competitors too, so a result about one of them is on topic
+        self.competitors = [c for c in (_normalize_text(n.lower()) for n in competitors or []) if len(c) > 2]
         self.category = category.lower()
         self.geography = geography.lower()
         self.exclude_patterns = [p.lower() for p in (exclude_patterns or [])]
@@ -222,6 +229,9 @@ class EntityValidator:
 
         if brand_mentioned:
             return {"relevant": True, "reason": "Brand name found in content", "confidence": "high"}
+
+        if any(c in text for c in self.competitors):
+            return {"relevant": True, "reason": "Competitor named in content", "confidence": "high"}
 
         if partial_match and category_mentioned:
             return {"relevant": True, "reason": "Partial brand match + category context", "confidence": "medium"}
@@ -451,7 +461,8 @@ class LiveWebResearchAdapter:
 
         # Build entity validator — still used below to score each retained item's relevance
         exclude_patterns = self._extract_exclusions(spec)
-        validator = EntityValidator(search_brand_term(brand_name), category, geography, exclude_patterns)
+        validator = EntityValidator(search_brand_term(brand_name), category, geography, exclude_patterns,
+                                    competitors=spec_competitors(spec))
 
         try:
             from ...core.llm_provider import get_llm_client

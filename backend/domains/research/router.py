@@ -51,7 +51,7 @@ from .schemas import (
     SectionVideoResponse,
     StartResearchRequest,
 )
-from .web_research import EntityValidator, LiveWebResearchAdapter
+from .web_research import EntityValidator, LiveWebResearchAdapter, spec_competitors
 
 logger = logging.getLogger(__name__)
 
@@ -412,7 +412,7 @@ def get_research_items_route(project_id: Annotated[int, Path(ge=1)],
     category = adapter._extract_category(spec)
     geography = adapter._extract_geography(spec)
     exclude_patterns = adapter._extract_exclusions(spec)
-    validator = EntityValidator(brand_name, category, geography, exclude_patterns)
+    validator = EntityValidator(brand_name, category, geography, exclude_patterns, competitors=spec_competitors(spec))
 
     entities = spec.get("validated_entities", [])
     keyword_terms = [brand_name] if brand_name else []
