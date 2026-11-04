@@ -55,7 +55,7 @@ def _prepare(j: Job) -> None:
     j.allowed, j.pairs = ins.allowed_numbers(j.facts), ins.allowed_pairs(j.facts)
     j.local = {i: a for i, a in enumerate(j.candidates, start=1)}
     j.arts = [{"id": i, "outlet": a.outlet, "date": a.date.isoformat() if a.date else "", "title": a.title,
-               "excerpt": a.text[:400], **({"segments": j.article_segments[a.norm_url]}
+               "excerpt": ins.excerpt(a.text, ins._terms(a, j.segments, j.article_segments, j.entities)), **({"segments": j.article_segments[a.norm_url]}
                                            if j.article_segments and a.norm_url in j.article_segments else {})}
               for i, a in j.local.items()]
     j.owners = ins._segment_owners(j.local, j.article_segments)
@@ -101,7 +101,7 @@ def _verify(jobs: list[Job], llm) -> list[set[int]]:
     """One judge call for every section's claims; a failed call keeps the claims (they passed _screen)."""
     keep = [set(range(len(j.valid))) for j in jobs]
     items = [{"index": f"s{i}:{k}", "section": f"s{i}", "claim": f"{h}. {t}",
-              "evidence": [{"title": j.local[c].title, "excerpt": j.local[c].text[:600]} for c in cs]}
+              "evidence": [{"title": j.local[c].title, "excerpt": next(x["excerpt"] for x in j.arts if x["id"] == c)} for c in cs]}
              for i, j in enumerate(jobs) for k, (h, t, cs) in enumerate(j.valid)]
     if not items:
         return keep

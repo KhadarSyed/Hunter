@@ -182,7 +182,11 @@ _DRAFT_SYSTEM = ("You write insights for a media-research deck, the way a senior
     "headline figure; it explains WHY the pattern exists -- its drivers. Name the specific outlets, brands, products, people, "
     "events and months from the ARTICLES that drive it (e.g. 'The December peak came from holiday gift-guide "
     "round-ups in USA Today and Living Rich With Coupons, featuring Aveeno Baby and Tom's of Maine'), then end "
-    "with the so-what for the client: the opportunity, risk or action it points to. Each insight covers a "
+    "with the so-what for the client: the opportunity, risk or action it points to. A driver is something an "
+    "excerpt states: every outlet, brand, person, event and reason you name must appear in the excerpt of an article "
+    "you cite. Never infer an editor's or brand's motive or a cause the excerpts do not state (not 'X benefits when "
+    "editors need...', 'coverage consolidates around X when...'); where the excerpts do not say why, say what the "
+    "cited coverage itself shows and does. Each insight covers a "
     "different driver; never repeat a point or a figure another insight makes. Never mention article ids in the "
     "text (no '(article 2)'); name the outlet instead -- the citations list carries the ids. Use at most one number per "
     "insight, and only as evidence for a driver. Each insight is a complete thought, never a bare 'X of Y "
@@ -208,6 +212,30 @@ _JUDGE_SYSTEM = ("You fact-check insights for a media-research deck. Judge the f
     "relevant, mark it unsupported. Return JSON only.")
 
 
+EXCERPT_CHARS = 600     # what the drafter and the judge both read of an article: the same text, so a claim the
+LEAD_CHARS = 200        # drafter could see is one the judge can check
+BEFORE_MENTION = 120
+
+
+def excerpt(text: str, terms: list[str]) -> str:
+    """The article's opening, plus the passage that mentions the chart's category or a named entity when that sits
+    past the opening: a driver named in the excerpt is one the judge can find, not one the drafter guessed."""
+    if len(text) <= EXCERPT_CHARS:
+        return text
+    low = text.lower()
+    hits = [low.find(t.lower()) for t in terms if t and len(t) > 2]
+    at = min((h for h in hits if h >= 0), default=-1)
+    if at < 0 or at < EXCERPT_CHARS - BEFORE_MENTION:
+        return text[:EXCERPT_CHARS]
+    start = max(LEAD_CHARS, at - BEFORE_MENTION)
+    return f"{text[:LEAD_CHARS]} … {text[start:start + EXCERPT_CHARS - LEAD_CHARS]}"
+
+
+def _terms(a: Article, segments: list[str] | None, article_segments: dict | None, entities: list[str] | None):
+    own = (article_segments or {}).get(a.norm_url)
+    return list(own or segments or []) + list(entities or [])
+
+
 def draft_section(section: str, facts: list[str], candidates: list[Article], registry: CitationRegistry,
                   llm, n_insights: int = 3, entities: list[str] | None = None,
                   avoid: list[str] | None = None, segments: list[str] | None = None,
@@ -224,9 +252,11 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
     pairs = allowed_pairs(facts)
     local = {i: a for i, a in enumerate(candidates, start=1)}
     arts = [{"id": i, "outlet": a.outlet, "date": a.date.isoformat() if a.date else "", "title": a.title,
-             "excerpt": a.text[:400], **({"segments": article_segments[a.norm_url]}
-                                         if article_segments and a.norm_url in article_segments else {})}
+             "excerpt": excerpt(a.text, _terms(a, segments, article_segments, entities)),
+             **({"segments": article_segments[a.norm_url]}
+                if article_segments and a.norm_url in article_segments else {})}
             for i, a in local.items()]
+    seen_text = {x["id"]: x["excerpt"] for x in arts}
     owners = _segment_owners(local, article_segments)
     messages = [
         {"role": "system", "content": _DRAFT_SYSTEM},
@@ -262,7 +292,7 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
             valid += [v for v in more if v[1] not in seen]          # the model may repeat an accepted insight
         except (json.JSONDecodeError, RuntimeError) as e:
             logger.warning("insight repair for %s failed (%s)", section, e)
-    supported = _verify_claims(section, valid, facts, local, llm)
+    supported = _verify_claims(section, valid, facts, local, llm, seen_text)
     shown = [v for i, v in enumerate(valid) if i in supported][:n_insights]   # cap before citing anything
     if len(shown) < n_insights:
         shown += _rescue(section, facts, arts, local, llm, n_insights - len(shown), (avoid or []) +
@@ -296,7 +326,7 @@ def _rescue(section: str, facts: list[str], arts: list[dict], local: dict[int, A
         found, _ = _screen(section, json.loads(llm.chat(messages, format_json=True)), allowed, pairs, local,
                            entities, shown_figs)
         found = [v for v in found if not _NUM.search(_digits(_without_names(f"{v[0]} {v[1]}", local)))]
-        supported = _verify_claims(section, found, facts, local, llm)
+        supported = _verify_claims(section, found, facts, local, llm, {x["id"]: x["excerpt"] for x in arts})
     except Exception as e:
         logger.warning("number-free rescue for %s failed (%s: %s)", section, type(e).__name__, e)
         return []
@@ -433,14 +463,17 @@ def _screen(section: str, parsed: dict, allowed: set[str], pairs: set, local: di
     return valid, rejected
 
 
-def _verify_claims(section: str, valid: list[tuple], facts: list[str], local: dict[int, Article], llm) -> set[int]:
-    """Second pass: a judge checks every claim (numeric or not) against FACTS and its cited articles.
-    Drops only explicit 'supported: false'; a missing/garbled verdict keeps the insight, which has already
-    passed the number, unit and citation checks."""
+def _verify_claims(section: str, valid: list[tuple], facts: list[str], local: dict[int, Article], llm,
+                   seen_text: dict[int, str] | None = None) -> set[int]:
+    """Second pass: a judge checks every claim (numeric or not) against FACTS and its cited articles -- the same
+    excerpts the drafter read (`seen_text`). Drops only explicit 'supported: false'; a missing/garbled verdict keeps
+    the insight, which has already passed the number, unit and citation checks."""
     if not valid:
         return set()
+    seen_text = seen_text or {}
     items = [{"index": i, "claim": f"{h}. {t}",
-              "evidence": [{"title": local[c].title, "excerpt": local[c].text[:600]} for c in cs]}
+              "evidence": [{"title": local[c].title, "excerpt": seen_text.get(c) or local[c].text[:EXCERPT_CHARS]}
+                           for c in cs]}
              for i, (h, t, cs) in enumerate(valid)]
     messages = [
         {"role": "system", "content": _JUDGE_SYSTEM},
