@@ -137,8 +137,9 @@ not scaffolding.
 
 Note: 10 pages (`ResearchPlan`, `EvidenceLibrary`, `InsightsPage`, `StorylinePage`,
 `SlideIntelligencePage`, `PresentationComposerPage`, `PowerPointRendererPage`, `WordRendererPage`,
-`PublishingGatewayPage`, `QueryEvaluation`) and 4 components
-(`LiveFeed`, `RunStatus`, `SettingsPanel`, `TopHeader`) exist but are not rendered from `App.tsx`.
+`PublishingGatewayPage`, `QueryEvaluation`) are registered in `App.tsx`'s `PAGES`, so they open by
+URL (e.g. `/{projectId}/insights`), but no sidebar or Dashboard link leads to them; they only link
+to each other. Their shared UI pieces live in `components/stage-ui.tsx`.
 
 ## Critical Patterns
 
