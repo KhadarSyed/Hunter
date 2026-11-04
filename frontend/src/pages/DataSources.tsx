@@ -1017,7 +1017,7 @@ export function DataSources({ onNavigate }: Props) {
 
       {mainTab === "review" ? (
         <div className="flex-1 min-h-0 overflow-y-auto">
-          <EnrichedArticlesTable records={reviewRecords} loading={reviewLoading} dimensions={reviewDimensions}
+          <EnrichedArticlesTable records={reviewRecords} loading={reviewLoading} dimensions={reviewDimensions} projectId={projectId ?? undefined}
             tagSchemas={reviewTagSchemas} />
         </div>
       ) : (

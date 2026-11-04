@@ -278,6 +278,12 @@ export interface ResearchItemClassificationResult {
   method: "jev" | "jev_partial" | "rules";
 }
 
+/** Related Review-tab rows, as "<dataset_id>:<record id>" keys. */
+export interface RowRelations {
+  syndicated: string[];
+  similar: string[];
+}
+
 export interface ResearchItemRelationsResult {
   relations: Record<string, ItemRelations>;
   method: "embeddings" | "embeddings_partial" | "titles";
@@ -835,6 +841,11 @@ export const intelApi = {
 
   getProjectEnriched: (projectId: number) =>
     get<{ records: EnrichedRecord[]; dimensions?: Record<string, QuestionDimension[]>; tag_schemas?: TagSchemas }>(`/dataset/enriched/${projectId}`),
+
+  /** Syndicated / similar articles among the Review tab's rows, keyed "<dataset_id>:<record id>". */
+  getEnrichedRelations: (projectId: number) =>
+    get<{ relations: Record<string, RowRelations>; method: ResearchItemRelationsResult["method"] }>(
+      `/dataset/enriched/${projectId}/relations`),
 
   updateEnrichedRecord: (datasetId: number, recordId: string, updates: Partial<EnrichedRecord>) =>
     patch<EnrichedRecord>(`/dataset/${datasetId}/enriched/${recordId}`, updates),

@@ -321,8 +321,11 @@ export function ResearchItemsTable({ projectId }: ResearchItemsTableProps) {
       {openRelation && (
         <RelatedArticlesDrawer
           kind={openRelation.kind}
-          source={openRelation.item}
-          related={relatedItems(openRelation.item, openRelation.kind)}
+          source={{ title: openRelation.item.title, publisher: openRelation.item.publication || openRelation.item.domain }}
+          related={relatedItems(openRelation.item, openRelation.kind).map((item) => ({
+            key: String(item.id), url: item.url, title: item.title, publisher: item.publication || item.domain,
+            date: formatDate(item.published_date), content: item.content, access: item.access,
+          }))}
           onClose={() => setOpenRelation(null)}
         />
       )}

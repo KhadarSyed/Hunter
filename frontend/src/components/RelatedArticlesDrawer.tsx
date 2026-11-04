@@ -1,7 +1,18 @@
-import { formatDate as formatDateUS } from "../utils/format";
 import type { ResearchItem } from "../services/intel-api";
 
 export type RelationKind = "syndicated" | "similar";
+
+/** One article in the drawer: a research item (All Articles) or an enriched dataset row (Review), with its tags. */
+export type RelatedRow = {
+  key: string;
+  url: string;
+  title: string | null;
+  publisher: string | null;
+  date: string;
+  content?: string | null;
+  access?: ResearchItem["access"];
+  tags?: string[];
+};
 
 const HEADINGS: Record<RelationKind, { title: string; note: string }> = {
   syndicated: {
@@ -16,12 +27,11 @@ const HEADINGS: Record<RelationKind, { title: string; note: string }> = {
 
 type Props = {
   kind: RelationKind;
-  source: ResearchItem;
-  related: ResearchItem[];
+  source: { title: string | null; publisher: string | null };
+  related: RelatedRow[];
+  summary?: string;
   onClose: () => void;
 };
-
-const formatDate = (ts: number) => formatDateUS(ts * 1000);  // epoch seconds; formatDateUS never throws
 
 export function AccessBadge({ access }: { access: ResearchItem["access"] }) {
   if (!access) return <span className="text-slate-300">—</span>;
@@ -38,8 +48,8 @@ export function AccessBadge({ access }: { access: ResearchItem["access"] }) {
   );
 }
 
-/** Right-side drawer listing the articles behind a Syndicated / Similar count in the All Articles table. */
-export function RelatedArticlesDrawer({ kind, source, related, onClose }: Props) {
+/** Right-side drawer listing the articles behind a Syndicated / Similar count. */
+export function RelatedArticlesDrawer({ kind, source, related, summary, onClose }: Props) {
   const heading = HEADINGS[kind];
   return (
     <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
@@ -66,25 +76,33 @@ export function RelatedArticlesDrawer({ kind, source, related, onClose }: Props)
         <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 mb-4">
           <div className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">For</div>
           <div className="text-xs font-medium text-slate-700">{source.title || "(untitled)"}</div>
-          <div className="text-[11px] text-slate-400">{source.publication || source.domain}</div>
+          <div className="text-[11px] text-slate-400">{source.publisher}</div>
+          {summary && <div className="text-[11px] text-[#5B2C9D] font-medium mt-1.5">{summary}</div>}
         </div>
         <ol className="space-y-3">
-          {related.map((item) => (
-            <li key={item.id} className="border-b border-slate-100 pb-3">
+          {related.map((row) => (
+            <li key={row.key} className="border-b border-slate-100 pb-3">
               <a
-                href={item.url}
+                href={row.url}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-sm text-[#5B2C9D] hover:underline font-medium"
               >
-                {item.title || "(untitled)"}
+                {row.title || "(untitled)"}
               </a>
               <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500 flex-wrap">
-                <span>{item.publication || item.domain || "Unknown"}</span>
-                <span>• {formatDate(item.published_date)}</span>
-                <AccessBadge access={item.access} />
+                <span>{row.publisher || "Unknown"}</span>
+                {row.date && <span>• {row.date}</span>}
+                {row.access !== undefined && <AccessBadge access={row.access} />}
               </div>
-              {item.content && <p className="text-xs text-slate-500 mt-1 line-clamp-2">{item.content}</p>}
+              {row.tags && row.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {row.tags.map((t) => (
+                    <span key={t} className="px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 text-[10px]">{t}</span>
+                  ))}
+                </div>
+              )}
+              {row.content && <p className="text-xs text-slate-500 mt-1 line-clamp-2">{row.content}</p>}
             </li>
           ))}
         </ol>

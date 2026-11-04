@@ -1,6 +1,8 @@
 import { formatDateTime, formatDate } from "../utils/format";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { intelApi, type EnrichedRecord, type BrandSentiment, type QuestionDimension, type DynamicTagDef, type TagSchemas } from "../services/intel-api";
+import { intelApi, type EnrichedRecord, type BrandSentiment, type QuestionDimension, type DynamicTagDef, type TagSchemas, type RowRelations } from "../services/intel-api";
+import { RelatedArticlesDrawer, type RelationKind } from "./RelatedArticlesDrawer";
+import { RelationCount, clusterSummary, recordRow } from "./RecordRelations";
 import { TagSchemaPanel } from "./TagSchemaPanel";
 import { QuestionDrillDown, humanize } from "./QuestionDrillDown";
 import { CountryFlag } from "./CountryFlag";
@@ -432,6 +434,7 @@ type EnrichedArticlesTableProps = {
   loading: boolean;
   dimensions?: Record<string, QuestionDimension[]>;
   tagSchemas?: TagSchemas;
+  projectId?: number;
 };
 
 /** One Review column per dynamic tag across every question's schema (same tag name = same column). */
@@ -462,8 +465,20 @@ function DynamicTagCell({ record, tag }: { record: EnrichedRecord; tag: DynamicT
   );
 }
 
-export function EnrichedArticlesTable({ records, loading, dimensions, tagSchemas }: EnrichedArticlesTableProps) {
+export function EnrichedArticlesTable({ records, loading, dimensions, tagSchemas, projectId }: EnrichedArticlesTableProps) {
   const dimColumns = useMemo(() => dimensionColumns(dimensions), [dimensions]);
+  // syndicated / similar articles per row ("<dataset_id>:<id>"): undefined while loading, null when it failed
+  const [relations, setRelations] = useState<Record<string, RowRelations> | null | undefined>(undefined);
+  const [openRelation, setOpenRelation] = useState<{ kind: RelationKind; record: EnrichedRecord } | null>(null);
+  useEffect(() => {
+    if (!projectId || records.length === 0) return;
+    let cancelled = false;
+    setRelations(undefined);
+    intelApi.getEnrichedRelations(projectId)
+      .then((r) => { if (!cancelled) setRelations(r.relations); })
+      .catch(() => { if (!cancelled) setRelations(null); });
+    return () => { cancelled = true; };
+  }, [projectId, records.length]);
   // a tag named like a dimension column would repeat its header; its values still show under Question match
   const dynColumns = useMemo(() => tagColumns(tagSchemas).filter((t) => !dimColumns.some((d) => d.key === t.tag_name)),
     [tagSchemas, dimColumns]);
@@ -735,6 +750,8 @@ export function EnrichedArticlesTable({ records, loading, dimensions, tagSchemas
               <th className="px-3 py-2.5 w-36">Publisher</th>
               <th className="px-3 py-2.5 w-24">Published</th>
               <th className="px-3 py-2.5 w-56">Title / Post</th>
+              <th className="px-3 py-2.5 w-20" title="The same article published by other publishers — click to see them with their tags">Syndicated</th>
+              <th className="px-3 py-2.5 w-20" title="Other articles on the same theme, content or context — click to see them with their tags">Similar</th>
               <th className="px-3 py-2.5 w-64">Content</th>
               <th className="px-3 py-2.5 w-24">Author</th>
               <th className="px-3 py-2.5 w-28">Author type</th>
@@ -794,6 +811,10 @@ export function EnrichedArticlesTable({ records, loading, dimensions, tagSchemas
                       </span>
                     </button>
                   </td>
+                  <td className="px-3 py-2.5"><RelationCount relations={relations} rowKey={key} kind="syndicated"
+                    onOpen={() => setOpenRelation({ kind: "syndicated", record: r })} /></td>
+                  <td className="px-3 py-2.5"><RelationCount relations={relations} rowKey={key} kind="similar"
+                    onOpen={() => setOpenRelation({ kind: "similar", record: r })} /></td>
                   <td className="px-3 py-2.5"><ClampedCell text={r.content} onSeeMore={() => setOpenRecord(r)} /></td>
                   <td className="px-3 py-2.5 text-xs text-slate-600">{r.author || "—"}</td>
                   <td className="px-3 py-2.5 text-xs text-slate-600">{r.author_type && r.author_type !== "Unknown" ? r.author_type : <span className="text-slate-300">—</span>}</td>
@@ -884,6 +905,17 @@ export function EnrichedArticlesTable({ records, loading, dimensions, tagSchemas
         </table>
       </div>
 
+      {openRelation && relations && (() => {
+        const byKey = new Map(localRecords.map((x) => [rowKey(x), x]));
+        const related = (relations[rowKey(openRelation.record)]?.[openRelation.kind] || [])
+          .map((k) => byKey.get(k)).filter((x): x is EnrichedRecord => !!x);
+        return (
+          <RelatedArticlesDrawer kind={openRelation.kind}
+            source={{ title: openRelation.record.title, publisher: openRelation.record.source_name }}
+            related={related.map(recordRow)} summary={clusterSummary(openRelation.record, related)}
+            onClose={() => setOpenRelation(null)} />
+        );
+      })()}
       {openRecord && (
         <RecordDrawer
           record={openRecord}

@@ -1448,6 +1448,40 @@ def get_dataset_enriched(dataset_id: IdPath, _access: Annotated[dict, Depends(re
     }
 
 
+# shortcut: dataset rows share intel_research_item_vectors with research items, keyed negative so the two never
+# collide; fits a 32-bit key while datasets stay below id 21,000 and files below 100,000 rows
+_ROW_KEY_SPAN = 100_000
+
+
+def _row_vector_key(record: dict) -> int | None:
+    try:
+        row = int(record["id"])
+        return -(int(record["dataset_id"]) * _ROW_KEY_SPAN + row + 1) if 0 <= row < _ROW_KEY_SPAN else None
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+@router.get("/dataset/enriched/{project_id}/relations")
+def get_project_enriched_relations(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)]):
+    """Syndicated copies and similar articles among the project's enriched dataset articles, keyed
+    "<dataset_id>:<record id>" like the Review table's rows -- the same rules as the All Articles table
+    (research/relations.py). Embeds (and stores) each article once; never calls the chat model."""
+    from ..research import relations
+    by_key: dict[int, str] = {}
+    items = []
+    for r in store.get_enriched_records_by_project(project_id):
+        key = _row_vector_key(r)
+        if key is None:
+            continue
+        by_key[key] = f"{r['dataset_id']}:{r['id']}"
+        items.append({"id": key, "url": r.get("url") or "", "title": r.get("title") or "",
+                      "content": r.get("content") or "", "publication": r.get("source_name") or ""})
+    found, method = relations.find_relations(items, get_llm_client())
+    return {"method": method,
+            "relations": {by_key[k]: {kind: [by_key[i] for i in ids] for kind, ids in rel.items()}
+                          for k, rel in found.items()}}
+
+
 @router.get("/dataset/enriched/{project_id}")
 def get_project_enriched(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)]):
     dims = project_dimensions(project_id, None)   # stored copy only: a GET never calls the LLM
