@@ -20,7 +20,7 @@ from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
-from ..core.llm_provider import HybridLLMClient
+from ..core.llm_provider import HybridLLMClient, extract_json_object as _extract_json
 
 EventFn = Callable[[str, dict], None]
 
@@ -427,43 +427,6 @@ def validate_output(data: dict) -> tuple[list[str], list[str]]:
 
 
 # --- Response parsing -------------------------------------------------------------
-
-def _extract_json(text: str) -> dict:
-    """Pull the first valid JSON object from LLM output, tolerating markdown
-    fences, preamble text, and trailing commentary."""
-    text = text.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```\s*$", "", text)
-
-    brace_start = text.find("{")
-    if brace_start == -1:
-        raise ValueError("No JSON object found in LLM response")
-
-    depth = 0
-    in_string = False
-    escape_next = False
-    for i, ch in enumerate(text[brace_start:], start=brace_start):
-        if escape_next:
-            escape_next = False
-            continue
-        if ch == "\\":
-            escape_next = True
-            continue
-        if ch == '"' and not escape_next:
-            in_string = not in_string
-            continue
-        if in_string:
-            continue
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                candidate = text[brace_start : i + 1]
-                return json.loads(candidate)
-
-    return json.loads(text[brace_start:])
 
 
 # --- Agent runner -----------------------------------------------------------------

@@ -19,7 +19,6 @@ unchanged for that one kind, since a missing CEO entity is a gap, not a pipeline
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
 from datetime import date
@@ -27,6 +26,7 @@ from typing import Any
 
 from ..domains.research.web_research import _ddg_web_search
 from .brief_scope import is_standin_brand_name
+from ..core.llm_provider import extract_json_object as _extract_json_object
 
 logger = logging.getLogger(__name__)
 
@@ -82,40 +82,6 @@ def _co_mentioned(hit_name: str, brand_name: str, snippets: list[dict]) -> bool:
         if hit in text and brand in text:
             return True
     return False
-
-
-def _extract_json_object(text: str) -> dict:
-    """Pull the first valid JSON object from LLM output, tolerating markdown fences —
-    same tolerant-parse pattern used by every other agent in this codebase."""
-    text = text.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```\s*$", "", text)
-    brace_start = text.find("{")
-    if brace_start == -1:
-        raise ValueError("No JSON object found in LLM response")
-    depth = 0
-    in_string = False
-    escape_next = False
-    for i, ch in enumerate(text[brace_start:], start=brace_start):
-        if escape_next:
-            escape_next = False
-            continue
-        if ch == "\\":
-            escape_next = True
-            continue
-        if ch == '"':
-            in_string = not in_string
-            continue
-        if in_string:
-            continue
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return json.loads(text[brace_start:i + 1])
-    raise ValueError("Unbalanced JSON object in LLM response")
 
 
 def _search_snippets(query: str, max_results: int = 6) -> list[dict]:

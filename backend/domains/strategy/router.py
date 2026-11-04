@@ -61,6 +61,7 @@ from .schemas import (
     SearchStrategyResponse,
     StrategyJobStarted,
 )
+from ...core.llm_provider import extract_json_object as _extract_json_object
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,6 @@ STRATEGY_LLM_TIMEOUT = 300
 IdPath = Annotated[int, PathParam(ge=1)]
 
 router = APIRouter()
-
 
 
 def _date_range(values: list[str]) -> dict:
@@ -836,39 +836,6 @@ def _auto_map_columns(file_columns: list[str]) -> dict:
                 break
     unmapped = [c for c in file_columns if c not in mapping.values()]
     return {"mapped": mapping, "unmapped": unmapped}
-
-
-def _extract_json_object(text: str) -> dict:
-    """Pull the first valid JSON object from LLM output, tolerating markdown fences."""
-    text = text.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```\s*$", "", text)
-    brace_start = text.find("{")
-    if brace_start == -1:
-        raise ValueError("No JSON object found in LLM response")
-    depth = 0
-    in_string = False
-    escape_next = False
-    for i, ch in enumerate(text[brace_start:], start=brace_start):
-        if escape_next:
-            escape_next = False
-            continue
-        if ch == "\\":
-            escape_next = True
-            continue
-        if ch == '"':
-            in_string = not in_string
-            continue
-        if in_string:
-            continue
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return json.loads(text[brace_start:i + 1])
-    raise ValueError("Unbalanced JSON object in LLM response")
 
 
 def _llm_assisted_column_mapping(headers: list[str], sample_rows: list[dict]) -> dict:

@@ -18,13 +18,12 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import time
 from typing import Callable
 
 logger = logging.getLogger(__name__)
 
-from ..core.llm_provider import HybridLLMClient
+from ..core.llm_provider import HybridLLMClient, extract_json_object as _extract_json_object
 from . import question_dimensions as qd
 from . import question_tag_schema as ts
 
@@ -101,39 +100,6 @@ For EVERY article/post supplied, return ALL of these fields:
 Return ONLY a JSON object: {"articles": [ ...one entry per supplied article, \
 same ids, same order not required... ]}
 """
-
-
-def _extract_json_object(text: str) -> dict:
-    """Pull the first valid JSON object from LLM output, tolerating markdown fences."""
-    text = text.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```\s*$", "", text)
-    brace_start = text.find("{")
-    if brace_start == -1:
-        raise ValueError("No JSON object found in LLM response")
-    depth = 0
-    in_string = False
-    escape_next = False
-    for i, ch in enumerate(text[brace_start:], start=brace_start):
-        if escape_next:
-            escape_next = False
-            continue
-        if ch == "\\":
-            escape_next = True
-            continue
-        if ch == '"':
-            in_string = not in_string
-            continue
-        if in_string:
-            continue
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return json.loads(text[brace_start:i + 1])
-    raise ValueError("Unbalanced JSON object in LLM response")
 
 
 def chunk(items: list, size: int) -> list[list]:
