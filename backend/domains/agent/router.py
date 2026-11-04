@@ -98,11 +98,6 @@ def agent_events(project_id: ProjectId, limit: Annotated[int, Query(ge=1, le=200
     return store.list_agent_events(project_id, limit=limit, after_id=after_id)
 
 
-@router.get("/agent/{project_id}/memory")
-def agent_memory(project_id: ProjectId, _u=Depends(require_project_access)):
-    return [m for m in store.list_memory(project_id) if m["kind"] != "pending"]
-
-
 @router.post("/agent/{project_id}/copilot")
 def copilot_reply(project_id: ProjectId, body: CopilotMessage, user=Depends(get_current_user),
                   _u=Depends(require_project_access)):

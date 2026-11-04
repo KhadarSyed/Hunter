@@ -93,15 +93,6 @@ class SectionVideoResponse(ApiModel):
     cached: bool = False  # True = served from the youtube_videos table
 
 
-class FetchPreviewRequest(BaseModel):
-    project_id: int
-
-
-class FetchPreviewStarted(ApiModel):
-    job_id: str
-    project_id: int
-
-
 class ResearchItemView(ApiModel):
     id: int
     topic: str
