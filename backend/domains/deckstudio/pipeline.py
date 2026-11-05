@@ -102,6 +102,17 @@ def attach_product(spec, products: list[str], find, find_brand=None) -> None:
         spec.product_image, spec.product_name = str(path), ""
 
 
+def credit_photos(spec) -> None:
+    """The 'Photo credits' pages, rebuilt from the photos the deck shows now (a Fix may have swapped one): before the
+    Sources, which stay last so a source the Fix finds is appended to them."""
+    paths = [s.image.get("path") for s in spec.slides] + [spec.product_image]
+    credits = list({c["page"]: c for p in paths if p and (c := assets.credit_of(p))}.values())
+    slides = [s for s in spec.slides if not s.id.startswith(planner.CREDITS_ID)]
+    at = next((i for i, s in enumerate(slides) if s.type == "citations"),
+              next((i for i, s in enumerate(slides) if s.type == "closing"), len(slides)))
+    spec.slides = slides[:at] + planner.photo_credits_slides(credits) + slides[at:]
+
+
 UNMARKED_CHARTS = ("theme_clusters",)
 
 
@@ -278,6 +289,7 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
             plan_input.title, plan_input.category, deck_dir / "photos", used,
             lambda subj: _judge(llm, subj, plan_input.title, checks, own_brand=plan_input.title)).path
     attach_product(spec, plan_input.brand_products, product_photo, brand_photo)
+    credit_photos(spec)
     if spec.product_image:
         run.log(f"Cover product: {spec.product_name or plan_input.title + ' (brand photo: no brief product has one)'}")
     walls = [s for s in spec.slides if s.type == "verbatim_wall"]

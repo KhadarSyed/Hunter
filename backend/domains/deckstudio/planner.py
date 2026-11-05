@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from urllib.parse import unquote
 
 from ...core import store
 from ..deliverable import chart_choice
@@ -91,6 +92,23 @@ def _link(url: str) -> str:
 
 QUERY_CHARS_PER_SLIDE = 4200      # Boolean query text one methodology slide's table holds before continuing
 _QUERY_LINE = re.compile(r"^\w+ query: ")
+
+
+CREDITS_ID = "photo-credits"
+
+
+def photo_credits_slides(credits: list[dict]) -> list[SlideSpec]:
+    """The photos whose licence asks for a credit (CC BY / BY-SA / BY-ND), each linked to its file page, in the
+    Sources' table style: one page per CITES_PER_SLIDE photos."""
+    rows = [[unquote(c["page"].rsplit("File:", 1)[-1]).rsplit(".", 1)[0].replace("_", " "), c["author"], c["name"]]
+            for c in credits]
+    pages = range(0, len(credits), CITES_PER_SLIDE)
+    return [SlideSpec(id=f"{CREDITS_ID}-{p // CITES_PER_SLIDE + 1}", type="citations", treatment="plain",
+                      title="Photo credits",
+                      tables=[{"header": ["Photo", "Author", "Licence"], "rows": rows[p:p + CITES_PER_SLIDE],
+                               "links": [_link(c["page"]) for c in credits[p:p + CITES_PER_SLIDE]], "link_col": 0}],
+                      facts_allowed=[x for r in rows[p:p + CITES_PER_SLIDE] for x in r],
+                      notes="\n".join(c["page"] for c in credits[p:p + CITES_PER_SLIDE])) for p in pages]
 
 
 def _methodology_slides(inp: PlanInput, all_facts: list[str]) -> list[SlideSpec]:

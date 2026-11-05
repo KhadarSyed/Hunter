@@ -21,6 +21,7 @@ from urllib.parse import urljoin
 from PIL import Image, ImageOps
 
 from ...core import serp_keys
+from . import commons
 from .image_brief import Subjects, queries as brief_queries, text_relevant
 from .verbatims import is_public_http
 
@@ -391,6 +392,7 @@ def cached_photo(cache: Path, key: str, folder: Path, used: set[str]) -> Photo |
             shutil.copyfile(src, out.with_suffix(".src"))
         used.add(meta["source_url"])
         mark_used((src if src.exists() else jpg).read_bytes(), used)
+        _write_credit(out, meta.get("credit"))
         return Photo(out, meta["source_url"], meta["licence"], f"{meta['why']} (reused from an earlier run)")
     except (OSError, ValueError, KeyError):
         return None
@@ -406,7 +408,8 @@ def remember_photo(cache: Path, key: str, photo: Photo) -> None:
         if Path(photo.path).with_suffix(".src").exists():
             shutil.copyfile(Path(photo.path).with_suffix(".src"), cache / f"{key}.src")
         (cache / f"{key}.json").write_text(json.dumps({"source_url": photo.source_url, "licence": photo.licence,
-                                                       "why": photo.why}), encoding="utf-8")
+                                                       "why": photo.why, "credit": credit_of(photo.path)}),
+                                           encoding="utf-8")
     except OSError as e:          # a cache that cannot be written only costs the next run a search
         logger.warning("photo cache write failed: %s", e)
 
@@ -423,7 +426,36 @@ def _keep(data: bytes, url: str, licence: str, why: str, role: str, folder: Path
     mark_used(data, used)
     if cand:
         _track_use(cand)
-    return Photo(crop_to(raw, role, folder / f"{name}.jpg"), url, licence, why)
+    out = crop_to(raw, role, folder / f"{name}.jpg")
+    lic = commons.licence(url) if commons.is_wikimedia(url) else {}
+    _write_credit(out, lic if lic.get("use") == "credit" else None)
+    return Photo(out, url, licence, why)
+
+
+def _licence_ok(url: str) -> bool:
+    """A Wikimedia photo only under a licence that allows commercial use; other hosts as before."""
+    return not commons.is_wikimedia(url) or commons.licence(url)["use"] != "no"
+
+
+def _public_domain(url: str) -> bool:
+    return commons.is_wikimedia(url) and commons.licence(url)["use"] == "free"
+
+
+def _credit_file(photo: Path) -> Path:
+    return Path(photo).with_suffix(".credit.json")
+
+
+def _write_credit(photo: Path, credit: dict | None) -> None:
+    """The author and licence beside a photo that must be credited: the appendix lists it wherever the photo ends up."""
+    if credit:
+        _credit_file(photo).write_text(json.dumps(credit), encoding="utf-8")
+
+
+def credit_of(photo) -> dict | None:
+    try:
+        return json.loads(_credit_file(photo).read_text(encoding="utf-8")) if photo else None
+    except (OSError, ValueError):
+        return None
 
 
 def _plan(query: str, subjects: Subjects | None, article_urls) -> Iterator[tuple[str, list[dict]]]:
@@ -455,8 +487,10 @@ def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image:
             return Photo(crop_to(brand_image, role, folder / f"{slug}.jpg"), str(brand_image), "brand", "brand imagery")
     rejected, backup, why = 0, {}, ""
     for licence, results in _plan(query, subjects, article_urls):
-        ranked = sorted((c for c in results if c["url"] and c["url"] not in used and _maybe_usable(c, role)),
-                        key=lambda c: -_relevance(query, c["title"]))
+        # Public Domain / CC0 first; a Wikimedia photo whose licence forbids commercial use is never tried
+        ranked = sorted((c for c in results if c["url"] and c["url"] not in used and _maybe_usable(c, role)
+                         and _licence_ok(c["url"])),
+                        key=lambda c: (not _public_domain(c["url"]), -_relevance(query, c["title"])))
         looks = ARTICLE_CHECKS if licence == "article" else SOURCE_CHECKS
         for cand in ranked[:MAX_TRIES]:
             if looks <= 0:              # this source had its look: the next source gets the budget
@@ -524,7 +558,7 @@ def _fallback(query: str, role: str, folder: Path, used: set[str], subjects: Sub
             for url in (cand["url"], "page"):
                 if url == "page":
                     url = article_image(cand["page"]) if cand.get("page") else None
-                if not url or url in used:
+                if not url or url in used or not _licence_ok(url):
                     continue
                 data = _download(url)
                 if not data or is_duplicate(data, used):

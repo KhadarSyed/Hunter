@@ -333,7 +333,7 @@ def find_cover_product(r: Repair, _row: dict) -> str:
     """No photo of the client's product on the cover: the product search runs again, as a new run does (Pexels,
     SerpAPI, then SearXNG), each candidate vision-checked to show that very product."""
     from . import assets
-    from .pipeline import attach_product
+    from .pipeline import attach_product, credit_photos
     products = (r.context.get("validate") or {}).get("brand_products") or []
     if not products:
         raise Unfixable("the brief names no client product")
@@ -353,6 +353,7 @@ def find_cover_product(r: Repair, _row: dict) -> str:
         lambda: assets.brand_photo(r.spec.title, category, r.deck_dir / "photos", set(), brand_judge).path)
     if not r.spec.product_image:
         raise Unfixable(f"no photo found that shows {', '.join(products[:3])} or the {r.spec.title} brand itself")
+    credit_photos(r.spec)
     r.changed = True
     return f"cover shows the {r.spec.product_name or r.spec.title + ' brand'}"
 
