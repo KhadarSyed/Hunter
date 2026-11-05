@@ -20,7 +20,7 @@ from ..deliverable.engine_insights import _by_headline
 from ..deliverable.engine_types import RQ
 from ..deliverable.ingest import Article, normalize_url, parse_date
 from ..deliverable.insights import draft_section
-from . import validate, verbatims, vision
+from . import count_reading, validate, verbatims, vision
 from .spec import DeckSpec, SlideSpec
 
 logger = logging.getLogger(__name__)
@@ -115,12 +115,13 @@ def explain_categories(r: Repair, _row: dict) -> str:
             found = {k: v for k, v in _by_headline(cards or []).items() if not v.get("fact_only")}
         chart = slide.charts[0]
         values = dict(zip([str(c) for c in chart.get("categories") or []], chart.get("values") or []))
-        unit = "%" if chart.get("unit") == "percent" else " articles"
-        for g in missing:
-            if _key(g) not in found:            # no article explains it: its count, said plainly
-                found[_key(g)] = {"headline": g, "count_only": True, "citations": [],
-                                    "text": f"{values.get(g, '')}{unit} in this chart. No sampled article in this "
-                                            "category explains what drives it, so it is shown as a count only."}
+        unread = [g for g in missing if _key(g) not in found]
+        if unread:                # no article explains it: what its number means for the question, from the chart
+            cats = [str(c) for c in chart.get("categories") or []]
+            texts = count_reading.readings(r.llm, slide.question or slide.title, slide.title, cats,
+                                           [float(values.get(c) or 0) for c in cats], chart.get("unit") == "percent", unread)
+            found.update({_key(g): {"headline": g, "count_only": True, "citations": [], "text": texts[g]}
+                          for g in unread})
         cards = {**have, **found}
         summary = [c for c in slide.cards if _key(c.get("headline")) not in {_key(g) for g in segs} and c.get("citations")]
         slide.cards = [cards[_key(g)] for g in segs if _key(g) in cards]
