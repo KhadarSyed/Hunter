@@ -87,4 +87,4 @@ poc/
 data/recreate_inputs/
 
 # client dataset exports used for local end-to-end tests
-Dataset/
+/Dataset/
