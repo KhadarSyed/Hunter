@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta
 
 from ...agents import question_dimensions as qd
 from . import extract as extract_mod, us_locations
+from ..dataset import normalize as dataset_normalize
 from .labels import canon, theme_key, unify
 from .engine_types import RQ, EngineRow, Section
 from .metrics import TOP_PEAKS, month_label
@@ -482,20 +483,16 @@ def _words(value) -> str:
 
 
 SUNBURST_CHILDREN = 6     # outer-ring segments per channel; the rest is one "Other" segment
-_SOCIAL_TYPES = ("social", "twitter", "facebook", "instagram", "tiktok", "reddit", "youtube", "forum", "x ")
-_SOCIAL_HOSTS = ("x.com", "twitter.com", "facebook.com", "instagram.com", "tiktok.com", "reddit.com", "youtube.com",
-                 "threads.net", "pinterest.com", "linkedin.com")
-
-
 def _channel(row: EngineRow) -> str:
     """Social or Editorial from the export's source type; a row without one is judged by its address."""
     media = (row.media_type or "").strip().lower()
-    if media:
-        return "Social" if any(t in f"{media} " for t in _SOCIAL_TYPES) else "Editorial"
-    host = row.article.url.split("//", 1)[-1].split("/", 1)[0].lower().removeprefix("www.")
-    if any(host == h or host.endswith("." + h) for h in _SOCIAL_HOSTS):
-        return "Social"
-    return ""
+    if not media and not _is_social_host(row.article.url):
+        return ""
+    return "Social" if dataset_normalize.channel_of(media, row.article.url) == "social" else "Editorial"
+
+
+def _is_social_host(url: str) -> bool:
+    return dataset_normalize.channel_of("", url) == "social"
 
 
 _PLATFORMS = {"x.com": "X", "twitter.com": "X", "facebook.com": "Facebook", "instagram.com": "Instagram",

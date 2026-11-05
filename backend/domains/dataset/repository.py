@@ -76,6 +76,11 @@ def insert_articles(project_id: int, file_id: int, records: list[dict]) -> tuple
     return added, len(records) - added
 
 
+def channel_counts(project_id: int) -> dict[str, int]:
+    return {r["channel"]: int(r["n"]) for r in _run(
+        "SELECT channel, COUNT(*) AS n FROM intel_articles WHERE project_id = ? GROUP BY channel", (project_id,))}
+
+
 def articles_needing(project_id: int, phase: str, limit: int) -> list[dict]:
     cond = {"content": "content_status = 'pending' AND channel = 'traditional'",
             "tags": "tag_status IN ('pending', 'failed') AND content_status <> 'pending'"}[phase]
