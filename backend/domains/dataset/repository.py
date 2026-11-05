@@ -77,9 +77,10 @@ def insert_articles(project_id: int, file_id: int, records: list[dict]) -> tuple
 
 
 def articles_needing(project_id: int, phase: str, limit: int) -> list[dict]:
-    col = {"content": "content_status", "tags": "tag_status"}[phase]
+    cond = {"content": "content_status = 'pending' AND channel = 'traditional'",
+            "tags": "tag_status IN ('pending', 'failed') AND content_status <> 'pending'"}[phase]
     return _dicts(_run(f"SELECT id, norm_url, url, channel, title, summary, outlet, published, content, content_status, "
-                       f"tags_json FROM intel_articles WHERE project_id = ? AND {col} = 'pending' ORDER BY id LIMIT ?",
+                       f"tags_json FROM intel_articles WHERE project_id = ? AND {cond} ORDER BY id LIMIT ?",
                        (project_id, limit)))
 
 
@@ -91,7 +92,7 @@ def save_tags(article_id: int, tags: dict | None, error: str | None) -> None:
     t = tags or {}
     _run("UPDATE intel_articles SET tags_json = ?, sentiment = ?, sentiment_confidence = ?, tag_status = ?, "
          "tag_error = ? WHERE id = ?",
-         (json.dumps(tags, default=str) if tags is not None else None, t.get("sentiment"), t.get("sentiment_confidence"),
+         (json.dumps(tags, default=str) if tags is not None else None, t.get("overall_sentiment"), t.get("overall_sentiment_confidence"),
           "failed" if error or tags is None else "tagged", error, article_id))
 
 
@@ -158,10 +159,10 @@ def save_rq(article_id: int, project_id: int, rq_id: str, signature: str, result
           status, time.time()))
 
 
-def _articles_with_rows(conn, project_id: int, article_ids: list[int]) -> set[int]:
-    rows = conn.execute(f"SELECT DISTINCT article_id FROM intel_article_rq WHERE project_id = ? "
+def _existing_pairs(conn, project_id: int, article_ids: list[int]) -> set[tuple[int, str]]:
+    rows = conn.execute(f"SELECT article_id, rq_id FROM intel_article_rq WHERE project_id = ? "
                         f"AND article_id IN ({_marks(len(article_ids))})", (project_id, *article_ids)).fetchall()
-    return {r[0] for r in rows}
+    return {(r[0], r[1]) for r in rows}
 
 
 def decide(project_id: int, article_ids: list[int], rq_ids: list[str] | None, status: str, by: str,
@@ -182,8 +183,11 @@ def decide(project_id: int, article_ids: list[int], rq_ids: list[str] | None, st
         for s in snapshot:
             conn.execute("UPDATE intel_article_rq SET status = ?, decided_by = ?, decided_at = ?, decision_reason = ? "
                          "WHERE id = ?", (status, by, now, reason, s["id"]))
-        for aid in set(article_ids) - _articles_with_rows(conn, project_id, article_ids):
-            for rq in rq_ids or []:  # an article with no RQ match gets a row per approved RQ the caller passes
+        have = _existing_pairs(conn, project_id, article_ids)
+        for aid in article_ids:
+            for rq in rq_ids or []:  # a missing (article, RQ) row is created, e.g. bulk "approve for RQ2"
+                if (aid, rq) in have:
+                    continue
                 new = conn.execute(
                     "INSERT INTO intel_article_rq (project_id, article_id, rq_id, signature, matched, status, "
                     "decided_by, decided_at, decision_reason) VALUES (?, ?, ?, '', 1, ?, ?, ?, ?) "
@@ -231,10 +235,15 @@ def _where(project_id: int, f: dict) -> tuple[str, list]:
         if f.get(col):
             sql.append(f"a.{col} = ?")
             params.append(f[col])
-    for key, field in (("theme", "themes"), ("brand", "brands")):
-        if f.get(key):  # shortcut: text match on the jsonb array; add a GIN index if this gets slow
-            sql.append(f"(CAST(a.tags_json AS jsonb) -> '{field}')::text ILIKE ?")
-            params.append('%"' + f[key].replace('"', '\\"') + '"%')
+    if f.get("theme"):
+        paths = ("primary", "secondary", "tertiary")
+        sql.append("(" + " OR ".join(f"LOWER(CAST(a.tags_json AS jsonb) #>> '{{themes,{p}}}') = LOWER(?)"
+                                     for p in paths) + ")")
+        params += [f["theme"]] * len(paths)
+    if f.get("brand"):
+        sql.append("EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(CAST(a.tags_json AS jsonb) -> 'brands', "
+                   "CAST('[]' AS jsonb))) b WHERE LOWER(b ->> 'brand') = LOWER(?))")
+        params.append(f["brand"])
     if f.get("q"):
         sql.append("(a.title ILIKE ? OR a.summary ILIKE ? OR a.outlet ILIKE ?)")
         params += [f"%{f['q']}%"] * 3
