@@ -21,6 +21,7 @@ _COUNTRY_ALIASES = {"us": "united states", "usa": "united states", "united state
 _ANY_COUNTRY = {"", "global", "worldwide", "international"}
 # project_id -> (articles dropped for another country, articles kept with no country, the project's country)
 COUNTRY_FILTER: dict[int, tuple[int, int, str]] = {}
+REVIEW_FILTER: dict[int, int] = {}       # project -> articles left out as still pending review (last load)
 
 
 def _country_key(value) -> str:
@@ -133,7 +134,13 @@ def _row(rec: dict, rq: str | None, source_file: str, index: int, date_order: st
                      tag_evidence=rec.get("tag_evidence") if isinstance(rec.get("tag_evidence"), dict) else {})
 
 
-def load_rows(project_id: int, rqs: list[RQ]) -> list[EngineRow]:
+def _below_threshold(rec: dict, threshold: int | None) -> bool:
+    """The Review tab's 'pending review' row: not approved by the analyst and under the confidence threshold."""
+    return (threshold is not None and rec.get("approval_status") != "approved"
+            and round(float(rec.get("overall_sentiment_confidence") or 0) * 100) < threshold)
+
+
+def load_rows(project_id: int, rqs: list[RQ], review_threshold: int | None = None) -> list[EngineRow]:
     datasets = _approved_datasets(project_id)
     approved = {d["id"] for d in datasets}
     merged: dict[str, EngineRow] = {}
@@ -185,8 +192,12 @@ def load_rows(project_id: int, rqs: list[RQ]) -> list[EngineRow]:
             return False
         return True
 
+    pending: set[str] = set()       # left for review under the threshold: counted only as approved or auto-approved
     for i, rec in enumerate(enriched):
-        if _is_excluded(rec) or not in_country(rec):
+        low = _below_threshold(rec, review_threshold)
+        if low:
+            pending.add(normalize_url(str(rec.get("url") or "")))
+        if _is_excluded(rec) or low or not in_country(rec):
             excluded.add(normalize_url(str(rec.get("url") or "")))
         else:
             add(_row(rec, rec.get("research_question_id"), rec.get("dataset_file_name") or "", i,
@@ -200,6 +211,7 @@ def load_rows(project_id: int, rqs: list[RQ]) -> list[EngineRow]:
                 add(row)
     kept = {r for r in merged}
     COUNTRY_FILTER[project_id] = (len(foreign - kept), len(unstated & kept), country)
+    REVIEW_FILTER[project_id] = len(pending - kept)
     if foreign:
         logger.info("project %s: %d articles from outside %s left out", project_id, len(foreign - kept), country)
     return _without_excluded(project_id, list(merged.values()))

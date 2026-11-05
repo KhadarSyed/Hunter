@@ -4,6 +4,11 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+class DeliverableRunRequest(BaseModel):
+    # the Review tab's confidence threshold: rows under it that the analyst has not approved stay out
+    review_threshold: int | None = Field(default=None, ge=0, le=100)
+
+
 class DeliverableRunStarted(BaseModel):
     run_id: int
 

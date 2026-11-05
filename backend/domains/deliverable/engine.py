@@ -180,7 +180,8 @@ class _Run:
                    "section_id": payload["id"]})
 
 
-def start_run(project_id: int, *, llm=None, threaded: bool = True) -> int:
+def start_run(project_id: int, *, llm=None, threaded: bool = True, review_threshold: int | None = None) -> int:
+    """review_threshold: the Review tab's confidence threshold; pending rows under it stay out of the deck."""
     with _lock:
         if store.get_active_deliverable_run(project_id):
             raise RunBusy("A deliverable run is already in progress")
@@ -195,9 +196,9 @@ def start_run(project_id: int, *, llm=None, threaded: bool = True) -> int:
                 store.update_deliverable_run(run_id, status="failed", stage="gate", error=str(e),
                                              finished_at=time.time())
                 return run_id
-        threading.Thread(target=run_engine, args=(run_id, project_id, llm), daemon=True).start()
+        threading.Thread(target=run_engine, args=(run_id, project_id, llm, review_threshold), daemon=True).start()
     else:
-        run_engine(run_id, project_id, llm)
+        run_engine(run_id, project_id, llm, review_threshold)
     return run_id
 
 
@@ -654,7 +655,7 @@ def _brands(project: dict, rqs) -> list:
                               [q.query for q in rqs], [e["name"] for e in entities if e.get("type") == "product"])
 
 
-def run_engine(run_id: int, project_id: int, llm) -> None:
+def run_engine(run_id: int, project_id: int, llm, review_threshold: int | None = None) -> None:
     current, run = "gate", None
     try:        # a setup read failing here must still mark the run failed, or it stays 'running' (409) for good
         run = _Run(run_id, project_id)
@@ -672,9 +673,12 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         if not rqs:
             raise StageFailed("ingest", "The search strategy has no research questions")
         run.log(f"{len(rqs)} research questions: " + "; ".join(_rq_label(q, 60) for q in rqs))
-        rows = R.load_rows(project_id, rqs)
+        rows = R.load_rows(project_id, rqs, review_threshold)
         if not rows:
             raise StageFailed("ingest", "The approved datasets have no usable rows")
+        if R.REVIEW_FILTER.get(project_id):
+            run.log(f"{R.REVIEW_FILTER[project_id]} articles still pending review (under the {review_threshold}% "
+                    "confidence threshold, not approved) left out")
         note = R.country_note(project_id)
         run.stage("ingest", "done", f"{len(rows)} unique articles" + (f" ({note})" if note else ""))
 

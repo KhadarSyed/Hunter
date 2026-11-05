@@ -13,7 +13,7 @@ from ..deckstudio import data_tables, revise
 from . import deck_store, engine, latest24h, notify, repair_run
 from . import rows as engine_rows
 from .schemas import (DataCoverageResponse, DeckDesign, DeckDesignChange, DeckDesignResult, DeliverableRunPayload,
-                      DeliverableRunStarted)
+                      DeliverableRunRequest, DeliverableRunStarted)
 
 router = APIRouter()
 _MEDIA = {"pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -51,9 +51,9 @@ def _payload(run_id: int) -> dict:
 
 
 @router.post("/deliverable/{project_id}/run", response_model=DeliverableRunStarted)
-def start(project_id: ProjectId, _: Access):
+def start(project_id: ProjectId, _: Access, req: DeliverableRunRequest | None = None):
     try:
-        return {"run_id": engine.start_run(project_id)}
+        return {"run_id": engine.start_run(project_id, review_threshold=req.review_threshold if req else None)}
     except engine.RunBusy as e:
         raise HTTPException(409, str(e))
 
