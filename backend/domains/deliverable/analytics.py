@@ -315,6 +315,8 @@ def _reach(module, rq, rows, base_n, _):
 
 
 _TONE = {"positive": 1, "neutral": 0, "negative": -1}
+MIN_THEME_ARTICLES = 3       # a theme on fewer articles than this, or than MIN_THEME_SHARE of them, is minor
+MIN_THEME_SHARE = 0.05
 
 
 def _themes(module, rq, rows, base_n, _):
@@ -334,9 +336,12 @@ def _themes(module, rq, rows, base_n, _):
         for key in {theme_key(t) for t in r.themes if t and t.strip()} if score is not None else ():
             tones.setdefault(display[key], []).append(score)
     tone = [round(sum(tones[t]) / len(tones[t]), 2) if tones.get(t) else None for t, _ in top]
+    thin = max(MIN_THEME_ARTICLES, round(len(rows) * MIN_THEME_SHARE))   # below this a theme is not a major finding
     return _section(module, rq, chart={"kind": "treemap", "categories": [t for t, _ in top], "values": [c for _, c in top],
                                        "unit": "count", "peaks": [], "series_label": "Articles", "tone": tone},
-                    facts=[f"Theme \"{t}\": {c} of {len(rows)} articles" for t, c in top],
+                    facts=[f"Theme \"{t}\": {c} of {len(rows)} articles" +
+                           (" (limited supporting evidence: a minor theme, not a major area of interest)" if c < thin else "")
+                           for t, c in top],
                     segment_urls=_segments((display[k], r) for r in rows
                                            for k in {theme_key(t) for t in r.themes if t and t.strip()}
                                            if display.get(k) in {t for t, _ in top}))

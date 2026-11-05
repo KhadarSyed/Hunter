@@ -55,9 +55,14 @@ For EVERY article/post supplied, return ALL of these fields:
 - overall_sentiment: one of "Positive", "Neutral", "Negative" -- the
   general tone of the piece.
 - overall_sentiment_confidence: 0.0-1.0.
-- themes: {"primary": "<short theme>", "secondary": "<short theme or null>",
-  "tertiary": "<short theme or null>"} -- the main subjects/angles discussed,
-  most prominent first. secondary/tertiary are null if the piece is too
+- themes: {"primary": "<theme>", "secondary": "<theme or null>",
+  "tertiary": "<theme or null>"} -- the main subjects/angles discussed,
+  most prominent first, judged by how much of the piece is about each, not by
+  how interesting a passing remark is. Word each theme as a precise,
+  professional research heading of 3-7 words that names the actual subject
+  (e.g. "Retail pricing and promotional strategy", not "Prices" or "Deals
+  galore!"): no generic, vague, conversational, sensational or speculative
+  wording, and no two themes of one article saying the same thing. secondary/tertiary are null if the piece is too
   short or narrow to support a second/third distinct theme.
 - signals: a short array of notable signals or patterns worth flagging to an
   analyst (e.g. "pricing complaint", "recall mention", "viral moment",

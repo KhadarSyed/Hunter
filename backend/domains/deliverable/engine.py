@@ -19,6 +19,7 @@ from ...core.events import broadcast
 from . import (analytics, brand_kit, catalog, engine_insights, extract, factcheck, generic_deck, templates_index,
                visuals, word_brief)
 from . import brand_analytics, chart_choice, entity_relevance, evidence, latest24h, notify, repair_context, tag_insights
+from . import theme_synthesis
 from ...agents import question_tag_schema
 from . import rows as R
 from .citations import CitationRegistry, domain_of
@@ -747,10 +748,12 @@ def run_engine(run_id: int, project_id: int, llm, review_threshold: int | None =
             run.log(f"Overview map in the appendix: no question asks where ({s.chart['choice']})")
         sections_by_rq: dict[str, list[Section]] = {}
         for q in rqs:
-            sections_by_rq[q.id] = [analytics.compute_module(m, q, rows_by_rq[q.id], base,
+            # the tagger's per-article themes merged into distinct, client-ready themes (counts stay the articles')
+            q_rows = theme_synthesis.consolidate(llm, q.question, rows_by_rq[q.id], run.log)
+            sections_by_rq[q.id] = [analytics.compute_module(m, q, q_rows, base,
                                                              extraction.get((q.id, m.get("entity_kind"))), brands)
                                     for m in plans[q.id]["modules"]]
-            tagged = tag_insights.tag_section(q, rows_by_rq[q.id], tag_schemas.get(q.id))
+            tagged = tag_insights.tag_section(q, q_rows, tag_schemas.get(q.id))
             if tagged:               # the question answered from its own tags leads its chapter
                 sections_by_rq[q.id].insert(0, tagged)
             # names a keyword pulled in from another world never reach a brand/product chart (remembered per category)
