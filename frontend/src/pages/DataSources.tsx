@@ -1163,7 +1163,7 @@ export function DataSources({ onNavigate }: Props) {
                 // the deck is built from approved datasets only: building before approving failed at once
                 await handleApproveAll();
                 try {
-                  if (projectId) await intelApi.deliverableRun(projectId, loadThreshold());
+                  if (projectId) await intelApi.deliverableRun(projectId);
                 } catch (e) {
                   const msg = e instanceof Error ? e.message : "";
                   if (!msg.startsWith("409")) {            // 409: a build is already running, open it to watch

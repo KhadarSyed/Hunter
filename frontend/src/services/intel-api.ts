@@ -922,9 +922,8 @@ export const intelApi = {
   validateDataSource: (source: string) =>
     post<{ source: string; status: string; error: string | null }>(`/datasources/${source}/validate`),
   // Deliverable engine: one run streams stages and sections over /ws and produces the PPTX + Word brief.
-  // reviewThreshold: the Review tab's confidence threshold, so the deck counts exactly what the tab shows as approved
-  deliverableRun: (projectId: number, reviewThreshold: number) =>
-    post<{ run_id: number }>(`/deliverable/${projectId}/run`, { review_threshold: reviewThreshold }),
+  // The deck reads only article-RQ rows approved on the Data set page; 409 while tagging is still running.
+  deliverableRun: (projectId: number) => post<{ run_id: number }>(`/deliverable/${projectId}/run`),
   deliverableRepair: (projectId: number, runId: number, scope: RepairScope) =>
     post<{ run_id: number; scope: RepairScope }>(`/deliverable/${projectId}/runs/${runId}/repair?scope=${scope}`, {}),
   deliverableLatest: (projectId: number) => get<DeliverablePayload>(`/deliverable/${projectId}/latest`),

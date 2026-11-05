@@ -181,8 +181,10 @@ class _Run:
                    "section_id": payload["id"]})
 
 
-def start_run(project_id: int, *, llm=None, threaded: bool = True, review_threshold: int | None = None) -> int:
-    """review_threshold: the Review tab's confidence threshold; pending rows under it stay out of the deck."""
+def start_run(project_id: int, *, llm=None, threaded: bool = True) -> int:
+    from ..dataset.service import is_tagging
+    if is_tagging(project_id):      # a run started mid-tagging would draft from rows still being decided
+        raise RunBusy("Tagging is still running for this project")
     with _lock:
         if store.get_active_deliverable_run(project_id):
             raise RunBusy("A deliverable run is already in progress")
@@ -197,9 +199,9 @@ def start_run(project_id: int, *, llm=None, threaded: bool = True, review_thresh
                 store.update_deliverable_run(run_id, status="failed", stage="gate", error=str(e),
                                              finished_at=time.time())
                 return run_id
-        threading.Thread(target=run_engine, args=(run_id, project_id, llm, review_threshold), daemon=True).start()
+        threading.Thread(target=run_engine, args=(run_id, project_id, llm), daemon=True).start()
     else:
-        run_engine(run_id, project_id, llm, review_threshold)
+        run_engine(run_id, project_id, llm)
     return run_id
 
 
@@ -656,7 +658,7 @@ def _brands(project: dict, rqs) -> list:
                               [q.query for q in rqs], [e["name"] for e in entities if e.get("type") == "product"])
 
 
-def run_engine(run_id: int, project_id: int, llm, review_threshold: int | None = None) -> None:
+def run_engine(run_id: int, project_id: int, llm) -> None:
     current, run = "gate", None
     try:        # a setup read failing here must still mark the run failed, or it stays 'running' (409) for good
         run = _Run(run_id, project_id)
@@ -670,22 +672,19 @@ def run_engine(run_id: int, project_id: int, llm, review_threshold: int | None =
 
         current = "ingest"
         run.stage("ingest", "running")
-        rqs = R.load_rqs(project_id)
+        rqs = R.approved_rqs(project_id)
         if not rqs:
-            raise StageFailed("ingest", "The search strategy has no research questions")
+            raise StageFailed("ingest", "The search strategy has no approved research questions")
         run.log(f"{len(rqs)} research questions: " + "; ".join(_rq_label(q, 60) for q in rqs))
-        rows = R.load_rows(project_id, rqs, review_threshold)
+        rows = R.load_rows(project_id, rqs)
         if not rows:
-            raise StageFailed("ingest", "The approved datasets have no usable rows")
-        if R.REVIEW_FILTER.get(project_id):
-            run.log(f"{R.REVIEW_FILTER[project_id]} articles still pending review (under the {review_threshold}% "
-                    "confidence threshold, not approved) left out")
+            raise StageFailed("ingest", "No articles are approved for the research questions yet")
         note = R.country_note(project_id)
         run.stage("ingest", "done", f"{len(rows)} unique articles" + (f" ({note})" if note else ""))
 
         current = "routing"
         run.stage("routing", "running")
-        rows = R.assign_stories(R.route(rows, rqs))
+        rows = R.assign_stories(rows)   # each article sits only under the questions it was approved for
         unique = R.base_n(rows)
         rows_by_rq = {q.id: R.rq_rows(rows, q.id) for q in rqs}
         # the total is the questions' result volumes added up (an article answering two questions counts in both)

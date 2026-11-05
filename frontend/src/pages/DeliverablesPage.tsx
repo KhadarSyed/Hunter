@@ -6,7 +6,6 @@ import type {
   RepairScope,
 } from "../services/intel-api";
 import { RunProgress } from "../components/deliverable/RunProgress";
-import { loadThreshold } from "../components/EnrichedArticlesTable";
 import { StudioDeckCard } from "../components/deliverable/StudioDeckCard";
 import { agentSocket } from "../services/ws";
 import { useActiveProjectId } from "../context/project-context";
@@ -193,7 +192,7 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
     setTab(null);                         // the new run streams in the run log, then shows its deck
     setDetails({});
     try {
-      const { run_id } = await intelApi.deliverableRun(projectId, loadThreshold());
+      const { run_id } = await intelApi.deliverableRun(projectId);
       runIdRef.current = run_id;
       setPayload((p) => (p.run?.id === run_id ? p : { run: { id: run_id, project_id: projectId, status: "running",
         stage: "gate", stages: {}, pptx_path: null, docx_path: null, error: null }, sections: [] }));

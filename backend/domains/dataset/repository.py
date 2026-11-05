@@ -300,15 +300,19 @@ def ids_matching(project_id: int, **filters) -> list[int]:
 
 
 def approved(project_id: int, rq_ids: list[str]) -> list[dict]:
+    """Articles with an approved row for any of rq_ids: approved_rq_ids, and per RQ its {"tags", "evidence"} (JSON text)."""
     if not rq_ids:
         return []
-    rows = _run(f"SELECT {_LIST_COLS}, a.content, m.rq_id FROM intel_articles a JOIN intel_article_rq m "
-                f"ON m.article_id = a.id WHERE a.project_id = ? AND m.status = 'approved' "
-                f"AND m.rq_id IN ({_marks(len(rq_ids))}) ORDER BY a.id, m.rq_id", (project_id, *rq_ids))
+    rows = _run(f"SELECT {_LIST_COLS}, a.content, a.raw_json, m.rq_id, m.tags_json AS rq_tags_json, "
+                f"m.evidence_json AS rq_evidence_json FROM intel_articles a JOIN intel_article_rq m "
+                f"ON m.article_id = a.id WHERE a.project_id = ? AND m.project_id = ? AND m.status = 'approved' "
+                f"AND m.rq_id = ANY(?) ORDER BY a.id, m.rq_id", (project_id, project_id, list(rq_ids)))
+    per_rq = ("rq_id", "rq_tags_json", "rq_evidence_json")
     out: dict[int, dict] = {}
     for r in rows:
-        d = out.setdefault(r["id"], {**{k: r[k] for k in r.keys() if k != "rq_id"}, "approved_rq_ids": []})
+        d = out.setdefault(r["id"], {**{k: r[k] for k in r.keys() if k not in per_rq}, "approved_rq_ids": [], "rq": {}})
         d["approved_rq_ids"].append(r["rq_id"])
+        d["rq"][r["rq_id"]] = {"tags": r["rq_tags_json"], "evidence": r["rq_evidence_json"]}
     return list(out.values())
 
 
