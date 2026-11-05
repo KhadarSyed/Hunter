@@ -26,6 +26,9 @@ REPO_ROOT = BACKEND_DIR.parent
 HOUSE_LOGO = next((p for p in (REPO_ROOT / "frontend" / "public" / "infovision.gif", BACKEND_DIR / "static" / "infovision.gif",
                                REPO_ROOT / "frontend" / "public" / "logo.png", BACKEND_DIR / "static" / "logo.png")
                    if p.exists()), None)
+# AlphaMetricx's wordmark, beside InfoVision's in that badge on every deck
+PARTNER_LOGO = next((p for p in (REPO_ROOT / "frontend" / "public" / "alphametricx.png",
+                                 BACKEND_DIR / "static" / "alphametricx.png") if p.exists()), None)
 # HUNTER_AGENT_DATA_DIR lets a deployment keep runtime data somewhere other than data/.
 DATA_DIR = Path(os.getenv("HUNTER_AGENT_DATA_DIR") or REPO_ROOT / "data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)

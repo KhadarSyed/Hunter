@@ -12,7 +12,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup, escape
 
-from ...core.config import HOUSE_LOGO
+from ...core.config import HOUSE_LOGO, PARTNER_LOGO
 from ..deliverable import visuals
 from ..deliverable.analytics import PLATFORM_DOMAINS
 from . import amcharts, logo_prep, tables
@@ -151,12 +151,16 @@ def _marks(spec: DeckSpec, out_dir: Path) -> dict:
 
 
 def _house_badge(part: str, out_dir: Path) -> str:
-    """InfoVision Intelligence's logo and name, top right on the slide, for every project; restyled slides too."""
+    """InfoVision Intelligence's logo and name, with AlphaMetricx's beside it, top right on the slide, for every
+    project; restyled slides too."""
     rel = _asset(str(HOUSE_LOGO) if HOUSE_LOGO else None, out_dir)
     if not rel or 'class="house"' in part or "</section>" not in part:
         return part
+    partner = _asset(str(PARTNER_LOGO) if PARTNER_LOGO else None, out_dir)
     badge = (f'<div class="house"><img src="{escape(rel)}" alt="InfoVision Intelligence">'
-             '<span class="house-name">InfoVision</span><span class="house-word">Intelligence</span></div>')
+             '<span class="house-name">InfoVision</span><span class="house-word">Intelligence</span>'
+             + (f'<span class="house-sep"></span><img class="house-partner" src="{escape(partner)}" alt="AlphaMetricx">'
+                if partner else "") + '</div>')
     head, _, tail = part.rpartition("</section>")
     return f"{head}{badge}</section>{tail}"
 
