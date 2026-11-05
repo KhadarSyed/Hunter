@@ -143,10 +143,15 @@ def _tag_pass(llm, articles: list[dict], brand: str, competitors: list[str], sca
     return tagged
 
 
-def tag(llm, articles: list[dict], brand: str, competitors: list[str]) -> dict[int, dict | None]:
-    """Tags per article id; None where the model still left it out after one retry at half budgets."""
-    tagged = _tag_pass(llm, articles, brand, competitors, 1)
+def tag_with_retry(articles: list[dict], run_pass) -> dict[int, dict | None]:
+    """run_pass(articles, scale) -> {id: result}. Whatever it leaves out is re-packed once at half budgets, then None."""
+    tagged = run_pass(articles, 1)
     missing = [a for a in articles if a["id"] not in tagged]
     if missing:
-        tagged.update(_tag_pass(llm, missing, brand, competitors, 2))
+        tagged.update(run_pass(missing, 2))
     return {a["id"]: tagged.get(a["id"]) for a in articles}
+
+
+def tag(llm, articles: list[dict], brand: str, competitors: list[str]) -> dict[int, dict | None]:
+    """Tags per article id; None where the model still left it out after one retry at half budgets."""
+    return tag_with_retry(articles, lambda arts, scale: _tag_pass(llm, arts, brand, competitors, scale))
