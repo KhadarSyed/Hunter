@@ -360,8 +360,9 @@ def _top_articles(module, rq, rows, base_n, _, brands=()):
         return (not (brands and evidence.row_brands(r, brands)), not r.dynamic_tags, -r.article.reach, -r.copies,
                 r.article.title)
     ranked = sorted(rows, key=key)[:TOP_N]
-    table_rows = [[r.article.title[:110], r.article.outlet, us_date(r.article.date),
-                   f"{int(r.article.reach):,}" if r.article.reach else "", str(r.copies)] for r in ranked]
+    # "—": the dataset does not give it (a hand-collected row has no reach), not an empty cell that looks broken
+    table_rows = [[r.article.title[:110], r.article.outlet or "—", us_date(r.article.date) or "—",
+                   f"{int(r.article.reach):,}" if r.article.reach else "—", str(r.copies)] for r in ranked]
     links = [r.article.url if r.article.url.lower().startswith(("https://", "http://")) else "" for r in ranked]
     return _section(module, rq, table={"header": ["Headline", "Outlet", "Date", "Reach", "Copies"], "rows": table_rows,
                                        "links": links, "col_widths": [5.6, 2.4, 1.6, 1.6, 1.0]},

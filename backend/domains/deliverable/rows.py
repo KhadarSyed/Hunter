@@ -93,6 +93,19 @@ def author_of(rec: dict, url: str) -> str:
     return f"{'r' if reddit.group(1) == 'r' else 'u'}/{reddit.group(2)}" if reddit else ""
 
 
+_URL_DATE = re.compile(r"/(20\d\d)/(0?[1-9]|1[0-2])/(0?[1-9]|[12]\d|3[01])(?:/|$)")
+_HOST = re.compile(r"^https?://(?:www\.)?([^/:?#]+)", re.IGNORECASE)
+
+
+def _url_facts(url: str) -> tuple[str, str]:
+    """The outlet (its domain) and the publish date a URL states, for hand-collected rows that carry only a URL
+    and a title ('/2025/06/12/' in the path is the publisher's own date)."""
+    host = _HOST.match(url)
+    day = _URL_DATE.search(url)
+    when = f"{day.group(1)}-{int(day.group(2)):02d}-{int(day.group(3)):02d}" if day else ""
+    return (host.group(1).lower() if host else ""), when
+
+
 def _row(rec: dict, rq: str | None, source_file: str, index: int, date_order: str = "ymd") -> EngineRow | None:
     url = str(rec.get("url") or "").strip()
     if url.lower().startswith("www."):
@@ -100,8 +113,10 @@ def _row(rec: dict, rq: str | None, source_file: str, index: int, date_order: st
     if not url or _EXECUTABLE_URL.match(url):
         return None
     title = str(rec.get("title") or rec.get("headline") or "").strip()
-    article = Article(url=url, norm_url=normalize_url(url), title=title, date=parse_date(rec.get("date"), date_order),
-                      outlet=str(rec.get("source_name") or rec.get("source") or ""),
+    url_outlet, url_date = _url_facts(url)
+    article = Article(url=url, norm_url=normalize_url(url), title=title,
+                      date=parse_date(rec.get("date"), date_order) or parse_date(url_date or None, "ymd"),
+                      outlet=str(rec.get("source_name") or rec.get("source") or url_outlet),
                       text=str(rec.get("content") or title),
                       sentiment=rec.get("overall_sentiment") or rec.get("sentiment") or None,
                       reach=_to_float(rec.get("reach")), source_file=source_file, row_index=index,
