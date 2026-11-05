@@ -5,10 +5,15 @@ import base64
 import logging
 from io import BytesIO
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 logger = logging.getLogger(__name__)
 THUMB_PX = 512
+SLIDE = (1920, 1080)         # the photo as it fills a slide: the second image is a crop of it at that size
+# the second image shows the photo's real sharpness: a small or heavily compressed picture saved at a large size
+# passes the pixel-size check and still prints blurred and blocky across a slide
+_QUALITY = (" The second image is a full-size crop of the photo at the size it will appear on the slide: also say NO "
+            "when it is blurry, pixelated, or shows JPEG blocks or smeared detail.")
 _PROMPT = ("Answer YES or NO first. Is this photo a good, on-topic image for a presentation slide about {label}, "
            "for the {category} category{brands}{products}? An unbranded scene of the category fits: the brand need not "
            "be visible. Say NO for logos alone, charts, screenshots of text, watermarked stock, unrelated scenes, a "
@@ -35,6 +40,16 @@ def _thumb(data: bytes) -> str:
     return base64.b64encode(out.getvalue()).decode("ascii")
 
 
+def _slide_crop(data: bytes) -> str:
+    """The middle of the photo at the size it fills a slide, unscaled: what a viewer sees of its sharpness."""
+    with Image.open(BytesIO(data)) as im:
+        im = ImageOps.fit(im.convert("RGB"), SLIDE, method=Image.LANCZOS)
+    left, top = (SLIDE[0] - THUMB_PX) // 2, (SLIDE[1] - THUMB_PX) // 2
+    out = BytesIO()
+    im.crop((left, top, left + THUMB_PX, top + THUMB_PX)).save(out, "JPEG", quality=90)
+    return base64.b64encode(out.getvalue()).decode("ascii")
+
+
 def matches(llm, image_bytes: bytes, s, slide_label: str, exact: bool = False, own_brand: str = "") -> bool | None:
     """`exact`: the photo must show the subjects' first product itself (the cover's product box), not merely fit.
     `own_brand`: the photo must be recognisably that brand's (the deck's opening and closing slides)."""
@@ -50,8 +65,9 @@ def matches(llm, image_bytes: bytes, s, slide_label: str, exact: bool = False, o
                               products=f", products {', '.join(s.products[:3])}" if s.products else "")
     try:
         reply = llm.chat([{"role": "user", "content": [
-            {"type": "text", "text": text},
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{_thumb(image_bytes)}"}}]}])
+            {"type": "text", "text": text + _QUALITY},
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{_thumb(image_bytes)}"}},
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{_slide_crop(image_bytes)}"}}]}])
     except Exception as e:      # the text gate still applies when vision is unavailable
         logger.warning("vision check skipped: %s", type(e).__name__)
         return None
