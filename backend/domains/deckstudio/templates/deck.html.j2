@@ -39,9 +39,9 @@ text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-b
 .logo-chip.mark{padding:2px 8px;border-radius:6px;box-shadow:none;border:1px solid rgba(0,0,0,.08)}
 .nlabel{font:700 20px var(--chrome);color:var(--primary)}
 .house{position:absolute;top:12px;right:22px;z-index:20;display:flex;align-items:center;gap:8px;background:#fff;
-border-radius:10px;padding:5px 12px 5px 6px;box-shadow:0 1px 3px rgba(91,44,157,.08),0 4px 16px rgba(91,44,157,.04);
-font:700 17px/1 var(--chrome);letter-spacing:-.01em}
-.house img{height:26px;width:26px;border-radius:7px;object-fit:cover}
+border-radius:12px;padding:5px 14px 5px 6px;box-shadow:0 1px 3px rgba(91,44,157,.08),0 4px 16px rgba(91,44,157,.04);
+font:700 20px/1 var(--chrome);letter-spacing:-.01em}
+.house img{height:34px;width:34px;object-fit:contain}
 .house-name{color:#5B2C9D}
 .house-word{color:#1E1833;font-weight:500}
 .kpis{display:flex;gap:14px;margin:8px 0 16px}
@@ -162,6 +162,21 @@ color:var(--primary);border:1.5px solid var(--primary);font:italic 700 16px/23px
 body.export .slide{break-after:page}
 @keyframes rise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
 @keyframes fadescale{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
+/* glass: a soft brand-tinted wash behind every slide so frosted cards have something to blur */
+.slide{background:
+  radial-gradient(900px 700px at 8% 12%, color-mix(in srgb, var(--primary) 22%, transparent), transparent 70%),
+  radial-gradient(800px 650px at 92% 88%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 70%),
+  radial-gradient(600px 500px at 70% 10%, color-mix(in srgb, var(--primary) 10%, transparent), transparent 70%),
+  var(--bg)}
+.card,.kpi-tile,.seg,.live-cell,.live-bullet,.qtable,.vcell,.live-progress{
+  background:rgba(255,255,255,.52)!important;
+  -webkit-backdrop-filter:blur(18px) saturate(160%);backdrop-filter:blur(18px) saturate(160%);
+  border:1px solid rgba(255,255,255,.75);
+  box-shadow:0 10px 34px rgba(31,24,51,.10),inset 0 1px 0 rgba(255,255,255,.85)}
+.panel{background:rgba(255,255,255,.62)!important;-webkit-backdrop-filter:blur(22px) saturate(170%);backdrop-filter:blur(22px) saturate(170%);
+  border:1px solid rgba(255,255,255,.7);box-shadow:0 18px 50px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.9)}
+.qtable tbody td{background:transparent}
+.qtable tbody tr:nth-child(even) td{background:rgba(255,255,255,.35)}
 </style></head>
 <body><div class="deck">
 {% for html in slides %}{{ html | safe }}
