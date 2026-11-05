@@ -112,12 +112,13 @@ def _row(rec: dict, rq: str | None, source_file: str, index: int, date_order: st
         url = "https://" + url
     if not url or _EXECUTABLE_URL.match(url):
         return None
-    title = str(rec.get("title") or rec.get("headline") or "").strip()
+    full_title = str(rec.get("title") or rec.get("headline") or "").strip()
+    title = full_title.split("\n", 1)[0].strip()      # a pasted headline can carry its subheadline on the next line
     url_outlet, url_date = _url_facts(url)
     article = Article(url=url, norm_url=normalize_url(url), title=title,
                       date=parse_date(rec.get("date"), date_order) or parse_date(url_date or None, "ymd"),
                       outlet=str(rec.get("source_name") or rec.get("source") or url_outlet),
-                      text=str(rec.get("content") or title),
+                      text=str(rec.get("content") or full_title),
                       sentiment=rec.get("overall_sentiment") or rec.get("sentiment") or None,
                       reach=_to_float(rec.get("reach")), source_file=source_file, row_index=index,
                       image=str(rec.get("image") or "").strip(), country=str(rec.get("country") or "").strip(),
