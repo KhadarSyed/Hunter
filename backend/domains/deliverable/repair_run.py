@@ -64,7 +64,12 @@ def _repair(project_id: int, run_id: int, scope: str, llm) -> None:
         spec, context = fixer.load(deck_dir)
         repair = fixer.Repair(spec, context, llm, deck_dir, log=run.log)
         studio = sections.get("studio") or {"id": "studio", "rq_id": None, "module": "studio", "title": "Deck"}
-        checks = studio.get("validation") or fixer.validate_with(repair, None)
+        # the deck is checked again by today's rules (a check that changed since the run is then repaired); the
+        # stored checks that need the exported PPTX stay as they were
+        fresh = fixer.validate_with(repair, None)
+        names = {c["check"] for c in fresh}
+        checks = fresh + [c for c in studio.get("validation") or []
+                          if c["check"] not in names and not c["check"].startswith("Brief: ")]
         checks, rebuilt = fixer.run_repairs(repair, checks, scope)
         store.replace_deliverable_section(run_id, _studio_section(studio, repair.spec, checks, repair.checklist,
                                                                   (rebuilt or {}).get("report")))
