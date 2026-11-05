@@ -5,6 +5,8 @@ than duplicated) since Strategy is its primary/first use.
 """
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 from ...core.api import ApiModel
@@ -42,6 +44,10 @@ class AddRQRequest(BaseModel):
 
 class AddRQResult(ApiModel):
     question_id: str
+
+
+class RQStatusRequest(BaseModel):
+    status: Literal["draft", "approved"]
 
 
 class EditRQRequest(BaseModel):

@@ -151,12 +151,36 @@ def add_research_question(strategy_id: int, question: str, query: str) -> str | 
     numbers = [int(rq["question_id"][2:]) for rq in rqs
                if str(rq.get("question_id", "")).startswith("RQ") and str(rq["question_id"])[2:].isdigit()]
     question_id = f"RQ{max(numbers, default=0) + 1}"
-    rqs.append({"question_id": question_id, "question": question, "query": query, "user_added": True})
+    rqs.append({"question_id": question_id, "question": question, "query": query, "user_added": True,
+                "status": "draft"})
     strategy["research_question_queries"] = rqs
     conn.execute("UPDATE intel_search_strategies SET strategy_json = ? WHERE id = ?", (json.dumps(strategy), strategy_id))
     conn.commit()
     conn.close()
     return question_id
+
+
+def set_research_question_status(strategy_id: int, question_id: str, status: str) -> bool:
+    """Mark one RQ draft or approved (only approved RQs are tagged in the data set); False when it is not found."""
+    conn = _conn()
+    try:
+        row = conn.execute("SELECT strategy_json FROM intel_search_strategies WHERE id = ? FOR UPDATE",
+                           (strategy_id,)).fetchone()
+        if not row:
+            return False
+        strategy = json.loads(row["strategy_json"])
+        for rq in strategy.get("research_question_queries", []):
+            if rq.get("question_id") == question_id:
+                rq["status"] = status
+                break
+        else:
+            return False
+        conn.execute("UPDATE intel_search_strategies SET strategy_json = ? WHERE id = ?",
+                     (json.dumps(strategy), strategy_id))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
 
 
 def delete_research_question(strategy_id: int, question_id: str) -> bool:

@@ -302,3 +302,30 @@ def approved(project_id: int, rq_ids: list[str]) -> list[dict]:
         d = out.setdefault(r["id"], {**{k: r[k] for k in r.keys() if k != "rq_id"}, "approved_rq_ids": []})
         d["approved_rq_ids"].append(r["rq_id"])
     return list(out.values())
+
+
+def articles_with_rq(project_id: int, article_ids: list[int]) -> set[int]:
+    if not article_ids:
+        return set()
+    return {r[0] for r in _run(f"SELECT DISTINCT article_id FROM intel_article_rq WHERE project_id = ? "
+                               f"AND article_id IN ({_marks(len(article_ids))})", (project_id, *article_ids))}
+
+
+def edit_article(project_id: int, article_id: int, sentiment: str | None, themes: list[str] | None,
+                 brands: list[str] | None) -> list[str] | None:
+    """Apply an analyst's edit to the article's tags; returns the RQ ids it matched, or None when it is not found."""
+    row = _run("SELECT tags_json FROM intel_articles WHERE id = ? AND project_id = ?", (article_id, project_id), one=True)
+    if not row:
+        return None
+    tags = json.loads(row["tags_json"] or "{}")
+    if sentiment is not None:
+        tags["overall_sentiment"] = sentiment
+    if themes is not None:
+        tags["themes"] = dict(zip(("primary", "secondary", "tertiary"), [*themes[:3], None, None, None]))
+    if brands is not None:
+        known = {str(b.get("brand", "")).lower(): b for b in tags.get("brands") or []}
+        tags["brands"] = [known.get(b.lower(), {"brand": b}) for b in brands]
+    _run("UPDATE intel_articles SET tags_json = ?, sentiment = COALESCE(?, sentiment) WHERE id = ?",
+         (json.dumps(tags, default=str), sentiment, article_id))
+    return [r[0] for r in _run("SELECT rq_id FROM intel_article_rq WHERE article_id = ? AND matched = 1 ORDER BY rq_id",
+                               (article_id,))]

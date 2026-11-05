@@ -59,6 +59,7 @@ from .schemas import (
     AddRQRequest,
     AddRQResult,
     EditRQRequest,
+    RQStatusRequest,
     EnrichmentStartResponse,
     EvaluationUploadResponse,
     FinalApprovalRequest,
@@ -743,6 +744,14 @@ def edit_research_question(strategy_id: IdPath, req: EditRQRequest,
                            _access: Annotated[dict, Depends(require_strategy_access)]):
     ok = store.update_research_question(strategy_id, req.question_id, req.question, req.query)
     if not ok:
+        raise HTTPException(404, "Research question not found")
+    return {"ok": True}
+
+
+@router.post("/strategy/{strategy_id}/research-question/{question_id}/status", response_model=OkResponse)
+def set_research_question_status(strategy_id: IdPath, question_id: str, req: RQStatusRequest,
+                                 _access: Annotated[dict, Depends(require_strategy_access)]):
+    if not store.set_research_question_status(strategy_id, question_id, req.status):
         raise HTTPException(404, "Research question not found")
     return {"ok": True}
 
