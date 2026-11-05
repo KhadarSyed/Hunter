@@ -44,6 +44,7 @@ class Repair:
     registry: CitationRegistry = field(default=None)
     changed: bool = False
     misleading: set = field(default_factory=set)      # articles that led a card off its category: never reused
+    misses: dict = field(default_factory=dict)        # check -> rounds its remedy found no data
 
     def __post_init__(self):
         if self.registry is None:
@@ -372,6 +373,65 @@ REMEDIES = (
 )
 
 
+# ---- no data after NOT_FOUND_ROUNDS rounds: the unsupported content is dropped rather than left open ---------------
+
+NOT_FOUND_ROUNDS = 2
+
+
+def drop_unsummarised(r: Repair) -> str:
+    gone = [s for s in _chart_slides(r) if not validate._cited([s]) and "-cont-" not in s.id]
+    r.spec.slides = [s for s in r.spec.slides if s not in gone]
+    return "removed chart slide(s) no source supports: " + ", ".join(s.id for s in gone)
+
+
+def drop_stray_cards(r: Repair) -> str:
+    brands_of = r.context.get("citation_brands") or {}
+    stray = {n for n in validate._cited(r.spec.slides) if not brands_of.get(n)}
+    n = 0
+    for s in r.spec.slides:
+        keep = [c for c in s.cards if not {str(x) for x in c.get("citations") or []} & stray]
+        n += len(s.cards) - len(keep)
+        s.cards = keep
+        _cite_numbers(s)
+    return f"removed {n} card(s) citing sources that name no brand"
+
+
+def drop_bare_verbatims(r: Repair) -> str:
+    n = 0
+    for s in r.spec.slides:
+        if s.type == "verbatim_wall":
+            keep = [c for c in s.cards if c.get("image")]
+            n += len(s.cards) - len(keep)
+            s.cards = keep
+    r.spec.slides = [s for s in r.spec.slides if s.type != "verbatim_wall" or s.cards]
+    return f"removed {n} verbatim(s) that could not be captured"
+
+
+DROPS = {
+    "Every chart slide has a cited summary": drop_unsummarised,
+    "Citations name the brand or a competitor literally": drop_stray_cards,
+    "Verbatims show the post or article screenshot": drop_bare_verbatims,
+}
+
+
+def _not_found(r: Repair, check: str) -> list[str]:
+    """Counts a round in which the check's remedy found no data; on the NOT_FOUND_ROUNDS-th, the content goes."""
+    r.misses[check] = r.misses.get(check, 0) + 1
+    drop = DROPS.get(check)
+    if drop is None or r.misses[check] < NOT_FOUND_ROUNDS:
+        return []
+    before = [(s.id, len(s.cards)) for s in r.spec.slides]
+    line = drop(r)
+    if [(s.id, len(s.cards)) for s in r.spec.slides] != before:
+        r.changed = True
+    return [f"Dropped after {NOT_FOUND_ROUNDS} rounds without data - {check[:70]}: {line}"]
+
+
+def _retry_pending(r: Repair) -> bool:
+    """A droppable check that found no data once gets its second round even when nothing else changed."""
+    return any(r.misses.get(k) == NOT_FOUND_ROUNDS - 1 for k in DROPS)
+
+
 def _brands_by_url(ctx: dict) -> dict[str, list[str]]:
     arts = [a for sec in (ctx.get("sections") or {}).values()
             for a in [x for seg in (sec.get("segments") or {}).values() for x in seg] + (sec.get("candidates") or [])]
@@ -495,7 +555,7 @@ def repair_round(r: Repair, checks: list[dict], scope: str = "all") -> list[str]
     lines = []
     if scope in ("checks", "all"):
         for row in [c for c in checks if c["status"] != "pass" and not c["check"].startswith("Brief: ")]:
-            remedy = next((fn for prefix, fn in REMEDIES if row["check"].startswith(prefix)), None)
+            prefix, remedy = next(((p, fn) for p, fn in REMEDIES if row["check"].startswith(p)), (None, None))
             if remedy is None:
                 lines.append(f"{row['check'][:70]}: no automatic repair - {row['detail'][:120]}")
                 continue
@@ -504,6 +564,7 @@ def repair_round(r: Repair, checks: list[dict], scope: str = "all") -> list[str]
                 sync_sources(r)            # sources a remedy just cited are known (brands, icon) to the next one
             except Unfixable as e:
                 lines.append(f"Could not repair - {row['check'][:70]}: {e}")
+                lines += _not_found(r, prefix)
             except Exception as e:      # one remedy failing never stops the others
                 logger.exception("repair %s failed", row["check"])
                 lines.append(f"Could not repair - {row['check'][:70]}: {type(e).__name__}")
@@ -583,6 +644,8 @@ def run_repairs(r: Repair, checks: list[dict], scope: str = "all", on_fix=None) 
         for line in repair_round(r, checks, scope):
             r.log(line)
         if not r.changed:
+            if _retry_pending(r) and k < MAX_ROUNDS:
+                continue            # the same search once more before its content is dropped
             r.log("Repair agent: nothing more can be changed automatically")
             break
         out = rebuild(r.spec, r.deck_dir, on_fix)
