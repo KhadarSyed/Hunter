@@ -130,9 +130,9 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
       } catch {}
 
       try {
-        // an uploaded dataset someone approved, as the deck's gate requires (the plan check also accepts web research)
-        const datasets = await intelApi.getAllDatasets(activeProjectId);
-        s.datasetApproved = datasets.some((d) => d.approval_status === "approved");
+        // an article approved for an approved question, as the deck's gate requires
+        const coverage = await intelApi.deliverableCoverage(activeProjectId);
+        s.datasetApproved = coverage.rqs.some((r) => (r.shared ?? 0) > 0);
       } catch {}
 
       // Insights, slides and downloads come from the latest deliverable run

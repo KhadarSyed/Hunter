@@ -1023,6 +1023,7 @@ export type AgentEvent = { id: number; actor: string; action: string; detail: Re
 export interface DeliverableLogLine { ts: number; message: string }
 export interface DeliverableCitation { n: number; outlet: string; title: string; url: string; date: string; domain: string }
 /** Per question: articles uploaded for it (own) and in total once other uploads matching its query are routed in. */
+// per question: articles approved for it on the Data set tab (shared = that count)
 export interface DataCoverage { rqs: { rq_id: string; has_own_upload: boolean; shared: number | null }[] }
 export interface DeliverablePayload { run: DeliverableRun | null; sections: DeliverableSection[] }
 

@@ -316,6 +316,14 @@ def approved(project_id: int, rq_ids: list[str]) -> list[dict]:
     return list(out.values())
 
 
+def approved_count(project_id: int, rq_ids: list[str]) -> int:
+    """Approved article-RQ rows of this project for any of rq_ids."""
+    if not rq_ids:
+        return 0
+    return int(_run("SELECT COUNT(*) FROM intel_article_rq WHERE project_id = ? AND status = 'approved' "
+                    "AND rq_id = ANY(?)", (project_id, list(rq_ids)), one=True)[0])
+
+
 def articles_with_rq(project_id: int, article_ids: list[int]) -> set[int]:
     if not article_ids:
         return set()

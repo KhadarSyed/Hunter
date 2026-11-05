@@ -74,8 +74,7 @@ def repair(project_id: ProjectId, run_id: RunId, _: Access,
 
 @router.get("/deliverable/{project_id}/coverage", response_model=DataCoverageResponse)
 def coverage(project_id: ProjectId, _: Access):
-    """Articles per question from the approved datasets, counted as the engine will: a question with no upload of its
-    own is still answered by other uploads that match its query (Data Sources shows this instead of 'not approved')."""
+    """Approved articles per question (approved article-RQ rows from the Data set tab), counted as the deck reads them."""
     return engine_rows.coverage(project_id)
 
 

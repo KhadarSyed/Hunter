@@ -34,10 +34,11 @@ class DeliverableRunPayload(BaseModel):
 
 class RQCoverage(BaseModel):
     rq_id: str
-    has_own_upload: bool   # an approved dataset was uploaded for this question
-    shared: int | None = None  # no upload: articles from the other approved uploads matching its Meltwater query
+    has_own_upload: bool = Field(description="True when at least one article is approved for this question")
+    shared: int | None = Field(default=None, description="Articles approved for this question (Data set tab); "
+                                                         "the deck section reads exactly these")
 
 
 class DataCoverageResponse(BaseModel):
-    """Per question, what the deliverable will have from the approved datasets (the engine's routing)."""
+    """Per question, how many articles are approved for it (approved article-RQ rows; a draft question has 0)."""
     rqs: list[RQCoverage] = []

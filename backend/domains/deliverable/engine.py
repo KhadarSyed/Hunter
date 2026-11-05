@@ -60,9 +60,10 @@ def _gate_reasons(project_id: int) -> list[str]:
         reasons.append("Scope is not approved")
     if (store.get_latest_strategy(project_id) or {}).get("approval_status") != "approved":
         reasons.append("Search strategy is not approved")
+    from ..dataset import repository as dataset_repo
+    if not dataset_repo.approved_count(project_id, [q.id for q in R.approved_rqs(project_id)]):
+        reasons.append("No approved articles yet: approve articles in the Data set tab")
     datasets = store.get_datasets_by_project(project_id)
-    if not [d for d in datasets if d.get("approval_status") == "approved"]:
-        reasons.append("No approved dataset")
     # a run started mid-review drafts from articles the review will drop: every GPT call of it is spent twice
     open_ = [d.get("file_name") or f"#{d.get('id')}" for d in datasets
              if d.get("enrichment_status") == "running" or (d.get("processing_status") or "done") == "processing"
