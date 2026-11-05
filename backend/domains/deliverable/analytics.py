@@ -535,7 +535,9 @@ def _media_split(module, rq, rows, base_n, _):
                                        "peaks": [], "series_label": "Source", "hierarchy": tree},
                     facts=[f"{rq.id}: {counts[k]} of {known} articles are {k.lower()} ({_pct(counts[k], known)}%)"
                            for k in cats] + notes, notes=notes,
-                    drill_urls={**_drill((_channel(r), r) for r in rows), **_drill(children)})
+                    drill_urls={**_drill((_channel(r), r) for r in rows), **_drill(children)},
+                    # each channel's own posts and articles: its card says what that channel carries
+                    segment_urls=_segments((_channel(r), r) for r in rows if _channel(r) in cats))
 
 
 _NO_ANSWER = {"", "no", "none", "unknown", "n/a", "false"}

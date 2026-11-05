@@ -177,6 +177,30 @@ def _segment_ask(segments: list[str]) -> str:
             '{"insights":[{"headline":"<segment name>","text":"<45-70 words>","citations":[ids]}]}')
 
 
+# where coverage ran, not what it is about: no article says why it is 'Social', so its card says what it carries
+CHANNELS = {"social", "editorial", "news", "online news", "forum", "forums", "blog", "blogs", "broadcast", "print",
+            "podcast", "video", "review", "reviews", "product review", "x", "twitter", "facebook", "instagram",
+            "tiktok", "youtube", "reddit", "pinterest", "linkedin", "threads", "unknown", "other social"}
+
+
+def is_channel_chart(segments: list[str]) -> bool:
+    return bool(segments) and all(s.strip().lower() in CHANNELS for s in segments)
+
+
+def _channel_ask(segments: list[str]) -> str:
+    """One card per channel: what that channel's own posts and articles talk about, and how it differs."""
+    return ("This chart splits the coverage by CHANNEL: " + "; ".join(segments) + ". Write one insight per "
+            "channel, in that order; its headline is the channel name exactly as given. Each text is 45-70 words "
+            "saying what that channel's own ARTICLES are about and how it differs from the other channels: who is "
+            "posting or writing (runners, parents, reviewers, sports desks), the topics, products, people and "
+            "events they bring up, and their tone, with a concrete example quoted from an article, then what it "
+            "means for the client on that channel. Each article in ARTICLES lists the channel it is counted in: "
+            "describe a channel only from its own articles and cite at least one of them. Do not say why a post "
+            "is social or editorial. Wrap the two or three most telling phrases in **double asterisks**. The chart "
+            "already shows each channel's share, so write no numbers. Return "
+            '{"insights":[{"headline":"<channel name>","text":"<45-70 words>","citations":[ids]}]}')
+
+
 _DRAFT_SYSTEM = ("You write insights for a media-research deck, the way a senior media analyst "
     "does. The chart beside each insight already shows the shares and counts, so an insight never restates the "
     "headline figure; it explains WHY the pattern exists -- its drivers. Name the specific outlets, brands, products, people, "
@@ -272,7 +296,7 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
          f"\nARTICLES:\n{json.dumps(arts, ensure_ascii=False)}\n" +
          ("ALREADY SAID on this question (the reader has seen these; make a different point, do not restate "
           "them):\n" + "\n".join(f"- {a}" for a in avoid) + "\n" if avoid else "") +
-         (_segment_ask(segments) if segments else
+         ((_channel_ask if is_channel_chart(segments) else _segment_ask)(segments) if segments else
           f"Write {n_insights} insights as "
           '{"insights":[{"headline":"<=10 words: the takeaway, not the headline figure","text":"<=35 words: '
           'the named drivers behind the finding, then the so-what for the client","citations":[ids]}]}')},
