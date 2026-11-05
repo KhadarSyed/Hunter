@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 from ..core.llm_provider import HybridLLMClient, extract_json_object as _extract_json_object
 from . import question_dimensions as qd
+from .article_tagging import AUTHOR_TYPES
 from . import question_tag_schema as ts
 
 EventFn = Callable[[str, dict], None]
@@ -38,8 +39,6 @@ WORKERS = max(1, int(os.environ.get("HUNTER_ENRICH_WORKERS", "8") or 8))
 
 SENTIMENTS = ["Positive", "Neutral", "Negative"]
 BRAND_MENTIONS = ("literal", "figurative", "none")
-AUTHOR_TYPES = ["Consumer", "Parent", "Athlete", "Coach", "Healthcare professional", "Journalist / media",
-                "Influencer / creator", "Brand / company", "Retailer", "Organisation", "Unknown"]
 
 
 SYSTEM_PROMPT = """\
