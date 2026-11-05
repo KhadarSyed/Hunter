@@ -21,6 +21,7 @@ from ..deliverable.engine_types import RQ
 from ..deliverable.ingest import Article, normalize_url, parse_date
 from ..deliverable.insights import draft_section
 from . import count_reading, validate, verbatims, vision
+from .checklist import METHOD
 from .spec import DeckSpec, SlideSpec
 
 logger = logging.getLogger(__name__)
@@ -50,7 +51,10 @@ class Repair:
 
     @property
     def checklist(self) -> list[dict]:
-        return self.context.setdefault("checklist", [])
+        rows = self.context.setdefault("checklist", [])
+        # a deck built before an ask counted as method (how the analyst codes) still lists it: never a check to fix
+        rows[:] = [x for x in rows if x.get("kind") == "question" or not METHOD.search(str(x.get("ask") or ""))]
+        return rows
 
 
 def _article(d: dict) -> Article:
@@ -92,7 +96,8 @@ def explain_categories(r: Repair, _row: dict) -> str:
     done = []
     for slide in _chart_slides(r):
         segs = validate._segments(slide)
-        have = _by_headline(slide.cards)
+        # a count-only card is tried again: its articles may explain it now, else it is read from the chart
+        have = {k: c for k, c in _by_headline(slide.cards).items() if not c.get("count_only")}
         missing = [g for g in segs if _key(g) not in have]
         if not missing:
             continue

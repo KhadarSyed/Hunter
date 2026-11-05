@@ -89,6 +89,7 @@ def off_topic_cards(charts: list[SlideSpec]) -> list[tuple[str, str]]:
     return out
 
 
+_BARE_COUNT = "shown as a count only"
 _STATIC = {"objectives", "methodology", "checklist", "citations", "scorecard"}   # reading slides: nothing to build
 
 
@@ -121,6 +122,9 @@ def _evidence_rows(slides: list[SlideSpec], rqs: list[RQ], has_competitors: bool
                      f"{len(badged)} without a verified logo: " + ", ".join(badged[:10]), soft=True))
     # each category of a breakdown chart is explained on its own card (what drives it), not one summary for all
     thin = [f"{s.id} ({len(s.cards)} of {len(segs)})" for s in charts if (segs := _segments(s)) and len(s.cards) < len(segs)]
+    # a deck drafted before count cards read the chart for the question still says only "shown as a count only"
+    thin += [f"{s.id} (count-only text)" for s in charts if any(c.get("count_only") and _BARE_COUNT in str(c.get("text"))
+                                                                  for c in s.cards)]
     counted = [f"{c['headline']} ({s.id})" for s in charts for c in s.cards if c.get("count_only")]
     rows.append(_row("Every chart category has its own insight", not thin,
                      "explained only partly: " + ", ".join(thin[:6]),

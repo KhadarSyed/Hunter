@@ -24,8 +24,8 @@ DELIVERED = re.compile(r"written summary|executive summary|report|deck|presentat
 NOT_STATED = re.compile(r"not stated", re.I)
 DATA_EXPORT = re.compile(r"excel|csv|spreadsheet|data tables?|raw data|data set|dataset|xlsx", re.I)
 # how the analyst codes the articles, not an analysis the deck shows: never a deck check, never a repair round
-METHOD = re.compile(r"\bcoding\b|codebook|inter-?coder|reliability|de-?duplicat|syndicat|methodolog|"
-                    r"frequency and percentage", re.I)
+METHOD = re.compile(r"\bcoding\b|codebook|inter-?coder|reliability|de-?duplicat|syndicat|methodolog|\bmethods?\b|"
+                    r"lexicon|classification logic|frequency and percentage", re.I)
 
 
 def brief_asks(project_id: int) -> list[tuple[str, str]]:
