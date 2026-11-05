@@ -19,14 +19,6 @@ from ..domains.projects.repository import *  # noqa: F401,F403
 from ..domains.research.repository import *  # noqa: F401,F403
 from ..domains.strategy.repository import *  # noqa: F401,F403
 from ..domains.plan.repository import *  # noqa: F401,F403
-from ..domains.execution.repository import *  # noqa: F401,F403
-from ..domains.library.repository import *  # noqa: F401,F403
-from ..domains.insights.repository import *  # noqa: F401,F403
-from ..domains.storyline.repository import *  # noqa: F401,F403
-from ..domains.slides.repository import *  # noqa: F401,F403
-from ..domains.composer.repository import *  # noqa: F401,F403
-from ..domains.rendering.repository import *  # noqa: F401,F403
-from ..domains.publishing.repository import *  # noqa: F401,F403
 from ..domains.brief.repository import *  # noqa: F401,F403
 from ..domains.spec.repository import *  # noqa: F401,F403
 from ..domains.qc.repository import *  # noqa: F401,F403

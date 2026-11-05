@@ -21,6 +21,8 @@ from collections import Counter
 from difflib import SequenceMatcher
 from typing import Any, Callable
 
+from ..domains.deliverable.citations import domain_of
+
 EventFn = Callable[[str, dict], None]
 
 # ---------------------------------------------------------------------------
@@ -608,7 +610,7 @@ def _detect_false_positive_patterns(
     domain_counter: Counter[str] = Counter()
     for rec in irrelevant_records:
         url = rec.get("url", "")
-        domain = _extract_domain(url)
+        domain = domain_of(url if "//" in url else "//" + url)  # dataset URLs may lack a scheme
         if domain:
             domain_counter[domain] += 1
 
@@ -660,23 +662,9 @@ def _detect_false_positive_patterns(
     return patterns
 
 
-def _extract_domain(url: str) -> str:
-    """Extract the domain from a URL string."""
-    url = url.strip().lower()
-    if not url:
-        return ""
-    # Remove protocol.
-    for prefix in ("https://", "http://", "//"):
-        if url.startswith(prefix):
-            url = url[len(prefix):]
-            break
-    # Remove path and query.
-    url = url.split("/")[0].split("?")[0].split("#")[0]
-    # Remove www prefix.
-    if url.startswith("www."):
-        url = url[4:]
-    return url
-
+# ---------------------------------------------------------------------------
+# Coverage calculations
+# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # Coverage calculations

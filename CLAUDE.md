@@ -4,31 +4,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Two products live in one app:
+The **Hunter Intelligence Platform** (see `docs/CURRENT_STATUS.md` and `docs/handover/HANDOVER.md`):
+a research pipeline (brief → scope → background research → search strategy → data sources →
+research plan → deliverables, where the deck engine in `domains/deliverable/` + `domains/deckstudio/`
+analyses the datasets and renders the branded PPTX/Word/HTML deck) plus a separate **QC flow** for
+cleaning Meltwater/Empower Excel exports. Lives in `backend/domains/<stage>/` (one folder per stage,
+see Backend layout below); `domains/__init__.py` mounts every stage router under `/api/intel`.
 
-1. **Brief-to-Deck agent** (the original tool, see `README.md`) — watches a folder for client
-   briefs, retrieves matching slides from an indexed historical deck library, drafts missing
-   content, and assembles a branded PowerPoint via Windows COM automation.
-   Lives in `backend/deck/`: `pipeline.py`, `deck_builder.py`, `deck_index.py`, `retrieval.py`,
-   `slide_copy_com.py`, `chart_builders.py`, `watcher.py`, `memory.py`.
-2. **Hunter Intelligence Platform** (the actively developed product, see
-   `docs/CURRENT_STATUS.md` and `docs/handover/HANDOVER.md`) — a 15-stage research pipeline (brief →
-   scope → background research → search strategy → data sources → research execution → evidence
-   library → insights → storyline → slide intelligence → presentation composer → PPTX/Word
-   renderers → publishing gateway) plus a separate **QC flow** for cleaning Meltwater/Empower
-   Excel exports. Lives in `backend/domains/<stage>/` (one folder per stage, see Backend layout
-   below); `domains/__init__.py` mounts every stage router under `/api/intel`.
-
-Both are mounted on the same FastAPI app (`backend/main.py`) and the same React SPA. When
-orienting in this codebase, first figure out which of the two systems a file belongs to — they
-share LLM clients and some helper patterns but have separate databases, separate pipelines, and
-mostly disjoint code paths.
+The old Brief-to-Deck folder-watcher product (`backend/deck/`) and the old evidence-library →
+insights → storyline → slide-intelligence → composer → renderer → publishing chain were deleted;
+their Postgres tables are left in place (no data dropped) but no code reads them.
 
 ## Repository layout
 
 ```
 frontend/        React SPA (Vite); `npm run build` writes into backend/static/
-backend/         FastAPI app — main.py, core/, domains/<stage>/, deck/, supervisor.py, requirements.txt
+backend/         FastAPI app — main.py, core/, domains/<stage>/, supervisor.py, requirements.txt
   agents/        LLM agents (brief scope, query builder, enrichment, tag schemas, …)
 data/            runtime data (gitignored) + the shipped house templates
 deploy/          Dockerfile (build from the repo root), render.yaml (reference), start.ps1,
@@ -61,14 +52,13 @@ docs/            product/subsystem docs, docs/handover/
 
 ```
 backend/
-  main.py              FastAPI app: mounts domains router, /ws, Brief-to-Deck REST, serves SPA
+  main.py              FastAPI app: mounts domains router, /api/auth, /ws, serves SPA
   core/                shared infra — config.py (DATA_DIR/UPLOAD_DIR/EXPORT_DIR), events.py
                        (WebSocket broadcast), db.py (_conn, schema bootstrap, MIGRATIONS), pg.py
                        (sqlite3-like Postgres adapter), store.py (facade that re-exports core.db and every
                        domain repository), LLM clients (llm_provider.py & co.)
   domains/<stage>/     router.py (APIRouter, bare sub-paths) · schemas.py (Pydantic) ·
                        repository.py (SQL via core.db._conn) · service modules (service.py, …)
-  deck/                Brief-to-Deck product
   agents/              LLM agents
 ```
 
@@ -78,24 +68,22 @@ the owning `domains/<stage>/repository.py`, never to `store.py`); repositories i
 never import a `router.py`. Frontend (`frontend/src/`): `pages/` · `components/` · `context/`
 (React providers) · `hooks/` · `services/` (REST + WebSocket clients) · `types/` · `data/` (demo fixtures).
 
-- **Backend:** Python FastAPI (`backend/main.py`), single process, single-threaded pipeline
-  execution (`_run_lock` in `main.py` — only one Brief-to-Deck run at a time by design, since
-  PowerPoint COM automation and the local LLM are both single-consumer on this machine).
+- **Backend:** Python FastAPI (`backend/main.py`), single process; background work runs on the
+  shared job runner in `core/jobs.py`.
 - **Frontend:** React 18 + TypeScript + Vite 5 + Tailwind CSS 4 (`frontend/src/`). The page is
-  chosen by a `useState<Page>` in `App.tsx`, mirrored into the URL path. ~27 page components in
-  `frontend/src/pages/`, one per pipeline stage or QC step.
-- **Database:** Postgres only, one database for both products: local Docker Postgres or Render
+  chosen by a `useState<Page>` in `App.tsx`, mirrored into the URL path. Page components in
+  `frontend/src/pages/`, one per pipeline stage, QC step or settings tab.
+- **Database:** Postgres only, one database: local Docker Postgres or Render
   Postgres in production, via `DATABASE_URL` (required — the server refuses to start without it).
   Repositories write SQLite-style SQL (`?` placeholders, `INSERT OR IGNORE`), which `core/pg.py`
   translates; there is no SQLite fallback. Older docs describing `intelligence.db` or
-  `data/memory.db` are out of date. Both
-  Brief-to-Deck tables (runs/events/chat/slide_index) and every Intelligence Platform table
-  (projects/specs/strategies/jobs/evidence/insights/storylines/renders/QC, 60+ tables) live there.
+  `data/memory.db` are out of date. Every table (projects/specs/strategies/jobs/deliverables/QC,
+  plus the unused legacy tables of the deleted products) lives there.
   Uploaded dataset files are also kept in `intel_dataset_files`, since a hosted server's disk may
   not survive a restart.
 - **LLM chain:** `backend/core/llm_provider.py::build_llm_client(settings)` is the single factory
   used everywhere a chat/embedding client is needed (`get_llm_client()` in the same module,
-  and every other call site — `deck/pipeline.py`, `domains/plan/service.py`,
+  and every other call site — `domains/plan/service.py`,
   `core/llm_synthesis.py`, the `agents/*.py` modules). All clients live in `core/`. It returns a
   `HybridLLMClient` with no cross-provider fallback on either side:
   - **Chat:** Azure OpenAI only (`azure_openai_client.py`, `AZURE_OPENAI_*` env vars). `chat()`
@@ -105,8 +93,7 @@ never import a `router.py`. Frontend (`frontend/src/`): `pages/` · `components/
   - Every LLM-dependent feature in the Intelligence Platform still has its own
     deterministic/rule-based tier beneath this — the deterministic tier is not a stub, it
     produces real content.
-- **Communication:** REST (`/api/*` for Brief-to-Deck, `/api/intel/*` for the Intelligence
-  Platform) + a single shared WebSocket (`/ws`) broadcasting job/run progress to all clients.
+- **Communication:** REST (`/api/intel/*`, `/api/auth/*`) + a single shared WebSocket (`/ws`) broadcasting job/run progress to all clients.
 - **Brand colors:** Violet `#5B2C9D` (primary), QC teal `#0F7B6C`.
 
 ### Intelligence Platform stage → module map
@@ -123,21 +110,12 @@ not scaffolding.
 | Brief & Scope | `brief/parser.py`, `agents/brief_scope.py`, `spec/service.py`, `spec/renderer.py` | `NewProject.tsx`, `BriefScopeReview.tsx` |
 | Background Research | `research/service.py`, `research/web_research.py`, `research/news_search.py`, `agents/brand_intelligence.py` | `BackgroundResearch.tsx` |
 | Search Strategy + dataset evaluation | `strategy/router.py` (`_build_deterministic_strategy()`), `agents/meltwater_query_builder.py`, `agents/query_evaluator.py` | `SearchStrategy.tsx`, `QueryEvaluation.tsx` |
-| Research Plan | `plan/service.py`; `execution/service.py` keeps only the dataset loaders used by `deliverable/` and `strategy/` | `ResearchPlan.tsx` (Execution page and its `/execution/*` API removed: the deck engine analyses datasets itself) |
-| Evidence Library | `library/service.py` | `EvidenceLibrary.tsx` |
-| Analysis & Insights | `insights/service.py` | `InsightsPage.tsx` (Analysis page removed 2026-10-16; deck insights show on `DeliverablesPage.tsx`) |
-| Storyline | `storyline/service.py` | `StorylinePage.tsx` |
-| Slide Intelligence | `slides/extractor.py`, `slides/retrieval.py`, `slides/service.py` | `SlideIntelligencePage.tsx` |
-| Presentation Composer | `composer/service.py` | `PresentationComposerPage.tsx` |
-| PPTX / Word Renderers | `rendering/pptx.py`, `rendering/word.py` | `PowerPointRendererPage.tsx`, `WordRendererPage.tsx` |
-| Publishing Gateway | `publishing/service.py` | `PublishingGatewayPage.tsx` |
+| Research Plan | `plan/service.py`; `execution/service.py` holds only the dataset loaders used by `deliverable/` and `strategy/` | `ResearchPlan.tsx` |
+| Deliverables (deck engine) | `deliverable/`, `deckstudio/` | `DeliverablesPage.tsx` |
 | QC flow (separate from the pipeline) | `qc/parser.py`, `qc/service.py`, `qc/export.py`, `qc/source_retrieval.py` | `QCUpload.tsx` → `QCFieldMapping.tsx` → `QCResults.tsx` → `QCExport.tsx` |
 
-Note: 10 pages (`ResearchPlan`, `EvidenceLibrary`, `InsightsPage`, `StorylinePage`,
-`SlideIntelligencePage`, `PresentationComposerPage`, `PowerPointRendererPage`, `WordRendererPage`,
-`PublishingGatewayPage`, `QueryEvaluation`) are registered in `App.tsx`'s `PAGES`, so they open by
-URL (e.g. `/{projectId}/insights`), but no sidebar or Dashboard link leads to them; they only link
-to each other. Their shared UI pieces live in `components/stage-ui.tsx`.
+Note: `ResearchPlan` and `QueryEvaluation` are registered in `App.tsx`'s `PAGES`, so they open by
+URL (e.g. `/{projectId}/research-plan`), but no sidebar or Dashboard link leads to them.
 
 ## Critical Patterns
 
@@ -168,9 +146,6 @@ to each other. Their shared UI pieces live in `components/stage-ui.tsx`.
   reuses the org's web grounding for 14 days; validation failures in brief_scope, research_planner and
   the query builder become lessons. Any user-triggered "Regenerate"/"Reanalyze" must run inside
   `memory.fresh()` (inside the worker thread — contextvars don't cross threads) or it gets the old answer back.
-- **Only one Brief-to-Deck run executes at a time** (`_run_lock` / `_run_busy` in `main.py`) — a
-  second trigger while busy broadcasts `run_queued_conflict` instead of queuing.
-
 ## Known Issues
 
 - **Anthropic is unused** — the chat chain is Azure OpenAI only (see LLM chain above);
@@ -182,8 +157,6 @@ to each other. Their shared UI pieces live in `components/stage-ui.tsx`.
   `domains/research/web_research.py` is incomplete.
 - **Hand-rolled URL routing** in the frontend — `App.tsx` maps its page state to and from the
   path (`parseUrl`/`buildUrl`); there is no router library.
-- **Slide Intelligence classification is keyword-based**, not LLM-based — nuanced slide purposes
-  can be misclassified (manual correction workflow exists to compensate).
 - **No Meltwater API integration** — Boolean search queries are validated for syntax only, never
   tested against Meltwater's actual parser.
 
@@ -192,6 +165,5 @@ to each other. Their shared UI pieces live in `components/stage-ui.tsx`.
 - `docs/handover/HANDOVER.md` — architecture, bug history, environment variables, DB schema reference.
 - `docs/CURRENT_STATUS.md` — authoritative per-stage completion status, endpoint/table/test counts,
   sprint-by-sprint change log. Check this before assuming a stage is unbuilt.
-- `docs/PRODUCT_SPEC.md`, `docs/PRESENTATION_COMPOSER.md`,
-  `docs/POWERPOINT_RENDERER.md`, `docs/WORD_RENDERER.md`, `docs/PUBLISHING_GATEWAY.md`,
-  `docs/SLIDE_INTELLIGENCE_GUIDE.md` — per-subsystem deep dives.
+- `docs/PRODUCT_SPEC.md` — product spec. (`docs/PRESENTATION_COMPOSER.md`, `POWERPOINT_RENDERER.md`,
+  `WORD_RENDERER.md`, `PUBLISHING_GATEWAY.md`, `SLIDE_INTELLIGENCE_GUIDE.md` describe deleted code.)

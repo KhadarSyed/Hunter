@@ -19,14 +19,6 @@ import { SearchStrategy } from "./pages/SearchStrategy";
 import { QueryEvaluation } from "./pages/QueryEvaluation";
 import { DataSources } from "./pages/DataSources";
 import { ResearchPlan } from "./pages/ResearchPlan";
-import { EvidenceLibrary } from "./pages/EvidenceLibrary";
-import { InsightsPage } from "./pages/InsightsPage";
-import { StorylinePage } from "./pages/StorylinePage";
-import { SlideIntelligencePage } from "./pages/SlideIntelligencePage";
-import { PresentationComposerPage } from "./pages/PresentationComposerPage";
-import { PowerPointRendererPage } from "./pages/PowerPointRendererPage";
-import { WordRendererPage } from "./pages/WordRendererPage";
-import { PublishingGatewayPage } from "./pages/PublishingGatewayPage";
 import { DeliverablesPage } from "./pages/DeliverablesPage";
 import { QCUpload } from "./pages/QCUpload";
 import { QCFieldMapping } from "./pages/QCFieldMapping";
@@ -52,14 +44,6 @@ const PAGES = {
   "query-evaluation": QueryEvaluation,
   "data-sources": DataSources,
   "research-plan": ResearchPlan,
-  "evidence-library": EvidenceLibrary,
-  insights: InsightsPage,
-  storyline: StorylinePage,
-  "slide-intelligence": SlideIntelligencePage,
-  "presentation-composer": PresentationComposerPage,
-  "powerpoint-renderer": PowerPointRendererPage,
-  "word-renderer": WordRendererPage,
-  "publishing-gateway": PublishingGatewayPage,
   deliverables: DeliverablesPage,
   "qc-upload": QCUpload,
   "qc-field-mapping": QCFieldMapping,

@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Optional
 
 from ...core import store
+from ..deliverable.citations import domain_of
 from . import citations
 from .web_research import competitors_from_text
 
@@ -552,7 +553,7 @@ def _build_source_register_list(all_sources: list) -> list[dict]:
             seen_urls.add(url)
         register.append({
             "ref": f"S{idx}",
-            "publisher": s.get("publisher", "") or _extract_domain(s.get("url", "")),
+            "publisher": s.get("publisher", "") or domain_of(s.get("url", "")),
             "date": s.get("date", ""),
             "headline": s.get("headline", "Untitled"),
             "url": url,
@@ -713,17 +714,3 @@ def _get_tier(item):
         except ValueError:
             return 3
     return int(tier) if isinstance(tier, (int, float)) else 3
-
-
-def _extract_domain(url):
-    if not url:
-        return ""
-    try:
-        from urllib.parse import urlparse
-        parsed = urlparse(url)
-        domain = parsed.netloc or ""
-        if domain.startswith("www."):
-            domain = domain[4:]
-        return domain
-    except Exception:
-        return ""

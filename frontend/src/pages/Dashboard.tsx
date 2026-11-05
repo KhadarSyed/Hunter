@@ -18,8 +18,6 @@ interface StageInfo {
 
 interface ProjectStats {
   insightsCount: number;
-  avgConfidence: number;
-  storylineNodes: number;
   slidesComposed: number;
   pptxReady: boolean;
   wordReady: boolean;
@@ -73,7 +71,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
   const activeProjectId = useActiveProjectId();
   const demo = useDemoState();
   const [stats, setStats] = useState<ProjectStats>({
-    insightsCount: 0, avgConfidence: 0, storylineNodes: 0,
+    insightsCount: 0,
     slidesComposed: 0, pptxReady: false, wordReady: false, researchType: "Research Project",
     briefApproved: false, backgroundApproved: false, strategyApproved: false,
     datasetApproved: false,
@@ -110,7 +108,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
 
     const load = async () => {
       const s: ProjectStats = {
-        insightsCount: 0, avgConfidence: 0, storylineNodes: 0,
+        insightsCount: 0,
         slidesComposed: 0, pptxReady: false, wordReady: false, researchType: "Research Project",
         briefApproved: false, backgroundApproved: false, strategyApproved: false,
         datasetApproved: false,
@@ -137,34 +135,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
         s.datasetApproved = datasets.some((d) => d.approval_status === "approved");
       } catch {}
 
-      try {
-        const summary = await intelApi.getInsightsSummary(activeProjectId);
-        s.insightsCount = summary.total_insights || 0;
-        s.avgConfidence = summary.avg_confidence || 0;
-      } catch {}
-
-      try {
-        const slSummary = await intelApi.getStorylineSummary(activeProjectId);
-        s.storylineNodes = slSummary.total_nodes || 0;
-      } catch {}
-
-      try {
-        const compSummary = await intelApi.composerSummary(activeProjectId);
-        const latest = compSummary as any;
-        s.slidesComposed = latest.total_slides || latest.slide_count || 0;
-        if (latest.latest_presentation_id) {
-          try {
-            const renderSummary = await intelApi.rendererSummary(latest.latest_presentation_id);
-            s.pptxReady = !!(renderSummary as any)?.latest_job_id;
-          } catch {}
-          try {
-            const wordSummary = await intelApi.wordRenderSummary(latest.latest_presentation_id);
-            s.wordReady = !!(wordSummary as any)?.latest_job_id;
-          } catch {}
-        }
-      } catch {}
-
-      // The deliverable engine writes none of the legacy summaries above; its latest run is the real source
+      // Insights, slides and downloads come from the latest deliverable run
       let runActivity: ActivityItem[] = [];
       try {
         const d = await intelApi.deliverableLatest(activeProjectId);
@@ -175,8 +146,8 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
           const slides = d.sections.find((x) => x.id === "studio")?.slides?.length ?? 0;
           if (slides) s.slidesComposed = slides;
           if (run.status === "completed") {
-            s.pptxReady = s.pptxReady || !!(run.pptx_path || run.studio_pptx_path);
-            s.wordReady = s.wordReady || !!run.docx_path;
+            s.pptxReady = !!(run.pptx_path || run.studio_pptx_path);
+            s.wordReady = !!run.docx_path;
           }
           const lines = d.sections.find((x) => x.id === "log")?.lines ?? [];
           runActivity = lines.slice(-10).reverse().map((l) => ({
@@ -356,9 +327,8 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <StatCard label="Insights" value={stats.insightsCount} sub={stats.avgConfidence > 0 ? `${Math.round(stats.avgConfidence * 100)}% avg confidence` : undefined} accent={stats.insightsCount > 0} />
-          <StatCard label="Storyline" value={stats.storylineNodes} sub={stats.storylineNodes > 0 ? "narrative nodes" : undefined} />
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          <StatCard label="Insights" value={stats.insightsCount} accent={stats.insightsCount > 0} />
           <StatCard label="Slides" value={stats.slidesComposed} sub={stats.slidesComposed > 0 ? "composed" : undefined} />
           <StatCard
             label="Downloads"

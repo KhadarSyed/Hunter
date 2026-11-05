@@ -34,6 +34,7 @@ from urllib.parse import quote, urlparse, urlunparse
 import requests
 
 from ...core import serp_keys
+from ..deliverable.citations import domain_of
 from . import extra_sources as extra_sources_module
 
 logger = logging.getLogger(__name__)
@@ -291,7 +292,7 @@ def _search_tavily(query: str, country: str, max_results: int, date_range: tuple
 
 def _normalize_tavily_item(item: dict) -> dict:
     return {
-        "publisher_name": _extract_domain(item.get("url") or ""),
+        "publisher_name": domain_of(item.get("url") or ""),
         "published_url": item.get("url") or "",
         "title": item.get("title") or "",
         "content": item.get("content") or "",
@@ -474,16 +475,7 @@ def _normalize_rss_item(item: dict) -> dict:
 # Domain bucketing
 # --------------------------------------------------------------------------
 
-def _extract_domain(url: str) -> str:
-    try:
-        netloc = urlparse(url).netloc.lower()
-    except Exception:
-        return ""
-    if netloc.startswith("www."):
-        netloc = netloc[4:]
-    return netloc
-
-
+# Query parameters that only track the click, never pick content, on any site (ref/si/feature can, so stay)
 # Query parameters that only track the click, never pick content, on any site (ref/si/feature can, so stay)
 _TRACKING_PARAM = re.compile(r"^(utm_\w+|fbclid|gclid|dclid|msclkid|mc_cid|mc_eid|igshid|guccounter)$", re.IGNORECASE)
 _YOUTUBE_VIDEO_ID = re.compile(r"(?:youtu\.be/|/shorts/|/embed/|/live/|[?&]v=)([A-Za-z0-9_-]{11})")
@@ -528,7 +520,7 @@ def dedupe_key(url: str) -> str:
 
 
 def _is_social_domain(url: str) -> bool:
-    domain = _extract_domain(url)
+    domain = domain_of(url)
     if not domain:
         return False
     return any(domain == d or domain.endswith("." + d) for d in SOCIAL_DOMAINS)

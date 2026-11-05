@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
+from ...core.llm_provider import extract_json_object
 from ..exclusions.service import keep, rules_for_project
 from . import extra_sources, news_search, page_signals, relations
 from . import repository
@@ -441,12 +442,7 @@ def _map_batch(llm_client, batch: list[dict], source_lookup: dict[str, str] | No
              {"role": "user", "content": prompt}],
             format_json=True,
         )
-        cleaned = response.strip()
-        if cleaned.startswith("```"):
-            import re
-            cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned)
-            cleaned = re.sub(r'\s*```$', '', cleaned)
-        return _json.loads(cleaned)
+        return extract_json_object(response)
     except Exception:
         logger.exception("Map-step batch summary failed for topic=%r — skipping this batch", topic)
         return None
@@ -515,12 +511,7 @@ def _reduce_batches(llm_client, batch_summaries: list[dict], brand_name: str, co
          {"role": "user", "content": prompt}],
         format_json=True,
     )
-    cleaned = response.strip()
-    if cleaned.startswith("```"):
-        import re
-        cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned)
-        cleaned = re.sub(r'\s*```$', '', cleaned)
-    parsed = _json.loads(cleaned)
+    parsed = extract_json_object(response)
     return {key: _coerce_to_markdown(parsed.get(key, "")) for key in _REDUCE_KEYS}
 
 

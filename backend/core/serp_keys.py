@@ -30,11 +30,6 @@ def _keys() -> list[str]:
     return list(dict.fromkeys(k.strip().strip('"') for k in raw if k.strip().strip('"')))
 
 
-def _reset() -> None:
-    with _lock:
-        _resting.clear()
-
-
 def current() -> str | None:
     now = time.time()
     with _lock:

@@ -9,7 +9,10 @@ from .ingest import Article
 
 def domain_of(url: str) -> str:
     """forbes.com from https://www.forbes.com/... (citations show the source domain icon)."""
-    host = (urlparse(url or "").hostname or "").lower()
+    try:
+        host = (urlparse(url or "").hostname or "").lower()
+    except ValueError:          # a malformed scraped URL such as http://[x
+        return ""
     return host[4:] if host.startswith("www.") else host
 
 

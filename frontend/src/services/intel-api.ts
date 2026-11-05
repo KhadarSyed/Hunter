@@ -1,4 +1,3 @@
-import type { Insight, InsightDetail, InsightsSummary, Storyline, StorylineDetail, StorylineSummary, StorylineValidation, StoryNodeEnriched, StoryNode, SIDashboard, SIPresentation, SISlide, SITemplateFamily, SIDetectedProject, PCPresentation, PCSlide, PCPresentationDetail, PCPresentationSummary, PCValidation, RenderResult, RenderSummary, RenderTheme, RenderValidation, RenderMetric, RenderHistory, WordRenderResult, WordRenderJob, WordRenderMetric, WordRenderHistory, WordRenderSummary, WordValidation, PubValidationResult, PubDiffReport, PubVersion, PubPackage, PubPackageResult, PubApproval, PubApprovalResult, PubReadinessSummary, PubAuditEntry, PubVersionResult } from "../types/contracts";
 
 // Empty by default (relative paths), matching same-origin deploys where the backend
 // serves the built SPA directly. Set VITE_API_BASE_URL (e.g. "https://api.example.com")
@@ -127,6 +126,7 @@ export interface AuthOrganizationRow {
   admin_name: string | null;
   admin_email: string | null;
   archived_at: number | null;
+  temp_password?: string | null;  // only on create: the new admin's one-time password
 }
 
 async function authUpload<T>(path: string, form: FormData): Promise<T> {
@@ -605,7 +605,7 @@ export const intelApi = {
     return authUpload<{ avatar_url: string }>("/profile/avatar", form);
   },
   createUser: (email: string, display_name: string, role: string, org_id?: number) =>
-    authPost<AuthUserRow & { temp_password: string }>("/users", { email, display_name, role, org_id }),
+    authPost<AuthUserRow & { temp_password: string | null }>("/users", { email, display_name, role, org_id }),
   resetUserPassword: (userId: number) =>
     authPost<{ ok: boolean; temp_password: string }>(`/users/${userId}/reset-password`),
   listUsers: (orgId?: number) =>
@@ -641,10 +641,6 @@ export const intelApi = {
   /** Deletes the project and all of its pipeline data (irreversible). */
   deleteProject: (id: number) =>
     del<{ ok: boolean; project_id: number; rows_deleted: number; tables: Record<string, number> }>(`/projects/${id}`),
-
-  // Presentation Composer — list presentations
-  pcPresentations: (projectId: number) =>
-    get<any[]>(`/composer/${projectId}`),
 
   // Background Research
   startResearch: (spec: Record<string, unknown>, projectId?: number) =>
@@ -872,345 +868,12 @@ export const intelApi = {
       prerequisites: Record<string, { status: string; message: string }>;
     }>("/plan/validate", { project_id: projectId }),
 
-  // Evidence Library
-  listLibraryItems: (
-    projectId: number,
-    opts?: {
-      review_status?: string;
-      objective_id?: string;
-      unit_id?: string;
-      method?: string;
-      platform?: string;
-      confidence?: string;
-      is_representative?: boolean;
-      is_high_value?: boolean;
-      search?: string;
-      sort_by?: string;
-      sort_dir?: string;
-      limit?: number;
-      offset?: number;
-    },
-  ) => {
-    const params = new URLSearchParams();
-    if (opts) {
-      Object.entries(opts).forEach(([k, v]) => {
-        if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
-      });
-    }
-    const qs = params.toString();
-    return get<unknown[]>(`/library/${projectId}${qs ? `?${qs}` : ""}`);
-  },
-
-  getLibraryDetail: (itemId: number) =>
-    get<unknown>(`/library/detail/${itemId}`),
-
-  reviewEvidence: (itemId: number, status: string, reviewer = "analyst", note?: string) =>
-    post<unknown>(`/library/${itemId}/review`, { status, reviewer, note }),
-
-  annotateEvidence: (itemId: number, note: string, author = "analyst") =>
-    post<{ annotation_id: number }>(`/library/${itemId}/annotate`, { note, author }),
-
-  bulkReview: (itemIds: number[], status: string, reviewer = "analyst") =>
-    post<{ updated: number }>("/library/bulk-review", {
-      item_ids: itemIds,
-      status,
-      reviewer,
-    }),
-
-  markRepresentative: (itemId: number, value = true) =>
-    post<{ ok: boolean }>(`/library/${itemId}/representative`, {
-      is_representative: value,
-    }),
-
-  markHighValue: (itemId: number, value = true) =>
-    post<{ ok: boolean }>(`/library/${itemId}/high-value`, {
-      is_high_value: value,
-    }),
-
-  getLibrarySummary: (projectId: number) =>
-    get<{
-      total: number;
-      unreviewed: number;
-      accepted: number;
-      rejected: number;
-      needs_review: number;
-      representative: number;
-      high_value: number;
-      duplicate_groups: number;
-      objectives_covered: number;
-      objectives_insufficient: number;
-    }>(`/library/${projectId}/summary`),
-
   // Jobs
   listJobs: (projectId: number, jobType?: string) =>
     get<JobStatus[]>(`/jobs/${projectId}${jobType ? `?job_type=${jobType}` : ""}`),
 
   getJob: (jobId: string) =>
     get<JobStatus>(`/job/${jobId}`),
-
-  // Insights
-  generateInsights: (projectId: number) =>
-    post<{ generated: number; objectives_covered: number; objectives_skipped: number; generation_id: string }>("/insights/generate", { project_id: projectId }),
-
-  listInsights: (projectId: number, params?: { objective_id?: string; insight_type?: string; status?: string; sort_by?: string; sort_dir?: string }) => {
-    const query = new URLSearchParams();
-    if (params?.objective_id) query.set("objective_id", params.objective_id);
-    if (params?.insight_type) query.set("insight_type", params.insight_type);
-    if (params?.status) query.set("status", params.status);
-    if (params?.sort_by) query.set("sort_by", params.sort_by);
-    if (params?.sort_dir) query.set("sort_dir", params.sort_dir);
-    const qs = query.toString();
-    return get<Insight[]>(`/insights/${projectId}${qs ? `?${qs}` : ""}`);
-  },
-
-  getInsightDetail: (insightId: number) =>
-    get<InsightDetail>(`/insights/detail/${insightId}`),
-
-  reviewInsight: (insightId: number, status: string, reviewer?: string, notes?: string) =>
-    post<Insight>(`/insights/${insightId}/review`, { status, reviewer, notes }),
-
-  requestRevision: (insightId: number, notes: string) =>
-    post<Insight>(`/insights/${insightId}/revision`, { notes }),
-
-  updateAnalystNotes: (insightId: number, notes: string) =>
-    post<Insight>(`/insights/${insightId}/notes`, { notes }),
-
-  regenerateInsight: (insightId: number) =>
-    post<Insight>(`/insights/${insightId}/regenerate`, {}),
-
-  getInsightsSummary: (projectId: number) =>
-    get<InsightsSummary>(`/insights/${projectId}/summary`),
-
-  validateInsightPrereqs: (projectId: number) =>
-    post<{ valid: boolean; blockers?: string[] }>("/insights/validate-prereqs", { project_id: projectId }),
-
-  // Storyline
-  generateStoryline: (projectId: number) =>
-    post<{ storyline_id: number; node_count: number; generation_id: string }>("/storyline/generate", { project_id: projectId }),
-
-  validateStorylinePrereqs: (projectId: number) =>
-    post<{ valid: boolean; blockers?: string[] }>("/storyline/validate-prereqs", { project_id: projectId }),
-
-  getStoryline: (projectId: number) =>
-    get<Storyline[]>(`/storyline/${projectId}`),
-
-  getStorylineDetail: (storylineId: number) =>
-    get<StorylineDetail>(`/storyline/detail/${storylineId}`),
-
-  getStorylineSummary: (projectId: number) =>
-    get<StorylineSummary>(`/storyline/${projectId}/summary`),
-
-  listStorylineNodes: (storylineId: number) =>
-    get<StoryNodeEnriched[]>(`/storyline/${storylineId}/nodes`),
-
-  validateStoryline: (storylineId: number) =>
-    get<StorylineValidation>(`/storyline/${storylineId}/validate`),
-
-  mergeNodes: (storylineId: number, nodeIdA: number, nodeIdB: number) =>
-    post<StoryNodeEnriched>(`/storyline/${storylineId}/merge`, { node_id_a: nodeIdA, node_id_b: nodeIdB }),
-
-  approveStoryline: (storylineId: number, reviewer?: string) =>
-    post<{ ok: boolean }>(`/storyline/${storylineId}/approve`, { reviewer }),
-
-  rejectStoryline: (storylineId: number, reviewer?: string) =>
-    post<{ ok: boolean }>(`/storyline/${storylineId}/reject`, { reviewer }),
-
-  reviewNode: (nodeId: number, status: string, reviewer?: string) =>
-    post<StoryNode>(`/storyline/node/${nodeId}/review`, { status, reviewer }),
-
-  splitNode: (nodeId: number) =>
-    post<{ nodes: StoryNodeEnriched[] }>(`/storyline/node/${nodeId}/split`, {}),
-
-  updateNode: (nodeId: number, updates: Partial<{ title: string; narrative_summary: string; purpose: string; suggested_visual: string; priority: string; is_key_message: boolean; is_locked: boolean }>) =>
-    fetch(`${API_BASE}/storyline/node/${nodeId}`, {
-      method: "PUT",
-      credentials: CREDENTIALS,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(updates),
-    }).then((r) => json<StoryNode>(r)),
-
-  // Slide Intelligence
-  siIngest: (filePath: string) => post<any>('/slide-intel/ingest', { file_path: filePath }),
-  siDashboard: () => get<SIDashboard>('/slide-intel/dashboard'),
-  siPresentations: () => get<SIPresentation[]>('/slide-intel/presentations'),
-  siSlides: (params?: Record<string, any>) => {
-    const qs = params ? '?' + new URLSearchParams(
-      Object.fromEntries(Object.entries(params).filter(([_, v]) => v != null).map(([k, v]) => [k, String(v)]))
-    ).toString() : '';
-    return get<SISlide[]>(`/slide-intel/slides${qs}`);
-  },
-  siUpdateMetadata: (id: number, updates: Record<string, string>) =>
-    fetch(`${API_BASE}/slide-intel/slides/${id}/metadata`, {
-      method: 'PUT',
-      credentials: CREDENTIALS,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates),
-    }).then((r) => json<any>(r)),
-  siExcludeSlide: (id: number) => post<any>(`/slide-intel/slides/${id}/exclude`, {}),
-  siIncludeSlide: (id: number) => post<any>(`/slide-intel/slides/${id}/include`, {}),
-  siReprocessSlide: (id: number) => post<any>(`/slide-intel/slides/${id}/reprocess`, {}),
-  siTemplates: () => get<SITemplateFamily[]>('/slide-intel/templates'),
-  siTemplate: (id: number) => get<any>(`/slide-intel/templates/${id}`),
-  siApproveTemplate: (id: number) => post<any>(`/slide-intel/templates/${id}/approve`, {}),
-  siDetectedProjects: (presId: number) => get<SIDetectedProject[]>(`/slide-intel/detected-projects/${presId}`),
-  siSearch: (query: string, filters?: Record<string, any>) => post<any>('/slide-intel/search', { query, ...filters }),
-  siMatchStoryline: (storylineId: number) => post<any>('/slide-intel/match-storyline', { storyline_id: storylineId }),
-  siStorylineMatches: (storylineId: number) => get<any>(`/slide-intel/storyline-matches/${storylineId}`),
-
-  // Presentation Composer
-  composerGenerate: (projectId: number) =>
-    post<{ presentation_id: number; slides_created: number; estimated_duration_minutes: number; generation_id: string }>("/composer/generate", { project_id: projectId }),
-
-  composerList: (projectId: number) =>
-    get<PCPresentation[]>(`/composer/${projectId}`),
-
-  composerSummary: (projectId: number) =>
-    get<PCPresentationSummary>(`/composer/${projectId}/summary`),
-
-  composerDetail: (presId: number) =>
-    get<PCPresentationDetail>(`/composer/detail/${presId}`),
-
-  composerUpdateSlide: (slideId: number, updates: Partial<{ title: string; subtitle: string; narrative: string; key_message: string; recommended_visual: string; recommended_chart: string; layout_recommendation: string; speaker_notes: string; slide_purpose: string }>) =>
-    fetch(`${API_BASE}/composer/slide/${slideId}`, {
-      method: "PUT",
-      credentials: CREDENTIALS,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(updates),
-    }).then((r) => json<PCSlide>(r)),
-
-  composerReviewSlide: (slideId: number, status: string, reviewer?: string) =>
-    post<PCSlide>(`/composer/slide/${slideId}/review`, { status, reviewer }),
-
-  composerLockSlide: (slideId: number) =>
-    post<PCSlide>(`/composer/slide/${slideId}/lock`, {}),
-
-  composerUnlockSlide: (slideId: number) =>
-    post<PCSlide>(`/composer/slide/${slideId}/unlock`, {}),
-
-  composerSelectLayout: (slideId: number, layout: string, rationale?: string) =>
-    post<PCSlide>(`/composer/slide/${slideId}/layout`, { layout, rationale }),
-
-  composerApprove: (presId: number, reviewer?: string) =>
-    post<PCPresentation>(`/composer/${presId}/approve`, { reviewer }),
-
-  composerReject: (presId: number, reviewer?: string) =>
-    post<PCPresentation>(`/composer/${presId}/reject`, { reviewer }),
-
-  composerValidate: (presId: number) =>
-    get<PCValidation>(`/composer/${presId}/validate`),
-
-  // PowerPoint Renderer
-  rendererRender: (presentationId: number, themeId?: string) =>
-    post<RenderResult>("/renderer/render", { presentation_id: presentationId, theme_id: themeId || "hunter_default" }),
-
-  rendererRenderSlide: (slideId: number, themeId?: string) =>
-    post<RenderResult>(`/renderer/render-slide/${slideId}`, { theme_id: themeId || "hunter_default" }),
-
-  rendererDownloadUrl: (jobId: string) =>
-    `${API_BASE}/renderer/download/${jobId}`,
-
-  rendererThemes: () =>
-    get<RenderTheme[]>("/renderer/themes"),
-
-  rendererValidate: (presId: number) =>
-    post<RenderValidation>(`/renderer/validate/${presId}`, {}),
-
-  rendererSummary: (presId: number) =>
-    get<RenderSummary>(`/renderer/summary/${presId}`),
-
-  rendererHistory: (presId: number) =>
-    get<RenderHistory[]>(`/renderer/history/${presId}`),
-
-  rendererMetrics: (jobId: string) =>
-    get<RenderMetric[]>(`/renderer/metrics/${jobId}`),
-
-  // ── Word Report Renderer ─────────────────────────────────────────
-
-  wordRender: (presentationId: number, themeId = "hunter_default", actor = "system") =>
-    post<WordRenderResult>("/word-renderer/render", { presentation_id: presentationId, theme_id: themeId, actor }),
-
-  wordRenderSection: (presId: number, sectionName: string, themeId = "hunter_default", actor = "system") =>
-    post<WordRenderResult>(`/word-renderer/render-section/${presId}`, { section_name: sectionName, theme_id: themeId, actor }),
-
-  wordValidate: (presId: number) =>
-    post<WordValidation>(`/word-renderer/validate/${presId}`),
-
-  wordDownloadUrl: (jobId: string) =>
-    `${API_BASE}/word-renderer/download/${jobId}`,
-
-  wordThemes: () =>
-    get<RenderTheme[]>("/word-renderer/themes"),
-
-  wordRenderSummary: (presId: number) =>
-    get<WordRenderSummary>(`/word-renderer/summary/${presId}`),
-
-  wordJobs: (presId: number) =>
-    get<WordRenderJob[]>(`/word-renderer/jobs/${presId}`),
-
-  wordHistory: (presId: number, limit = 50) =>
-    get<WordRenderHistory[]>(`/word-renderer/history/${presId}?limit=${limit}`),
-
-  wordMetrics: (jobId: string) =>
-    get<WordRenderMetric[]>(`/word-renderer/metrics/${jobId}`),
-
-  // ── Publishing & Quality Gateway ─────────────────────────────────
-
-  pubValidate: (projectId: number, presentationId: number, actor = "system") =>
-    post<PubValidationResult>("/publishing/validate", { project_id: projectId, presentation_id: presentationId, actor }),
-
-  pubCompare: (projectId: number, presentationId: number, actor = "system") =>
-    post<PubDiffReport>("/publishing/compare", { project_id: projectId, presentation_id: presentationId, actor }),
-
-  pubPackage: (projectId: number, presentationId: number, actor = "system") =>
-    post<PubPackageResult>("/publishing/package", { project_id: projectId, presentation_id: presentationId, actor }),
-
-  pubCreateVersion: (projectId: number, presentationId: number, actor = "system", notes?: string) =>
-    post<PubVersionResult>("/publishing/version", { project_id: projectId, presentation_id: presentationId, actor, notes }),
-
-  pubSubmit: (projectId: number, presentationId: number, actor = "system", notes?: string) =>
-    post<PubApprovalResult>("/publishing/submit", { project_id: projectId, presentation_id: presentationId, actor, notes }),
-
-  pubApprove: (projectId: number, presentationId: number, actor = "system", notes?: string) =>
-    post<PubApprovalResult>("/publishing/approve", { project_id: projectId, presentation_id: presentationId, actor, notes }),
-
-  pubReject: (projectId: number, presentationId: number, actor = "system", notes?: string) =>
-    post<PubApprovalResult>("/publishing/reject", { project_id: projectId, presentation_id: presentationId, actor, notes }),
-
-  pubRevision: (projectId: number, presentationId: number, actor = "system", notes?: string) =>
-    post<PubApprovalResult>("/publishing/revision", { project_id: projectId, presentation_id: presentationId, actor, notes }),
-
-  pubPublish: (projectId: number, presentationId: number, actor = "system", notes?: string) =>
-    post<PubApprovalResult>("/publishing/publish", { project_id: projectId, presentation_id: presentationId, actor, notes }),
-
-  pubArchive: (projectId: number, presentationId: number, actor = "system", notes?: string) =>
-    post<PubApprovalResult>("/publishing/archive", { project_id: projectId, presentation_id: presentationId, actor, notes }),
-
-  pubReadiness: (projectId: number, presId: number) =>
-    get<PubReadinessSummary>(`/publishing/readiness/${projectId}/${presId}`),
-
-  pubVersions: (presId: number) =>
-    get<PubVersion[]>(`/publishing/versions/${presId}`),
-
-  pubAudit: (projectId: number, limit = 100) =>
-    get<PubAuditEntry[]>(`/publishing/audit/${projectId}?limit=${limit}`),
-
-  pubDiff: (presId: number) =>
-    get<PubDiffReport>(`/publishing/diff/${presId}`),
-
-  pubPackages: (presId: number) =>
-    get<PubPackage[]>(`/publishing/packages/${presId}`),
-
-  pubDownloadPackageUrl: (packageId: number) =>
-    `${API_BASE}/publishing/download/package/${packageId}`,
-
-  pubDownloadPptxUrl: (presId: number) =>
-    `${API_BASE}/publishing/download/pptx/${presId}`,
-
-  pubDownloadWordUrl: (presId: number) =>
-    `${API_BASE}/publishing/download/word/${presId}`,
-
-  pubApprovals: (presId: number, limit = 50) =>
-    get<PubApproval[]>(`/publishing/approvals/${presId}?limit=${limit}`),
 
   // ─── Monitoring QC ───────────────────────────────────────────────────
 

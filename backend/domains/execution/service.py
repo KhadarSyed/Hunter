@@ -1,29 +1,14 @@
-"""Research Executor Service — runs the approved Research Plan one Execution
-Unit at a time against the uploaded dataset.
-
-The Planner decides WHAT to analyse. The Executor decides HOW.
-
-Lifecycle: pending → running → completed | failed | cancelled | paused
-Each unit runs independently; a failure in one does not block the others.
-"""
+"""Dataset loaders: read an uploaded Meltwater/Empower CSV or XLSX export into normalised
+row dicts (used by deliverable/rows.py and strategy/sample_enrichment.py)."""
 from __future__ import annotations
 
 import csv
 import logging
-from difflib import SequenceMatcher
 from pathlib import Path
 
 from ...core.tabular import read_csv_dicts
 
 logger = logging.getLogger(__name__)
-
-BATCH_SIZE = 50
-
-_active_runs: dict[int, dict] = {}
-
-
-# ─── Prerequisites ─────────────────────────────────────────────────────────
-
 
 # ─── Dataset loading ───────────────────────────────────────────────────────
 
@@ -136,36 +121,6 @@ def _normalize_columns(records: list[dict]) -> list[dict]:
                 row[standard] = next((r[c] for c in cols if r.get(c) not in (None, "")), row.get(standard))
         normalized.append(row)
     return normalized
-
-
-def _deduplicate(records: list[dict], threshold: float = 0.85) -> list[dict]:
-    """Remove duplicate records by URL and headline similarity. Each kept record gets `_copies`: how many
-    articles it stands for (itself plus the syndicated copies merged into it), for share-of-coverage."""
-    by_url: dict[str, dict] = {}
-    seen_headlines: list[tuple[str, dict]] = []
-    unique: list[dict] = []
-
-    for record in records:
-        url = (record.get("url") or "").strip().lower()
-        headline = (record.get("headline") or "").strip().lower()
-
-        if url and url in by_url:
-            by_url[url]["_copies"] += 1
-            continue
-        if headline:
-            original = next((kept for seen_hl, kept in seen_headlines[-200:]
-                             if SequenceMatcher(None, headline, seen_hl).ratio() >= threshold), None)
-            if original is not None:
-                original["_copies"] += 1
-                continue
-        kept = {**record, "_copies": 1}
-        if headline:
-            seen_headlines.append((headline, kept))
-        if url:
-            by_url[url] = kept
-        unique.append(kept)
-
-    return unique
 
 
 def _is_excluded(record: dict) -> bool:
