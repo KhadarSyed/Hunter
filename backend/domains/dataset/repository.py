@@ -324,6 +324,15 @@ def approved_count(project_id: int, rq_ids: list[str]) -> int:
                     "AND rq_id = ANY(?)", (project_id, list(rq_ids)), one=True)[0])
 
 
+def approved_counts_by_rq(project_id: int, rq_ids: list[str]) -> dict[str, int]:
+    """{rq_id: approved article rows} of this project for those RQs."""
+    if not rq_ids:
+        return {}
+    return {r["rq_id"]: int(r["n"]) for r in _run(
+        "SELECT rq_id, COUNT(*) AS n FROM intel_article_rq WHERE project_id = ? AND status = 'approved' "
+        "AND rq_id = ANY(?) GROUP BY rq_id", (project_id, list(rq_ids)))}
+
+
 def articles_with_rq(project_id: int, article_ids: list[int]) -> set[int]:
     if not article_ids:
         return set()
@@ -345,6 +354,7 @@ def edit_article(project_id: int, article_id: int, sentiment: str | None, themes
     if brands is not None:
         known = {str(b.get("brand", "")).lower(): b for b in tags.get("brands") or []}
         tags["brands"] = [known.get(b.lower(), {"brand": b}) for b in brands]
+        tags["entities"] = {**(tags.get("entities") or {}), "brands": list(brands)}   # the deck reads entities.brands
     _run("UPDATE intel_articles SET tags_json = ?, sentiment = COALESCE(?, sentiment) WHERE id = ?",
          (json.dumps(tags, default=str), sentiment, article_id))
     return [r[0] for r in _run("SELECT rq_id FROM intel_article_rq WHERE article_id = ? AND matched = 1 ORDER BY rq_id",

@@ -63,13 +63,6 @@ def _gate_reasons(project_id: int) -> list[str]:
     from ..dataset import repository as dataset_repo
     if not dataset_repo.approved_count(project_id, [q.id for q in R.approved_rqs(project_id)]):
         reasons.append("No approved articles yet: approve articles in the Data set tab")
-    datasets = store.get_datasets_by_project(project_id)
-    # a run started mid-review drafts from articles the review will drop: every GPT call of it is spent twice
-    open_ = [d.get("file_name") or f"#{d.get('id')}" for d in datasets
-             if d.get("enrichment_status") == "running" or (d.get("processing_status") or "done") == "processing"
-             or d.get("approval_status") not in ("approved", "disapproved")]
-    if open_:
-        reasons.append(f"Finish the data review first (approve or disapprove): {', '.join(open_)}")
     return reasons
 
 
@@ -255,10 +248,10 @@ def _theme_subtitle(brand: str, project: dict, llm) -> str:
 def _methodology(summary: dict, rqs) -> list[str]:
     files, urls, stories, base = summary["files"], summary["unique_urls"], summary["stories"], summary["base_n"]
     return ([f"{files} approved files; {urls} unique article URLs; {stories} unique stories; "
-             f"base {base} results (the questions' result volumes added up).",
-             "Within a question an article counts once per URL; an article that answers several questions counts in "
-             "each. Syndicated copies (same headline) are grouped into stories.",
-             "A question's share is of the total results; a chart's percentages are of its own N."]
+             f"base {base} unique articles (each counted once across the questions).",
+             "Within a question an article counts once per URL; an article approved for several questions counts in "
+             "each question's section. Syndicated copies (same headline) are grouped into stories.",
+             "A chart's percentages are of its own N."]
             + [f"{q.id} query: {q.query}" for q in rqs if q.query])
 
 
@@ -688,14 +681,13 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         rows = R.assign_stories(rows)   # each article sits only under the questions it was approved for
         unique = R.base_n(rows)
         rows_by_rq = {q.id: R.rq_rows(rows, q.id) for q in rqs}
-        # the total is the questions' result volumes added up (an article answering two questions counts in both)
-        base = R.total_results({k: len(rs) for k, rs in rows_by_rq.items()}) or unique
+        base = unique       # deck-wide, each article counts once (a question's own count is in its section)
         summary = R.ingest_summary(project_id, rows)
         run.section({"id": "data-collection", "rq_id": None, "module": "data_collection", "title": "Data collection",
-                     "data": summary, "facts": [f"Base: {base} results across all questions ({unique} unique articles)"]})
+                     "data": summary, "facts": [f"Base: {base} unique articles across all questions"]})
         for q in rqs:
             run.log(f"{_rq_label(q)}: {len(rows_by_rq[q.id])} articles")
-        run.stage("routing", "done", f"base N = {base} results ({unique} unique articles)")
+        run.stage("routing", "done", f"base N = {base} unique articles")
 
         current = "plan"
         run.stage("plan", "running")

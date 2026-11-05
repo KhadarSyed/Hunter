@@ -161,7 +161,8 @@ def approved_rows(project_id: int, rq_id: str | None = None) -> list[EngineRow]:
         per_rq = [(_json(r.get("tags"), {}), _json(r.get("evidence"), {})) for r in (a.get("rq") or {}).values()]
         q_tags = {k: v for t, _ in per_rq for k, v in t.items()}       # one article under several questions keeps each one's tags
         themes = [titles.get(theme_key(t), t) for t in _theme_labels(tags.get("themes"))]
-        rec = {**_json(a.get("raw_json"), {}),        # the export row still carries image, state, region, time
+        raw = _json(a.get("raw_json"), {})
+        rec = {**raw,        # the export row still carries image, state, region, time
                "url": a.get("url"), "title": a.get("title"), "content": a.get("content") or a.get("summary"),
                "source_name": a.get("outlet"), "date": a.get("published"), "country": a.get("country"),
                "reach": a.get("reach"), "overall_sentiment": a.get("sentiment") or tags.get("overall_sentiment"),
@@ -171,6 +172,8 @@ def approved_rows(project_id: int, rq_id: str | None = None) -> list[EngineRow]:
                "dynamic_tags": q_tags, "tag_evidence": {k: v for _, e in per_rq for k, v in e.items()}}
         row = _row(rec, None, "", i)
         if row is not None:
+            if row.article.hour is None:    # `published` is a bare date: the hour lives in the export's timestamp
+                row.article.hour = parse_hour(raw.get("time"), raw.get("date"))
             row.rq_ids = set(a.get("approved_rq_ids") or [])
             out.append(row)
     COUNTRY_FILTER[project_id] = (foreign, unstated, country)
@@ -226,10 +229,8 @@ def rq_rows(rows: list[EngineRow], rq_id: str) -> list[EngineRow]:
 
 def coverage(project_id: int) -> dict:
     """Per question: how many approved articles it has (the rows its deck section will read)."""
-    counts: dict[str, int] = {}
-    for row in approved_rows(project_id):
-        for q in row.rq_ids:
-            counts[q] = counts.get(q, 0) + 1
+    from ..dataset import repository as dataset_repo
+    counts = dataset_repo.approved_counts_by_rq(project_id, [q.id for q in approved_rqs(project_id)])
     return {"rqs": [{"rq_id": q.id, "has_own_upload": counts.get(q.id, 0) > 0, "shared": counts.get(q.id, 0)}
                     for q in load_rqs(project_id)]}
 
@@ -241,7 +242,7 @@ def ingest_summary(project_id: int, rows: list[EngineRow]) -> dict:
             by_rq[q] = by_rq.get(q, 0) + 1
     from ..dataset import repository as dataset_repo
     return {"files": len(dataset_repo.list_files(project_id)), "unique_urls": len(rows),
-            "stories": len({r.story_key for r in rows}), "base_n": total_results(by_rq) or base_n(rows),
+            "stories": len({r.story_key for r in rows}), "base_n": base_n(rows),
             "total_results": total_results(by_rq), "by_rq": dict(sorted(by_rq.items()))}
 
 
