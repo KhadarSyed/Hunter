@@ -28,8 +28,8 @@ _KEEP = ""                # stands in for the '!' of a name ('Yahoo! Life') whi
 
 
 def _cut(text: str, limit: int, names: tuple[str, ...] = ()) -> str:
-    """Whole sentences that fit; a mid-sentence cut (with …) only when not even the first sentence fits. `names`
-    hold a '!' that does not end a sentence (outlets like 'Yahoo! Life')."""
+    """Whole sentences that fit; the first sentence whole even when it alone is longer: a summary is never cut off
+    mid-sentence. `names` hold a '!' that does not end a sentence (outlets like 'Yahoo! Life')."""
     if len(text) <= limit:
         return text
     for name in names:
@@ -41,7 +41,7 @@ def _cut(text: str, limit: int, names: tuple[str, ...] = ()) -> str:
         if len(f"{kept} {s}".strip()) > limit:
             break
         kept = f"{kept} {s}".strip()
-    return kept or text[:limit].rsplit(" ", 1)[0].rstrip(",;:") + "…"
+    return kept or sentences[0]
 
 
 def _shorten(slide, names: tuple[str, ...] = ()) -> None:

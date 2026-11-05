@@ -89,6 +89,25 @@ def _drill(pairs) -> dict[str, list[str]]:
     return {k: list(dict.fromkeys(v)) for k, v in out.items()}
 
 
+_CLIPPED = re.compile(r"\s*(\.\.\.|…)\s*$")
+_SENTENCE_END = re.compile(r"[.!?](?=\s|$)")
+
+
+def whole_title(title: str, text: str) -> str:
+    """A social post's headline as the export clipped it ('...stack on top of e...') made whole again: run on to
+    the end of its sentence in the post itself, else cut back to the last sentence it completes."""
+    if not _CLIPPED.search(title):
+        return title
+    stem = _CLIPPED.sub("", title)
+    body = " ".join((text or "").split())
+    at = body.find(" ".join(stem.split()))
+    if at >= 0:
+        end = _SENTENCE_END.search(body, at + len(" ".join(stem.split())))
+        return body[at:end.end() if end else len(body)].strip()
+    ends = list(_SENTENCE_END.finditer(stem))
+    return stem[:ends[-1].end()] if ends else stem.rsplit(" ", 1)[0]
+
+
 def _trend(module, rq, rows, base_n, _):
     dated = [r for r in rows if r.article.date]
     if not dated:
@@ -103,7 +122,8 @@ def _trend(module, rq, rows, base_n, _):
     for rank, i in enumerate(top, start=1):
         drivers = [r for r in dated if labels[id(r)] == series[i]]
         lead = max(drivers, key=lambda r: (r.copies, r.article.reach))
-        facts.append(f"Peak {rank}: {series[i]} with {values[i]} articles, led by \"{lead.article.title}\"")
+        title = whole_title(lead.article.title, lead.article.text)
+        facts.append(f"Peak {rank}: {series[i]} with {values[i]} articles, led by \"{title}\"")
         cands.append(lead.article.norm_url)
     undated = len(rows) - len(dated)
     plural = "s" if undated != 1 else ""
