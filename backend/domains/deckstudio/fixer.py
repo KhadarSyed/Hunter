@@ -25,8 +25,8 @@ from .checklist import METHOD
 from .spec import DeckSpec, SlideSpec
 
 logger = logging.getLogger(__name__)
-# later rounds mostly redraft cards the judge just rejected (run 117: 25+ min of GPT in round 1); Fix runs one more
-MAX_ROUNDS = 1
+# rounds repeat until every check and warning passes or nothing more changes; the cap stops an endless redraft loop
+MAX_ROUNDS = 3
 CONTEXT_FILE = "repair_context.json"
 
 
