@@ -1457,6 +1457,23 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             updated_at REAL NOT NULL, expires_at REAL, UNIQUE(scope, scope_id, type, key))""",
         "CREATE INDEX IF NOT EXISTS idx_memory_items_lookup ON memory_items(scope, scope_id, type, updated_at)",
     ]),
+    # Logos, site icons, flags and slide photos fetched once for every organization (domains/assets): a server whose
+    # disk is wiped on restart reads them back instead of calling Brandfetch / Google / Iconify / photo search again.
+    # Empty content with meta {"missing": true} remembers that a source has none (retried after a while).
+    (33, "shared assets", [
+        """CREATE TABLE IF NOT EXISTS intel_assets (
+            kind TEXT NOT NULL, key TEXT NOT NULL, content BLOB NOT NULL, content_type TEXT NOT NULL DEFAULT '',
+            meta_json TEXT NOT NULL DEFAULT '{}', created_at REAL NOT NULL, PRIMARY KEY (kind, key))""",
+    ]),
+    # A finished deck's files (downloads, spec, Fix context, the pictures the spec points at), in chunks so a large
+    # PPTX never sits in memory whole; only each project's latest completed run is kept (deliverable/deck_store.py).
+    (34, "deliverable files", [
+        """CREATE TABLE IF NOT EXISTS intel_deliverable_files (
+            run_id INTEGER NOT NULL, project_id INTEGER NOT NULL, name TEXT NOT NULL, part INTEGER NOT NULL,
+            gz INTEGER NOT NULL DEFAULT 0, content BLOB NOT NULL, created_at REAL NOT NULL,
+            PRIMARY KEY (run_id, name, part))""",
+        "CREATE INDEX IF NOT EXISTS idx_deliverable_files_project ON intel_deliverable_files(project_id)",
+    ]),
 ]
 
 

@@ -6,7 +6,6 @@ from __future__ import annotations
 import html
 import logging
 import re
-from functools import lru_cache
 from urllib.parse import unquote, urlparse
 
 import requests
@@ -49,9 +48,13 @@ def classify(short_name: str) -> str:
     return "no"
 
 
-@lru_cache(maxsize=512)
+_known: dict[str, dict] = {}         # answers Commons gave, for the process life; a failed lookup is asked again
+
+
 def licence(url: str) -> dict:
     """{'use': free|credit|no, 'name', 'author', 'page'} for a Wikimedia photo; 'no' when Commons cannot say."""
+    if url in _known:
+        return _known[url]
     name = _file_name(url)
     if not name:
         return {"use": "no", "name": "not on Commons", "author": "", "page": url}
@@ -66,5 +69,7 @@ def licence(url: str) -> dict:
     meta = info.get("extmetadata") or {}
     short = (meta.get("LicenseShortName") or {}).get("value", "")
     author = html.unescape(_TAG.sub("", (meta.get("Artist") or {}).get("value", ""))).strip()
-    return {"use": classify(short), "name": short or "no licence given", "author": author or "Unknown author",
-            "page": info.get("descriptionurl") or url}
+    found = {"use": classify(short), "name": short or "no licence given", "author": author or "Unknown author",
+             "page": info.get("descriptionurl") or url}
+    _known[url] = found
+    return found

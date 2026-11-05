@@ -220,7 +220,3 @@ def resolve_logo(brand_name: str) -> dict:
     repository.save_brand_logo(key, name, result["logo_url"], result["domain"], result["source"])
     return result
 
-
-def get_brand_logo_url(brand_name: str) -> str | None:
-    """Backwards-compatible helper: just the logo URL (or None)."""
-    return resolve_logo(brand_name)["logo_url"]

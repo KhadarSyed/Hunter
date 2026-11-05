@@ -9,7 +9,6 @@ import json
 import logging
 import os
 import re
-import shutil
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date
@@ -21,6 +20,7 @@ from urllib.parse import urljoin
 from PIL import Image, ImageOps
 
 from ...core import serp_keys
+from ..assets import service as asset_store
 from . import commons
 from .image_brief import Subjects, queries as brief_queries, text_relevant
 from .verbatims import is_public_http
@@ -373,45 +373,61 @@ def mark_used(data: bytes, used: set[str]) -> None:
         used.add(f"{_HASH}{h:016x}")
 
 
-def cache_key(*parts: str) -> str:
-    return hashlib.sha1("|".join(parts).encode()).hexdigest()[:16]
+SRC_MAX_WIDTH = 2400       # a kept original is capped to this width (HD for a 1920 slide) to keep the database small
+SRC_QUALITY = 85
 
 
-def cached_photo(cache: Path, key: str, folder: Path, used: set[str]) -> Photo | None:
-    """The photo an earlier run of this project chose for the same slide and search, reused with no search and no
-    vision check (Regenerate spends nothing on photos it already has). None when there is none or its file is gone."""
-    jpg, src = cache / f"{key}.jpg", cache / f"{key}.src"
+def photo_key(subject: str, role: str, query: str) -> str:
+    """What decides a slide's picture: the brand it is about, the slide shape and the search. Shared by every project
+    and organization, so the subject is part of it: a project about another brand never gets this photo."""
+    return "|".join(" ".join(str(p).lower().split()) for p in (subject, role, query))
+
+
+def _capped_jpeg(path: Path) -> bytes | None:
     try:
-        meta = json.loads((cache / f"{key}.json").read_text(encoding="utf-8"))
-        if not jpg.exists():
-            return None
-        folder.mkdir(parents=True, exist_ok=True)
-        out = folder / f"cached-{key}.jpg"
-        shutil.copyfile(jpg, out)
-        if src.exists():
-            shutil.copyfile(src, out.with_suffix(".src"))
+        with Image.open(path) as src:
+            src.draft("RGB", (SRC_MAX_WIDTH, SRC_MAX_WIDTH))
+            img = src.convert("RGB")
+    except (OSError, ValueError):
+        return None
+    if img.width > SRC_MAX_WIDTH:
+        img = img.resize((SRC_MAX_WIDTH, round(img.height * SRC_MAX_WIDTH / img.width)), Image.LANCZOS)
+    buf = BytesIO()
+    img.save(buf, "JPEG", quality=SRC_QUALITY)
+    return buf.getvalue()
+
+
+def cached_photo(key: str, folder: Path, used: set[str]) -> Photo | None:
+    """The photo an earlier run (of any project) chose for the same subject, slide shape and search, reused with no
+    search and no vision check. None when there is none."""
+    saved = asset_store.get("photo", key)
+    if not saved or not saved["content"]:
+        return None
+    meta = saved["meta"]
+    try:
+        name = f"cached-{hashlib.sha1(key.encode()).hexdigest()[:16]}"
+        src = asset_store.write_file(folder / f"{name}.src", saved["content"])
+        out = crop_to(src, meta["role"], folder / f"{name}.jpg")
         used.add(meta["source_url"])
-        mark_used((src if src.exists() else jpg).read_bytes(), used)
+        mark_used(saved["content"], used)
         _write_credit(out, meta.get("credit"))
         return Photo(out, meta["source_url"], meta["licence"], f"{meta['why']} (reused from an earlier run)")
-    except (OSError, ValueError, KeyError):
+    except (OSError, ValueError, KeyError) as e:
+        logger.warning("cached photo %s not usable: %s", key[:80], type(e).__name__)
         return None
 
 
-def remember_photo(cache: Path, key: str, photo: Photo) -> None:
-    """Keep a found photo for the project's next run. A slide with no photo is not kept: it searches again."""
+def remember_photo(key: str, photo: Photo, role: str) -> None:
+    """Keep a found photo's original (capped) for every later run. A slide with no photo is not kept: it searches
+    again."""
     if not photo.path:
         return
-    try:
-        cache.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(photo.path, cache / f"{key}.jpg")
-        if Path(photo.path).with_suffix(".src").exists():
-            shutil.copyfile(Path(photo.path).with_suffix(".src"), cache / f"{key}.src")
-        (cache / f"{key}.json").write_text(json.dumps({"source_url": photo.source_url, "licence": photo.licence,
-                                                       "why": photo.why, "credit": credit_of(photo.path)}),
-                                           encoding="utf-8")
-    except OSError as e:          # a cache that cannot be written only costs the next run a search
-        logger.warning("photo cache write failed: %s", e)
+    raw = Path(photo.path).with_suffix(".src")
+    data = _capped_jpeg(raw if raw.exists() else Path(photo.path))
+    if data:
+        asset_store.put("photo", key, data, "image/jpeg",
+                        {"source_url": photo.source_url, "licence": photo.licence, "why": photo.why, "role": role,
+                         "credit": credit_of(photo.path)})
 
 
 def _keep(data: bytes, url: str, licence: str, why: str, role: str, folder: Path, slug: str, used: set[str],

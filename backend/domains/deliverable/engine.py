@@ -40,6 +40,7 @@ RETAIL_CATEGORY = "retail: stores, supermarkets and online marketplaces"
 CITE_POOL = 12          # brand / competitor articles offered to the brand chapter's summaries
 INSIGHT_WORKERS = 8     # questions drafting insights at once: every question of a brief, none waits for a free slot
 _lock = threading.Lock()
+design_lock = threading.Lock()     # held by a recolour (router apply/reset design) or a whole Fix repair: one deck writer
 
 
 class RunBusy(RuntimeError):
@@ -654,11 +655,11 @@ def _brands(project: dict, rqs) -> list:
 
 
 def run_engine(run_id: int, project_id: int, llm) -> None:
-    run = _Run(run_id, project_id)
-    # every drafting call writes in the project's country/region language (Global: US English)
-    llm = writing_locale.with_locale(llm, writing_locale.project_geography(store.get_project(project_id)))
-    current = "gate"
-    try:
+    current, run = "gate", None
+    try:        # a setup read failing here must still mark the run failed, or it stays 'running' (409) for good
+        run = _Run(run_id, project_id)
+        # every drafting call writes in the project's country/region language (Global: US English)
+        llm = writing_locale.with_locale(llm, writing_locale.project_geography(store.get_project(project_id)))
         run.stage("gate", "running")
         reasons = _gate_reasons(project_id)
         if reasons:
@@ -893,15 +894,20 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
         broadcast({"type": "deliverable_completed", "project_id": project_id, "run_id": run_id,
                    "ready": report["ready"]})
         notify.notify_ready(project_id, run_id)
+        if studio_paths.get("deck_dir"):        # kept in Postgres: a hosted disk does not survive a restart
+            from . import deck_store
+            deck_store.persist(run_id, studio_paths["deck_dir"])
     except Exception as e:
         stage = e.stage if isinstance(e, StageFailed) else current
         logger.error("[deliverable:%s] stage %s failed: %s", run_id, stage, e, exc_info=not isinstance(e, StageFailed))
-        run.stages[stage] = "failed"
+        stages = run.stages if run else {}
+        stages[stage] = "failed"
         try:
-            run.log(f"Failed at {stage}: {e}")
+            if run:
+                run.log(f"Failed at {stage}: {e}")
         except Exception:       # recording the line must never mask the original failure
             logger.exception("[deliverable:%s] could not record the failure line", run_id)
-        store.update_deliverable_run(run_id, status="failed", stage=stage, stages_json=run.stages, error=str(e),
+        store.update_deliverable_run(run_id, status="failed", stage=stage, stages_json=stages, error=str(e),
                                      finished_at=time.time())
         broadcast({"type": "deliverable_failed", "project_id": project_id, "run_id": run_id, "stage": stage,
                    "error": _wire(str(e))})

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import colorsys
 import html
+import io
 import logging
 import os
 import re
@@ -10,8 +11,9 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
+from ..assets import service as assets
 from . import style
 
 logger = logging.getLogger(__name__)
@@ -63,18 +65,35 @@ def _cdn_pngs(domain: str) -> list[str]:
     return [f"{_CDN}/{domain}/w/400/h/400/{kind}.png?c={client}" for kind in ("logo", "icon")]
 
 
-def _fetch_logo(url: str, path: Path) -> Path | None:
-    from .cli import LOGO_HEADERS, LOGO_TIMEOUT_S, is_real_logo, save_logo_png
+def _as_png(data: bytes) -> bytes | None:
+    """Any raster image as PNG bytes (python-pptx cannot embed WEBP); None when it is not an image."""
     try:
-        r = requests.get(url, headers=LOGO_HEADERS, timeout=LOGO_TIMEOUT_S)
-    except requests.RequestException as e:
-        logger.warning("logo download failed for %s: %s", url.split("?")[0], type(e).__name__)
+        img = Image.open(io.BytesIO(data))
+        img.load()
+    except (UnidentifiedImageError, OSError):
         return None
-    ctype = r.headers.get("content-type", "").split(";")[0].strip()
-    # Brandfetch answers an unknown brand with a WEBP placeholder, so its CDN must return PNG; any other host's
-    # raster image is converted to PNG
-    ok = is_real_logo(ctype) if url.startswith(_CDN) else ctype in ("image/png", "image/jpeg", "image/webp")
-    return save_logo_png(r.content, path) if r.ok and ok else None
+    buf = io.BytesIO()
+    img.convert("RGBA").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _fetch_logo(url: str, path: Path) -> Path | None:
+    """One candidate logo, from the shared asset table when any organization fetched this address before."""
+    from .cli import LOGO_HEADERS, LOGO_TIMEOUT_S, is_real_logo
+
+    def fetch():
+        r = requests.get(url, headers=LOGO_HEADERS, timeout=LOGO_TIMEOUT_S)
+        if r.status_code >= 500:
+            r.raise_for_status()
+        ctype = r.headers.get("content-type", "").split(";")[0].strip()
+        # Brandfetch answers an unknown brand with a WEBP placeholder, so its CDN must return PNG; any other host's
+        # raster image is converted to PNG
+        ok = is_real_logo(ctype) if url.startswith(_CDN) else ctype in ("image/png", "image/jpeg", "image/webp")
+        png = _as_png(r.content) if r.ok and ok else None
+        return (png, "image/png", {"source": url.split("?")[0]}) if png else None
+    # the CDN address carries only the public client id after "?": the same logo for every key
+    key = "url:" + (url.split("?")[0] if url.startswith(_CDN) else url)
+    return assets.to_file("logo", key, path, fetch)        # a failed download is logged there, never saved
 
 
 def logos(names: list[str], folder: Path, judge=None, hint: str = "") -> dict[str, Path]:
@@ -143,19 +162,22 @@ def _fetch_svg(icon_id: str, color: str) -> str | None:
 
 
 def icon_png(icon_id: str, folder: Path, color: str = style.VIOLET) -> Path | None:
+    """An Iconify icon (or circle flag) as PNG, rendered once for every organization (shared asset table)."""
     out = folder / (re.sub(r"[^a-z0-9]+", "_", f"{icon_id}_{color}".lower()) + ".png")
-    if out.exists():
-        return out
-    svg = _fetch_svg(icon_id, color)
-    if not svg:
-        return None
-    folder.mkdir(parents=True, exist_ok=True)
-    try:
-        _svg_to_png(svg, out)
-    except Exception as e:      # icons are decoration: a missing browser must not fail the run
-        logger.warning("icon %s not rendered: %s", icon_id, e)
-        return None
-    return out
+    is_flag = icon_id.startswith("circle-flags:")           # flags keep their own colours
+
+    def fetch():
+        svg = _fetch_svg(icon_id, color)
+        if not svg:                 # not remembered as missing: _fetch_svg cannot tell "none" from "unreachable"
+            raise OSError(f"icon {icon_id} unavailable")
+        folder.mkdir(parents=True, exist_ok=True)
+        try:
+            _svg_to_png(svg, out)
+        except Exception as e:      # icons are decoration: a missing browser must not fail the run
+            raise OSError(f"icon {icon_id} not rendered: {type(e).__name__}") from e
+        return out.read_bytes(), "image/png", {"source": f"{ICON_API}/{icon_id}"}
+    return assets.to_file("flag" if is_flag else "icon", icon_id if is_flag else f"{icon_id}#{color.upper()}",
+                          out, fetch)
 
 
 def _svg_to_png(svg: str, out: Path) -> None:
@@ -216,22 +238,19 @@ FAVICON_SIZE = 64
 
 
 def favicon_png(domain: str, folder: Path) -> Path | None:
-    """The site icon for a citation domain, cached on disk; None when the site has none."""
+    """The site icon for a citation domain (this server's file, else the shared asset table, else Google's favicon
+    service); None when the site has none."""
     if not domain:
         return None
     out = folder / (re.sub(r"[^a-z0-9]+", "_", domain.lower()) + ".png")
-    if out.exists():
-        return out
-    try:
+
+    def fetch():
         r = requests.get(FAVICON_API, params={"domain": domain, "sz": FAVICON_SIZE}, timeout=TIMEOUT_S)
-    except requests.RequestException as e:
-        logger.warning("favicon for %s unavailable: %s", domain, e)
-        return None
-    if not r.ok or not r.headers.get("content-type", "").startswith("image/"):
-        return None
-    folder.mkdir(parents=True, exist_ok=True)
-    from .cli import save_logo_png
-    return save_logo_png(r.content, out)
+        if r.status_code >= 500:
+            r.raise_for_status()
+        png = _as_png(r.content) if r.ok and r.headers.get("content-type", "").startswith("image/") else None
+        return (png, "image/png", {"source": FAVICON_API}) if png else None
+    return assets.to_file("favicon", domain.lower(), out, fetch)
 
 
 BADGE_PX = 128

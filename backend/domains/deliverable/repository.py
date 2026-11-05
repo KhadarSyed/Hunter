@@ -231,3 +231,47 @@ def fail_interrupted_latest24h_refreshes() -> int:
     conn.commit()
     conn.close()
     return n
+
+
+# ─── A finished deck's files (deck_store.py) ────────────────────────────────
+
+def save_deck_files(run_id: int, project_id: int, parts) -> int:
+    """Replace the run's stored files with `parts` ((name, part, gz, bytes) pairs, read one at a time) and drop the
+    project's other runs, in one transaction: a failed save keeps the previous run. Returns the bytes stored."""
+    conn = _conn()
+    total = 0
+    try:
+        with conn:
+            conn.execute("DELETE FROM intel_deliverable_files WHERE run_id = ?", (run_id,))
+            now = time.time()
+            for name, part, gz, content in parts:
+                conn.execute("INSERT INTO intel_deliverable_files (run_id, project_id, name, part, gz, content, "
+                             "created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", (run_id, project_id, name, part, gz, content, now))
+                total += len(content)
+            conn.execute("DELETE FROM intel_deliverable_files WHERE project_id = ? AND run_id != ?", (project_id, run_id))
+    finally:
+        conn.close()
+    return total
+
+
+def deck_file_names(run_id: int) -> list[str]:
+    conn = _conn()
+    try:
+        return [r[0] for r in conn.execute("SELECT DISTINCT name FROM intel_deliverable_files WHERE run_id = ?",
+                                           (run_id,))]
+    finally:
+        conn.close()
+
+
+def deck_file_parts(run_id: int, name: str):
+    """(gz, bytes) of each stored part in order, fetched one at a time so a large file never sits in memory whole."""
+    conn = _conn()
+    try:
+        parts = [r[0] for r in conn.execute("SELECT part FROM intel_deliverable_files WHERE run_id = ? AND name = ? "
+                                            "ORDER BY part", (run_id, name))]
+        for part in parts:
+            row = conn.execute("SELECT gz, content FROM intel_deliverable_files WHERE run_id = ? AND name = ? AND "
+                               "part = ?", (run_id, name, part)).fetchone()
+            yield row[0], bytes(row[1])
+    finally:
+        conn.close()
