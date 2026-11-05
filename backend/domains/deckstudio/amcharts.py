@@ -91,7 +91,7 @@ def chart_config(chart: dict, t: DeckTokens, logos: dict[str, str] | None = None
                 "ink": [f"#{_on(c)}" for c in fills]}
     if kind == "us_map":
         return {**base, "color": f"#{t.series[0]}", "states": chart.get("states") or [], "note": chart.get("unlocated") or "",
-                "counties": chart.get("counties") or []}
+                "counties": chart.get("counties") or [], "icons": logos}        # each channel's icon in the tooltip
     view = chart.get("view") or kind
     if view == "multi_line":        # one line per brand: the client in the brand colour, rivals in the deck's hues
         series = chart["brand_series"]

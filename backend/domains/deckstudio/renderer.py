@@ -13,6 +13,8 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup, escape
 
 from ...core.config import HOUSE_LOGO
+from ..deliverable import visuals
+from ..deliverable.analytics import PLATFORM_DOMAINS
 from . import amcharts, logo_prep, tables
 from .art_director import fonts_href
 from .charts import chart_svg
@@ -80,6 +82,15 @@ def _inline_logos(logos: dict[str, str], out_dir: Path) -> dict[str, str]:
             kind = "svg+xml" if path.suffix.lower() == ".svg" else path.suffix.lower().lstrip(".").replace("jpg", "jpeg")
             out[name] = f"data:image/{kind};base64," + base64.b64encode(path.read_bytes()).decode("ascii")
     return out
+
+
+def _channel_icons(slide: SlideSpec, out_dir: Path) -> dict[str, str]:
+    """A US map's channels (X, Facebook, ...) with their site icons, for its tooltip: {channel: data URI}."""
+    names = {c.rsplit(" ", 1)[0] for ch in slide.charts if ch.get("kind") == "us_map"
+             for st in ch.get("states") or [] for c in str(st.get("channels") or "").split(" · ") if c}
+    rels = {n: str(p.relative_to(out_dir)) for n in sorted(names) if n in PLATFORM_DOMAINS
+            and (p := visuals.favicon_png(PLATFORM_DOMAINS[n], out_dir / "favicons"))}
+    return _inline_logos(rels, out_dir)
 
 
 def render_slide(slide: SlideSpec, tokens: DeckTokens, n: int, total: int, base_n: int, period: str, source: str,
@@ -162,7 +173,7 @@ def render_deck(spec: DeckSpec, out_dir: Path, slide_html: dict[str, str] | None
     # a restyled slide); each slide's SVG chart stays as the fallback
     def chart_logos(s):
         logos, light = _slide_logos(s, out_dir)
-        return _inline_logos(logos, out_dir), light
+        return {**_inline_logos(logos, out_dir), **_channel_icons(s, out_dir)}, light
     configs = amcharts.deck_configs(spec.slides, tokens, chart_logos)
     maps = any(c and c["kind"] == "us_map" for cs in configs.values() for c in cs)
     drill = _drill_data(spec, out_dir, configs)            # before the configs are written into the page

@@ -158,6 +158,8 @@ a.drill-title:hover{color:var(--primary);text-decoration:underline}
 .drill-more[hidden]{display:none}
 .chart-why{position:absolute;right:4px;top:4px;z-index:5;width:26px;height:26px;border-radius:50%;background:var(--surface);
 color:var(--primary);border:1.5px solid var(--primary);font:italic 700 16px/23px Georgia,serif;text-align:center;cursor:help}
+/* the map's HTML tooltip draws its own box: amCharts sizes its wrapper from the scaled slide, too small */
+.am5-html-container>div{overflow:visible!important}
 @page{size:1920px 1080px;margin:0}
 body.export .slide{break-after:page}
 @keyframes rise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}

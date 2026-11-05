@@ -496,6 +496,7 @@ def _channel(row: EngineRow) -> str:
 _PLATFORMS = {"x.com": "X", "twitter.com": "X", "facebook.com": "Facebook", "instagram.com": "Instagram",
               "tiktok.com": "TikTok", "reddit.com": "Reddit", "youtube.com": "YouTube", "threads.net": "Threads",
               "pinterest.com": "Pinterest", "linkedin.com": "LinkedIn"}
+PLATFORM_DOMAINS = {p: h for h, p in reversed(list(_PLATFORMS.items()))}     # 'X' -> 'x.com': its site icon
 
 
 def platform(row: EngineRow) -> str:

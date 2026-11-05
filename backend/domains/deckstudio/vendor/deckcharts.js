@@ -260,14 +260,29 @@
     }));
     var low = am5.Color.lighten(c(cfg.color), 0.8), high = c(cfg.color);
     function polygons(geo, extra) {
-      var s = chart.series.push(am5map.MapPolygonSeries.new(root, Object.assign({ geoJSON: geo, valueField: "value", calculateAggregates: true, tooltip: tooltip(root, cfg) }, extra)));
+      var tip = tooltip(root, cfg);
+      tip.get("background").setAll({ fillOpacity: 0, strokeOpacity: 0 });     // the HTML box below is the tooltip
+      var s = chart.series.push(am5map.MapPolygonSeries.new(root, Object.assign({ geoJSON: geo, valueField: "value", calculateAggregates: true, tooltip: tip }, extra)));
       s.mapPolygons.template.setAll({ tooltipText: "{name}: [bold]{value}[/] articles", fill: c("#E4E4EA"), stroke: c("#FFFFFF"), strokeWidth: 0.8, interactive: true });
-      // the total, then one line per channel it ran on: "California: 23 articles\nFacebook 8\nX 5\nNews 7"
-      s.mapPolygons.template.adapters.add("tooltipText", function (text, target) {
+      // the total, then one line per channel it ran on, each beside its site icon ("California: 23 articles",
+      // "[icon] X 5", "[icon] Facebook 8", "News 7")
+      var icons = cfg.icons || {};
+      s.mapPolygons.template.set("tooltipHTML", "");
+      s.mapPolygons.template.adapters.add("tooltipHTML", function (html, target) {
         var di = target.dataItem;
         if (!di || di.get("value") == null) return "{name}: no articles";
-        var channels = (di.dataContext || {}).channels;
-        return channels ? text + "\n" + String(channels).split(" · ").join("\n") : text;
+        var lines = String((di.dataContext || {}).channels || "").split(" · ").filter(Boolean).map(function (ch) {
+          var icon = icons[ch.replace(/\s+\d+$/, "")];
+          return '<div style="display:flex;align-items:center;gap:8px;margin-top:5px">' +
+            (icon ? '<img src="' + icon + '" width="18" height="18" style="border-radius:4px;background:#fff">'
+                  : '<span style="width:18px"></span>') + "<span>" + ch + "</span></div>";
+        });
+        // amCharts sizes an HTML tooltip from its on-screen size, which the deck's slide scaling shrinks: the box
+        // draws its own background and moves itself back above the pointer by what that scaling left out
+        var k = Math.min(innerWidth / 1920, innerHeight / 1080), off = (1 - Math.min(k, 1)) * 100;
+        return '<div style="background:#fff;border:1.5px solid ' + cfg.primary + ';border-radius:8px;padding:8px 12px;' +
+          "color:" + cfg.text + ";white-space:nowrap;transform:translate(-" + off / 2 + "%,-" + off + '%)">' +
+          "<div>{name}: <b>{value}</b> articles</div>" + lines.join("") + "</div>";
       });
       // a click on a state or county also lists its articles
       s.mapPolygons.template.events.on("click", function (ev) {
