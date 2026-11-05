@@ -1487,7 +1487,40 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             last_used_at REAL, created_at REAL NOT NULL, UNIQUE (kind, key))""",
         "CREATE INDEX IF NOT EXISTS idx_asset_library_kind_brand ON intel_asset_library(kind, brand)",
     ]),
-    # (36, 37 are reserved for other tasks.) Vectors from different embedding models are not comparable.
+    # One project-wide data set: every uploaded file (bytes in S3, or here without S3), one row per unique article
+    # (deduped by normalised link across files) with its content and article-level tags, and one row per article per
+    # research question with that question's tags and review status (docs/plans/2026-11-05-dataset-tagging-...).
+    (37, "data set articles", [
+        """CREATE TABLE IF NOT EXISTS intel_upload_files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL REFERENCES intel_projects(id),
+            file_name TEXT NOT NULL, s3_key TEXT, content BLOB, rows_read INTEGER NOT NULL DEFAULT 0,
+            added INTEGER NOT NULL DEFAULT 0, duplicates INTEGER NOT NULL DEFAULT 0, error TEXT,
+            uploaded_by TEXT, created_at REAL NOT NULL)""",
+        """CREATE TABLE IF NOT EXISTS intel_articles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL REFERENCES intel_projects(id),
+            norm_url TEXT NOT NULL, url TEXT NOT NULL, channel TEXT NOT NULL, title TEXT NOT NULL DEFAULT '',
+            summary TEXT NOT NULL DEFAULT '', outlet TEXT NOT NULL DEFAULT '', published TEXT,
+            country TEXT NOT NULL DEFAULT '', reach REAL NOT NULL DEFAULT 0, author_name TEXT NOT NULL DEFAULT '',
+            author_id TEXT NOT NULL DEFAULT '', post_id TEXT NOT NULL DEFAULT '', raw_json TEXT NOT NULL DEFAULT '{}',
+            file_id INTEGER, content TEXT NOT NULL DEFAULT '', content_status TEXT NOT NULL DEFAULT 'pending',
+            tags_json TEXT, tag_status TEXT NOT NULL DEFAULT 'pending', tag_error TEXT, sentiment TEXT,
+            sentiment_confidence REAL, syndicated_json TEXT, similar_json TEXT, created_at REAL NOT NULL,
+            UNIQUE (project_id, norm_url))""",
+        "CREATE INDEX IF NOT EXISTS idx_articles_project_channel ON intel_articles(project_id, channel)",
+        """CREATE TABLE IF NOT EXISTS intel_article_rq (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL REFERENCES intel_projects(id),
+            article_id INTEGER NOT NULL REFERENCES intel_articles(id), rq_id TEXT NOT NULL,
+            signature TEXT NOT NULL, matched INTEGER NOT NULL DEFAULT 0, match_confidence REAL,
+            keywords_json TEXT NOT NULL DEFAULT '[]', tags_json TEXT NOT NULL DEFAULT '{}',
+            evidence_json TEXT NOT NULL DEFAULT '{}', summary TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending', decided_by TEXT, decided_at REAL, decision_reason TEXT,
+            tagged_at REAL, UNIQUE (article_id, rq_id))""",
+        "CREATE INDEX IF NOT EXISTS idx_article_rq_project_rq ON intel_article_rq(project_id, rq_id, status)",
+        """CREATE TABLE IF NOT EXISTS intel_theme_titles (
+            project_id INTEGER NOT NULL REFERENCES intel_projects(id), label_key TEXT NOT NULL, title TEXT NOT NULL,
+            PRIMARY KEY (project_id, label_key))""",
+    ]),
+    # (36 is reserved for another task.) Vectors from different embedding models are not comparable.
     (38, "reference deck embedding model", [
         "ALTER TABLE intel_reference_decks ADD COLUMN model TEXT",
     ]),
