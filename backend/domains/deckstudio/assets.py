@@ -38,7 +38,9 @@ CHUNK = 64 * 1024
 ARTICLE_TIMEOUT_S = 10
 MAX_ARTICLES = 4
 MAX_VISION_CHECKS = 150
-VISION_PER_SLIDE = 6
+VISION_PER_SLIDE = 7          # the slide's own article images, then one look at every search source
+ARTICLE_CHECKS = 2            # vision looks per source: the article images first, then each source's best match,
+SOURCE_CHECKS = 1             # so a spent budget never ends the search before every source was tried
 _WORD = re.compile(r"[a-z]{3,}")
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36"}
 
@@ -455,7 +457,10 @@ def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image:
     for licence, results in _plan(query, subjects, article_urls):
         ranked = sorted((c for c in results if c["url"] and c["url"] not in used and _maybe_usable(c, role)),
                         key=lambda c: -_relevance(query, c["title"]))
+        looks = ARTICLE_CHECKS if licence == "article" else SOURCE_CHECKS
         for cand in ranked[:MAX_TRIES]:
+            if looks <= 0:              # this source had its look: the next source gets the budget
+                break
             data = _download(cand["url"])
             if not data or is_duplicate(data, used):     # the same picture from another host is still a repeat
                 continue
@@ -465,6 +470,8 @@ def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image:
             ok, why, hd = _accept(data, role, title, subjects, judge)
             if why == UNVERIFIED:       # the slide's vision budget is spent: every later candidate fails the same way
                 break
+            if why.startswith("vision"):
+                looks -= 1
             if not ok:
                 rejected += 1
                 continue
@@ -472,9 +479,8 @@ def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image:
                 backup = backup or {"data": data, "url": cand["url"], "licence": licence, "why": why, "cand": cand}
                 continue
             return _keep(data, cand["url"], licence, why, role, folder, slug, used, cand)
-        else:
-            continue
-        break
+        if why == UNVERIFIED:
+            break
     widen = fallback and why != UNVERIFIED
     found = _fallback(query, role, folder, used, subjects, judge, slug, backup) if widen else None
     if found:
