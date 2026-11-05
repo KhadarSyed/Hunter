@@ -8,6 +8,7 @@ deterministic), and transforms output into structured execution units.
 from __future__ import annotations
 
 import concurrent.futures
+import contextvars
 import logging
 from typing import Any
 
@@ -285,7 +286,7 @@ def _run_planner_with_timeout(
         return run_planner(spec, llm_client, emit=emit)
 
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    future = pool.submit(_run_llm)
+    future = pool.submit(contextvars.copy_context().run, _run_llm)    # keeps memory.fresh() (Regenerate)
     try:
         result = future.result(timeout=PLANNER_LLM_TIMEOUT)
         pool.shutdown(wait=False)

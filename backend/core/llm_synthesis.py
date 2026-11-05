@@ -93,6 +93,7 @@ def _llm_call(system: str, user: str, format_json: bool = False) -> str | None:
         return None
     try:
         import concurrent.futures
+        import contextvars
         pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
         def _do_chat():
@@ -101,7 +102,7 @@ def _llm_call(system: str, user: str, format_json: bool = False) -> str | None:
                 format_json=format_json,
             )
 
-        future = pool.submit(_do_chat)
+        future = pool.submit(contextvars.copy_context().run, _do_chat)    # keeps memory.fresh() (Regenerate)
         try:
             result = future.result(timeout=_LLM_CALL_TIMEOUT)
         except concurrent.futures.TimeoutError:

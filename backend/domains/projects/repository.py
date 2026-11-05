@@ -231,8 +231,8 @@ def cancel_stale_running_jobs():
     conn = _conn()
     now = time.time()
     conn.execute(
-        "UPDATE intel_jobs SET status = 'cancelled', finished_at = ?, error = 'Canceled: stale running job from prior session' "
-        "WHERE status = 'running'",
+        "UPDATE intel_jobs SET status = 'cancelled', finished_at = ?, error = 'Canceled: stale job from prior session' "
+        "WHERE status IN ('running', 'pending')",      # queued jobs die with the process too
         (now,),
     )
     conn.commit()

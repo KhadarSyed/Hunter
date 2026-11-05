@@ -38,6 +38,16 @@ def get_memory_item(scope: str, scope_id: str, type_: str, key: str) -> Optional
     return _row(r) if r else None
 
 
+def purge_expired_memory() -> int:
+    """Delete expired items (reads already skip them; this keeps the table from growing). Returns the count."""
+    conn = _conn()
+    n = conn.execute("DELETE FROM memory_items WHERE expires_at IS NOT NULL AND expires_at < ?",
+                     (time.time(),)).rowcount
+    conn.commit()
+    conn.close()
+    return n
+
+
 def list_memory_items(scope: str, scope_id: str, type_: str, limit: int = 50) -> list[dict]:
     """Live items, most recently updated first."""
     conn = _conn()

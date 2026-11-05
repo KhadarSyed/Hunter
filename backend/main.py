@@ -1,8 +1,6 @@
 """Application factory.
 
-`create_app()` wires the two products onto one FastAPI app:
-- Intelligence Platform: `domains` routers under /api/intel
-- Brief-to-Deck: `deck.router` under /api
+`create_app()` wires the Intelligence Platform (`domains` routers under /api/intel)
 plus the shared /ws event socket, the HTTP layer (request ids, timing, error envelope),
 and the built React SPA from backend/static/ (so one server on :8002 serves everything).
 
@@ -36,8 +34,6 @@ from .core.config import (  # noqa: E402
     get_app_settings,
     load_settings,
 )
-from .deck import memory  # noqa: E402
-from .deck import router as deck  # noqa: E402
 from .domains import router as intel_router  # noqa: E402
 from .domains.auth.router import router as auth_router  # noqa: E402
 
@@ -49,13 +45,13 @@ GZIP_MIN_BYTES = 1024
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    memory.init_db()
     store.init_intelligence_db()
     seed_super_admin_if_missing()
     store.cancel_stale_running_jobs()
-    memory.mark_interrupted_runs()
     store.fail_interrupted_deliverable_runs()
     store.fail_interrupted_latest24h_refreshes()
+    from .domains.memory import service as memory
+    memory.purge_expired()
     ensure_dirs(load_settings())
     events.bind_loop(asyncio.get_running_loop())
     from .domains.agent import autopilot
@@ -67,12 +63,10 @@ async def lifespan(app: FastAPI):
     if os.environ.get("HUNTER_AUTOFIX", "1") == "1" and os.environ.get("HUNTER_SUPERVISED") == "1":
         from .domains.agent.repair import worker
         worker.start()
-    deck.start_watcher()
     logger.info("Hunter started (%s)", get_app_settings().environment)
     try:
         yield
     finally:
-        deck.stop_watcher()
         events.bind_loop(None)
         jobs.runner.shutdown(wait=False)
         logger.info("Hunter stopped")
@@ -125,7 +119,6 @@ def create_app() -> FastAPI:
 
     auth = [Depends(require_api_key)]
     app.include_router(intel_router, dependencies=auth)
-    app.include_router(deck.router, dependencies=auth)
     app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
     app.include_router(events.router)
     mount_uploads(app, UPLOAD_DIR)

@@ -66,6 +66,12 @@ def brand_key(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", (name or "").lower()).strip()
 
 
+@_safe(0)
+def purge_expired() -> int:
+    """Drop expired memory rows (cached GPT answers, stale grounding); called once at startup."""
+    return store.purge_expired_memory()
+
+
 # ─── long_term: exact GPT answer recall ──────────────────────────────────────
 
 def llm_key(model: str, messages: list[dict], format_json: bool) -> str:

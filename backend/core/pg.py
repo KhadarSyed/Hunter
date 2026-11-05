@@ -9,10 +9,12 @@ from __future__ import annotations
 import queue
 import re
 import threading
+import time
 
 import psycopg
 
 POOL_SIZE = 10
+IDLE_CHECK_S = 30        # a connection idle longer than this is pinged before reuse (server/proxy may have dropped it)
 
 # ─── SQL translation ────────────────────────────────────────────────────────
 
@@ -157,6 +159,7 @@ class Connection:
     def __init__(self, raw: psycopg.Connection, pool: "Pool"):
         self._raw, self._pool = raw, pool
         self.row_factory = None                               # accepted for sqlite3 compatibility, unused
+        self._schema_set = False
 
     def execute(self, sql: str, params=()) -> Cursor:
         values = _params(params)
@@ -179,6 +182,7 @@ class Connection:
             _schemas.add(name)
         self._raw.execute(f'SET search_path TO "{name}"')
         self._raw.commit()
+        self._schema_set = True
 
     def cursor(self) -> "StatementCursor":
         return StatementCursor(self)
@@ -200,6 +204,13 @@ class Connection:
 
     def close(self) -> None:
         if self._raw is not None:
+            if self._schema_set:        # the next borrower gets the default schema, not this one (it may be dropped)
+                try:
+                    self._raw.rollback()
+                    self._raw.execute("RESET search_path")
+                    self._raw.commit()
+                except psycopg.Error:
+                    self._raw.close()
             self._pool.give_back(self._raw)
             self._raw = None
 
@@ -251,11 +262,13 @@ class Pool:
 
     def take(self) -> Connection:
         try:
-            raw = self._idle.get_nowait()
-            if raw.closed or raw.broken:
-                raw = None
+            raw, idle_since = self._idle.get_nowait()
         except queue.Empty:
             raw = None
+        else:
+            if raw.closed or raw.broken or (time.monotonic() - idle_since > IDLE_CHECK_S and not _alive(raw)):
+                raw.close()
+                raw = None
         if raw is None:
             raw = psycopg.connect(self._url, row_factory=_row_factory, connect_timeout=10)
         return Connection(raw, self)
@@ -264,9 +277,18 @@ class Pool:
         try:
             if not raw.closed:
                 raw.rollback()                                # never hand on an open or failed transaction
-            self._idle.put_nowait(raw)
+            self._idle.put_nowait((raw, time.monotonic()))
         except (queue.Full, psycopg.Error):
             raw.close()
+
+
+def _alive(raw: psycopg.Connection) -> bool:
+    try:
+        raw.execute("SELECT 1")
+        raw.rollback()
+        return True
+    except (psycopg.OperationalError, psycopg.InterfaceError):
+        return False
 
 
 _pools: dict[str, Pool] = {}

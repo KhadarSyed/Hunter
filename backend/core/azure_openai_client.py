@@ -52,13 +52,14 @@ def _rate_limit_wait(r: requests.Response, retry: int) -> float:
     return min(MAX_RATE_WAIT_S, wait) + random.uniform(0, 1.0)
 
 
-def _post(url: str, headers: dict, payload: dict, timeout: int = 180) -> requests.Response:
+def _post(url: str, headers: dict, payload: dict, timeout: int = 180, stream: bool = False) -> requests.Response:
     """A request that survives a dropped connection (a proxy's TLS reset), a rate limit or a server hiccup: a
-    long run makes hundreds of calls, and one transient failure must not fail it."""
+    long run makes hundreds of calls, and one transient failure must not fail it. With stream=True the caller
+    reads (and closes) the body; a response given up on here is closed before the retry."""
     failures = rate_limited = dropped = 0
     while True:
         try:
-            r = requests.post(url, headers=headers, json=payload, timeout=timeout)
+            r = requests.post(url, headers=headers, json=payload, timeout=timeout, stream=stream)
         except (requests.ConnectionError, requests.Timeout) as e:
             if dropped == len(CONNECTION_BACKOFF_S):
                 raise
@@ -69,12 +70,14 @@ def _post(url: str, headers: dict, payload: dict, timeout: int = 180) -> request
         if r.status_code == 429 and rate_limited < RATE_LIMIT_ATTEMPTS - 1:
             wait = _rate_limit_wait(r, rate_limited)
             logger.warning("Azure OpenAI rate limited; retrying in %.1fs (%d)", wait, rate_limited + 1)
+            r.close()
             time.sleep(wait)
             rate_limited += 1
             continue
         if r.status_code not in _RETRY_STATUS or failures == ATTEMPTS - 1:
             return r
         logger.warning("Azure OpenAI call retried after HTTP %s", r.status_code)
+        r.close()
         time.sleep(BACKOFF_S[failures])
         failures += 1
 
@@ -125,13 +128,14 @@ class AzureOpenAIClient:
             if r.status_code != 200:
                 raise AzureOpenAIError(f"Azure OpenAI chat failed: {r.status_code} {r.text[:300]}")
             choice = r.json()["choices"][0]
-            if choice.get("finish_reason") == "length":
-                logger.warning("Azure OpenAI reply cut off at max_completion_tokens=%d", MAX_OUTPUT_TOKENS)
+            if choice.get("finish_reason") == "length":     # raised, not returned: a cut-off reply is never cached
+                raise AzureOpenAIError(f"Azure OpenAI reply cut off at max_completion_tokens={MAX_OUTPUT_TOKENS}")
             return choice["message"]["content"]
 
         payload["stream"] = True
         full: list[str] = []
-        with requests.post(self._url(), headers=headers, json=payload, stream=True, timeout=180) as r:
+        done = False
+        with _post(self._url(), headers, payload, stream=True) as r:
             if r.status_code != 200:
                 raise AzureOpenAIError(f"Azure OpenAI chat failed: {r.status_code} {r.text[:300]}")
             for line in r.iter_lines():
@@ -139,15 +143,18 @@ class AzureOpenAIClient:
                     continue
                 raw = line[len(b"data: "):]
                 if raw.strip() == b"[DONE]":
+                    done = True
                     break
                 chunk = json.loads(raw)
                 choices = chunk.get("choices") or []
                 delta = choices[0].get("delta", {}).get("content", "") if choices else ""
-                if choices and choices[0].get("finish_reason") == "length":
-                    logger.warning("Azure OpenAI reply cut off at max_completion_tokens=%d", MAX_OUTPUT_TOKENS)
                 if delta:
                     full.append(delta)
                     on_token(delta)
+                if choices and choices[0].get("finish_reason") == "length":
+                    raise AzureOpenAIError(f"Azure OpenAI reply cut off at max_completion_tokens={MAX_OUTPUT_TOKENS}")
+        if not done:        # partial text is raised, not returned, so it is never cached as the answer
+            raise AzureOpenAIError("Azure OpenAI stream ended before [DONE]")
         return "".join(full)
 
     def chat_tools(self, messages: list[dict], tools: list[dict], tool_choice: str = "auto") -> dict:
