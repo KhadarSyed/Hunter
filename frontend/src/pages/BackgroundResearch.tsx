@@ -1546,9 +1546,12 @@ export function BackgroundResearch({ onNavigate }: Props) {
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6" /></svg>
             Brief & Scope
           </button>
+          {/* Search Strategy builds on the news brief, so it opens only once the brief is done */}
           <button
             onClick={() => onNavigate("search-strategy")}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white rounded-lg transition-all hover:shadow-md"
+            disabled
+            title="Available once the Competitive News Brief is complete"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ background: "linear-gradient(135deg, #5B2C9D, #7C4DFF)" }}
           >
             Search Strategy
