@@ -101,8 +101,8 @@
         <tr>
           <td valign="top" width="110" style="width:110px;padding:6px 12px 6px 0;font-family:{{ FONT }};font-size:14px;line-height:20px;color:#6B6480;">{{ label }}</td>
           <td valign="top" style="padding:3px 0;font-family:{{ FONT }};font-size:14px;line-height:20px;color:#1F1B2D;">
-            {%- if label == "Competitors" and competitors %}
-            {%- for c in competitors %}
+            {%- if chips.get(label) %}
+            {%- for c in chips[label] %}
             <table role="presentation" align="left" cellpadding="0" cellspacing="0" border="0"><tr><td style="padding:0 6px 6px 0;">
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" bgcolor="#F6F3FB" style="background-color:#F6F3FB;border:1px solid #ECE8F3;border-radius:14px;"><tr>
                 {% if c.logo %}

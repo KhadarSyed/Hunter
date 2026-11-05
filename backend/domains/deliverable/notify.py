@@ -79,12 +79,23 @@ def _project_context(project: dict) -> dict:
     spec = project.get("spec") or {}
     scope = spec.get("included_scope") or {}
     client = (project.get("brand") or spec.get("client") or "").strip()
-    competitors = scope.get("competitors") or []
-    scope_rows = [("Competitors", ", ".join(map(str, competitors))) if competitors else None,
+    brands = [str(b) for b in scope.get("brands") or [] if b] or         [b for b in [(spec.get("commissioning_brand") or {}).get("name") or client] if b]
+    # a brief that rules out benchmarking leaves the scope's list empty; its named rivals are still the competitors
+    competitors = scope.get("competitors") or [e["name"] for e in spec.get("validated_entities") or []
+                                               if isinstance(e, dict) and e.get("type") == "competitor" and e.get("name")]
+    audience = (scope.get("primary_audience") or {}).get("name") if isinstance(scope.get("primary_audience"), dict) else ""
+    listed = lambda key: ", ".join(map(str, scope.get(key) or []))
+    scope_rows = [("Brand", ", ".join(brands)),
+                  ("Competitors", ", ".join(map(str, competitors))),
+                  ("Audience", audience or ""),
                   ("Geography", spec.get("geography") or scope.get("geography") or ""),
-                  ("Time period", spec.get("time_period") or scope.get("time_period") or "")]
+                  ("Time period", spec.get("time_period") or scope.get("time_period") or ""),
+                  ("Method", spec.get("research_type") or ""),
+                  ("Platforms", listed("platforms")),
+                  ("Languages", listed("languages"))]
     geography = spec.get("geography") or scope.get("geography") or ""
     return {
+        "brands": brands,
         "competitors": [str(c) for c in competitors],
         "countries": [c for c in re.split(r"\s*(?:[,;/&]|\band\b)\s*", geography) if c.strip()]
                      if isinstance(geography, str) else [],
@@ -94,7 +105,7 @@ def _project_context(project: dict) -> dict:
         "summary": spec.get("executive_interpretation") or spec.get("research_objective") or "",
         "questions": [q.get("question") for q in spec.get("research_questions") or []
                       if isinstance(q, dict) and q.get("question")],
-        "scope": [r for r in scope_rows if r and isinstance(r[1], str) and r[1].strip()],
+        "scope": [r for r in scope_rows if isinstance(r[1], str) and r[1].strip()],
     }
 
 
@@ -203,10 +214,11 @@ def _compose(ctx: dict, subject: str, inline_logo: bool = True) -> dict:
         return {**img, "src": f"cid:{cid}" if inline_logo else f"data:image/png;base64,{img['b64']}"}
 
     client_logo = embed(LOGO_CID, _logo(ctx["client"]) or _theme_logo(ctx.get("project_id")))
-    competitors = [{"name": n, "logo": embed(f"logo{i}", _logo(n))} for i, n in enumerate(ctx["competitors"], 1)]
+    chips = {label: [{"name": n, "logo": embed(f"{cid}{i}", _logo(n))} for i, n in enumerate(ctx[key], 1)]
+             for label, key, cid in (("Brand", "brands", "brand"), ("Competitors", "competitors", "logo"))}
     countries = [{"name": c, "flag": embed(f"flag{i}", _flag(c))} for i, c in enumerate(ctx["countries"], 1)]
     html = _ENV.get_template("deliverable_ready.html.j2").render(
-        **{**ctx, "competitors": competitors, "countries": countries}, subject=subject, logo=client_logo)
+        **{**ctx, "chips": chips, "countries": countries}, subject=subject, logo=client_logo)
     return {"subject": subject, "html": html, "text": _text(ctx), "inline_images": images}
 
 
