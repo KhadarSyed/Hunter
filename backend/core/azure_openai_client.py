@@ -25,6 +25,8 @@ class AzureOpenAIError(RuntimeError):
 
 ATTEMPTS = 3
 BACKOFF_S = (2, 6)                   # waits before the 2nd and 3rd attempt
+# a dropped network (DNS gone for a minute, run 128) is waited out ~2 min, counted apart from server errors
+CONNECTION_BACKOFF_S = (2, 6, 15, 30, 60)
 _RETRY_STATUS = {500, 502, 503, 504}
 # A rate limit (429) is waited out rather than given up after ~8 s: work done in parallel (enrichment batches,
 # brief summaries) would otherwise come back blank. Azure says how long to wait; each wait is capped. Rate-limit
@@ -53,16 +55,16 @@ def _rate_limit_wait(r: requests.Response, retry: int) -> float:
 def _post(url: str, headers: dict, payload: dict, timeout: int = 180) -> requests.Response:
     """A request that survives a dropped connection (a proxy's TLS reset), a rate limit or a server hiccup: a
     long run makes hundreds of calls, and one transient failure must not fail it."""
-    failures = rate_limited = 0
+    failures = rate_limited = dropped = 0
     while True:
         try:
             r = requests.post(url, headers=headers, json=payload, timeout=timeout)
         except (requests.ConnectionError, requests.Timeout) as e:
-            if failures == ATTEMPTS - 1:
+            if dropped == len(CONNECTION_BACKOFF_S):
                 raise
             logger.warning("Azure OpenAI call retried after %s", type(e).__name__)
-            time.sleep(BACKOFF_S[failures])
-            failures += 1
+            time.sleep(CONNECTION_BACKOFF_S[dropped])
+            dropped += 1
             continue
         if r.status_code == 429 and rate_limited < RATE_LIMIT_ATTEMPTS - 1:
             wait = _rate_limit_wait(r, rate_limited)
