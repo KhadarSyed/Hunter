@@ -84,6 +84,14 @@ def title_map(groups: list[dict], display: dict[str, str]) -> dict[str, str]:
     return out
 
 
+def consolidate_labels(llm, context: str, labels: list[dict]) -> dict[str, str]:
+    """{theme_key(label): consolidated title} for labels [{"label", "articles", "sample_headlines"}], the top
+    MAX_THEMES by count. One guardrail prompt serves the deck and the data set; {} when GPT is unavailable."""
+    top = sorted(labels, key=lambda l: -l.get("articles", 0))[:MAX_THEMES]
+    display = {theme_key(l["label"]): l["label"] for l in top}
+    return title_map(_ask(llm, context, top), display)
+
+
 def consolidate(llm, question: str, rows: list[EngineRow], log=None) -> list[EngineRow]:
     """The question's rows with each article's themes replaced by its consolidated theme titles (an article is
     counted once per theme even when two of its labels merged). Rows are copied, never changed in place."""
@@ -92,7 +100,7 @@ def consolidate(llm, question: str, rows: list[EngineRow], log=None) -> list[Eng
         return rows
     labels = [{"label": display[k], "articles": c, "sample_headlines": samples.get(k, [])}
               for k, c in counts.most_common(MAX_THEMES)]
-    mapping = title_map(_ask(llm, question, labels), display)
+    mapping = consolidate_labels(llm, question, labels)
     if not mapping:
         return rows
     if log:

@@ -27,6 +27,7 @@ class RQ:
     id: str
     question: str
     query: str = ""
+    status: str = "approved"     # strategy item status; only approved questions are tagged in the data set
 
 
 @dataclass

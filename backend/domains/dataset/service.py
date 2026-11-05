@@ -74,3 +74,7 @@ def upload(project_id: int, files: list[tuple[str, bytes]], user: str | None) ->
     return {"files": results, "added": sum(r["added"] for r in results),
             "duplicates": sum(r["duplicates"] for r in results),
             "traditional": counts.get("traditional", 0), "social": counts.get("social", 0)}
+
+
+# ---- tagging (the job lives in tagging_job.py) ---------------------------------------------------------------------
+from .tagging_job import TaggingBusy, is_tagging, start_tagging, tagging_state  # noqa: E402,F401

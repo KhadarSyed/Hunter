@@ -89,6 +89,12 @@ def articles_needing(project_id: int, phase: str, limit: int) -> list[dict]:
                        (project_id, limit)))
 
 
+def all_articles(project_id: int) -> list[dict]:
+    """Every article with the columns the theme and relation phases read (tags_json is the stored JSON text)."""
+    return _dicts(_run("SELECT id, url, title, outlet, content, summary, tag_status, tags_json, syndicated_json "
+                       "FROM intel_articles WHERE project_id = ? ORDER BY id", (project_id,)))
+
+
 def save_content(article_id: int, content: str, status: str) -> None:
     _run("UPDATE intel_articles SET content = ?, content_status = ? WHERE id = ?", (content, status, article_id))
 
