@@ -55,7 +55,7 @@ _ENTITY_CHART = re.compile(r"brand[-_]sov|brand[-_]sentiment|outlet_ranking|enti
 # initial by design: a court-records feed or a broadcast clip has no logo to verify)
 _BRAND_CHART = re.compile(r"brand[-_]sov|brand[-_]sentiment|entities-brands|entities-retailers")
 # categories that answer nothing on their own; a chart of only these is a placeholder, and they get no insight card
-_NO_ANSWER = {"unknown", "none", "other", "not stated", "n/a"}
+_NO_ANSWER = {"unknown", "none", "other", "not stated", "n/a", "no"}      # as engine_insights._NOT_SEGMENTS
 SEGMENT_CARDS = 5                  # matches the planner: a breakdown chart explains up to 5 of its categories
 
 

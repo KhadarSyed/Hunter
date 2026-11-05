@@ -231,9 +231,17 @@ def excerpt(text: str, terms: list[str]) -> str:
     return f"{text[:LEAD_CHARS]} … {text[start:start + EXCERPT_CHARS - LEAD_CHARS]}"
 
 
+STEM = 6       # 'Pediatrician' finds 'pediatric', 'Dermatologist' finds 'dermatology'
+
+
 def _terms(a: Article, segments: list[str] | None, article_segments: dict | None, entities: list[str] | None):
+    """What to centre the excerpt on. A category label is rarely the article's own words ('Pediatrician/Paediatrician',
+    'Physician/Doctor' matched none of their articles on 294), so each of its parts and their word stems count."""
     own = (article_segments or {}).get(a.norm_url)
-    return list(own or segments or []) + list(entities or [])
+    labels = list(own or segments or []) + list(entities or [])
+    parts = [p.strip() for label in labels for p in re.split(r"[/&,]", str(label)) if p.strip()]
+    stems = [w[:STEM] for p in parts for w in re.findall(r"[A-Za-z]+", p) if len(w) > STEM]
+    return list(dict.fromkeys(parts + stems))
 
 
 def draft_section(section: str, facts: list[str], candidates: list[Article], registry: CitationRegistry,

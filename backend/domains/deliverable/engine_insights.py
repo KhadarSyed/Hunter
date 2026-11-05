@@ -171,7 +171,8 @@ def _batched_summaries(rq: RQ, sections: list[Section], rows: list[EngineRow], r
 _NAMED_THINGS = re.compile(r"brand|competitor|retailer|product|outlet|expert|celebrit|people|person|entities")
 SEGMENT_MAX = 5
 SEGMENT_ARTICLES = 5          # a category's own articles offered for its card (distinct stories, by reach)
-_NOT_SEGMENTS = {"unknown", "none", "other", "not stated", "n/a"}
+# 'no' on a Yes/No tag chart is the articles without the tag: nothing in them explains it, so one summary, not a card
+_NOT_SEGMENTS = {"unknown", "none", "other", "not stated", "n/a", "no"}
 
 
 def chart_segments(section: Section) -> list[str]:
