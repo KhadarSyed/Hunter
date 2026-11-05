@@ -1474,6 +1474,19 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             PRIMARY KEY (run_id, name, part))""",
         "CREATE INDEX IF NOT EXISTS idx_deliverable_files_project ON intel_deliverable_files(project_id)",
     ]),
+    # Shared asset library: bytes in S3 (HunterAgent/assets/...), one row per asset with what it is and why it was
+    # used, embedded for similarity search so a later project reuses it instead of searching the web.
+    (35, "asset library", [
+        "CREATE EXTENSION IF NOT EXISTS vector",
+        # shortcut: sequential cosine scan, fine to ~50k assets; add a fixed-dimension column + HNSW index past that.
+        """CREATE TABLE IF NOT EXISTS intel_asset_library (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, key TEXT NOT NULL, s3_key TEXT,
+            content_type TEXT NOT NULL DEFAULT '', sha256 TEXT NOT NULL DEFAULT '', size INTEGER NOT NULL DEFAULT 0,
+            brand TEXT NOT NULL DEFAULT '', summary TEXT NOT NULL DEFAULT '', meta_json TEXT NOT NULL DEFAULT '{}',
+            embedding vector, missing INTEGER NOT NULL DEFAULT 0, use_count INTEGER NOT NULL DEFAULT 0,
+            last_used_at REAL, created_at REAL NOT NULL, UNIQUE (kind, key))""",
+        "CREATE INDEX IF NOT EXISTS idx_asset_library_kind_brand ON intel_asset_library(kind, brand)",
+    ]),
 ]
 
 

@@ -180,7 +180,7 @@ class Connection:
         if name not in _schemas:
             self._raw.execute(f'CREATE SCHEMA IF NOT EXISTS "{name}"')
             _schemas.add(name)
-        self._raw.execute(f'SET search_path TO "{name}"')
+        self._raw.execute(f'SET search_path TO "{name}", public')
         self._raw.commit()
         self._schema_set = True
 
