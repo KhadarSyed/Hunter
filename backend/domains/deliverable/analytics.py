@@ -688,8 +688,9 @@ def _us_map(module, rq, rows, base_n, _):
                       "channels": _breakdown_text(mix[f])}
                      for f, c in agg["counties"].most_common()]},
         drill_urls=_drill((area, r) for r in rows for area in places[id(r)] if area),     # "US-CA" / county FIPS
-        facts=[f"{rq.id}: {agg['located']} of {agg['total']} articles carry a US state or county"] + ([note] if note else []) +
-              [f"{rq.id} coverage from {names[s]}: {c} articles" for s, c in top],
+        # where coverage concentrates comes before what the map leaves out: a summary leads with the states
+        facts=[f"{rq.id}: {agg['located']} of {agg['total']} articles carry a US state or county"] +
+              [f"{rq.id} coverage from {names[s]}: {c} articles" for s, c in top] + ([note] if note else []),
         segment_urls=_segments((names[located[id(r)]], r) for r in rows
                                if located[id(r)] in {s for s, _ in top}))
 

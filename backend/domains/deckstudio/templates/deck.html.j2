@@ -171,12 +171,14 @@ body.export .slide{break-after:page}
   radial-gradient(600px 500px at 70% 10%, color-mix(in srgb, var(--primary) 10%, transparent), transparent 70%),
   var(--bg)}
 .card,.kpi-tile,.seg,.live-cell,.live-bullet,.qtable,.vcell,.live-progress{
-  background:rgba(255,255,255,.52)!important;
+  background:rgba(255,255,255,.74)!important;
   -webkit-backdrop-filter:blur(18px) saturate(160%);backdrop-filter:blur(18px) saturate(160%);
   border:1px solid rgba(255,255,255,.75);
   box-shadow:0 10px 34px rgba(31,24,51,.10),inset 0 1px 0 rgba(255,255,255,.85)}
-.panel{background:rgba(255,255,255,.62)!important;-webkit-backdrop-filter:blur(22px) saturate(170%);backdrop-filter:blur(22px) saturate(170%);
+.panel{background:rgba(255,255,255,.8)!important;-webkit-backdrop-filter:blur(22px) saturate(170%);backdrop-filter:blur(22px) saturate(170%);
   border:1px solid rgba(255,255,255,.7);box-shadow:0 18px 50px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.9)}
+/* text on glass reads at full strength: the photo behind never washes it out */
+.card p,.live-bullet,.seg{color:var(--text);font-weight:500}
 .qtable tbody td{background:transparent}
 .qtable tbody tr:nth-child(even) td{background:rgba(255,255,255,.35)}
 </style></head>
