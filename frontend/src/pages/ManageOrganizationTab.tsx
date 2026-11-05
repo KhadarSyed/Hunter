@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { intelApi, type AuthOrganizationRow } from "../services/intel-api";
+import { CredentialBanner } from "./ManageUsersTab";
 
 export function ManageOrganizationTab() {
   const [orgs, setOrgs] = useState<AuthOrganizationRow[]>([]);
@@ -7,6 +8,7 @@ export function ManageOrganizationTab() {
   const [adminEmail, setAdminEmail] = useState("");
   const [adminName, setAdminName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [credential, setCredential] = useState<{ email: string; tempPassword: string } | null>(null);
 
   const load = () => intelApi.listOrganizations().then(setOrgs);
   useEffect(() => { load(); }, []);
@@ -15,7 +17,8 @@ export function ManageOrganizationTab() {
     e.preventDefault();
     setError(null);
     try {
-      await intelApi.createOrganization(name, adminEmail, adminName);
+      const created = await intelApi.createOrganization(name, adminEmail, adminName);
+      if (created.temp_password) setCredential({ email: adminEmail, tempPassword: created.temp_password });
       setName(""); setAdminEmail(""); setAdminName("");
       load();
     } catch (err) {
@@ -25,6 +28,9 @@ export function ManageOrganizationTab() {
 
   return (
     <div className="space-y-8">
+      {credential && (
+        <CredentialBanner email={credential.email} tempPassword={credential.tempPassword} onDismiss={() => setCredential(null)} />
+      )}
       <form onSubmit={handleCreate} className="flex flex-wrap gap-2 items-end">
         <div>
           <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Org name</label>
@@ -41,7 +47,7 @@ export function ManageOrganizationTab() {
           <input value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} required
                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm" />
         </div>
-        <span className="text-xs text-slate-400 pb-2.5">The admin signs in with Admin@123 and must change it.</span>
+        <span className="text-xs text-slate-400 pb-2.5">The admin gets a one-time password, shown here once, and must change it.</span>
         <button type="submit" className="rounded-lg bg-[#5B2C9D] text-white font-semibold px-4 py-2 text-sm">
           Create Org
         </button>

@@ -20,10 +20,10 @@ import re
 import time
 from urllib.parse import urljoin, urlparse
 
-import requests
 from bs4 import BeautifulSoup, Tag
 
 from ...core.db import _conn
+from ...core.safe_fetch import safe_get
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,9 @@ def _looks_blocked(status_code: int, html: str) -> bool:
 
 
 def _fetch_html(url: str) -> tuple[int, str]:
-    r = requests.get(url, timeout=FETCH_TIMEOUT_S, headers={"User-Agent": USER_AGENT}, allow_redirects=True)
+    r = safe_get(url, timeout=FETCH_TIMEOUT_S, headers={"User-Agent": USER_AGENT})
+    if r is None:   # raised, so _extract never retries a refused address through the browser fallback
+        raise ValueError("Not a public web address")
     return r.status_code, r.text
 
 

@@ -12,7 +12,15 @@ from fastapi.responses import FileResponse
 
 from ...core import store
 from ...core.api import OkResponse
-from ...core.auth import require_project_access
+from ...core.auth import (
+    check_project_id_access,
+    get_current_user,
+    require_project_access,
+    require_qc_export_access,
+    require_qc_finding_access,
+    require_qc_report_access,
+    require_qc_run_access,
+)
 from ...core.config import UPLOAD_DIR
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
@@ -39,10 +47,11 @@ IdPath = Annotated[int, PathParam(ge=1)]
 
 
 @router.post("/qc/upload", response_model=QCUploadResponse)
-async def qc_upload_route(project_id: int = Form(0), file: UploadFile = File(...)):
+async def qc_upload_route(user: Annotated[dict, Depends(get_current_user)], project_id: int = Form(0), file: UploadFile = File(...)):
 
     if not project_id:
         raise HTTPException(400, "project_id is required")
+    check_project_id_access(project_id, user)
 
     ext = Path(file.filename or "").suffix.lower()
     if ext not in (".csv", ".xlsx", ".xls", ".docx", ".pptx"):
@@ -98,7 +107,7 @@ def qc_report_route(project_id: IdPath, _access: Annotated[dict, Depends(require
     return report
 
 
-@router.get("/qc/report/detail/{report_id}", response_model=QCReport)
+@router.get("/qc/report/detail/{report_id}", response_model=QCReport, dependencies=[Depends(require_qc_report_access)])
 def qc_report_detail_route(report_id: IdPath):
     report = store.get_qc_report(report_id)
     if not report:
@@ -106,7 +115,7 @@ def qc_report_detail_route(report_id: IdPath):
     return report
 
 
-@router.get("/qc/preview/{report_id}", response_model=QCPreviewResponse)
+@router.get("/qc/preview/{report_id}", response_model=QCPreviewResponse, dependencies=[Depends(require_qc_report_access)])
 def qc_preview_route(report_id: IdPath):
 
     report = store.get_qc_report(report_id)
@@ -121,7 +130,7 @@ def qc_preview_route(report_id: IdPath):
     return {"status": "done", "preview": parsed.get("preview", [])[:20]}
 
 
-@router.get("/qc/all-rows/{report_id}", response_model=QCAllRowsResponse)
+@router.get("/qc/all-rows/{report_id}", response_model=QCAllRowsResponse, dependencies=[Depends(require_qc_report_access)])
 def qc_all_rows_route(report_id: IdPath):
 
     report = store.get_qc_report(report_id)
@@ -140,7 +149,7 @@ def qc_all_rows_route(report_id: IdPath):
     return {"rows": all_preview, "columns": columns}
 
 
-@router.post("/qc/field-mapping/{report_id}", response_model=QCFieldMappingSaveResponse)
+@router.post("/qc/field-mapping/{report_id}", response_model=QCFieldMappingSaveResponse, dependencies=[Depends(require_qc_report_access)])
 def qc_save_mapping_route(report_id: IdPath, body: dict):
     report = store.get_qc_report(report_id)
     if not report:
@@ -150,7 +159,7 @@ def qc_save_mapping_route(report_id: IdPath, body: dict):
     return {"ok": True, "report_id": report_id}
 
 
-@router.post("/qc/run/{report_id}", response_model=QCRunStartResponse)
+@router.post("/qc/run/{report_id}", response_model=QCRunStartResponse, dependencies=[Depends(require_qc_report_access)])
 def qc_run_route(report_id: IdPath):
 
     report = store.get_qc_report(report_id)
@@ -186,18 +195,18 @@ def qc_run_route(report_id: IdPath):
     return {"status": "started", "report_id": report_id, "job_id": job_id}
 
 
-@router.get("/qc/runs/{report_id}", response_model=list[QCRun])
+@router.get("/qc/runs/{report_id}", response_model=list[QCRun], dependencies=[Depends(require_qc_report_access)])
 def qc_runs_route(report_id: IdPath):
     return store.get_qc_runs_for_report(report_id)
 
 
-@router.get("/qc/results/{run_id}", response_model=list[QCFinding])
+@router.get("/qc/results/{run_id}", response_model=list[QCFinding], dependencies=[Depends(require_qc_run_access)])
 def qc_results_route(run_id: IdPath, severity: str | None = None, check_type: str | None = None):
     findings = store.get_qc_findings(run_id, severity=severity, check_type=check_type)
     return findings
 
 
-@router.get("/qc/summary/{run_id}", response_model=QCRun)
+@router.get("/qc/summary/{run_id}", response_model=QCRun, dependencies=[Depends(require_qc_run_access)])
 def qc_summary_route(run_id: IdPath):
     run = store.get_qc_run(run_id)
     if not run:
@@ -205,7 +214,7 @@ def qc_summary_route(run_id: IdPath):
     return run
 
 
-@router.post("/qc/finding/{finding_id}/action", response_model=OkResponse)
+@router.post("/qc/finding/{finding_id}/action", response_model=OkResponse, dependencies=[Depends(require_qc_finding_access)])
 def qc_finding_action_route(finding_id: IdPath, body: dict):
     action = body.get("action", "")
     if action not in ("accepted", "dismissed", "flagged"):
@@ -214,7 +223,7 @@ def qc_finding_action_route(finding_id: IdPath, body: dict):
     return {"ok": True}
 
 
-@router.post("/qc/export/{run_id}", response_model=QCExportResponse)
+@router.post("/qc/export/{run_id}", response_model=QCExportResponse, dependencies=[Depends(require_qc_run_access)])
 def qc_export_route(run_id: IdPath):
 
     result = qc_export.export_qc_results(run_id)
@@ -223,7 +232,7 @@ def qc_export_route(run_id: IdPath):
     return result
 
 
-@router.get("/qc/export/download/{export_id}", response_class=FileResponse)
+@router.get("/qc/export/download/{export_id}", response_class=FileResponse, dependencies=[Depends(require_qc_export_access)])
 def qc_export_download_route(export_id: IdPath):
 
     conn = store._conn()

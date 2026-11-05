@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path
 
 from ...core import store
 from ...core.api import OkResponse
-from ...core.auth import require_project_access
+from ...core.auth import check_project_id_access, get_current_user, require_plan_access, require_project_access
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from ..strategy.schemas import GenerateStrategyRequest
@@ -32,8 +32,10 @@ router = APIRouter()
 
 
 @router.post("/plan/generate", response_model=PlanJobStarted | PlanBlocked)
-def generate_research_plan(req: GenerateStrategyRequest, fresh: bool = False):
+def generate_research_plan(req: GenerateStrategyRequest, user: Annotated[dict, Depends(get_current_user)],
+                           fresh: bool = False):
     """Generate a Research Plan for the given project."""
+    check_project_id_access(req.project_id, user)
 
     project = store.get_project(req.project_id)
     if not project:
@@ -96,7 +98,7 @@ def get_research_plan(project_id: Annotated[int, Path(ge=1)],
     return plan
 
 
-@router.post("/plan/{plan_id}/approve", response_model=OkResponse)
+@router.post("/plan/{plan_id}/approve", response_model=OkResponse, dependencies=[Depends(require_plan_access)])
 def approve_research_plan(plan_id: Annotated[int, Path(ge=1)], req: PlanApproveRequest):
     """Approve a Research Plan."""
     ok = store.approve_plan(plan_id, req.reviewer)
@@ -106,7 +108,7 @@ def approve_research_plan(plan_id: Annotated[int, Path(ge=1)], req: PlanApproveR
     return {"ok": True}
 
 
-@router.post("/plan/{plan_id}/reject", response_model=OkResponse)
+@router.post("/plan/{plan_id}/reject", response_model=OkResponse, dependencies=[Depends(require_plan_access)])
 def reject_research_plan(plan_id: Annotated[int, Path(ge=1)], req: PlanRejectRequest):
     """Reject a Research Plan."""
     ok = store.reject_plan(plan_id, req.notes)
@@ -116,12 +118,13 @@ def reject_research_plan(plan_id: Annotated[int, Path(ge=1)], req: PlanRejectReq
 
 
 @router.post("/plan/regenerate", response_model=PlanJobStarted | PlanBlocked)
-def regenerate_research_plan(req: PlanRegenerateRequest):
+def regenerate_research_plan(req: PlanRegenerateRequest, user: Annotated[dict, Depends(get_current_user)]):
     """Regenerate a plan — same as generate but implies a prior plan exists."""
-    return generate_research_plan(GenerateStrategyRequest(project_id=req.project_id), fresh=True)
+    return generate_research_plan(GenerateStrategyRequest(project_id=req.project_id), user, fresh=True)
 
 
 @router.post("/plan/validate", response_model=PlanPrerequisitesResponse)
-def validate_plan_prerequisites(req: GenerateStrategyRequest):
+def validate_plan_prerequisites(req: GenerateStrategyRequest, user: Annotated[dict, Depends(get_current_user)]):
     """Check whether prerequisites are met for plan generation."""
+    check_project_id_access(req.project_id, user)
     return planner_service.validate_prerequisites(req.project_id)

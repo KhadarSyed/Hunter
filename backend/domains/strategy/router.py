@@ -35,7 +35,13 @@ from ...agents.question_dimensions import to_json as qd_to_json
 from ...core import store
 from ...core.llm_provider import extract_json_object as _extract_json_object, get_llm_client
 from ...core.api import OkResponse
-from ...core.auth import require_dataset_access, require_project_access, require_strategy_access
+from ...core.auth import (
+    check_project_id_access,
+    get_current_user,
+    require_dataset_access,
+    require_project_access,
+    require_strategy_access,
+)
 from ...core.config import UPLOAD_DIR, get_app_settings
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
@@ -517,7 +523,8 @@ def _quoted_phrases(strategy: dict) -> dict:
 
 
 @router.post("/strategy/generate", response_model=StrategyJobStarted)
-def generate_search_strategy(req: GenerateStrategyRequest):
+def generate_search_strategy(req: GenerateStrategyRequest, user: Annotated[dict, Depends(get_current_user)]):
+    check_project_id_access(req.project_id, user)
     project = store.get_project(req.project_id)
     if not project:
         raise HTTPException(404, "Project not found")
@@ -1111,9 +1118,11 @@ def _process_dataset_bg(dataset_id: int, file_path: str, file_name: str, project
 @router.post("/dataset/upload", response_model=DatasetUploadResponse)
 async def upload_dataset(
     project_id: int,
+    user: Annotated[dict, Depends(get_current_user)],
     file: UploadFile = File(...),
     research_question_id: str | None = None,
 ):
+    check_project_id_access(project_id, user)
     project = store.get_project(project_id)
     if not project:
         raise HTTPException(404, "Project not found")
@@ -1160,14 +1169,14 @@ def get_dataset(project_id: IdPath, _access: Annotated[dict, Depends(require_pro
     return dataset
 
 
-@router.post("/dataset/{dataset_id}/approve", response_model=OkResponse)
+@router.post("/dataset/{dataset_id}/approve", response_model=OkResponse, dependencies=[Depends(require_dataset_access)])
 def approve_dataset(dataset_id: IdPath):
     store.approve_dataset(dataset_id)
     _broadcast({"type": "intel_dataset_approved", "dataset_id": dataset_id})
     return {"ok": True}
 
 
-@router.delete("/dataset/{dataset_id}", response_model=OkResponse)
+@router.delete("/dataset/{dataset_id}", response_model=OkResponse, dependencies=[Depends(require_dataset_access)])
 def delete_dataset(dataset_id: IdPath):
     store.delete_dataset(dataset_id)
     return {"ok": True}
@@ -1544,8 +1553,12 @@ def update_enriched_record_route(dataset_id: IdPath, record_id: str, updates: di
 async def upload_sample_dataset(
     project_id: int,
     strategy_id: int,
+    user: Annotated[dict, Depends(get_current_user)],
     file: UploadFile = File(...),
 ):
+    check_project_id_access(project_id, user)
+    if store.get_strategy_project_id(strategy_id) != project_id:
+        raise HTTPException(404, "Strategy not found for this project")
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     ext = Path(file.filename or "sample.csv").suffix.lower()
     if ext not in (".csv", ".xlsx", ".xls"):

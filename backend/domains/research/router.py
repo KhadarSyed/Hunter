@@ -22,7 +22,14 @@ from ..exclusions import service as exclusions
 from ..datasources import service as ds_service
 from ...core.llm_provider import get_llm_client
 from ...core.api import OkResponse
-from ...core.auth import get_current_user, require_project_access
+from ...core.auth import (
+    check_project_id_access,
+    get_current_user,
+    require_job_access,
+    require_project_access,
+    require_research_access,
+    require_research_item_access,
+)
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from . import article_extractor
@@ -64,6 +71,8 @@ router = APIRouter()
 def start_background_research(req: StartResearchRequest, user: Annotated[dict, Depends(get_current_user)]):
     """Start a live background research job."""
     spec = req.spec
+    if req.project_id:
+        check_project_id_access(req.project_id, user)
     # a new project is the creator's (and gets its email); a matched one is never moved to the caller's org
     project_id = req.project_id or store.get_or_create_project(spec, user["org_id"], user["id"])
     job_id = f"research_{uuid.uuid4().hex[:12]}"
@@ -239,7 +248,7 @@ def start_background_research(req: StartResearchRequest, user: Annotated[dict, D
     return {"job_id": job_id, "project_id": project_id}
 
 
-@router.get("/research/status/{job_id}", response_model=ResearchJobStatus)
+@router.get("/research/status/{job_id}", response_model=ResearchJobStatus, dependencies=[Depends(require_job_access)])
 def get_research_status(job_id: str):
     job = store.get_job(job_id)
     if not job:
@@ -311,7 +320,7 @@ def get_research_results(project_id: Annotated[int, Path(ge=1)],
     }
 
 
-@router.post("/research/{research_id}/approve", response_model=ResearchApprovalResult)
+@router.post("/research/{research_id}/approve", response_model=ResearchApprovalResult, dependencies=[Depends(require_research_access)])
 def approve_background_research(research_id: Annotated[int, Path(ge=1)], req: ApproveRequest):
     research = store.get_research_by_id(research_id)
     if not research:
@@ -326,13 +335,13 @@ def approve_background_research(research_id: Annotated[int, Path(ge=1)], req: Ap
     return {"ok": True, "approved": True, "overridden": bool(blocking_reasons)}
 
 
-@router.post("/research/{research_id}/revise", response_model=OkResponse)
+@router.post("/research/{research_id}/revise", response_model=OkResponse, dependencies=[Depends(require_research_access)])
 def request_research_revision(research_id: Annotated[int, Path(ge=1)], req: RevisionRequest):
     store.reject_research(research_id, req.notes)
     return {"ok": True}
 
 
-@router.post("/research/{research_id}/news-approval", response_model=OkResponse)
+@router.post("/research/{research_id}/news-approval", response_model=OkResponse, dependencies=[Depends(require_research_access)])
 def approve_news_item(research_id: Annotated[int, Path(ge=1)], req: NewsApprovalRequest):
     store.update_news_approval(research_id, req.item_index, req.status, req.notes)
     return {"ok": True}
@@ -381,7 +390,7 @@ def get_section_video_route(query: str, brand_name: str = ""):
                 "thumbnail_url": None, "cached": False}
 
 
-@router.get("/research/items/{item_id}/full-text", response_model=ArticleFullTextResponse)
+@router.get("/research/items/{item_id}/full-text", response_model=ArticleFullTextResponse, dependencies=[Depends(require_research_item_access)])
 def get_article_full_text_route(item_id: Annotated[int, Path(ge=1)], force: bool = False):
     """Full-text extraction for one research item's source URL, for the "All Articles"
     reader popup — see domains/research/article_extractor.py. `force=true` bypasses the

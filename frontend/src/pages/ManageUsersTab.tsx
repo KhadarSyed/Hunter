@@ -5,7 +5,7 @@ import { formatRelativeOrDate } from "../utils/time";
 
 /** Clipboard-copy affordance for a one-time plaintext credential (new-user or reset temp
  * password) — shown once in a dismissible banner, never persisted beyond this render. */
-function CredentialBanner({ email, tempPassword, onDismiss }: { email: string; tempPassword: string; onDismiss: () => void }) {
+export function CredentialBanner({ email, tempPassword, onDismiss }: { email: string; tempPassword: string; onDismiss: () => void }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
@@ -60,7 +60,8 @@ export function ManageUsersTab() {
     setCreating(true);
     try {
       const created = await intelApi.createUser(email.trim(), displayName.trim(), role, isSuperAdmin ? Number(orgId) : undefined);
-      setCredential({ email: created.email, tempPassword: created.temp_password });
+      // an existing account linked to this org keeps its password, so there is none to show
+      if (created.temp_password) setCredential({ email: created.email, tempPassword: created.temp_password });
       setEmail(""); setDisplayName(""); setRole("analyser");
       load();
     } catch (err) {
@@ -145,7 +146,7 @@ export function ManageUsersTab() {
                 className="rounded-lg bg-[#5B2C9D] text-white font-semibold px-4 py-2 text-sm disabled:opacity-40 disabled:cursor-not-allowed">
           {creating ? "Adding..." : isSuperAdmin ? `Add ${role === "super_admin" ? "Super Admin" : role === "admin" ? "Admin" : "Analyser"}` : "Add Analyser"}
         </button>
-        <span className="text-xs text-slate-400 pb-2.5">New users sign in with Admin@123 and must change it.</span>
+        <span className="text-xs text-slate-400 pb-2.5">New users get a one-time password, shown here once; they must change it at first sign-in.</span>
       </form>
       {error && <div className="text-sm text-red-600">{error}</div>}
 

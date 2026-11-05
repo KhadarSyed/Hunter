@@ -11,7 +11,13 @@ from starlette.responses import FileResponse
 
 from ...core import store
 from ...core.llm_provider import get_llm_client
-from ...core.auth import get_current_user, require_project_access
+from ...core.auth import (
+    check_project_id_access,
+    get_current_user,
+    require_clarification_access,
+    require_project_access,
+    require_spec_access,
+)
 from ..agent import autorun
 from ..memory import service as memory
 from ...core.events import broadcast as _broadcast
@@ -90,15 +96,14 @@ def _spec_progress(step: str, payload: dict) -> tuple[int | None, str]:
 
 
 @router.post("/spec/generate", response_model=SpecGenerationStarted)
-def generate_research_spec(req: GenerateSpecRequest):
+def generate_research_spec(req: GenerateSpecRequest, user: Annotated[dict, Depends(get_current_user)]):
     """Start Research Specification generation as a background job.
 
     Returns immediately with a job_id; progress and the final result stream over the
     shared /ws socket as `intel_job_update` messages (see _spec_progress for the step ->
     percent/message mapping) and are also readable via GET /job/{job_id}.
     """
-    if not store.get_project(req.project_id):
-        raise HTTPException(404, f"Project {req.project_id} not found")
+    check_project_id_access(req.project_id, user)
 
     llm_client = None
     if req.use_llm:
@@ -166,7 +171,7 @@ def get_research_spec(project_id: Annotated[int, Path(ge=1)],
     return spec
 
 
-@router.get("/spec/detail/{spec_id}", response_model=SpecResponse)
+@router.get("/spec/detail/{spec_id}", response_model=SpecResponse, dependencies=[Depends(require_spec_access)])
 def get_spec_detail(spec_id: Annotated[int, Path(ge=1)]):
     """Get a specific Research Specification by ID."""
     spec = store.get_spec_by_id(spec_id)
@@ -175,7 +180,7 @@ def get_spec_detail(spec_id: Annotated[int, Path(ge=1)]):
     return spec
 
 
-@router.post("/spec/{spec_id}/section", response_model=SpecSectionStatusResponse)
+@router.post("/spec/{spec_id}/section", response_model=SpecSectionStatusResponse, dependencies=[Depends(require_spec_access)])
 def update_spec_section(spec_id: Annotated[int, Path(ge=1)], req: UpdateSpecSectionRequest):
     """Update a single section of a Research Specification."""
     sa = store.get_spec_by_id(spec_id)
@@ -194,7 +199,7 @@ def update_spec_section(spec_id: Annotated[int, Path(ge=1)], req: UpdateSpecSect
     return {"status": "updated", "section_key": req.section_key}
 
 
-@router.post("/spec/{spec_id}/industry", response_model=SpecStatusResponse)
+@router.post("/spec/{spec_id}/industry", response_model=SpecStatusResponse, dependencies=[Depends(require_spec_access)])
 def update_spec_industry_endpoint(spec_id: Annotated[int, Path(ge=1)], req: UpdateSpecIndustryRequest):
     """Update the industry classification (a top-level field, not a section)."""
     ok = store.update_spec_industry(spec_id, req.name.strip(), req.reasoning.strip())
@@ -203,28 +208,28 @@ def update_spec_industry_endpoint(spec_id: Annotated[int, Path(ge=1)], req: Upda
     return {"status": "updated", "spec_id": spec_id}
 
 
-@router.post("/spec/{spec_id}/section/approve", response_model=SpecSectionStatusResponse)
+@router.post("/spec/{spec_id}/section/approve", response_model=SpecSectionStatusResponse, dependencies=[Depends(require_spec_access)])
 def approve_spec_section_endpoint(spec_id: Annotated[int, Path(ge=1)], req: ApproveSpecSectionRequest):
     """Approve a single section of a specification."""
     store.approve_spec_section(spec_id, req.section_key, req.reviewer)
     return {"status": "approved", "section_key": req.section_key}
 
 
-@router.post("/spec/{spec_id}/section/lock", response_model=SpecSectionStatusResponse)
+@router.post("/spec/{spec_id}/section/lock", response_model=SpecSectionStatusResponse, dependencies=[Depends(require_spec_access)])
 def lock_spec_section_endpoint(spec_id: Annotated[int, Path(ge=1)], req: LockSpecSectionRequest):
     """Lock a section to prevent modifications."""
     store.lock_spec_section(spec_id, req.section_key, req.locked_by)
     return {"status": "locked", "section_key": req.section_key}
 
 
-@router.post("/spec/{spec_id}/section/unlock", response_model=SpecSectionStatusResponse)
+@router.post("/spec/{spec_id}/section/unlock", response_model=SpecSectionStatusResponse, dependencies=[Depends(require_spec_access)])
 def unlock_spec_section_endpoint(spec_id: Annotated[int, Path(ge=1)], req: LockSpecSectionRequest):
     """Unlock a section to allow modifications."""
     store.unlock_spec_section(spec_id, req.section_key, req.locked_by)
     return {"status": "unlocked", "section_key": req.section_key}
 
 
-@router.post("/spec/{spec_id}/approve", response_model=SpecStatusResponse)
+@router.post("/spec/{spec_id}/approve", response_model=SpecStatusResponse, dependencies=[Depends(require_spec_access)])
 def approve_full_spec_endpoint(spec_id: Annotated[int, Path(ge=1)], req: ApproveSpecRequest,
                                user: Annotated[dict, Depends(get_current_user)]):
     """Approve the full Research Specification (Gate 1)."""
@@ -243,14 +248,14 @@ def approve_full_spec_endpoint(spec_id: Annotated[int, Path(ge=1)], req: Approve
     return {"status": "approved", "spec_id": spec_id}
 
 
-@router.post("/spec/{spec_id}/reject", response_model=SpecStatusResponse)
+@router.post("/spec/{spec_id}/reject", response_model=SpecStatusResponse, dependencies=[Depends(require_spec_access)])
 def reject_spec_endpoint(spec_id: Annotated[int, Path(ge=1)], req: RejectSpecRequest):
     """Reject / request revision of the Research Specification."""
     store.reject_spec(spec_id, req.reason, req.reviewer)
     return {"status": "revision_requested", "spec_id": spec_id}
 
 
-@router.post("/spec/{spec_id}/regenerate", response_model=SpecGenerationStarted)
+@router.post("/spec/{spec_id}/regenerate", response_model=SpecGenerationStarted, dependencies=[Depends(require_spec_access)])
 def regenerate_spec_endpoint(spec_id: Annotated[int, Path(ge=1)], req: RegenerateSpecRequest):
     """Start re-analysis ("Reanalyze") of an existing spec as a background job — same
     async/streaming pattern as /spec/generate. Preserves locked/approved sections unless
@@ -318,7 +323,7 @@ def regenerate_spec_endpoint(spec_id: Annotated[int, Path(ge=1)], req: Regenerat
     return SpecGenerationStarted(job_id=job_id, project_id=project_id)
 
 
-@router.get("/spec/{spec_id}/readiness", response_model=SpecReadinessResponse)
+@router.get("/spec/{spec_id}/readiness", response_model=SpecReadinessResponse, dependencies=[Depends(require_spec_access)])
 def get_spec_readiness_endpoint(spec_id: Annotated[int, Path(ge=1)]):
     """Get the readiness status of a specification."""
     readiness = store.get_spec_readiness(spec_id)
@@ -327,7 +332,7 @@ def get_spec_readiness_endpoint(spec_id: Annotated[int, Path(ge=1)]):
     return readiness
 
 
-@router.post("/spec/{spec_id}/render", response_model=SpecRenderResponse)
+@router.post("/spec/{spec_id}/render", response_model=SpecRenderResponse, dependencies=[Depends(require_spec_access)])
 def render_spec_docx(spec_id: Annotated[int, Path(ge=1)]):
     """Render the Research Specification as a Word document."""
     try:
@@ -340,7 +345,7 @@ def render_spec_docx(spec_id: Annotated[int, Path(ge=1)]):
         raise HTTPException(500, f"Render failed: {e}")
 
 
-@router.get("/spec/{spec_id}/download", response_class=FileResponse)
+@router.get("/spec/{spec_id}/download", response_class=FileResponse, dependencies=[Depends(require_spec_access)])
 def download_spec_docx(spec_id: Annotated[int, Path(ge=1)]):
     """Download the rendered Word document for a specification."""
     spec_row = store.get_spec_by_id(spec_id)
@@ -364,19 +369,19 @@ def list_spec_versions_endpoint(project_id: Annotated[int, Path(ge=1)],
     return store.list_spec_versions(project_id)
 
 
-@router.get("/spec/{spec_id}/audit", response_model=list[SpecAuditEntry])
+@router.get("/spec/{spec_id}/audit", response_model=list[SpecAuditEntry], dependencies=[Depends(require_spec_access)])
 def get_spec_audit_endpoint(spec_id: Annotated[int, Path(ge=1)]):
     """Get audit trail for a specification."""
     return store.get_spec_audit(spec_id)
 
 
-@router.get("/spec/{spec_id}/clarifications", response_model=list[SpecClarification])
+@router.get("/spec/{spec_id}/clarifications", response_model=list[SpecClarification], dependencies=[Depends(require_spec_access)])
 def get_spec_clarifications(spec_id: Annotated[int, Path(ge=1)], unresolved_only: bool = False):
     """Get clarifications for a specification."""
     return store.get_clarifications(spec_id, unresolved_only=unresolved_only)
 
 
-@router.post("/spec/{spec_id}/clarification", response_model=ClarificationStatusResponse)
+@router.post("/spec/{spec_id}/clarification", response_model=ClarificationStatusResponse, dependencies=[Depends(require_spec_access)])
 def add_spec_clarification(spec_id: Annotated[int, Path(ge=1)], req: AddClarificationRequest):
     """Add a new clarification question."""
     cid = store.add_clarification(
@@ -388,7 +393,7 @@ def add_spec_clarification(spec_id: Annotated[int, Path(ge=1)], req: AddClarific
     return {"status": "added", "clarification_id": cid}
 
 
-@router.post("/spec/clarification/{clarification_id}/resolve", response_model=ClarificationStatusResponse)
+@router.post("/spec/clarification/{clarification_id}/resolve", response_model=ClarificationStatusResponse, dependencies=[Depends(require_clarification_access)])
 def resolve_spec_clarification(clarification_id: Annotated[int, Path(ge=1)], req: ResolveClarificationRequest):
     """Resolve a clarification question."""
     ok = store.resolve_clarification(clarification_id, req.answer, req.resolved_by)

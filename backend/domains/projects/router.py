@@ -10,7 +10,7 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 
 from ...core import store
-from ...core.auth import get_current_user, require_project_access
+from ...core.auth import get_current_user, require_job_access, require_project_access
 from ...core.events import broadcast as _broadcast
 from .schemas import (
     CreateProjectRequest,
@@ -110,7 +110,7 @@ def list_project_jobs(project_id: Annotated[int, Path(ge=1)],
     return store.list_jobs(project_id, job_type)
 
 
-@router.get("/job/{job_id}", response_model=JobResponse)
+@router.get("/job/{job_id}", response_model=JobResponse, dependencies=[Depends(require_job_access)])
 def get_job_status(job_id: str):
     job = store.get_job(job_id)
     if not job:

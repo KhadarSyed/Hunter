@@ -14,16 +14,19 @@ this module before importing the domains package)."""
 from __future__ import annotations
 
 import logging
+import os
+import secrets
 import time
 from typing import Annotated
 
-from fastapi import Cookie, Depends, HTTPException, Path, Response, status
+from fastapi import Cookie, Depends, HTTPException, Path, Request, Response, status
 
 logger = logging.getLogger(__name__)
 
 SESSION_COOKIE_NAME = "session_token"
 SEED_SUPER_ADMIN_EMAIL = "khadar.syed@infovision.com"
-SEED_SUPER_ADMIN_TEMP_PASSWORD = "Admin@123"   # same as domains.auth.service.DEFAULT_PASSWORD
+# While must_change_password is set, a user may only reach these (everything else answers 403).
+MUST_CHANGE_ALLOWED_PATHS = frozenset({"/api/auth/change-password", "/api/auth/me", "/api/auth/logout"})
 
 
 SEED_ORGANIZATION = "InfoVision"
@@ -48,8 +51,13 @@ def seed_super_admin_if_missing() -> None:
     for email, name in SEED_SUPER_ADMINS:
         user = store.get_user_by_email(email)
         if user is None:
+            password = os.environ.get("SEED_SUPER_ADMIN_PASSWORD") or ""
+            if not password:
+                password = secrets.token_urlsafe(12)
+                logger.warning("Seeded Super Admin %s with temporary password %s (set SEED_SUPER_ADMIN_PASSWORD "
+                               "to choose it); it must be changed at first sign-in", email, password)
             user_id = store.create_user(org_id=None, email=email,
-                                        password_hash=service.hash_password(SEED_SUPER_ADMIN_TEMP_PASSWORD),
+                                        password_hash=service.hash_password(password),
                                         display_name=name, role="super_admin", must_change_password=True)
             logger.info("Seeded Super Admin: %s", email)
         else:
@@ -88,13 +96,16 @@ def clear_session_cookie(response: Response) -> None:
     )
 
 
-def get_current_user(session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME)) -> dict:
+def get_current_user(request: Request,
+                     session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME)) -> dict:
     from . import store  # local: avoids a circular import — see module docstring
     if not session_token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
     user = store.get_session_user(session_token)
     if not user:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Session expired or invalid")
+    if user.get("must_change_password") and request.url.path not in MUST_CHANGE_ALLOWED_PATHS:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Password change required")
     return user
 
 
@@ -110,6 +121,27 @@ def can_access_project(project: dict, user: dict) -> bool:
 def _check_project_access(project: dict, user: dict) -> None:
     if not can_access_project(project, user):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this project")
+
+
+def _require_owner_access(project_id: int | None, user: dict, what: str) -> dict:
+    """The shared tail of every ID-keyed access dependency: the row's project must exist and be the user's."""
+    from . import store  # local: avoids a circular import — see module docstring
+    project = store.get_project(int(project_id)) if project_id else None
+    if not project:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"{what} not found")
+    _check_project_access(project, user)
+    return user
+
+
+def _project_id_by_sql(sql: str, row_id: int | str) -> int | None:
+    """For rows no repository getter covers: one SELECT returning the owning project_id."""
+    from .db import _conn  # local: avoids a circular import — see module docstring
+    conn = _conn()
+    try:
+        row = conn.execute(sql, (row_id,)).fetchone()
+    finally:
+        conn.close()
+    return row[0] if row else None
 
 
 def require_project_access(
@@ -155,3 +187,72 @@ def require_dataset_access(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
     _check_project_access(project, user)
     return user
+
+
+IdPath = Annotated[int, Path(ge=1)]
+UserDep = Annotated[dict, Depends(get_current_user)]
+
+
+def require_spec_access(spec_id: IdPath, user: UserDep) -> dict:
+    from . import store  # local: avoids a circular import — see module docstring
+    return _require_owner_access((store.get_spec_by_id(spec_id) or {}).get("project_id"), user, "Spec")
+
+
+def require_clarification_access(clarification_id: IdPath, user: UserDep) -> dict:
+    return _require_owner_access(_project_id_by_sql(
+        "SELECT s.project_id FROM intel_spec_clarifications c "
+        "JOIN intel_research_specifications s ON s.id = c.spec_id WHERE c.id = ?", clarification_id),
+        user, "Clarification")
+
+
+def require_brief_access(brief_id: IdPath, user: UserDep) -> dict:
+    from . import store  # local: avoids a circular import — see module docstring
+    return _require_owner_access((store.get_brief_by_id(brief_id) or {}).get("project_id"), user, "Brief")
+
+
+def require_research_access(research_id: IdPath, user: UserDep) -> dict:
+    from . import store  # local: avoids a circular import — see module docstring
+    return _require_owner_access((store.get_research_by_id(research_id) or {}).get("project_id"), user, "Research")
+
+
+def require_research_item_access(item_id: IdPath, user: UserDep) -> dict:
+    from . import store  # local: avoids a circular import — see module docstring
+    return _require_owner_access((store.get_research_item(item_id) or {}).get("project_id"), user, "Item")
+
+
+def require_job_access(job_id: str, user: UserDep) -> dict:
+    from . import store  # local: avoids a circular import — see module docstring
+    return _require_owner_access((store.get_job(job_id) or {}).get("project_id"), user, "Job")
+
+
+def require_plan_access(plan_id: IdPath, user: UserDep) -> dict:
+    return _require_owner_access(_project_id_by_sql(
+        "SELECT project_id FROM intel_research_plans WHERE id = ?", plan_id), user, "Plan")
+
+
+def require_qc_report_access(report_id: IdPath, user: UserDep) -> dict:
+    from . import store  # local: avoids a circular import — see module docstring
+    return _require_owner_access((store.get_qc_report(report_id) or {}).get("project_id"), user, "Report")
+
+
+def require_qc_run_access(run_id: IdPath, user: UserDep) -> dict:
+    return _require_owner_access(_project_id_by_sql(
+        "SELECT r.project_id FROM qc_runs q JOIN qc_reports r ON r.id = q.report_id WHERE q.id = ?", run_id),
+        user, "QC run")
+
+
+def require_qc_finding_access(finding_id: IdPath, user: UserDep) -> dict:
+    return _require_owner_access(_project_id_by_sql(
+        "SELECT r.project_id FROM qc_findings f JOIN qc_reports r ON r.id = f.report_id WHERE f.id = ?",
+        finding_id), user, "Finding")
+
+
+def require_qc_export_access(export_id: IdPath, user: UserDep) -> dict:
+    return _require_owner_access(_project_id_by_sql(
+        "SELECT r.project_id FROM qc_exports e JOIN qc_runs q ON q.id = e.run_id "
+        "JOIN qc_reports r ON r.id = q.report_id WHERE e.id = ?", export_id), user, "Export")
+
+
+def check_project_id_access(project_id: int | None, user: dict) -> None:
+    """For routes that take project_id from the body, query or a form field rather than the path."""
+    _require_owner_access(project_id, user, "Project")

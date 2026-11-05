@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
 from ...core import store
+from ...core.safe_fetch import safe_get
 from . import parser as qc_parser
 from . import source_retrieval
 
@@ -393,11 +394,22 @@ def check_urls(rows: list[dict], mapping: dict) -> list[dict]:
             }
 
         try:
-            resp = req.head(url, timeout=3, allow_redirects=True,
+            resp = safe_get(url, method="HEAD", timeout=3,
                             headers={"User-Agent": "Mozilla/5.0 InfoVision-QC/1.0"})
-            if resp.status_code == 405:
-                resp = req.get(url, timeout=3, allow_redirects=True, stream=True,
-                               headers={"User-Agent": "Mozilla/5.0 InfoVision-QC/1.0"})
+            if resp is not None and resp.status_code == 405:
+                resp = safe_get(url, timeout=3, stream=True,
+                                headers={"User-Agent": "Mozilla/5.0 InfoVision-QC/1.0"})
+            if resp is None:
+                return {
+                    "check_type": "url_validation",
+                    "row_number": i + 2,
+                    "column_name": "url",
+                    "severity": "high",
+                    "message": f"Link does not lead to a public web address — {headline}",
+                    "expected": "Public http(s) link",
+                    "actual": url[:100],
+                    "source_url": url,
+                }
             if resp.status_code in (401, 403):
                 return None
             elif resp.status_code >= 400:
@@ -546,13 +558,10 @@ def _fetch_page(url: str) -> dict[str, str]:
     """Fetch a page once and extract author + article text."""
     import json as _json
 
-    import requests as req
-
     result: dict[str, str] = {"author": "", "text": ""}
     try:
-        resp = req.get(url, timeout=3, allow_redirects=True,
-                       headers={"User-Agent": "Mozilla/5.0 InfoVision-QC/1.0"})
-        if resp.status_code >= 400:
+        resp = safe_get(url, timeout=3, headers={"User-Agent": "Mozilla/5.0 InfoVision-QC/1.0"})
+        if resp is None or resp.status_code >= 400:
             return result
         html = resp.text[:80000]
 

@@ -8,6 +8,7 @@ from typing import Any
 import requests
 
 from ...core import store
+from ...core.safe_fetch import safe_get
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +48,10 @@ def fetch_source(url: str) -> dict[str, Any] | None:
 def _fetch_and_extract(url: str) -> dict[str, Any]:
     """Fetch URL and extract headline + text content."""
     try:
-        resp = requests.get(
-            url,
-            timeout=FETCH_TIMEOUT,
-            headers={"User-Agent": USER_AGENT},
-            allow_redirects=True,
-        )
+        resp = safe_get(url, timeout=FETCH_TIMEOUT, headers={"User-Agent": USER_AGENT})
+        if resp is None:
+            return {"status_code": 0, "is_accessible": 0, "fetch_error": "Not a public web address",
+                    "is_paywalled": 0}
 
         info: dict[str, Any] = {
             "status_code": resp.status_code,

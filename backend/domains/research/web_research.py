@@ -6,12 +6,14 @@ validation, date filtering, and source quality classification.
 """
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from datetime import date, datetime, timedelta
 from typing import Callable, Optional
 from urllib.parse import urlparse
 
+from ...core.safe_fetch import safe_get
 from . import news_search
 from .multi_source import build_boolean_queries, date_range_to_timestamps, fetch_and_persist, search_brand_term
 
@@ -242,56 +244,10 @@ class EntityValidator:
         return {"relevant": False, "reason": "No brand or category relevance detected", "confidence": "medium"}
 
 
-# ─── Search query families ───────────────────────────────────────────────────
-
-def build_search_queries(
-    brand_name: str,
-    parent_company: str | None,
-    category: str,
-    products: list[str],
-    geography: str,
-    audience: str,
-    research_questions: list[str],
-    competitors: list[str] | None = None,
-) -> list[dict]:
-    """Generate targeted search query families per the specification."""
-    year = date.today().year
-    queries: list[dict] = []
-
-    def add(family: str, query: str, use_news: bool = False):
-        queries.append({"family": family, "query": query, "use_news": use_news})
-
-    add("brand_identity", f'"{brand_name}" company about', False)
-    if parent_company:
-        add("parent_company", f'"{parent_company}" "{brand_name}"', False)
-
-    for product in products[:2]:
-        add("products", f'"{brand_name}" "{product}"', False)
-
-    add("announcements", f'"{brand_name}" news announcement {year}', True)
-    add("campaigns", f'"{brand_name}" campaign marketing {year}', True)
-    add("partnerships", f'"{brand_name}" partnership {year}', True)
-    add("leadership", f'"{brand_name}" CEO executive leadership', True)
-    add("controversies", f'"{brand_name}" controversy issue {year}', True)
-
-    if competitors:
-        for comp in competitors[:5]:
-            add("competitor", f'"{comp}" {category} news {year}', True)
-
-    add("category", f'{category} trends market {year}', True)
-    add("consumer_trends", f'{category} consumer trends {year}', True)
-
-    for rq in research_questions[:2]:
-        short = rq[:80] if len(rq) > 80 else rq
-        add("research_question", f'{brand_name} {short}', True)
-
-    return queries
-
-
 # ─── Search functions (Google News RSS + SerpAPI via news_search.py) ───────
 # Formerly DuckDuckGo-backed (see git history); DDG was returning 0 results in
-# production. Both functions now delegate to news_search.fetch_and_normalize()
-# and reshape its {social_media, traditional_media} buckets back into the flat
+# production. _ddg_web_search now delegates to news_search.fetch_and_normalize()
+# and reshapes its {social_media, traditional_media} buckets back into the flat
 # list[dict] shape ({title, snippet, url, source, date}) this module has always
 # returned, so LiveWebResearchAdapter.search() and run_full_research() need no
 # changes at their call sites.
@@ -374,20 +330,6 @@ def _ddg_web_search(
     return _reshape_news_search_buckets(buckets, max_results)
 
 
-def _ddg_news_search(
-    query: str,
-    max_results: int = 6,
-    _retries: int = 1,
-    country: str = "US",
-    date_range: tuple | None = None,
-) -> list[dict]:
-    # _retries is a no-op, kept only for call-site signature compatibility — see _ddg_web_search.
-    buckets = news_search.fetch_and_normalize(
-        query, country=country, date_range=date_range, max_results=max_results
-    )
-    return _reshape_news_search_buckets(buckets, max_results)
-
-
 # ─── Main adapter class ─────────────────────────────────────────────────────
 
 class LiveWebResearchAdapter:
@@ -420,12 +362,11 @@ class LiveWebResearchAdapter:
 
     async def fetch_url(self, url: str) -> dict:
         """Fetch URL content — satisfies the protocol."""
-        import httpx
         try:
-            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-                resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
-                text = resp.text[:5000]
-                return {"url": url, "title": "", "text": text, "status": resp.status_code}
+            resp = await asyncio.to_thread(safe_get, url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            if resp is None:
+                return {"url": url, "title": "", "text": "", "status": 0, "error": "Not a public web address"}
+            return {"url": url, "title": "", "text": resp.text[:5000], "status": resp.status_code}
         except Exception as e:
             return {"url": url, "title": "", "text": "", "status": 0, "error": str(e)}
 

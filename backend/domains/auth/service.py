@@ -1,6 +1,8 @@
 """Password hashing and session-lifetime constants for the auth domain."""
 from __future__ import annotations
 
+import secrets
+
 import bcrypt
 
 SESSION_TTL_SECONDS = 7 * 24 * 3600  # 7 days
@@ -8,8 +10,10 @@ FAILED_LOGIN_LIMIT = 5
 LOCKOUT_SECONDS = 15 * 60  # 15 minutes
 MIN_PASSWORD_LENGTH = 8
 
-# Every new or reset account starts with this password and must change it at first login.
-DEFAULT_PASSWORD = "Admin@123"
+
+def temp_password() -> str:
+    """A new or reset account's one-time password: shown once to the admin, changed at first login."""
+    return secrets.token_urlsafe(12)
 
 
 def hash_password(password: str) -> str:

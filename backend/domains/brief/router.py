@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse
 from ...core import store
 from ..research.service import industry_name
 from ...core.api import OkResponse
-from ...core.auth import require_project_access
+from ...core.auth import check_project_id_access, get_current_user, require_brief_access, require_project_access
 from ...core.config import UPLOAD_DIR
 from ...core.events import broadcast as _broadcast
 from ..research.renderer import render_brief_docx as do_render
@@ -82,8 +82,9 @@ async def parse_brief_file(file: UploadFile = File(...)):
 
 
 @router.post("/brief/generate", response_model=GeneratedBriefResponse)
-def generate_analyst_brief(req: GenerateBriefRequest):
+def generate_analyst_brief(req: GenerateBriefRequest, user: Annotated[dict, Depends(get_current_user)]):
     """Generate an analyst orientation brief from completed web research."""
+    check_project_id_access(req.project_id, user)
     project = store.get_project(req.project_id)
     if not project:
         raise HTTPException(404, "Project not found")
@@ -134,7 +135,7 @@ def get_analyst_brief(project_id: BriefIdParam,
     }
 
 
-@router.post("/brief/{brief_id}/section", response_model=OkResponse)
+@router.post("/brief/{brief_id}/section", response_model=OkResponse, dependencies=[Depends(require_brief_access)])
 def update_brief_section(brief_id: BriefIdParam, req: UpdateBriefSectionRequest):
     """Update a single section of the brief with analyst edits."""
     brief = store.get_brief_by_id(brief_id)
@@ -144,7 +145,7 @@ def update_brief_section(brief_id: BriefIdParam, req: UpdateBriefSectionRequest)
     return {"ok": True}
 
 
-@router.post("/brief/{brief_id}/approve", response_model=OkResponse)
+@router.post("/brief/{brief_id}/approve", response_model=OkResponse, dependencies=[Depends(require_brief_access)])
 def approve_analyst_brief(brief_id: BriefIdParam, req: ApproveBriefRequest):
     """Approve the analyst orientation brief, also approves background research."""
     brief = store.get_brief_by_id(brief_id)
@@ -158,7 +159,7 @@ def approve_analyst_brief(brief_id: BriefIdParam, req: ApproveBriefRequest):
     return {"ok": True}
 
 
-@router.post("/brief/{brief_id}/reject", response_model=OkResponse)
+@router.post("/brief/{brief_id}/reject", response_model=OkResponse, dependencies=[Depends(require_brief_access)])
 def reject_analyst_brief(brief_id: BriefIdParam, req: RejectBriefRequest):
     brief = store.get_brief_by_id(brief_id)
     if not brief:
@@ -167,7 +168,7 @@ def reject_analyst_brief(brief_id: BriefIdParam, req: RejectBriefRequest):
     return {"ok": True}
 
 
-@router.post("/brief/{brief_id}/render", response_model=BriefRenderResponse)
+@router.post("/brief/{brief_id}/render", response_model=BriefRenderResponse, dependencies=[Depends(require_brief_access)])
 def render_brief_docx(brief_id: BriefIdParam):
     """Render the brief as a Word document and return the file path."""
     brief = store.get_brief_by_id(brief_id)
@@ -178,7 +179,7 @@ def render_brief_docx(brief_id: BriefIdParam):
     return {"ok": True, "docx_path": filepath}
 
 
-@router.get("/brief/{brief_id}/download", response_class=FileResponse)
+@router.get("/brief/{brief_id}/download", response_class=FileResponse, dependencies=[Depends(require_brief_access)])
 def download_brief_docx(brief_id: BriefIdParam):
     """Download the rendered Word document."""
 

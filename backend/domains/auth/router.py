@@ -111,10 +111,12 @@ def create_organization_route(
         return {**org, "admin_name": existing.get("display_name"), "admin_email": existing["email"]}
     if existing:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Email already in use")
+    temp_password = service.temp_password()
     org = store.create_organization(
         req.name, req.admin_email, req.admin_display_name,
-        service.hash_password(service.DEFAULT_PASSWORD))
-    return {**org, "admin_name": req.admin_display_name, "admin_email": req.admin_email}
+        service.hash_password(temp_password))
+    return {**org, "admin_name": req.admin_display_name, "admin_email": req.admin_email,
+            "temp_password": temp_password}
 
 
 @router.get("/organizations", response_model=list[OrganizationResponse])
@@ -174,8 +176,8 @@ def create_user_route(req: CreateUserRequest, user: Annotated[dict, Depends(get_
         store.add_user_to_org(existing["id"], target_org_id)
         return {**existing, "temp_password": None}
 
-    temp_password = service.DEFAULT_PASSWORD
-    new_id = store.create_user(target_org_id, req.email, service.hash_password(temp_password),
+    temp_password = service.temp_password()
+    new_id =store.create_user(target_org_id, req.email, service.hash_password(temp_password),
                                 req.display_name, req.role)
     if req.role == "super_admin" and req.org_id is not None:     # org-less by design, but listed under that org
         store.add_user_to_org(new_id, req.org_id)
@@ -216,14 +218,14 @@ def delete_organization_route(org_id: int, user: Annotated[dict, Depends(get_cur
 
 @router.post("/users/{user_id}/reset-password", response_model=ResetPasswordResponse)
 def reset_user_password_route(user_id: int, user: Annotated[dict, Depends(get_current_user)]):
-    """Admin/Super Admin resets any user they manage to the default password, which the user must
-    change at next login (Admins: their own org's Analysers only, via _require_same_org_analyser;
+    """Admin/Super Admin resets any user they manage to a random temporary password, returned once, which
+    the user must change at next login (Admins: their own org's Analysers only, via _require_same_org_analyser;
     Super Admin: anyone)."""
     _require_role(user, "admin", "super_admin")
     _require_same_org_analyser(user, user_id)
     if not store.get_user_by_id(user_id):
         raise HTTPException(404, "User not found")
-    temp_password = service.DEFAULT_PASSWORD
+    temp_password = service.temp_password()
     store.reset_user_password(user_id, service.hash_password(temp_password))
     return ResetPasswordResponse(temp_password=temp_password)
 

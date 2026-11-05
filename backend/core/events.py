@@ -6,8 +6,8 @@ allowed to see it. Before the app starts (e.g. in unit tests) broadcast() is a s
 
 Access: a socket is opened only with a signed ticket from GET /api/auth/ws-ticket (or, same-origin, the
 session cookie), and each message reaches only the users who may open the project it is about — found from
-its project_id, job_id or report_id. A project-scoped message whose project cannot be found goes to Super
-Admins only; messages about no project (Brief-to-Deck chat and history) go to every signed-in user.
+its project_id, job_id or report_id. A message whose project cannot be found, or
+that names none, goes to Super Admins only.
 """
 from __future__ import annotations
 
@@ -23,7 +23,6 @@ from . import ws_tickets
 logger = logging.getLogger(__name__)
 
 MAX_SOCKETS_PER_USER = 8          # a user's oldest socket closes when a new one goes past this
-_PROJECT_SCOPED = ("intel_", "qc_", "deliverable_", "agent_", "project_")
 
 Audience = Callable[[dict], bool]
 
@@ -92,11 +91,9 @@ def audience_for(message: dict) -> Audience:
         project = None
     if project is not None:
         return lambda user: can_access_project(project, user)
-    scoped = any(k in message for k in ("project_id", "job_id", "report_id")) or \
-        str(message.get("type", "")).startswith(_PROJECT_SCOPED)
-    if scoped:
-        return lambda user: user["role"] == "super_admin"
-    return lambda user: True
+    # A project that cannot be found, or a message naming none (no such type remains without Brief-to-Deck):
+    # Super Admins only, so an untagged message never reaches every org.
+    return lambda user: user["role"] == "super_admin"
 
 
 def broadcast(message: dict) -> None:

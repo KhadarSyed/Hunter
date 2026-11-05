@@ -13,6 +13,7 @@ import secrets
 import time
 import uuid
 from typing import Annotated, Any
+from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.encoders import jsonable_encoder
@@ -27,6 +28,7 @@ from .config import AppSettings, get_app_settings
 logger = logging.getLogger("hunter.api")
 
 REQUEST_ID_HEADER = "X-Request-ID"
+_UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _STATUS_CODES = {
     400: "bad_request", 401: "unauthorized", 403: "forbidden", 404: "not_found",
     409: "conflict", 422: "validation_error", 429: "rate_limited", 503: "unavailable",
@@ -89,6 +91,18 @@ def install_http_layer(app: FastAPI) -> None:
             logger.info("%s %s -> %s %.0fms [%s]", request.method, request.url.path,
                         response.status_code, elapsed_ms, request.state.request_id)
         return response
+
+    @app.middleware("http")
+    async def reject_cross_site_writes(request: Request, call_next):
+        # CSRF guard: the session cookie is SameSite=None in production, so a write from a foreign page
+        # would carry it. Browsers always send Origin on such writes; requests without one (server-to-server,
+        # tests) pass. Same-host origins (the SPA served by this backend) pass too.
+        origin = request.headers.get("origin")
+        if (origin and request.method in _UNSAFE_METHODS
+                and origin.rstrip("/") not in get_app_settings().cors_origins
+                and urlsplit(origin).netloc != request.headers.get("host")):
+            return _envelope(request, 403, "Cross-origin request refused")
+        return await call_next(request)
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request: Request, exc: StarletteHTTPException):

@@ -45,6 +45,7 @@ class OrganizationResponse(ApiModel):
     admin_name: str | None = None
     admin_email: str | None = None
     archived_at: float | None = None
+    temp_password: str | None = None  # only on create: the new admin's one-time password
 
 
 class CreateUserRequest(ApiModel):
