@@ -171,41 +171,43 @@ def save_rq(article_id: int, project_id: int, rq_id: str, signature: str, result
 
 
 def _existing_pairs(conn, project_id: int, article_ids: list[int]) -> set[tuple[int, str]]:
-    rows = conn.execute(f"SELECT article_id, rq_id FROM intel_article_rq WHERE project_id = ? "
-                        f"AND article_id IN ({_marks(len(article_ids))})", (project_id, *article_ids)).fetchall()
+    rows = conn.execute("SELECT article_id, rq_id FROM intel_article_rq WHERE project_id = ? "
+                        "AND article_id = ANY(?)", (project_id, article_ids)).fetchall()
     return {(r[0], r[1]) for r in rows}
 
 
 def decide(project_id: int, article_ids: list[int], rq_ids: list[str] | None, status: str, by: str,
            reason: str | None) -> list[dict]:
-    """Set status on those articles' RQ rows; returns the snapshot `undo` needs (created rows are marked)."""
+    """Set status on those articles' RQ rows; returns the snapshot `undo` needs (created rows are marked).
+    Only articles of this project are touched; ids of other projects are dropped."""
     if not article_ids:
         return []
     now = time.time()
     conn = _conn()
     try:
+        article_ids = [r[0] for r in conn.execute("SELECT id FROM intel_articles WHERE project_id = ? AND id = ANY(?)",
+                                                  (project_id, list(article_ids))).fetchall()]
+        if not article_ids:
+            return []
         sql = ("SELECT id, status, decided_by, decided_at, decision_reason FROM intel_article_rq "
-               f"WHERE project_id = ? AND article_id IN ({_marks(len(article_ids))})")
-        params: list = [project_id, *article_ids]
+               "WHERE project_id = ? AND article_id = ANY(?)")
+        params: list = [project_id, article_ids]
         if rq_ids is not None:
-            sql += f" AND rq_id IN ({_marks(len(rq_ids))})"
-            params += rq_ids
+            sql += " AND rq_id = ANY(?)"
+            params.append(list(rq_ids))
         snapshot = _dicts(conn.execute(sql, tuple(params)).fetchall())
-        for s in snapshot:
+        if snapshot:
             conn.execute("UPDATE intel_article_rq SET status = ?, decided_by = ?, decided_at = ?, decision_reason = ? "
-                         "WHERE id = ?", (status, by, now, reason, s["id"]))
+                         "WHERE id = ANY(?)", (status, by, now, reason, [s["id"] for s in snapshot]))
         have = _existing_pairs(conn, project_id, article_ids)
-        for aid in article_ids:
-            for rq in rq_ids or []:  # a missing (article, RQ) row is created, e.g. bulk "approve for RQ2"
-                if (aid, rq) in have:
-                    continue
-                new = conn.execute(
-                    "INSERT INTO intel_article_rq (project_id, article_id, rq_id, signature, matched, status, "
-                    "decided_by, decided_at, decision_reason) VALUES (?, ?, ?, '', 1, ?, ?, ?, ?) "
-                    "ON CONFLICT (article_id, rq_id) DO NOTHING RETURNING id",
-                    (project_id, aid, rq, status, by, now, reason)).fetchone()
-                if new:
-                    snapshot.append({"id": new[0], "created": True})
+        pairs = [(aid, rq) for aid in article_ids for rq in rq_ids or [] if (aid, rq) not in have]
+        if pairs:   # a missing (article, RQ) row is created, e.g. bulk "approve for RQ2"
+            made = conn.execute(
+                "INSERT INTO intel_article_rq (project_id, article_id, rq_id, signature, matched, status, decided_by, "
+                "decided_at, decision_reason) SELECT ?, t.a, t.r, '', 1, ?, ?, ?, ? "
+                "FROM unnest(?::bigint[], ?::text[]) AS t(a, r) ON CONFLICT (article_id, rq_id) DO NOTHING RETURNING id",
+                (project_id, status, by, now, reason, [p[0] for p in pairs], [p[1] for p in pairs])).fetchall()
+            snapshot += [{"id": m[0], "created": True} for m in made]
         conn.commit()
         return snapshot
     finally:
@@ -215,13 +217,17 @@ def decide(project_id: int, article_ids: list[int], rq_ids: list[str] | None, st
 def undo(project_id: int, snapshot: list[dict]) -> None:
     conn = _conn()
     try:
-        for s in snapshot:
-            if s.get("created"):
-                conn.execute("DELETE FROM intel_article_rq WHERE id = ? AND project_id = ?", (s["id"], project_id))
-            else:
-                conn.execute("UPDATE intel_article_rq SET status = ?, decided_by = ?, decided_at = ?, "
-                             "decision_reason = ? WHERE id = ? AND project_id = ?",
-                             (s["status"], s["decided_by"], s["decided_at"], s["decision_reason"], s["id"], project_id))
+        created = [s["id"] for s in snapshot if s.get("created")]
+        old = [s for s in snapshot if not s.get("created")]
+        if created:
+            conn.execute("DELETE FROM intel_article_rq WHERE id = ANY(?) AND project_id = ?", (created, project_id))
+        if old:
+            conn.execute(
+                "UPDATE intel_article_rq m SET status = t.s, decided_by = t.b, decided_at = t.d, decision_reason = t.r "
+                "FROM unnest(?::bigint[], ?::text[], ?::text[], ?::float8[], ?::text[]) AS t(i, s, b, d, r) "
+                "WHERE m.id = t.i AND m.project_id = ?",
+                ([s["id"] for s in old], [s["status"] for s in old], [s["decided_by"] for s in old],
+                 [s["decided_at"] for s in old], [s["decision_reason"] for s in old], project_id))
         conn.commit()
     finally:
         conn.close()
@@ -229,7 +235,7 @@ def undo(project_id: int, snapshot: list[dict]) -> None:
 
 # ---- listing -------------------------------------------------------------------------------------------------------
 def _status_clause(status: str, rq_id: str | None) -> tuple[str, tuple]:
-    """approved = every counted RQ row approved; review = any counted row pending; irrelevant = none or all irrelevant."""
+    """approved = every counted RQ row approved; review = any counted row pending; irrelevant = counted rows all irrelevant; no_match = no counted row."""
     scope = "m.article_id = a.id" + (" AND m.rq_id = ?" if rq_id else "")
     args = (rq_id,) if rq_id else ()
     ex = f"EXISTS (SELECT 1 FROM intel_article_rq m WHERE {scope} AND {_COUNTED}"
@@ -237,7 +243,9 @@ def _status_clause(status: str, rq_id: str | None) -> tuple[str, tuple]:
         return f"{ex}) AND NOT {ex} AND m.status <> 'approved')", args + args
     if status == "review":
         return f"{ex} AND m.status = 'pending')", args
-    return f"NOT {ex} AND m.status <> 'irrelevant')", args
+    if status == "no_match":
+        return f"NOT {ex})", args
+    return f"{ex}) AND NOT {ex} AND m.status <> 'irrelevant')", args + args
 
 
 def _where(project_id: int, f: dict) -> tuple[str, list]:
@@ -276,8 +284,8 @@ def page(project_id: int, *, channel=None, status=None, rq_id=None, sentiment=No
     arts = _dicts(_run(f"SELECT {_LIST_COLS} FROM intel_articles a WHERE {where} ORDER BY a.id LIMIT ? OFFSET ?",
                        (*params, limit, offset)))
     if arts:
-        rows = _run(f"SELECT {_RQ_COLS} FROM intel_article_rq WHERE article_id IN ({_marks(len(arts))}) ORDER BY rq_id",
-                    tuple(a["id"] for a in arts))
+        rows = _run("SELECT " + _RQ_COLS + " FROM intel_article_rq WHERE project_id = ? AND article_id = ANY(?) ORDER BY rq_id",
+                    (project_id, [a["id"] for a in arts]))
         by_art: dict[int, list[dict]] = {}
         for r in rows:
             by_art.setdefault(r["article_id"], []).append(dict(r))
@@ -307,8 +315,8 @@ def approved(project_id: int, rq_ids: list[str]) -> list[dict]:
 def articles_with_rq(project_id: int, article_ids: list[int]) -> set[int]:
     if not article_ids:
         return set()
-    return {r[0] for r in _run(f"SELECT DISTINCT article_id FROM intel_article_rq WHERE project_id = ? "
-                               f"AND article_id IN ({_marks(len(article_ids))})", (project_id, *article_ids))}
+    return {r[0] for r in _run("SELECT DISTINCT article_id FROM intel_article_rq WHERE project_id = ? "
+                               "AND article_id = ANY(?)", (project_id, list(article_ids)))}
 
 
 def edit_article(project_id: int, article_id: int, sentiment: str | None, themes: list[str] | None,

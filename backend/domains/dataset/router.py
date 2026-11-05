@@ -27,7 +27,7 @@ _UNDO_LOCK = threading.Lock()
 class Filters:
     """Query params shared by the page and select-all endpoints."""
     def __init__(self, channel: Literal["traditional", "social"],
-                 status: Literal["all", "approved", "review", "irrelevant"] = "all",
+                 status: Literal["all", "approved", "review", "irrelevant", "no_match"] = "all",
                  rq: str | None = Query(None, max_length=40), sentiment: str | None = Query(None, max_length=20),
                  theme: str | None = Query(None, max_length=200), brand: str | None = Query(None, max_length=200),
                  content_status: str | None = Query(None, max_length=40), q: str | None = Query(None, max_length=200)):
@@ -39,10 +39,8 @@ def _who(user: dict) -> str:
     return user.get("display_name") or user.get("email") or "analyst"
 
 
-def _reject(name: str, size: int) -> str | None:
-    if not name.lower().endswith(service.ALLOWED_EXT):
-        return "Unsupported file type (use .csv, .xlsx or .xls)"
-    return "File is larger than 50 MB" if size > service.MAX_FILE_BYTES else None
+def _bad_ext(name: str) -> str | None:
+    return None if name.lower().endswith(service.ALLOWED_EXT) else "Unsupported file type (use .csv, .xlsx or .xls)"
 
 
 @router.post("/articles/{project_id}/upload")
@@ -50,8 +48,10 @@ def upload(project_id: ProjectId, user: Access, files: list[UploadFile] = File(.
     accepted, refused = [], []
     for f in files:
         name = f.filename or "upload"
-        data = f.file.read(service.MAX_FILE_BYTES + 1)           # never read an oversized file whole
-        err = _reject(name, len(data))
+        err = _bad_ext(name)
+        data = b"" if err else f.file.read(service.MAX_FILE_BYTES + 1)   # never read an oversized file whole
+        if not err and len(data) > service.MAX_FILE_BYTES:
+            err = "File is larger than 50 MB"
         if err:
             refused.append({"file_name": name, "error": err, "rows_read": 0, "added": 0, "duplicates": 0})
         else:
@@ -149,6 +149,8 @@ def _remember(project_id: int, snapshot: list[dict]) -> str:
 @router.post("/articles/{project_id}/decisions")
 def decide(project_id: ProjectId, req: DecisionRequest, user: Access):
     by = _who(user)
+    if req.rq_id and req.rq_id not in {q.id for q in engine_rows.approved_rqs(project_id)}:
+        raise HTTPException(422, f"{req.rq_id} is not an approved research question of this project")
     if req.rq_id:
         snapshot = repo.decide(project_id, req.article_ids, [req.rq_id], req.status, by, req.reason)
     else:   # every RQ row the article has; an article with none ("No RQ match") gets rows for the approved RQs
@@ -164,9 +166,10 @@ def decide(project_id: ProjectId, req: DecisionRequest, user: Access):
 @router.post("/articles/{project_id}/decisions/undo")
 def undo(project_id: ProjectId, req: UndoRequest, _: Access):
     with _UNDO_LOCK:
-        entry = _UNDO.pop(req.undo_token, None)
-    if not entry or entry[0] < time.time() or entry[1] != project_id:
-        raise HTTPException(404, "Nothing to undo (the undo window has passed)")
+        entry = _UNDO.get(req.undo_token)
+        if not entry or entry[0] < time.time() or entry[1] != project_id:
+            raise HTTPException(404, "Nothing to undo (the undo window has passed)")
+        del _UNDO[req.undo_token]
     repo.undo(project_id, entry[2])
     return {"restored": len(entry[2])}
 
