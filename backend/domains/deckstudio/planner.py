@@ -220,7 +220,7 @@ def live_charts(refresh: dict | None) -> list[dict]:
     empty = {"categories": [], "values": [], "peaks": []}
     return [{**empty, "kind": "bar", "unit": "percent", "series_label": "Share of coverage by brand (last 7 days)",
              "categories": [c for c, _ in ranked], "values": [v for _, v in ranked], "drill": share.get("drill") or {},
-             "choice": "share of voice: each brand's share of the day's brand mentions, ranked, beside its logo",
+             "choice": "share of voice: each brand's share of the week's brand mentions, ranked, beside its logo",
              "alternatives": "a doughnut (logos and close shares read better on a common axis)"},
             {**empty, "kind": "line_peaks", "unit": "count", "series_label": "Articles per day (UTC)",
              **{k: (charts.get("timeline") or {}).get(k, v) for k, v in empty.items()},
@@ -230,7 +230,7 @@ def live_charts(refresh: dict | None) -> list[dict]:
             {**empty, "kind": "bar", "unit": "count", "series_label": "Top outlets in the last 7 days",
              **{k: (charts.get("outlets") or {}).get(k, v) for k, v in empty.items()},
              "drill": (charts.get("outlets") or {}).get("drill") or {},
-             "choice": "ranking: the day's most active outlets as sorted bars",
+             "choice": "ranking: the week's most active outlets as sorted bars",
              "alternatives": "a treemap (bars rank the outlets exactly)"}]
 
 

@@ -1,4 +1,4 @@
-// The deck's "last 24h" slides: draws their text (cited summary, top stories, "Last updated") from the stored refresh
+// The deck's "last 7 days" slides: draws their text (cited summary, top stories, "Last updated") from the stored refresh
 // in each slide's .live-data, and -- when the deck is shown inside Hunter -- a Refresh button. The deck runs sandboxed
 // with no network, so Hunter's page (its parent frame) runs the refresh and posts progress and the result back here;
 // opened on its own (a file, or outside Hunter) the deck shows the stored refresh and no button.

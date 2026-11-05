@@ -82,15 +82,15 @@
     <div class="title clamp" style="margin-top:8px;font-size:46px">{{ s.title }}</div>
     <div class="live-meta"></div>
   </div>
-  {% if s.type == "latest24h" %}<button type="button" class="live-btn" hidden>Refresh latest 24h</button>
+  {% if s.type == "latest24h" %}<button type="button" class="live-btn" hidden>Refresh last 7 days</button>
   <div class="live-progress" hidden aria-live="polite"></div>
   <div class="live-bullets reveal"></div>
   <div class="live-stories reveal"><div class="kicker" style="margin-bottom:10px">Top new stories</div><ol></ol></div>
   {% else %}<div class="live-grid reveal">
-    <div class="live-cell" style="left:0;top:0;width:870px;height:440px"><div class="kicker">Share of 24h coverage by brand</div>{{ charts[0] | safe }}</div>
+    <div class="live-cell" style="left:0;top:0;width:870px;height:440px"><div class="kicker">Share of coverage by brand (last 7 days)</div>{{ charts[0] | safe }}</div>
     {# in the order of s.charts: deckcharts.js pairs each chart with its config by position #}
-    <div class="live-cell" style="left:0;top:470px;width:1780px;height:340px"><div class="kicker">Articles per hour (UTC)</div>{{ charts[1] | safe }}</div>
-    <div class="live-cell" style="left:910px;top:0;width:870px;height:440px"><div class="kicker">Top outlets in the last 24h</div>{{ charts[2] | safe }}</div>
+    <div class="live-cell" style="left:0;top:470px;width:1780px;height:340px"><div class="kicker">Articles per day (UTC)</div>{{ charts[1] | safe }}</div>
+    <div class="live-cell" style="left:910px;top:0;width:870px;height:440px"><div class="kicker">Top outlets in the last 7 days</div>{{ charts[2] | safe }}</div>
   </div>{% endif %}
   <script type="application/json" class="live-data">{{ s.live | tojson }}</script>
 {% elif s.type == "verbatim_wall" %}
