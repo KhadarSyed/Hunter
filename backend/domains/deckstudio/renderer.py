@@ -12,6 +12,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup, escape
 
+from ...core.config import HOUSE_LOGO
 from . import amcharts, logo_prep, tables
 from .art_director import fonts_href
 from .charts import chart_svg
@@ -138,13 +139,24 @@ def _marks(spec: DeckSpec, out_dir: Path) -> dict:
             "product": _asset(spec.product_image, out_dir), "product_name": spec.product_name}
 
 
+def _house_badge(part: str, out_dir: Path) -> str:
+    """InfoVision Intelligence's logo and name, top right on the slide, for every project; restyled slides too."""
+    rel = _asset(str(HOUSE_LOGO) if HOUSE_LOGO else None, out_dir)
+    if not rel or 'class="house"' in part or "</section>" not in part:
+        return part
+    badge = (f'<div class="house"><img src="{escape(rel)}" alt="InfoVision Intelligence">'
+             '<span class="house-name">InfoVision</span><span class="house-word">Intelligence</span></div>')
+    head, _, tail = part.rpartition("</section>")
+    return f"{head}{badge}</section>{tail}"
+
+
 def render_deck(spec: DeckSpec, out_dir: Path, slide_html: dict[str, str] | None = None, source: str = "Meltwater",
                 name: str = "deck.html") -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     tokens = spec.tokens or DeckTokens()
     marks = _marks(spec, out_dir)
-    parts = [(slide_html or {}).get(s.id) or render_slide(s, tokens, n, len(spec.slides), spec.base_n, spec.period, source,
-                                                          out_dir, marks)
+    parts = [_house_badge((slide_html or {}).get(s.id) or render_slide(s, tokens, n, len(spec.slides), spec.base_n,
+                                                                       spec.period, source, out_dir, marks), out_dir)
              for n, s in enumerate(spec.slides, start=1)]
     # the charts are drawn live by amCharts from these configs (built from the spec, so a re-tone reaches them even on
     # a restyled slide); each slide's SVG chart stays as the fallback

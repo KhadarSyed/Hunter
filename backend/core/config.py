@@ -21,6 +21,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent  # backend/
 REPO_ROOT = BACKEND_DIR.parent
+# InfoVision Intelligence's own mark, top right on every deck slide: the SPA's source copy, else the built one
+HOUSE_LOGO = next((p for p in (REPO_ROOT / "frontend" / "public" / "logo.png", BACKEND_DIR / "static" / "logo.png")
+                   if p.exists()), None)
 # HUNTER_AGENT_DATA_DIR lets a deployment keep runtime data somewhere other than data/.
 DATA_DIR = Path(os.getenv("HUNTER_AGENT_DATA_DIR") or REPO_ROOT / "data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
