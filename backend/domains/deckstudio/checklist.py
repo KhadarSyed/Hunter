@@ -121,7 +121,8 @@ def _ask_row(kind: str, ask: str, sections: list[Section], has_brief_doc: bool, 
     low = ask.lower()
     row = {"ask": ask, "kind": kind, "rq_id": None, "slides": [], "modules": []}
     if DATA_EXPORT.search(low) and has_data_export:
-        return {**row, "status": "covered", "note": "Delivered as the Excel workbook of data tables"}
+        return {**row, "status": "covered", "note": "Delivered as the Excel workbook of data tables",
+                "where": "Excel workbook"}
     tagged = _tag_answers(sections, "affiliat") if "affiliat" in low else None
     if tagged:
         return {**row, "status": "covered", "note": tagged.facts[0].split(": ", 1)[-1] if tagged.facts else "",
@@ -130,7 +131,8 @@ def _ask_row(kind: str, ask: str, sections: list[Section], has_brief_doc: bool, 
     if not wanted:
         # the deck itself delivers these (its charts, its executive summary), however the brief filed the ask
         if DELIVERED.search(low) and (has_brief_doc or "summary" not in low):
-            return {**row, "status": "covered", "note": "Delivered as this deck and the Word brief"}
+            return {**row, "status": "covered", "note": "Delivered as this deck and the Word brief",
+                    "where": "Whole deck + Word brief"}
         matched = _by_title(ask, sections)
         if matched:
             return {**row, "status": "covered", "note": f"Answered by: {matched[0].title}",
@@ -171,6 +173,7 @@ def attach_slide_numbers(spec: DeckSpec, rows: list[dict]) -> list[dict]:
     per = max(1, -(-len(out) // max(1, len(pages))))
     for i, slide in enumerate(pages):
         chunk = out[i * per:(i + 1) * per]
-        slide.tables[0]["rows"] = [[r["ask"], r["status"], ", ".join(map(str, r["slides"])) or "—", r["note"]] for r in chunk]
+        slide.tables[0]["rows"] = [[r["ask"], r["status"], ", ".join(map(str, r["slides"])) or r.get("where") or "—",
+                                    r["note"]] for r in chunk]
         slide.facts_allowed = slide.facts_allowed + [str(n) for r in chunk for n in r["slides"]]
     return out

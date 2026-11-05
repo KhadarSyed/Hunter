@@ -409,8 +409,28 @@
     // node ids are the names (a column named like a row gets a trailing space, so the two stay apart)
     function colId(k) { return cfg.rows.indexOf(k) >= 0 ? k + " " : k; }
     series.nodes.set("colors", am5.ColorSet.new(root, { colors: cfg.colors.map(function (k) { return c(k); }) }));
-    series.nodes.data.setAll(cfg.rows.concat(cfg.cols.map(colId)).map(function (id) { return { id: id }; }));
+    var marks = cfg.marks || {};
+    function node(id, name) { return Object.assign({ id: id }, (marks[name] && marks[name].side) ? marks[name] : {}); }
+    series.nodes.data.setAll(cfg.rows.map(function (k) { return node(k, k); })
+      .concat(cfg.cols.map(function (k) { return node(colId(k), k); })));
     series.nodes.labels.template.setAll({ fontSize: 19, fill: c(cfg.text) });
+    var sides = Object.keys(marks).map(function (k) { return marks[k].side; });
+    if (sides.indexOf("left") >= 0) series.set("paddingLeft", LOGO_W + 30);      // room for the left nodes' logos
+    if (sides.length) {
+      series.set("nodePadding", LOGO_H + 8);      // two small nodes never stack their logo chips on each other
+      // a brand's logo sits just outside its node; on the right its name moves over to make room
+      series.nodes.bullets.push(function (root, s, dataItem) {
+        var d = dataItem.dataContext;
+        if (!d || !d.logo) return undefined;
+        var chip = mark(root, d);
+        if (d.side === "right") chip.setAll({ centerX: 0, dx: 10 });
+        return am5.Bullet.new(root, { locationX: d.side === "right" ? 1 : 0, locationY: 0.5, sprite: chip });
+      });
+      series.nodes.labels.template.adapters.add("dx", function (dx, target) {
+        var d = target.dataItem && target.dataItem.dataContext;
+        return d && d.side === "right" ? (dx || 0) + LOGO_W + 22 : dx;
+      });
+    }
     series.links.template.setAll({ fillStyle: "source", fillOpacity: 0.35, cursorOverStyle: "pointer",
       tooltipText: "{row} → {col}: [bold]{count}[/] articles" });
     series.data.setAll(cfg.cells.map(function (k) { return { from: k.row, to: colId(k.col), value: k.count, row: k.row, col: k.col, count: k.count }; }));

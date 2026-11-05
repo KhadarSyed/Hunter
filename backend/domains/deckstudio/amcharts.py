@@ -115,8 +115,13 @@ def chart_config(chart: dict, t: DeckTokens, logos: dict[str, str] | None = None
         m = chart["matrix"]
         cells = [{"row": r, "col": c, "value": round(100 * v / max(1, m["n"][i]), 1), "count": v}
                  for i, r in enumerate(m["rows"]) for c, v in zip(m["cols"], m["counts"][i]) if view == "heatmap" or v]
+        # a sankey's brand (or outlet) nodes carry their logos, as a bar chart's labels do: outside the node, on its side
+        marks = {n: {"logo": logos[n], "chip": f"#{_dark_chip(t)}" if n in light else "", "side": side}
+                 for side, names in (("left", m["rows"]), ("right", m["cols"])) for n in names
+                 if view == "sankey" and n in logos}
         return {**base, "kind": view, "rows": m["rows"], "cols": m["cols"], "cells": cells, "dims": m["dims"],
-                "colors": [f"#{c}" for c in _colors(m["rows"] + m["cols"], t)], "low": f"#{t.surface}"}
+                "colors": [f"#{c}" for c in _colors(m["rows"] + m["cols"], t)], "low": f"#{t.surface}",
+                **({"marks": marks} if marks else {})}
     if view == "bubble":
         tone = chart.get("tone") or [None] * len(cats)
         fills = [f for f in t.series if not _neutral(f)] or list(t.series)
