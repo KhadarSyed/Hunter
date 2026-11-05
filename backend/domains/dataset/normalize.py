@@ -14,7 +14,8 @@ _POST_ID = [re.compile(p, re.IGNORECASE) for p in (
     r"(?:x|twitter)\.com/[^/]+/status/(\d+)", r"instagram\.com/(?:p|reel)/([^/?#]+)", r"youtube\.com/watch\?v=([^&#]+)",
     r"youtu\.be/([^/?#]+)", r"tiktok\.com/@[^/]+/video/(\d+)", r"reddit\.com/r/[^/]+/comments/([^/]+)",
     r"facebook\.com/.+/posts/([^/?#]+)", r"linkedin\.com/.*activity[:-](\d+)")]
-_KEEP_PARAMS = {"v", "id", "p", "story_fbid", "article", "q"}      # the few query params that choose the page
+_TRACKING = {"fbclid", "gclid", "dclid", "msclkid", "mc_cid", "mc_eid", "igshid", "igsh", "si", "ref", "ref_src", "s",
+             "cmpid", "ocid", "_ga"}
 
 
 def _host(url: str) -> str:
@@ -39,12 +40,16 @@ def post_id(url: str) -> str:
 
 
 def link_key(url: str) -> str:
-    """Dedupe key: no scheme, www, fragment or tracking params (utm_*, fbclid...), lower case, no trailing slash."""
-    parts = urlsplit(str(url or "").strip())
+    """Dedupe key: no scheme, www, fragment, tracking params or trailing slash; host lower case, path and the
+    remaining (sorted) params kept as written since ids such as YouTube's are case-sensitive."""
+    text = str(url or "").strip()
+    parts = urlsplit(text if "//" in text else "//" + text)
     if not parts.netloc:
         return normalize_url(url)
-    query = urlencode([(k, v) for k, v in parse_qsl(parts.query) if k.lower() in _KEEP_PARAMS])
-    return normalize_url(urlunsplit(("", parts.netloc.removeprefix("www."), parts.path, query, ""))).lstrip("/")
+    query = urlencode(sorted((k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+                             if not (k.lower().startswith("utm_") or k.lower() in _TRACKING)))
+    host = parts.netloc.lower().removeprefix("www.")
+    return host + parts.path.rstrip("/") + ("?" + query if query else "")
 
 
 def _reach(v) -> int:
