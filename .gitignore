@@ -85,3 +85,6 @@ scratch/
 poc/
 .venv-gpu/
 data/recreate_inputs/
+
+# client dataset exports used for local end-to-end tests
+Dataset/
