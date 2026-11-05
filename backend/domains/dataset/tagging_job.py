@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from ...core import events, store
 from ...core.jobs import runner
 from ..deliverable.labels import theme_key
+from ..memory import service as memory
 from . import batching, repository as repo
 
 logger = logging.getLogger(__name__)
@@ -91,7 +92,7 @@ def _workers() -> int:
     return max(1, int(os.getenv("HUNTER_ENRICH_WORKERS", "8")))
 
 
-def _parallel(fn, items: list, workers: int, on_result) -> None:
+def _parallel(fn, items: list, workers: int, on_result, on_error=None) -> None:
     """fn(item) on a pool; on_result(item, value) runs here as each lands. One failure is logged, not raised."""
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(fn, it): it for it in items}
@@ -100,6 +101,31 @@ def _parallel(fn, items: list, workers: int, on_result) -> None:
                 on_result(futures[f], f.result())
             except Exception as e:
                 logger.warning("tagging step failed: %s", e)
+                if on_error:
+                    on_error(futures[f])
+
+
+def _fresh(fn):
+    """Run fn inside memory.fresh() in the worker thread (the contextvar does not cross threads): a retried batch
+    must ask GPT again, not get a cached incomplete reply."""
+    def run(*args):
+        with memory.fresh():
+            return fn(*args)
+    return run
+
+
+def _tags_of(article: dict) -> dict:
+    try:
+        tags = json.loads(article.get("tags_json") or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return tags if isinstance(tags, dict) else {}
+
+
+def _labels_of(article: dict) -> set[str]:
+    themes = _tags_of(article).get("themes")
+    themes = themes if isinstance(themes, dict) else {}
+    return {str(themes[k]).strip() for k in ("primary", "secondary", "tertiary") if themes.get(k)}
 
 
 def _brand_context(project_id: int) -> tuple[str, list[str], str]:
@@ -141,8 +167,16 @@ def _tags_phase(pid: int, llm, prog: _Progress) -> int:
             repo.save_tags(a["id"], tags, None if tags is not None else "model returned no tags")
             saved += tags is not None
         prog.advance(len(batch))
-    _parallel(lambda b: article_tagging.tag(llm, b, brand, competitors), batches, _workers(), save)
+    _parallel(_fresh(lambda b: article_tagging.tag(llm, b, brand, competitors)), batches, _workers(), save,
+              lambda batch: prog.advance(len(batch)))
     return saved
+
+
+def _untitled_labels(pid: int) -> bool:
+    """True when a tagged article carries a theme label that has no title yet (e.g. a run died before themes)."""
+    titles = repo.theme_titles(pid)
+    return any(theme_key(l) not in titles for a in repo.all_articles(pid) if a["tag_status"] == "tagged"
+               for l in _labels_of(a))
 
 
 def _themes_phase(pid: int, llm, prog: _Progress) -> None:
@@ -153,18 +187,20 @@ def _themes_phase(pid: int, llm, prog: _Progress) -> None:
     for a in repo.all_articles(pid):
         if a["tag_status"] != "tagged":
             continue
-        themes = (json.loads(a["tags_json"]) or {}).get("themes") or {}
-        for label in {str(themes[k]).strip() for k in ("primary", "secondary", "tertiary") if themes.get(k)}:
+        for label in _labels_of(a):
             key = theme_key(label)
             counts[key] += 1
             display.setdefault(key, label)
             if len(heads.setdefault(key, [])) < HEADLINES_PER_LABEL and a["title"]:
                 heads[key].append(a["title"][:140])
     prog.begin("themes", 1)
+    mapping: dict[str, str] = {}
     if len(counts) >= 2:
         labels = [{"label": display[k], "articles": c, "sample_headlines": heads[k]}
                   for k, c in counts.most_common(theme_synthesis.MAX_THEMES)]
-        repo.save_theme_titles(pid, theme_synthesis.consolidate_labels(llm, _brand_context(pid)[2], labels))
+        mapping = theme_synthesis.consolidate_labels(llm, _brand_context(pid)[2], labels)
+    # a label GPT left out (or beyond the top 80) keeps its own wording, so it counts as titled on the next run
+    repo.save_theme_titles(pid, {**display, **mapping})
     prog.advance()
 
 
@@ -185,10 +221,11 @@ def _rq_phase(pid: int, llm, prog: _Progress) -> None:
                 result = res.get(a["id"])
                 if result is None:      # left untagged: the next run picks it up again
                     continue
-                conf = (json.loads(a["tags_json"] or "{}") or {}).get("overall_sentiment_confidence")
+                conf = _tags_of(a).get("overall_sentiment_confidence")
                 repo.save_rq(a["id"], pid, rq.id, sig, result, rq_tagging.status_for(result, conf))
             prog.advance(len(batch))
-        _parallel(lambda b, rq=rq, schema=schema: rq_tagging.tag(llm, rq, schema, b), batches, _workers(), save)
+        _parallel(_fresh(lambda b, rq=rq, schema=schema: rq_tagging.tag(llm, rq, schema, b)), batches, _workers(),
+                  save, lambda batch: prog.advance(len(batch)))
 
 
 def _relations_phase(pid: int, llm, prog: _Progress) -> None:
@@ -220,7 +257,7 @@ def run_job(project_id: int, job_id: str, llm=None) -> None:
             new_tags = _tags_phase(project_id, llm, prog)
 
         def themes():
-            if new_tags or not repo.theme_titles(project_id):     # unchanged tags keep their titles: no GPT call
+            if new_tags or _untitled_labels(project_id):          # unchanged tags keep their titles: no GPT call
                 _themes_phase(project_id, llm, prog)
         steps = (("content", lambda: _content_phase(project_id, prog)), ("article tags", tags), ("themes", themes),
                  ("RQ tags", lambda: _rq_phase(project_id, llm, prog)),
