@@ -39,14 +39,20 @@ def _embed(llm, text: str):
         return None
 
 
+def _embed_model(llm) -> str:
+    return getattr(getattr(llm, "_embed_backend", None), "model", "") or ""
+
+
 def index_templates(llm=None) -> int:
+    model = _embed_model(llm)
     folder = Path(config.TEMPLATES_DIR)
     count = 0
     for path in sorted(folder.glob("*.pptx")) if folder.exists() else []:
         if path.name.startswith("~$") or not is_usable(path):
             continue
         text = _deck_text(path)
-        store.save_reference_deck(str(path), text, _embed(llm, text))
+        vec = _embed(llm, text)
+        store.save_reference_deck(str(path), text, vec, model if vec is not None else "")
         count += 1
     return count
 
@@ -80,9 +86,17 @@ def _choose_scored(scope_text: str, llm=None) -> tuple[Path, float, int]:
     def current():
         return [d for d in store.list_reference_decks() if d["path"].startswith(folder) and Path(d["path"]).exists()]
 
-    decks = current() or (current() if index_templates(llm) else [])
+    model = _embed_model(llm)
+    decks = current()
+    # decks embedded by another model (or none recorded) are stale: re-index once when embeddings are available
+    if not decks or (model and any(d["model"] != model for d in decks)):
+        if index_templates(llm):
+            decks = current()
     if not decks:
         return DEFAULT_TEMPLATE, 0.0, 0
+    # vectors from different models are not comparable: only the current model's embeddings count
+    if model:
+        decks = [{**d, "embedding": d["embedding"] if d["model"] == model else None} for d in decks]
     query_vec = _embed(llm, scope_text) if any(d["embedding"] for d in decks) else None
     query_tokens = _tokens(scope_text)
 

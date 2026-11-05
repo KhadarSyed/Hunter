@@ -1,7 +1,7 @@
 """NVIDIA NIM embeddings client.
 
 Talks to NVIDIA's OpenAI-compatible embeddings endpoint directly via `requests`,
-configured from: NVIDIA_EMBED_API_KEY, NVIDIA_EMBED_API_URL, NVIDIA_EMBED_MODEL.
+configured from EMBEDDING_MODEL_API_KEY/BASE_URL/NAME, falling back to NVIDIA_EMBED_API_KEY/API_URL/MODEL.
 """
 from __future__ import annotations
 
@@ -18,11 +18,25 @@ class NvidiaEmbedError(RuntimeError):
     pass
 
 
+def env_setting(*names: str, default: str = "") -> str:
+    """First non-empty env var among `names`, whitespace and surrounding quotes stripped."""
+    for name in names:
+        value = os.getenv(name, "").strip().strip("\"'").strip()
+        if value:
+            return value
+    return default
+
+
+def embed_model_name() -> str:
+    return env_setting("EMBEDDING_MODEL_NAME", "NVIDIA_EMBED_MODEL")
+
+
 class NvidiaEmbedClient:
     def __init__(self, api_key: str | None = None, api_url: str | None = None, model: str | None = None):
-        self.api_key = api_key or os.getenv("NVIDIA_EMBED_API_KEY", "")
-        self.api_url = (api_url or os.getenv("NVIDIA_EMBED_API_URL", "https://integrate.api.nvidia.com/v1")).rstrip("/")
-        self.model = model or os.getenv("NVIDIA_EMBED_MODEL", "")
+        self.api_key = api_key or env_setting("EMBEDDING_MODEL_API_KEY", "NVIDIA_EMBED_API_KEY")
+        self.api_url = (api_url or env_setting("EMBEDDING_MODEL_BASE_URL", "NVIDIA_EMBED_API_URL",
+                                               default="https://integrate.api.nvidia.com/v1")).rstrip("/")
+        self.model = model or embed_model_name()
 
     def is_reachable(self) -> bool:
         return bool(self.api_key and self.api_url and self.model)

@@ -81,13 +81,10 @@ def _build_chat_backend(settings: Settings):
 
 
 def _build_embed_backend():
-    nvidia_key = os.getenv("NVIDIA_EMBED_API_KEY", "")
-    nvidia_model = os.getenv("NVIDIA_EMBED_MODEL", "")
-    if nvidia_key and nvidia_model:
-        from .nvidia_embed_client import NvidiaEmbedClient
-        client = NvidiaEmbedClient()
-        if client.is_reachable():
-            return client, "nvidia_nim"
+    from .nvidia_embed_client import NvidiaEmbedClient
+    client = NvidiaEmbedClient()
+    if client.is_reachable():
+        return client, "nvidia_nim"
 
     return None, None
 

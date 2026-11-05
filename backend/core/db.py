@@ -1487,6 +1487,10 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             last_used_at REAL, created_at REAL NOT NULL, UNIQUE (kind, key))""",
         "CREATE INDEX IF NOT EXISTS idx_asset_library_kind_brand ON intel_asset_library(kind, brand)",
     ]),
+    # (36, 37 are reserved for other tasks.) Vectors from different embedding models are not comparable.
+    (38, "reference deck embedding model", [
+        "ALTER TABLE intel_reference_decks ADD COLUMN model TEXT",
+    ]),
 ]
 
 

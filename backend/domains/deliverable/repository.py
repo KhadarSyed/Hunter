@@ -141,21 +141,21 @@ def save_cached_classification(norm_url: str, field: str, value: list, model: st
     conn.close()
 
 
-def save_reference_deck(path: str, text: str, embedding: Optional[list[float]]) -> None:
+def save_reference_deck(path: str, text: str, embedding: Optional[list[float]], model: str = "") -> None:
     conn = _conn()
-    conn.execute("INSERT INTO intel_reference_decks (path, text, embedding_json, indexed_at) VALUES (?, ?, ?, ?) "
+    conn.execute("INSERT INTO intel_reference_decks (path, text, embedding_json, indexed_at, model) VALUES (?, ?, ?, ?, ?) "
                  "ON CONFLICT (path) DO UPDATE SET text = excluded.text, embedding_json = excluded.embedding_json, "
-                 "indexed_at = excluded.indexed_at",
-                 (path, text, json.dumps(embedding) if embedding is not None else None, time.time()))
+                 "indexed_at = excluded.indexed_at, model = excluded.model",
+                 (path, text, json.dumps(embedding) if embedding is not None else None, time.time(), model))
     conn.commit()
     conn.close()
 
 
 def list_reference_decks() -> list[dict]:
     conn = _conn()
-    rows = conn.execute("SELECT path, text, embedding_json FROM intel_reference_decks").fetchall()
+    rows = conn.execute("SELECT path, text, embedding_json, model FROM intel_reference_decks").fetchall()
     conn.close()
-    return [{"path": r["path"], "text": r["text"] or "",
+    return [{"path": r["path"], "text": r["text"] or "", "model": r["model"] or "",
              "embedding": json.loads(r["embedding_json"]) if r["embedding_json"] else None} for r in rows]
 
 

@@ -66,7 +66,8 @@ def _embed_text(item: dict) -> str:
 
 
 def _model() -> str:
-    return os.environ.get("NVIDIA_EMBED_MODEL", "").strip()
+    from ...core.nvidia_embed_client import embed_model_name
+    return embed_model_name()
 
 
 def ensure_vectors(items: list[dict], llm, limit: int | None = None) -> dict[int, np.ndarray] | None:
