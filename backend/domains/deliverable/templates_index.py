@@ -43,16 +43,30 @@ def _embed_model(llm) -> str:
     return getattr(getattr(llm, "_embed_backend", None), "model", "") or ""
 
 
-def index_templates(llm=None) -> int:
+_REINDEX_TRIED: set[tuple[str, str]] = set()   # (path, model) already re-indexed this process: a failed embed is not retried
+
+
+def index_templates(llm=None, stale_only: bool = False) -> int:
+    """Embed the reference decks. `stale_only`: just those not embedded by the current model, once per process.
+    A failed embed never overwrites a deck's existing row."""
     model = _embed_model(llm)
     folder = Path(config.TEMPLATES_DIR)
+    existing = {d["path"]: d for d in store.list_reference_decks()}
     count = 0
     for path in sorted(folder.glob("*.pptx")) if folder.exists() else []:
+        key = str(path)
         if path.name.startswith("~$") or not is_usable(path):
             continue
+        if stale_only:
+            if (key, model) in _REINDEX_TRIED or existing.get(key, {}).get("model") == model:
+                continue
+            _REINDEX_TRIED.add((key, model))
         text = _deck_text(path)
         vec = _embed(llm, text)
-        store.save_reference_deck(str(path), text, vec, model if vec is not None else "")
+        if vec is None and key in existing:
+            count += 1
+            continue
+        store.save_reference_deck(key, text, vec, model if vec is not None else "")
         count += 1
     return count
 
@@ -89,9 +103,12 @@ def _choose_scored(scope_text: str, llm=None) -> tuple[Path, float, int]:
     model = _embed_model(llm)
     decks = current()
     # decks embedded by another model (or none recorded) are stale: re-index once when embeddings are available
-    if not decks or (model and any(d["model"] != model for d in decks)):
+    if not decks:
         if index_templates(llm):
             decks = current()
+    elif model and any(d["model"] != model and (d["path"], model) not in _REINDEX_TRIED for d in decks):
+        index_templates(llm, stale_only=True)
+        decks = current()
     if not decks:
         return DEFAULT_TEMPLATE, 0.0, 0
     # vectors from different models are not comparable: only the current model's embeddings count

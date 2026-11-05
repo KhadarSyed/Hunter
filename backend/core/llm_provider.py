@@ -143,14 +143,14 @@ class HybridLLMClient:
     def embed(self, text: str) -> np.ndarray:
         if self._embed_backend is None:
             raise NoEmbedProviderError(
-                "No embedding provider configured — set NVIDIA_EMBED_API_KEY and NVIDIA_EMBED_MODEL"
+                "No embedding provider configured — set EMBEDDING_MODEL_API_KEY and EMBEDDING_MODEL_NAME (or NVIDIA_EMBED_API_KEY and NVIDIA_EMBED_MODEL)"
             )
         return self._embed_backend.embed(text)
 
     def embed_batch(self, texts: list[str]) -> list[np.ndarray]:
         if self._embed_backend is None:
             raise NoEmbedProviderError(
-                "No embedding provider configured — set NVIDIA_EMBED_API_KEY and NVIDIA_EMBED_MODEL"
+                "No embedding provider configured — set EMBEDDING_MODEL_API_KEY and EMBEDDING_MODEL_NAME (or NVIDIA_EMBED_API_KEY and NVIDIA_EMBED_MODEL)"
             )
         return self._embed_backend.embed_batch(texts)
 
