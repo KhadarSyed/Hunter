@@ -34,7 +34,7 @@ function tokenizeBooleanQuery(query: string): { text: string; type: "operator" |
 
 const V = "#5B2C9D";
 
-function BooleanDisplay({ query, label, description, onCopy, editable, onEdit }: {
+export function BooleanDisplay({ query, label, description, onCopy, editable, onEdit }: {
   query: string; label: string; description?: string; onCopy: () => void;
   editable?: boolean; onEdit?: (text: string) => void;
 }) {
@@ -354,7 +354,7 @@ export function SearchStrategy({ onNavigate }: Props) {
       await intelApi.approveStrategy(strategy.strategy_id);
       setApproved(true);
       demo.setStrategyApproved(true);
-      setTimeout(() => onNavigate("data-sources"), 800);
+      setTimeout(() => onNavigate("matching-label"), 800);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Approval failed");
     }

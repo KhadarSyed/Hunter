@@ -764,6 +764,14 @@ export const intelApi = {
   addResearchQuestion: (strategyId: number, question: string, query: string) =>
     post<{ question_id: string }>(`/strategy/${strategyId}/research-question`, { question, query }),
 
+  setResearchQuestionStatus: (strategyId: number, questionId: string, status: "draft" | "approved") =>
+    post<{ ok: boolean }>(`/strategy/${strategyId}/research-question/${questionId}/status`, { status }),
+
+  taggingState: (projectId: number) =>
+    get<{ running: boolean; phase: string | null; done: number; total: number; minutes_left: number | null;
+          counts: { total: number; content: Record<string, number>; tags: Record<string, number> } }>(
+      `/articles/${projectId}/tagging`),
+
   deleteResearchQuestion: (strategyId: number, questionId: string) =>
     del<{ ok: boolean }>(`/strategy/${strategyId}/research-question/${questionId}`),
 

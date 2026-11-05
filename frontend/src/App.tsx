@@ -18,6 +18,7 @@ import { BackgroundResearch } from "./pages/BackgroundResearch";
 import { SearchStrategy } from "./pages/SearchStrategy";
 import { QueryEvaluation } from "./pages/QueryEvaluation";
 import { DataSources } from "./pages/DataSources";
+import { MatchingLabel } from "./pages/MatchingLabel";
 import { ResearchPlan } from "./pages/ResearchPlan";
 import { DeliverablesPage } from "./pages/DeliverablesPage";
 import { QCUpload } from "./pages/QCUpload";
@@ -42,6 +43,8 @@ const PAGES = {
   "background-research": BackgroundResearch,
   "search-strategy": SearchStrategy,
   "query-evaluation": QueryEvaluation,
+  "matching-label": MatchingLabel,
+  "data-set": DataSources, // swapped for the Data set page in the next task
   "data-sources": DataSources,
   "research-plan": ResearchPlan,
   deliverables: DeliverablesPage,

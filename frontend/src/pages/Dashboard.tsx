@@ -32,7 +32,8 @@ const QUICK_ACTIONS = [
   { page: "brief-scope-review", label: "Brief & Scope", desc: "Review and approve the project brief", icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" },
   { page: "background-research", label: "Background Research", desc: "AI-synthesized competitive intelligence", icon: "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" },
   { page: "search-strategy", label: "Search Strategy", desc: "Build and refine Meltwater queries", icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" },
-  { page: "data-sources", label: "Data Sources", desc: "Upload datasets per research question", icon: "M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" },
+  { page: "matching-label", label: "Matching label", desc: "Approve the research questions to tag", icon: "M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" },
+  { page: "data-set", label: "Data set", desc: "Upload, tag and approve articles", icon: "M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" },
   { page: "deliverables", label: "Deliverables", desc: "Generate and download PPTX & Word", icon: "M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" },
 ];
 
@@ -84,12 +85,13 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
       { id: "brief", label: "Brief & Scope", page: "brief-scope-review", status: "pending" },
       { id: "background", label: "Background", page: "background-research", status: "pending" },
       { id: "strategy", label: "Strategy", page: "search-strategy", status: "pending" },
-      { id: "data", label: "Data Sources", page: "data-sources", status: "pending" },
+      { id: "matching", label: "Matching label", page: "matching-label", status: "pending" },
+      { id: "data", label: "Data set", page: "data-set", status: "pending" },
       { id: "deliverables", label: "Deliverables", page: "deliverables", status: "pending", detail: s.pptxReady || s.wordReady ? "Downloads ready" : undefined },
     ];
 
     // a stage is complete only when every stage before it is: the pipeline runs in order
-    const done = [s.briefApproved, s.backgroundApproved, s.strategyApproved, s.datasetApproved, s.pptxReady || s.wordReady];
+    const done = [s.briefApproved, s.backgroundApproved, s.strategyApproved, s.datasetApproved, s.datasetApproved, s.pptxReady || s.wordReady];
     for (let i = 0; i < done.length && done[i]; i++) result[i].status = "completed";
 
     let foundPending = false;
