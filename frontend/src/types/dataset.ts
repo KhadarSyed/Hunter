@@ -28,6 +28,7 @@ export interface RqRow {
   reason: string | null;
   decided_by: string | null;
   decided_at: number | null;   // epoch seconds
+  query_changed?: boolean;     // the RQ's query no longer matches this row; its decision was kept
 }
 
 export interface ArticleRow {
@@ -80,3 +81,11 @@ export interface ArticlePage { rows: ArticleRow[]; total: number; rqs: RqColumn[
 
 export interface UploadFileResult { file_name: string; rows_read: number; added: number; duplicates: number; error: string | null }
 export interface UploadResult { files: UploadFileResult[]; added: number; duplicates: number; traditional: number; social: number }
+
+/** The research-question panel on the Data set page (GET /articles/{id}/rqs and the per-RQ routes). */
+export interface TagSchemaField { name: string; type: string; values: string[] }
+export interface RqCounts { matched: number; tagged: number; approved: number; needs_tagging: number; query_changed: number }
+export interface RqSummary { rq_id: string; question: string; query: string; status: string; counts: RqCounts; schema: { fields: TagSchemaField[] } }
+export interface RqArticleRef { id: number; title: string }
+export interface RqPreview { valid: boolean; errors: string[]; current: number; edited: number; added: RqArticleRef[]; dropped: RqArticleRef[] }
+export interface RqEstimate { articles: number; batches: number; input_tokens: number; output_tokens: number; cost_usd: number }

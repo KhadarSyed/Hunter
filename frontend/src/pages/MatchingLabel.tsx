@@ -64,7 +64,7 @@ function Card({ rq, busy, onStatus, onEdit, onDelete }: {
   const save = async () => { if (await onEdit(q.trim(), query.trim())) setEditing(false); };
 
   return (
-    <div className={`bg-white border rounded-xl shadow-sm ${approved ? "border-emerald-200" : "border-slate-200"}`}>
+    <div className={`h-full flex flex-col bg-white border rounded-xl shadow-sm ${approved ? "border-emerald-200" : "border-slate-200"}`}>
       {confirming && (
         <div className="px-5 py-3 bg-red-50 border-b border-red-100 rounded-t-xl flex items-center justify-between">
           <span className="text-xs text-red-700 font-medium">Delete {rq.question_id}?</span>
@@ -74,7 +74,7 @@ function Card({ rq, busy, onStatus, onEdit, onDelete }: {
           </div>
         </div>
       )}
-      <div className="p-5 space-y-3">
+      <div className="p-5 space-y-3 flex-1 flex flex-col min-w-0">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-3 min-w-0 flex-1">
             <span className="text-xs font-bold px-2 py-1 rounded shrink-0 tabular-nums" style={{ color: V, background: "#f5f3ff" }}>{rq.question_id}</span>
@@ -99,7 +99,7 @@ function Card({ rq, busy, onStatus, onEdit, onDelete }: {
           <p className="text-xs text-slate-400">No Boolean query yet.</p>
         )}
 
-        <div className="flex flex-wrap gap-2 justify-end">
+        <div className="flex flex-wrap gap-2 justify-end mt-auto pt-1">
           {editing ? (
             <>
               <button type="button" className={btn} onClick={() => { setQ(rq.question); setQuery(rq.query); setEditing(false); }}>Cancel</button>
@@ -168,7 +168,7 @@ export function MatchingLabel({ onNavigate }: { onNavigate: (page: string) => vo
   const approvedCount = rqs.filter(isApproved).length;
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-8 space-y-5">
+    <div className="max-w-7xl mx-auto px-6 py-8 space-y-5">
       <div>
         <h1 className="text-xl font-bold text-slate-900">Matching label</h1>
         <p className="text-sm text-slate-500 mt-1">Approve the research questions to tag. Only approved questions are tagged and reach the deck.</p>
@@ -178,12 +178,14 @@ export function MatchingLabel({ onNavigate }: { onNavigate: (page: string) => vo
       {loading ? <p className="text-sm text-slate-400">Loading…</p> : (
         <>
           {rqs.length === 0 && <p className="text-sm text-slate-500">No research questions yet. Approve a search strategy or add one.</p>}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-stretch">
           {rqs.map((rq) => (
             <Card key={`${rq.question_id}|${rq.question}|${rq.query}`} rq={rq} busy={busy}
               onStatus={(s) => void run((sid) => intelApi.setResearchQuestionStatus(sid, rq.question_id, s), "Failed to update status")}
               onEdit={(question, query) => edit(rq, question, query)}
               onDelete={() => void run((sid) => intelApi.deleteResearchQuestion(sid, rq.question_id), "Failed to delete")} />
           ))}
+          </div>
           <AddForm onAdd={(question, query) => run((sid) => intelApi.addResearchQuestion(sid, question, query), "Failed to add")} />
         </>
       )}

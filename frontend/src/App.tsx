@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from "./context/auth-context";
 import { DemoStateProvider, useDemoState } from "./context/demo-state";
 import { ProjectProvider, useProject, type ProjectType } from "./context/project-context";
 import { intelApi } from "./services/intel-api";
+import { PAGE_STAGE, gateRedirect } from "./hooks/useStageGate";
 import { LoginPage } from "./pages/LoginPage";
 import { ChangePasswordPage } from "./pages/ChangePasswordPage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -175,6 +176,33 @@ function AppShell() {
     setPageState(p);
   };
 
+  // Stage gating: a later stage never opens (by link, sidebar or a typed URL) until the stage before it is done.
+  // On a failed lookup the page renders as asked; the server still refuses to start a locked stage.
+  const [gateNotice, setGateNotice] = useState<string | null>(null);
+  const [gateChecked, setGateChecked] = useState<string | null>(null);
+  const gateKey = `${activeProject?.id ?? ""}:${page}`;
+  useEffect(() => {
+    const pid = activeProject?.id;
+    if (!hydrated || openingProjectId !== null || !pid || !PAGE_STAGE[page]) { setGateChecked(gateKey); return; }
+    let live = true;
+    intelApi.projectGates(pid).then((r) => {
+      if (!live) return;
+      const redirect = gateRedirect(r.gates, page);
+      if (redirect && isPage(redirect.target)) {
+        setGateNotice(redirect.message);
+        setPageState(redirect.target);
+      }
+    }).catch(() => { /* render the page as asked */ })
+      .finally(() => { if (live) setGateChecked(gateKey); });
+    return () => { live = false; };
+  }, [page, activeProject?.id, hydrated, openingProjectId, gateKey]);
+  useEffect(() => {
+    if (!gateNotice) return;
+    const t = window.setTimeout(() => setGateNotice(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [gateNotice]);
+  const gatePending = Boolean(activeProject?.id && PAGE_STAGE[page] && gateChecked !== gateKey);
+
   const CurrentPage: ComponentType<PageProps> = PAGES[page];
 
   return (
@@ -187,7 +215,16 @@ function AppShell() {
         )}
         <div className="flex-1 flex flex-col min-w-0">
           <main className="flex-1 overflow-auto bg-slate-50/50">
-            {openingProjectId !== null ? (
+            {gateNotice && (
+              <div role="status" className="sticky top-0 z-30 flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-5 py-2.5 text-sm text-amber-800">
+                <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 018 0v4" />
+                </svg>
+                <span>{gateNotice}</span>
+                <button onClick={() => setGateNotice(null)} className="ml-auto text-amber-600 hover:text-amber-800" aria-label="Dismiss">×</button>
+              </div>
+            )}
+            {openingProjectId !== null || gatePending ? (
               <div role="status" className="flex h-full items-center justify-center gap-3 text-sm text-slate-500">
                 <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-[#5B2C9D]" />
                 Opening project...

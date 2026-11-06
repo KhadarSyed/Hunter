@@ -4,6 +4,7 @@ import { useDemoState } from "../context/demo-state";
 import { useProject, useActiveProjectId } from "../context/project-context";
 import { BrandLogo } from "../components/BrandLogo";
 import { intelApi } from "../services/intel-api";
+import { STAGE_KEYS, useStageGate } from "../hooks/useStageGate";
 
 type ActivityItem = { action: string; detail: string; timestamp: string };
 const clock = (seconds: number) => formatTime(seconds * 1000);
@@ -70,6 +71,7 @@ function StatCard({ label, value, sub, accent }: { label: string; value: string 
 
 export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }) {
   const { activeProject } = useProject();
+  const { gates } = useStageGate(activeProject?.id ?? null);
   const activeProjectId = useActiveProjectId();
   const demo = useDemoState();
   const [stats, setStats] = useState<ProjectStats>({
@@ -290,7 +292,8 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
               const isCompleted = stage.status === "completed";
               const isActive = stage.status === "active";
               // a stage opens only once the one before it is complete (approved)
-              const isLocked = i > 0 && stages[i - 1].status !== "completed";
+              // the server's gates win; the local approvals only fill in until they load
+              const isLocked = gates ? gates[STAGE_KEYS[i]] === "locked" : i > 0 && stages[i - 1].status !== "completed";
               return (
                 <div key={stage.id} className="flex-1 flex flex-col items-center relative">
                   <button

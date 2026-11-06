@@ -1,4 +1,4 @@
-import type { ArticleFacets, ArticleFilters, ArticlePage, ArticleRow, Channel, RqStatus, UploadResult } from "../types/dataset";
+import type { ArticleFacets, ArticleFilters, ArticlePage, ArticleRow, Channel, RqCounts, RqEstimate, RqPreview, RqStatus, RqSummary, UploadResult } from "../types/dataset";
 import type { UsageCallsPage, UsagePriceRequest, UsagePrices, UsageQuery, UsageSummary } from "../types/usage";
 
 // Empty by default (relative paths), matching same-origin deploys where the backend
@@ -739,6 +739,9 @@ export const intelApi = {
       { query_type: queryType, query_text: queryText },
     ),
 
+  /** The checks autorun approves through: an unapproved strategy with validation issues comes back with reasons. */
+  finalApproveStrategy: (projectId: number, reviewer = "auto") =>
+    post<{ approved: boolean; blocking_reasons?: string[] }>(`/strategy/${projectId}/final-approve`, { reviewer }),
   approveStrategy: (strategyId: number, reviewer = "analyst") =>
     post<{ ok: boolean }>(`/strategy/${strategyId}/approve`, { reviewer }),
 
@@ -787,6 +790,24 @@ export const intelApi = {
 
   editArticle: (projectId: number, articleId: number, edit: { sentiment?: string; themes?: string[]; brands?: string[] }) =>
     patch<{ ok: boolean; approved_rqs: string[] }>(`/articles/${projectId}/${articleId}`, edit),
+
+  // Data set research-question panel: query preview / save (free re-match), re-tag estimate, re-tag, delete
+  datasetRqs: (projectId: number) => get<RqSummary[]>(`/articles/${projectId}/rqs`),
+
+  previewRqQuery: (projectId: number, rqId: string, query: string) =>
+    post<RqPreview>(`/articles/${projectId}/rqs/${encodeURIComponent(rqId)}/preview`, { query }),
+
+  saveRqQuery: (projectId: number, rqId: string, query: string) =>
+    post<{ counts: RqCounts }>(`/articles/${projectId}/rqs/${encodeURIComponent(rqId)}/save`, { query }),
+
+  estimateRqRetag: (projectId: number, rqId: string) =>
+    get<RqEstimate>(`/articles/${projectId}/rqs/${encodeURIComponent(rqId)}/estimate`),
+
+  retagRq: (projectId: number, rqId: string) =>
+    post<{ job_id: string }>(`/articles/${projectId}/rqs/${encodeURIComponent(rqId)}/retag`),
+
+  deleteDatasetRq: (projectId: number, rqId: string) =>
+    del<{ removed_approved: number }>(`/articles/${projectId}/rqs/${encodeURIComponent(rqId)}`),
 
   deleteResearchQuestion: (strategyId: number, questionId: string) =>
     del<{ ok: boolean }>(`/strategy/${strategyId}/research-question/${questionId}`),
@@ -913,6 +934,10 @@ export const intelApi = {
   agentStop: (projectId: number) => post<{ ok: boolean }>(`/agent/${projectId}/autopilot/stop`, {}),
   /** After Brief & Scope approval: research and strategy run and approve themselves up to Data Sources. */
   autorunStatus: (projectId: number) => get<Autorun>(`/agent/${projectId}/autorun`),
+  autorunStart: (projectId: number) => post<Autorun>(`/agent/${projectId}/autorun`, {}),
+  /** Stage gates: a stage opens only when every stage before it is done. */
+  projectGates: (projectId: number) =>
+    get<{ gates: Record<string, "done" | "running" | "open" | "locked">; progress_pct: number; current_stage: string }>(`/projects/${projectId}/gates`),
   copilotSend: (projectId: number, message: string, confirm?: string) =>
     post<CopilotReply>(`/agent/${projectId}/copilot`, { message, confirm: confirm ?? null }),
   adminIssues: (status?: string) => get<AgentIssue[]>(`/agent/admin/issues${status ? `?status=${status}` : ""}`),

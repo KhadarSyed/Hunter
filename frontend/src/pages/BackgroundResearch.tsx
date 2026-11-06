@@ -708,6 +708,8 @@ export function BackgroundResearch({ onNavigate }: Props) {
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [revisionNotes, setRevisionNotes] = useState("");
   const [submittingRevision, setSubmittingRevision] = useState(false);
+  const [noBrief, setNoBrief] = useState(false);
+  const autoStarted = useRef(false);
 
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -786,9 +788,30 @@ export function BackgroundResearch({ onNavigate }: Props) {
 
   // Autorun (after Brief & Scope approval): this page follows its research job, the server writes and approves the
   // brief, then Search Strategy opens. A blocked chain falls back to the manual review below.
+  const [autorunKey, setAutorunKey] = useState(0);
   const autorun = useAutorun(projectId, ["research", "brief"],
-                             (step) => onNavigate(step === "data-sources" ? "matching-label" : "search-strategy"));
+                             (step) => onNavigate(step === "data-sources" ? "matching-label" : "search-strategy"),
+                             autorunKey);
+  // Background Research approves itself: the server's autorun researches, writes and approves the brief.
+  const [autorunError, setAutorunError] = useState<string | null>(null);
+  const kickAutorun = useCallback(async () => {
+    if (!projectId) return;
+    setAutorunError(null);
+    try {
+      await intelApi.autorunStart(projectId);
+      setAutorunKey((k) => k + 1);
+    } catch (e) {
+      setAutorunError(e instanceof Error ? e.message : "Could not start research");
+    }
+  }, [projectId]);
   const autorunning = autorun?.status === "running";
+  // No brief and nothing running: start the chain once, the way Brief & Scope approval does
+  useEffect(() => {
+    if (!noBrief || briefResult || autoStarted.current || !autorun || autorun.status === "running"
+        || autorun.status === "blocked" || pageState !== "idle") return;
+    autoStarted.current = true;
+    void kickAutorun();
+  }, [noBrief, briefResult, autorun, pageState, kickAutorun]);
   const autorunningRef = useRef(false);      // read when the job finishes, without re-running that effect later
   autorunningRef.current = autorunning;
   const followedJob = useRef<string | null>(null);
@@ -842,7 +865,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
             setActiveTab(r.brief.section_order[0]);
           }
         })
-        .catch(() => {});
+        .catch(() => setNoBrief(true));
     }
   }, [projectId, pageState, briefResult]);
 
@@ -908,18 +931,6 @@ export function BackgroundResearch({ onNavigate }: Props) {
       const msg = e instanceof Error ? e.message : "Generation failed";
       setError(msg);
       setPageState("failed");
-    }
-  };
-
-  const handleApprove = async () => {
-    if (!briefResult) return;
-    try {
-      await intelApi.approveBrief(briefResult.brief_id);
-      setApproved(true);
-      demo.setBackgroundApproved(true);
-      setTimeout(() => onNavigate("search-strategy"), 800);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Approval failed");
     }
   };
 
@@ -1131,33 +1142,26 @@ export function BackgroundResearch({ onNavigate }: Props) {
         </div>
       )}
 
-      {/* Idle State */}
+      {/* Idle State: research starts by itself (autorun); only a stopped chain needs the user */}
       {pageState === "idle" && !briefResult && (
         <div className="flex-1 flex items-center justify-center p-8">
-          <div className="bg-white border-2 border-dashed border-[#5B2C9D]/20 rounded-xl p-10 text-center space-y-5 max-w-lg">
-            <div className="text-[#5B2C9D]/40">
-              <svg className="w-14 h-14 mx-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="text-base font-semibold text-slate-800 mb-1.5">Generate Competitive News Brief</h3>
-              <p className="text-sm text-slate-500 leading-relaxed">
-                Run live web research, validate sources, then compose a competitive news brief with company overview,
-                brand developments, competitor activity, industry context, and source register.
-              </p>
-            </div>
-            <button
-              onClick={startGeneration}
-              disabled={autorunning}
-              className="disabled:opacity-50 px-6 py-3 text-sm font-medium text-white rounded-lg shadow-sm transition-all hover:shadow-md"
-              style={{ background: "linear-gradient(135deg, #5B2C9D, #7C4DFF)" }}
-            >
-              Generate Brief
-            </button>
-            <p className="text-[11px] text-slate-400">
-              The primary output is a downloadable Microsoft Word document.
-            </p>
+          <div className="bg-white border border-slate-200 rounded-xl p-8 text-center space-y-4 max-w-lg">
+            {autorun?.status === "blocked" || autorunError ? (
+              <>
+                <h3 className="text-base font-semibold text-slate-800">Background research stopped</h3>
+                <p className="text-sm text-slate-500">{autorunError ?? autorun?.error ?? "The research could not be approved automatically."}</p>
+                <button onClick={() => void kickAutorun()}
+                        className="px-5 py-2 text-sm font-medium text-white rounded-lg shadow-sm"
+                        style={{ background: "linear-gradient(135deg, #5B2C9D, #7C4DFF)" }}>
+                  Retry
+                </button>
+              </>
+            ) : (
+              <div role="status" className="flex items-center justify-center gap-3 text-sm text-slate-500">
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-[#5B2C9D]" />
+                Starting background research…
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1511,17 +1515,20 @@ export function BackgroundResearch({ onNavigate }: Props) {
                 >
                   Request Revision
                 </button>
-                <button
-                  onClick={handleApprove}
-                  className={`px-4 py-1.5 text-xs font-medium rounded-lg transition-all shadow-sm ${
-                    approved
-                      ? "bg-emerald-600 text-white"
-                      : "text-white hover:shadow-md"
-                  }`}
-                  style={approved ? {} : { background: "linear-gradient(135deg, #5B2C9D, #7C4DFF)" }}
-                >
-                  {approved ? "Approved" : "Approve & Continue"}
-                </button>
+                {approved ? (
+                  <span className="px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    Approved automatically
+                  </span>
+                ) : autorun?.status === "blocked" ? (
+                  <button onClick={() => void kickAutorun()} title={autorun.error ?? undefined}
+                          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100">
+                    Retry auto-approval
+                  </button>
+                ) : (
+                  <span className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-50 text-slate-500 border border-slate-200">
+                    Approving automatically…
+                  </span>
+                )}
                 <button
                   onClick={() => onNavigate("search-strategy")}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white rounded-lg transition-all hover:shadow-md"

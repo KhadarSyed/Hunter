@@ -14,7 +14,7 @@ type LiveState = "idle" | "generating" | "completed" | "failed";
 
 /* ── Boolean query syntax highlighter ── */
 
-function tokenizeBooleanQuery(query: string): { text: string; type: "operator" | "quote" | "paren" | "text" | "near" }[] {
+export function tokenizeBooleanQuery(query: string): { text: string; type: "operator" | "quote" | "paren" | "text" | "near" }[] {
   const tokens: { text: string; type: "operator" | "quote" | "paren" | "text" | "near" }[] = [];
   const regex = /("(?:[^"\\]|\\.)*"|\b(?:AND|OR|NOT)\b|\bNEAR\/\d+\b|[()])/g;
   let last = 0;
@@ -348,17 +348,28 @@ export function SearchStrategy({ onNavigate }: Props) {
     }
   };
 
-  const handleApprove = async () => {
-    if (!strategy) return;
+  // Search Strategy approves itself (no manual button): a finished, unapproved strategy goes through the same checks
+  // autorun uses; validation problems come back as reasons with a Retry.
+  const [blocking, setBlocking] = useState<string[] | null>(null);
+  const autoApproved = useRef<number | null>(null);
+  const autoApprove = useCallback(async () => {
+    if (!strategy || !projectId) return;
+    autoApproved.current = strategy.strategy_id;
+    setBlocking(null);
     try {
-      await intelApi.approveStrategy(strategy.strategy_id);
-      setApproved(true);
-      demo.setStrategyApproved(true);
-      setTimeout(() => onNavigate("matching-label"), 800);
+      const r = await intelApi.finalApproveStrategy(projectId);
+      if (r.approved) {
+        setApproved(true);
+        demo.setStrategyApproved(true);
+      } else setBlocking(r.blocking_reasons?.length ? r.blocking_reasons : ["The strategy did not pass validation"]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Approval failed");
+      setBlocking([e instanceof Error ? e.message : "Approval failed"]);
     }
-  };
+  }, [strategy, projectId, demo]);
+  useEffect(() => {
+    if (strategy && !approved && !autorunning && liveState === "completed"
+        && autoApproved.current !== strategy.strategy_id) void autoApprove();
+  }, [strategy, approved, autorunning, liveState, autoApprove]);
 
   /* ── Extract live data with correct keys ── */
   const strat = (strategy?.strategy ?? {}) as Record<string, any>;
@@ -1032,13 +1043,20 @@ export function SearchStrategy({ onNavigate }: Props) {
                     Regenerate
                   </button>
                 )}
-                <button
-                  onClick={handleApprove}
-                  className={`px-5 py-2 text-sm font-medium text-white rounded-lg transition-all shadow-sm ${approved ? "" : "hover:shadow-md"}`}
-                  style={{ background: approved ? "#059669" : V }}
-                >
-                  {approved ? "Approved" : "Approve Strategy"}
-                </button>
+                {approved ? (
+                  <span className="px-4 py-2 text-sm font-medium rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    Approved automatically
+                  </span>
+                ) : blocking ? (
+                  <button onClick={() => void autoApprove()} title={blocking.join("; ")}
+                          className="px-4 py-2 text-sm font-medium rounded-lg bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100">
+                    Fix the issues, then retry approval
+                  </button>
+                ) : (
+                  <span className="px-4 py-2 text-sm font-medium rounded-lg bg-slate-50 text-slate-500 border border-slate-200">
+                    Approving automatically…
+                  </span>
+                )}
                 <button onClick={() => onNavigate("matching-label")}
                   className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-700 transition-colors">
                   Matching label

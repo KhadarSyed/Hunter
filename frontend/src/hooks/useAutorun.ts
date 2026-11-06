@@ -8,8 +8,10 @@ import { useJobStatus } from "./useJobStatus";
  * `onLeave` gets the stage it is at now. A user who opens the page after the chain moved on is never moved.
  */
 export function useAutorun(projectId: number | null | undefined, steps: Autorun["step"][],
-                           onLeave: (step: Autorun["step"]) => void) {
-  const fetchStatus = useMemo(() => (projectId ? () => intelApi.autorunStatus(projectId) : null), [projectId]);
+                           onLeave: (step: Autorun["step"]) => void, restartKey = 0) {
+  // restartKey: bump it after (re)starting the chain so a finished poll follows the new run
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const fetchStatus = useMemo(() => (projectId ? () => intelApi.autorunStatus(projectId) : null), [projectId, restartKey]);
   const { status } = useJobStatus<Autorun>(fetchStatus, { intervalMs: 3000, isTerminal: (s) => s.status !== "running" });
   const watching = useRef(false);
   const leave = useRef(onLeave);
