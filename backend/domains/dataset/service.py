@@ -87,30 +87,61 @@ PREVIEW_TITLES = 50
 DROPPED_REASON = "No longer matches the edited query"
 
 
-def _matching(query: str, arts: list[dict]) -> set[int]:
+NO_TERMS = "No searchable terms in this query"
+_OPERATOR = re.compile(r"^(AND|OR|NOT|NEAR(/\d+)?)$", re.IGNORECASE)
+
+
+def match_terms(query: str) -> list[str]:
+    """The terms the free re-match looks for (tagging itself is unchanged): the tagger's bracketed groups, else every
+    quoted phrase and every bare word outside the operators (wildcards stripped; a trailing * still matches endings)."""
     from ...agents import rq_tagging
-    return {a["id"] for a in arts if rq_tagging.keyword_hits(query, a["text"])}
+    terms = rq_tagging._terms(query or "")
+    if terms:
+        return terms
+    phrases = [p.strip() for p in re.findall(r'"([^"]*)"', query or "") if p.strip()]
+    words = re.split(r"[\s()\[\]]+", re.sub(r'"[^"]*"', " ", query or ""))
+    bare = [w.strip("*?") + ("*" if w.endswith("*") else "") for w in words if w and not _OPERATOR.match(w)]
+    return phrases + [w for w in bare if w.strip("*")]
 
 
-def preview(project_id: int, current: str, edited: str) -> dict:
-    """What the edited query would match against the current one. Reads only; writes nothing."""
+def query_errors(query: str) -> list[str]:
     from ...agents.meltwater_query_builder import validate_boolean_syntax
+    return validate_boolean_syntax(query) + ([] if match_terms(query) else [NO_TERMS])
+
+
+def _matching(terms: list[str], arts: list[dict]) -> set[int]:
+    from ...agents import question_dimensions
+    return {a["id"] for a in arts if question_dimensions.keyword_hits(a["text"], terms)}
+
+
+def _before_after(project_id: int, rq, edited: str) -> tuple[set[int], set[int], dict[int, str]]:
+    """Articles the current query matches (its stored matched rows when it has no searchable terms) and the edited."""
     arts = repo.match_texts(project_id)
-    old, new = _matching(current, arts), _matching(edited, arts)
-    titles = {a["id"]: a["title"] for a in arts}
+    old_terms = match_terms(rq.query)
+    old = _matching(old_terms, arts) if old_terms else set(repo.matched_ids(project_id, rq.id))
+    return old, _matching(match_terms(edited), arts), {a["id"]: a["title"] for a in arts}
+
+
+def preview(project_id: int, rq, edited: str) -> dict:
+    """What the edited query would match against the current one. Reads only; writes nothing."""
+    old, new, titles = _before_after(project_id, rq, edited)
 
     def listed(ids: set[int]) -> list[dict]:
-        return [{"id": i, "title": titles[i]} for i in sorted(ids)[:PREVIEW_TITLES]]
-    errors = validate_boolean_syntax(edited)
+        return [{"id": i, "title": titles.get(i, "")} for i in sorted(ids)[:PREVIEW_TITLES]]
+    errors = query_errors(edited)
     return {"valid": not errors, "errors": errors, "current": len(old), "edited": len(new),
             "added": listed(new - old), "dropped": listed(old - new)}
 
 
-def rematch(project_id: int, rq_id: str, current: str, edited: str) -> None:
-    """Free re-match after a query edit (keyword hits, no GPT); see repository.apply_rematch."""
-    arts = repo.match_texts(project_id)
-    old, new = _matching(current, arts), _matching(edited, arts)
-    repo.apply_rematch(project_id, rq_id, sorted(new - old), sorted(old - new), DROPPED_REASON)
+def plan_rematch(project_id: int, rq, edited: str) -> dict:
+    """The free re-match (keyword hits, no GPT), computed before the query is saved; apply with apply_rematch."""
+    old, new, _ = _before_after(project_id, rq, edited)
+    return {"old_signature": rq_signature(rq, rq_schemas(project_id)), "added": sorted(new - old),
+            "dropped": sorted(old - new)}
+
+
+def apply_rematch(project_id: int, rq_id: str, plan: dict) -> None:
+    repo.apply_rematch(project_id, rq_id, plan["old_signature"], plan["added"], plan["dropped"], DROPPED_REASON)
 
 
 def rq_schemas(project_id: int) -> dict:

@@ -104,7 +104,9 @@ def get_query_versions(strategy_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def update_research_question(strategy_id: int, question_id: str, question: str, query: str) -> bool:
+def update_research_question(strategy_id: int, question_id: str, question: str, query: str,
+                             drop_match_query: bool = False) -> bool:
+    """drop_match_query: the caller compared the edit with the effective query (match_query or query) and it differs."""
     conn = _conn()
     row = conn.execute("SELECT strategy_json FROM intel_search_strategies WHERE id = ?", (strategy_id,)).fetchone()
     if not row:
@@ -114,7 +116,7 @@ def update_research_question(strategy_id: int, question_id: str, question: str, 
     rqs = strategy.get("research_question_queries", [])
     for rq in rqs:
         if rq.get("question_id") == question_id:
-            if rq.get("query") != query:   # tagging reads match_query first; the edited query must be the one matched
+            if drop_match_query or rq.get("query") != query:   # tagging reads match_query first; the edit must win
                 rq.pop("match_query", None)
             rq["question"] = question
             rq["query"] = query

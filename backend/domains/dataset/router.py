@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 import threading
 import time
@@ -18,6 +19,7 @@ from . import repository as repo, service
 from .schemas import ArticleEdit, DecisionRequest, RQQuery, UndoRequest
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 ProjectId = Annotated[int, PathParam(ge=1)]
 RqId = Annotated[str, PathParam(min_length=1, max_length=40)]
 Access = Annotated[dict, Depends(require_project_access)]
@@ -230,19 +232,34 @@ def rqs(project_id: ProjectId, _: Access):
 
 @router.post("/articles/{project_id}/rqs/{rq_id}/preview")
 def preview_rq(project_id: ProjectId, rq_id: RqId, req: RQQuery, _: Access):
-    return service.preview(project_id, _approved_rq(project_id, rq_id).query, req.query)
+    return service.preview(project_id, _approved_rq(project_id, rq_id), req.query)
+
+
+def _counts(project_id: int, rq_id: str) -> dict:
+    return {"counts": service.rq_counts(project_id, _approved_rq(project_id, rq_id), service.rq_schemas(project_id))}
 
 
 @router.post("/articles/{project_id}/rqs/{rq_id}/save")
 def save_rq(project_id: ProjectId, rq_id: RqId, req: RQQuery, _: Access):
     rq = _approved_rq(project_id, rq_id)
     _guard(project_id)
+    if req.query == rq.query:          # rq.query is the effective one (match_query or query): nothing to re-match
+        return _counts(project_id, rq_id)
+    errors = service.query_errors(req.query)
+    if errors:
+        raise HTTPException(422, "; ".join(errors))
+    plan = service.plan_rematch(project_id, rq, req.query)      # before the edit: it reads the pre-edit signature
     strategy = store.get_latest_strategy(project_id)
-    if not strategy or not store.update_research_question(strategy["id"], rq_id, rq.question, req.query):
+    if not strategy or not store.update_research_question(strategy["id"], rq_id, rq.question, req.query,
+                                                          drop_match_query=True):
         raise HTTPException(404, "Research question not found")
-    service.rematch(project_id, rq_id, rq.query, req.query)
-    edited = _approved_rq(project_id, rq_id)
-    return {"counts": service.rq_counts(project_id, edited, service.rq_schemas(project_id))}
+    try:
+        service.apply_rematch(project_id, rq_id, plan)
+    except Exception:
+        logger.exception("Re-match of %s failed for project %s; the query edit is rolled back", rq_id, project_id)
+        store.update_research_question(strategy["id"], rq_id, rq.question, rq.query)
+        raise HTTPException(500, "The query could not be saved; it was left unchanged")
+    return _counts(project_id, rq_id)
 
 
 @router.get("/articles/{project_id}/rqs/{rq_id}/estimate")

@@ -181,26 +181,35 @@ def match_texts(project_id: int) -> list[dict]:
                        "WHERE project_id = ? ORDER BY id", (project_id,)))
 
 
-def apply_rematch(project_id: int, rq_id: str, added: list[int], dropped: list[int], reason: str) -> None:
-    """After a query edit, in one transaction: every tagged row counts as current (REMATCHED); an article the edit
-    added needs tagging (matched, empty signature; an undecided row goes back to pending); a dropped undecided row
-    becomes irrelevant; a dropped analyst-decided row keeps its decision and is flagged query_changed."""
+def matched_ids(project_id: int, rq_id: str) -> list[int]:
+    return [r[0] for r in _run("SELECT article_id FROM intel_article_rq WHERE project_id = ? AND rq_id = ? AND matched = 1",
+                               (project_id, rq_id))]
+
+
+def apply_rematch(project_id: int, rq_id: str, old_signature: str, added: list[int], dropped: list[int],
+                  reason: str) -> None:
+    """After a query edit, in one transaction:
+    - rows tagged under the pre-edit signature count as current (REMATCHED; the next RQ run adopts the new one);
+    - an added article needs tagging (matched, empty signature, pending), unless its row already matches or an
+      analyst decided it (never touched);
+    - a dropped row neither decided nor approved becomes irrelevant; a decided or approved one keeps its status and
+      is flagged query_changed."""
     conn = _conn()
     try:
-        conn.execute("UPDATE intel_article_rq SET signature = ? WHERE project_id = ? AND rq_id = ? AND signature <> ''",
-                     (REMATCHED, project_id, rq_id))
+        conn.execute("UPDATE intel_article_rq SET signature = ? WHERE project_id = ? AND rq_id = ? AND signature = ?",
+                     (REMATCHED, project_id, rq_id, old_signature))
         for aid in added:
             conn.execute(
                 "INSERT INTO intel_article_rq (project_id, article_id, rq_id, signature, matched, status) "
                 "VALUES (?, ?, ?, '', 1, 'pending') ON CONFLICT (article_id, rq_id) DO UPDATE SET signature = '', "
-                "matched = 1, query_changed = 0, status = CASE WHEN intel_article_rq.decided_by IS NULL "
-                "THEN 'pending' ELSE intel_article_rq.status END", (project_id, aid, rq_id))
+                "matched = 1, query_changed = 0, status = 'pending' "
+                "WHERE intel_article_rq.matched = 0 AND intel_article_rq.decided_by IS NULL", (project_id, aid, rq_id))
         if dropped:
             conn.execute("UPDATE intel_article_rq SET matched = 0, status = 'irrelevant', reason = ? "
-                         "WHERE project_id = ? AND rq_id = ? AND decided_by IS NULL AND article_id = ANY(?)",
-                         (reason, project_id, rq_id, dropped))
-            conn.execute("UPDATE intel_article_rq SET query_changed = 1 "
-                         "WHERE project_id = ? AND rq_id = ? AND decided_by IS NOT NULL AND article_id = ANY(?)",
+                         "WHERE project_id = ? AND rq_id = ? AND decided_by IS NULL AND status <> 'approved' "
+                         "AND article_id = ANY(?)", (reason, project_id, rq_id, dropped))
+            conn.execute("UPDATE intel_article_rq SET query_changed = 1 WHERE project_id = ? AND rq_id = ? "
+                         "AND (decided_by IS NOT NULL OR status = 'approved') AND article_id = ANY(?)",
                          (project_id, rq_id, dropped))
         conn.commit()
     finally:
