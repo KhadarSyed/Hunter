@@ -23,7 +23,7 @@ const PILL: Record<string, string> = { approved: "bg-emerald-50 text-emerald-700
 
 function Chips({ values, tone = "bg-indigo-50 text-indigo-700" }: { values: string[]; tone?: string }) {
   if (values.length === 0) return dash;
-  return <div className="flex flex-wrap gap-1">{values.map((v) => <span key={v} className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${tone}`}>{v}</span>)}</div>;
+  return <div className="flex flex-wrap gap-1">{values.map((v, i) => <span key={`${i}-${v}`} className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${tone}`}>{v}</span>)}</div>;
 }
 
 const THEME_LEVELS = [["primary", "Primary theme"], ["secondary", "Secondary theme"], ["tertiary", "Tertiary theme"]] as const;
