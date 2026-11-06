@@ -1529,6 +1529,28 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
     (38, "reference deck embedding model", [
         "ALTER TABLE intel_reference_decks ADD COLUMN model TEXT",
     ]),
+    # LLM usage and cost (docs/plans/2026-11-06-llm-usage-cost-and-query-panel-design.md): one row per paid call,
+    # priced at write time; prices by effective date (Azure Retail Prices sync, NVIDIA set by the Super Admin).
+    (39, "llm usage and prices", [
+        """CREATE TABLE IF NOT EXISTS llm_usage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, org_id INTEGER, project_id INTEGER,
+            stage TEXT NOT NULL DEFAULT 'other', user_id INTEGER, provider TEXT NOT NULL, model TEXT NOT NULL,
+            deployment_type TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL,
+            input_tokens INTEGER NOT NULL DEFAULT 0, cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0, total_tokens INTEGER NOT NULL DEFAULT 0,
+            requests INTEGER NOT NULL DEFAULT 1, credits REAL NOT NULL DEFAULT 0, latency_ms INTEGER NOT NULL DEFAULT 0,
+            cache_hit INTEGER NOT NULL DEFAULT 0, error INTEGER NOT NULL DEFAULT 0, cost_usd REAL NOT NULL DEFAULT 0)""",
+        "CREATE INDEX IF NOT EXISTS idx_llm_usage_ts ON llm_usage(ts)",
+        "CREATE INDEX IF NOT EXISTS idx_llm_usage_project_ts ON llm_usage(project_id, ts)",
+        "CREATE INDEX IF NOT EXISTS idx_llm_usage_org_ts ON llm_usage(org_id, ts)",
+        """CREATE TABLE IF NOT EXISTS llm_prices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, provider TEXT NOT NULL, model TEXT NOT NULL,
+            deployment_type TEXT NOT NULL DEFAULT '', input_per_m REAL NOT NULL DEFAULT 0,
+            cached_per_m REAL NOT NULL DEFAULT 0, output_per_m REAL NOT NULL DEFAULT 0,
+            effective_from TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'manual',
+            UNIQUE (provider, model, deployment_type, effective_from))""",
+        "CREATE TABLE IF NOT EXISTS llm_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+    ]),
 ]
 
 
