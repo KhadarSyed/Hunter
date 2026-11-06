@@ -1,6 +1,7 @@
 """Core QC check engine -- runs quality checks against parsed monitoring reports."""
 from __future__ import annotations
 
+import contextvars
 import logging
 import re
 import time
@@ -75,7 +76,7 @@ def run_qc(report_id: int, on_progress=None) -> dict:
     with ThreadPoolExecutor(max_workers=4) as pool:
         future_urls = pool.submit(check_urls, rows, mapping)
         future_content = pool.submit(check_content_quality, rows, mapping)
-        future_llm = pool.submit(check_summaries_with_llm, rows, mapping)
+        future_llm = pool.submit(contextvars.copy_context().run, check_summaries_with_llm, rows, mapping)
         future_dates = pool.submit(check_date_mismatch, rows, mapping)
 
         _progress("Detecting duplicates...", 50)

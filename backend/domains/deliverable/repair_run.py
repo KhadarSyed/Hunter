@@ -2,6 +2,7 @@
 on (deck checks, or the brief), its progress streamed into the run's own log like the run itself."""
 from __future__ import annotations
 
+import contextvars
 import logging
 import threading
 from pathlib import Path
@@ -41,7 +42,7 @@ def start(project_id: int, run_id: int, scope: str, *, llm=None, threaded: bool 
             raise engine.RunBusy("A deliverable run or repair is already in progress")
         store.update_deliverable_run(run_id, status="running", stage="repair")
     if threaded:
-        threading.Thread(target=_repair, args=(project_id, run_id, scope, llm), daemon=True).start()
+        threading.Thread(target=contextvars.copy_context().run, args=(_repair, project_id, run_id, scope, llm), daemon=True).start()
     else:
         _repair(project_id, run_id, scope, llm)
 

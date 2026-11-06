@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import contextvars
 import csv
 import io
 import itertools
@@ -528,6 +529,11 @@ def generate_search_strategy(req: GenerateStrategyRequest, user: Annotated[dict,
     store.create_job(job_id, req.project_id, "search_strategy")
 
     def worker():
+        from ..usage.service import scope as usage_scope
+        with usage_scope(project_id=req.project_id, stage="search_strategy"):
+            _work()
+
+    def _work():
         logger.info("[strategy:%s] Starting strategy generation for project %s", job_id, req.project_id)
         store.update_job(job_id, status="running", progress_pct=10,
                          progress_message="Building Meltwater query modules")
@@ -602,7 +608,7 @@ def generate_search_strategy(req: GenerateStrategyRequest, user: Annotated[dict,
                     return mqb_result.get("queries")
 
                 pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-                future = pool.submit(_run_strategy_llm)
+                future = pool.submit(contextvars.copy_context().run, _run_strategy_llm)
                 try:
                     strategy_result = future.result(timeout=STRATEGY_LLM_TIMEOUT)
                 except concurrent.futures.TimeoutError:

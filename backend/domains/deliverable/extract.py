@@ -1,6 +1,7 @@
 """Per-article entity extraction for the fields a plan needs, cached by URL so re-runs are free and stable."""
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import sys
@@ -114,7 +115,7 @@ def extract(llm, rows: list[EngineRow], kind: str, progress=None) -> dict[str, l
     example = json.dumps({k: (v[0] if v else "") for k, v in schema.items()})
     batches = [todo[start:start + BATCH] for start in range(0, len(todo), BATCH)]
     with ThreadPoolExecutor(max_workers=EXTRACT_WORKERS) as pool:
-        futures = {pool.submit(_classify_resilient, llm, batch, kind, example): batch for batch in batches}
+        futures = {pool.submit(contextvars.copy_context().run, _classify_resilient, llm, batch, kind, example): batch for batch in batches}
         failed = 0
         for fut in as_completed(futures):
             batch = futures[fut]

@@ -100,6 +100,30 @@ def _mount_spa(app: FastAPI) -> None:
         return FileResponse(str(STATIC_DIR / "index.html"))
 
 
+# Stage of an LLM call made while serving a request; first match wins. Matching label's RQ routes live under
+# /strategy, and the strategy router's /dataset and /evaluation uploads are the Search Strategy dataset check.
+_STAGE_BY_PATH = [("/research-question", "matching_label"), ("/final-approve", "matching_label"),
+                  ("/api/intel/brief", "brief_scope"), ("/api/intel/spec", "brief_scope"),
+                  ("/api/intel/research", "background_research"), ("/api/intel/strategy", "search_strategy"),
+                  ("/api/intel/dataset", "search_strategy"), ("/api/intel/evaluation", "search_strategy"),
+                  ("/api/intel/articles", "dataset_tagging"), ("/api/intel/deliverable", "deck_engine"),
+                  ("/api/intel/agent", "agent"), ("/api/intel/qc", "qc")]
+
+
+def _stage_for(path: str) -> str:
+    return next((stage for frag, stage in _STAGE_BY_PATH if frag in path), "other")
+
+
+async def usage_scope(request: Request, call_next):
+    """One usage-scope holder per request; the auth dependencies fill org, user and project into it."""
+    from .domains.usage import service as usage
+    token = usage.SCOPE.set({"stage": _stage_for(request.url.path)})
+    try:
+        return await call_next(request)
+    finally:
+        usage.SCOPE.reset(token)
+
+
 def create_app() -> FastAPI:
     settings = get_app_settings()
     logging.basicConfig(level=settings.log_level.upper(),
@@ -121,6 +145,7 @@ def create_app() -> FastAPI:
         expose_headers=["X-Request-ID", "X-Response-Time"],
     )
     install_http_layer(app)
+    app.middleware("http")(usage_scope)
 
     auth = [Depends(require_api_key)]
     app.include_router(intel_router, dependencies=auth)

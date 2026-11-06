@@ -106,6 +106,8 @@ def get_current_user(request: Request,
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Session expired or invalid")
     if user.get("must_change_password") and request.url.path not in MUST_CHANGE_ALLOWED_PATHS:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Password change required")
+    from ..domains.usage import service as usage  # local: avoids a circular import — see module docstring
+    usage.fill(user_id=user.get("id"), org_id=user.get("org_id"))
     return user
 
 
@@ -121,6 +123,8 @@ def can_access_project(project: dict, user: dict) -> bool:
 def _check_project_access(project: dict, user: dict) -> None:
     if not can_access_project(project, user):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized for this project")
+    from ..domains.usage import service as usage  # local: avoids a circular import — see module docstring
+    usage.fill(project_id=project["id"], org_id=project.get("org_id"))
 
 
 def _require_owner_access(project_id: int | None, user: dict, what: str) -> dict:

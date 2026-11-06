@@ -2,6 +2,7 @@
 ships only if every guard passes, otherwise the template version does."""
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import re
@@ -147,7 +148,7 @@ def compose(spec: DeckSpec, out_dir: Path, llm, shingles: set, progress=None, wo
     candidates: dict[str, str] = {}
     stashed = {s.id: _stash(template_html.get(s.id, "")) for s in spec.slides}
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {s.id: pool.submit(creative_slide, llm, stashed[s.id][0], s, tokens, s.reference)
+        futures = {s.id: pool.submit(contextvars.copy_context().run, creative_slide, llm, stashed[s.id][0], s, tokens, s.reference)
                    for s in spec.slides}
         for k, s in enumerate(spec.slides, start=1):
             html = futures[s.id].result()

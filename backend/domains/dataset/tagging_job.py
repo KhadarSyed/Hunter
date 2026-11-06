@@ -2,6 +2,7 @@
 Resumable: every phase reads only what is still pending, each result is saved as it lands."""
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
@@ -96,7 +97,7 @@ def _workers() -> int:
 def _parallel(fn, items: list, workers: int, on_result, on_error=None) -> None:
     """fn(item) on a pool; on_result(item, value) runs here as each lands. One failure is logged, not raised."""
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(fn, it): it for it in items}
+        futures = {pool.submit(contextvars.copy_context().run, fn, it): it for it in items}
         for f in as_completed(futures):
             try:
                 on_result(futures[f], f.result())
@@ -242,6 +243,12 @@ def _relations_phase(pid: int, llm, prog: _Progress) -> None:
 
 
 def run_job(project_id: int, job_id: str, llm=None) -> None:
+    from ..usage.service import scope as usage_scope
+    with usage_scope(project_id=project_id, stage="dataset_tagging"):
+        _run_job(project_id, job_id, llm)
+
+
+def _run_job(project_id: int, job_id: str, llm=None) -> None:
     """The job body. A failed phase is logged and the next one still runs; the running flag is always cleared."""
     prog = _Progress(project_id, job_id)
     with _LOCK:

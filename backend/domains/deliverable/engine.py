@@ -1,6 +1,7 @@
 """Deliverable engine: ten persisted stages, each broadcast on /ws; a failed stage stops the run visibly."""
 from __future__ import annotations
 
+import contextvars
 import dataclasses
 import hashlib
 import json
@@ -193,7 +194,7 @@ def start_run(project_id: int, *, llm=None, threaded: bool = True) -> int:
                 store.update_deliverable_run(run_id, status="failed", stage="gate", error=str(e),
                                              finished_at=time.time())
                 return run_id
-        threading.Thread(target=run_engine, args=(run_id, project_id, llm), daemon=True).start()
+        threading.Thread(target=contextvars.copy_context().run, args=(run_engine, run_id, project_id, llm), daemon=True).start()
     else:
         run_engine(run_id, project_id, llm)
     return run_id
@@ -653,6 +654,12 @@ def _brands(project: dict, rqs) -> list:
 
 
 def run_engine(run_id: int, project_id: int, llm) -> None:
+    from ..usage.service import scope as usage_scope
+    with usage_scope(project_id=project_id, stage="deck_engine"):
+        _run_engine(run_id, project_id, llm)
+
+
+def _run_engine(run_id: int, project_id: int, llm) -> None:
     current, run = "gate", None
     try:        # a setup read failing here must still mark the run failed, or it stays 'running' (409) for good
         run = _Run(run_id, project_id)
@@ -779,7 +786,7 @@ def run_engine(run_id: int, project_id: int, llm) -> None:
             return found, summaries
 
         with ThreadPoolExecutor(max_workers=INSIGHT_WORKERS) as pool:
-            futures = {pool.submit(draft_question, q): q for q in rqs}
+            futures = {pool.submit(contextvars.copy_context().run, draft_question, q): q for q in rqs}
             for k, done in enumerate(as_completed(futures), start=1):
                 q = futures[done]
                 insights_by_rq[q.id], summaries = done.result()

@@ -3,6 +3,7 @@ tool (Azure OpenAI tool calling, or the deterministic next step), runs it and re
 so a restart resumes the loop (resume_all at startup)."""
 from __future__ import annotations
 
+import contextvars
 import logging
 import threading
 import time
@@ -105,7 +106,8 @@ def drive(project_id: int, user_id: int, llm=None, sleep=time.sleep) -> str:
 
 
 def _run(project_id: int, user_id: int) -> None:
-    with _worker:
+    from ..usage.service import scope as usage_scope
+    with _worker, usage_scope(project_id=project_id, stage="agent", user_id=user_id):
         try:
             drive(project_id, user_id, llm=_llm())
         except Exception as e:      # a crash is recorded so the UI shows it; the thread never dies silently
@@ -114,7 +116,7 @@ def _run(project_id: int, user_id: int) -> None:
 
 
 def _spawn(project_id: int, user_id: int) -> None:
-    threading.Thread(target=_run, args=(project_id, user_id), daemon=True, name=f"autopilot-{project_id}").start()
+    threading.Thread(target=contextvars.copy_context().run, args=(_run, project_id, user_id), daemon=True, name=f"autopilot-{project_id}").start()
 
 
 def start(project_id: int, user_id: int, input_folder: str | None = None) -> dict:

@@ -4,6 +4,7 @@ UI's checks: research with blocking reasons or a strategy that fails validation 
 emailed instead."""
 from __future__ import annotations
 
+import contextvars
 import logging
 import threading
 
@@ -34,7 +35,7 @@ def start(project_id: int, user_id: int) -> dict:
         if status(project_id)["status"] == "running":
             return _STATE[project_id]
         _STATE[project_id] = {"status": "running", "step": "research", "job_id": None, "error": None}
-    threading.Thread(target=_run, args=(project_id, user_id), daemon=True, name=f"autorun-{project_id}").start()
+    threading.Thread(target=contextvars.copy_context().run, args=(_run, project_id, user_id), daemon=True, name=f"autorun-{project_id}").start()
     return _STATE[project_id]
 
 
@@ -70,6 +71,12 @@ def _steps(api: ApiClient, project_id: int, reviewer: str) -> None:
 
 
 def _run(project_id: int, user_id: int) -> None:
+    from ..usage.service import scope as usage_scope
+    with usage_scope(project_id=project_id, stage="agent", user_id=user_id):
+        _drive(project_id, user_id)
+
+
+def _drive(project_id: int, user_id: int) -> None:
     api = None
     try:
         api = ApiClient(user_id)

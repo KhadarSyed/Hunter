@@ -2,6 +2,7 @@
 back as a pending action the user confirms; nothing destructive exists to call."""
 from __future__ import annotations
 
+import contextvars
 import json
 import threading
 import secrets
@@ -57,7 +58,7 @@ def _start_background(project_id: int, user_id: int, tool: str, args: dict) -> N
             run_tool(ToolContext(project_id=project_id, user_id=user_id, actor="copilot", api=api, llm=_llm()), tool, args)
         finally:
             api.close()
-    threading.Thread(target=work, daemon=True, name=f"copilot-{tool}-{project_id}").start()
+    threading.Thread(target=contextvars.copy_context().run, args=(work,), daemon=True, name=f"copilot-{tool}-{project_id}").start()
 
 
 def _no_llm(ctx: ToolContext) -> dict:

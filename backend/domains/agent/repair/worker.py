@@ -1,6 +1,7 @@
 """Background fix worker: one open issue at a time becomes a proposed fix; design-only fixes then apply themselves."""
 from __future__ import annotations
 
+import contextvars
 import logging
 import threading
 import time
@@ -66,7 +67,7 @@ def propose_in_background(issue_id: int) -> bool:
         except Exception as e:      # the issue never stays "fixing" because of a crash
             logger.exception("fix proposal for issue %s failed", issue_id)
             store.set_issue_status(issue_id, "discarded", f"fixer error: {type(e).__name__}")
-    threading.Thread(target=work, daemon=True, name=f"fix-proposal-{issue_id}").start()
+    threading.Thread(target=contextvars.copy_context().run, args=(work,), daemon=True, name=f"fix-proposal-{issue_id}").start()
     return True
 
 

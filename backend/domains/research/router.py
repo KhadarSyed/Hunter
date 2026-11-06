@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import contextvars
 import logging
 import uuid
 from typing import Annotated
@@ -79,6 +80,11 @@ def start_background_research(req: StartResearchRequest, user: Annotated[dict, D
     store.create_job(job_id, project_id, "background_research")
 
     def worker():
+        from ..usage.service import scope as usage_scope
+        with usage_scope(project_id=project_id, stage="background_research"):
+            _work()
+
+    def _work():
         logger.info("[research:%s] Starting background research for project %s", job_id, project_id)
         store.update_job(job_id, status="running", progress_pct=5,
                          progress_message="Validating brand entity")
@@ -169,7 +175,7 @@ def start_background_research(req: StartResearchRequest, user: Annotated[dict, D
                     return bi_result.get("brand_intelligence")
 
                 llm_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-                llm_future = llm_pool.submit(_run_llm)
+                llm_future = llm_pool.submit(contextvars.copy_context().run, _run_llm)
 
             logger.info("[research:%s] Stage 1 — executing web research", job_id)
             web_result = adapter.run_full_research(

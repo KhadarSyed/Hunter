@@ -7,6 +7,7 @@ logged with its name instead of dying silently inside a daemon thread.
 """
 from __future__ import annotations
 
+import contextvars
 import logging
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -32,10 +33,11 @@ class JobRunner:
     def submit(self, fn: Callable[..., Any], *args: Any, name: str | None = None, **kwargs: Any) -> Future:
         """Run fn(*args, **kwargs) in the background. Exceptions are logged, not raised."""
         job_name = name or getattr(fn, "__name__", "job")
+        ctx = contextvars.copy_context()  # the submitter's usage scope and memory flags follow the job
 
         def run() -> Any:
             try:
-                return fn(*args, **kwargs)
+                return ctx.run(fn, *args, **kwargs)
             except Exception:
                 logger.exception("Background job %r failed", job_name)
                 raise

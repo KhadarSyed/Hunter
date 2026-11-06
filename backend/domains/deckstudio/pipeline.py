@@ -3,6 +3,7 @@ tokens), find assets, compose (render + creative pass), export."""
 from __future__ import annotations
 
 
+import contextvars
 import json
 from dataclasses import replace
 import logging
@@ -163,8 +164,14 @@ def repair_context(plan_input: PlanInput, checklist_rows: list[dict]) -> dict:
                          "brand_share": plan_input.brand_share}}
 
 
-def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: list[str], brand_image: Path | None,
-               logos: dict[str, Path], out_dir: Path, on_fix=None, on_issue=None) -> dict:
+def run_studio(run, project_id: int, llm, *args, **kwargs) -> dict:
+    from ..usage.service import scope as usage_scope
+    with usage_scope(project_id=project_id, stage="deck_studio"):
+        return _run_studio(run, project_id, llm, *args, **kwargs)
+
+
+def _run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: list[str], brand_image: Path | None,
+                logos: dict[str, Path], out_dir: Path, on_fix=None, on_issue=None) -> dict:
     deck_dir = out_dir / "deck"
     run.stage("index", "running")
     summary = indexer.index_library(progress=lambda i, n, name: run.within("index", i / max(1, n),
@@ -247,7 +254,7 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     # threads only search, the run log is written here
     photos = {}
     with ThreadPoolExecutor(max_workers=PHOTO_WORKERS) as pool:
-        futures = {pool.submit(cached_photo_for, s): s for s in photo_slides}
+        futures = {pool.submit(contextvars.copy_context().run, cached_photo_for, s): s for s in photo_slides}
         for k, done in enumerate(as_completed(futures), start=1):
             run.within("assets", 0.8 * k / max(1, len(photo_slides)), f"Finding photos: {k} of {len(photo_slides)}")
             try:

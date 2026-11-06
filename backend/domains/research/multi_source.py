@@ -7,6 +7,7 @@ research/service.py's single fixed-truncation LLM call.
 """
 from __future__ import annotations
 
+import contextvars
 import re
 
 import json as _json
@@ -192,7 +193,7 @@ def question_clauses(questions: list[str], names: list[str], llm=None) -> list[s
             {"role": "user", "content": _json.dumps({"questions": questions}, ensure_ascii=False)}]
     pool = ThreadPoolExecutor(max_workers=1)
     try:
-        reply = _json.loads(pool.submit(llm.chat, msgs, format_json=True).result(timeout=LLM_QUERY_TIMEOUT_S))
+        reply = _json.loads(pool.submit(contextvars.copy_context().run, llm.chat, msgs, format_json=True).result(timeout=LLM_QUERY_TIMEOUT_S))
         # search engines read only double-quoted phrases
         got = [quote_bare_phrases(re.sub(r"'([^']+)'", r'"\1"', str(c)).strip()) for c in (reply.get("clauses") or [])]
     except Exception as e:      # slow, unreachable or malformed: the keyword clauses stand
@@ -559,7 +560,8 @@ def summarize_map_reduce(project_id: int, spec: dict, llm_client, emit=None, dat
         return summary
 
     with ThreadPoolExecutor(max_workers=MAP_WORKERS) as pool:
-        batch_summaries = [s for s in pool.map(summarise, batches) if s]
+        futures = [pool.submit(contextvars.copy_context().run, summarise, b) for b in batches]
+        batch_summaries = [s for f in futures if (s := f.result())]
 
     if not batch_summaries:
         return {}

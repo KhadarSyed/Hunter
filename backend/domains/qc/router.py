@@ -175,6 +175,11 @@ def qc_run_route(report_id: IdPath):
     store.create_job(job_id, project_id, "qc_run")
 
     def _run_bg():
+        from ..usage.service import scope as usage_scope
+        with usage_scope(project_id=project_id, stage="qc"):
+            _run_qc()
+
+    def _run_qc():
         store.update_job(job_id, status="running", progress_pct=0,
                          progress_message="Running QC checks")
         try:

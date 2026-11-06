@@ -8,6 +8,7 @@ Sources (all three honour a time window at the API and every item carries a date
 """
 from __future__ import annotations
 
+import contextvars
 import html
 import json
 import logging
@@ -469,7 +470,7 @@ def summarize(articles: list[dict], brands: list[str], questions: list[dict], he
     if llm is not None and articles:
         pool = ThreadPoolExecutor(max_workers=1)
         try:
-            bullets = pool.submit(_llm_summary, llm, articles, brands, questions, headline).result(timeout=LLM_TIMEOUT_S)
+            bullets = pool.submit(contextvars.copy_context().run, _llm_summary, llm, articles, brands, questions, headline).result(timeout=LLM_TIMEOUT_S)
             if bullets:
                 return {"source": "llm", "bullets": bullets}
         except Exception as e:      # timeout, unreachable, bad JSON: the deterministic tier still writes real text
@@ -640,7 +641,7 @@ def start(project_id: int, *, llm=None, threaded: bool = True) -> int:
             _busy.discard(project_id)
         raise
     if threaded:
-        threading.Thread(target=_run_with_client, args=(refresh_id, project_id, llm), daemon=True).start()
+        threading.Thread(target=contextvars.copy_context().run, args=(_run_with_client, refresh_id, project_id, llm), daemon=True).start()
     else:
         run_refresh(refresh_id, project_id, llm)
     return refresh_id
