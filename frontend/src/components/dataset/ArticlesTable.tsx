@@ -4,7 +4,7 @@ import type { ArticleRow, Channel, RqColumn } from "../../types/dataset";
 import { RelatedArticlesDrawer, type RelationKind } from "../RelatedArticlesDrawer";
 import { ArticleDrawer } from "./ArticleDrawer";
 import { TriCheckbox } from "./cells";
-import { buildColumns } from "./columns";
+import { brandNames, buildColumns } from "./columns";
 import type { GroupId } from "./ColumnPicker";
 
 export const PAGE_SIZE = 100;
@@ -13,7 +13,8 @@ const STATUS_PILL: Record<ArticleRow["status"], string> = {
   Irrelevant: "bg-red-50 text-red-700", "No RQ match": "bg-slate-100 text-slate-500",
 };
 // Sticky offsets of the pinned columns: checkbox 40, S.No 56, Status 120, then the title.
-const PIN = { check: 0, sno: 40, status: 96, title: 216 };
+const STATUS_W = 150;
+const PIN = { check: 0, sno: 40, status: 96, title: 96 + STATUS_W };
 const th = "px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-500 bg-slate-50 border-b border-slate-200 whitespace-nowrap";
 
 type Props = {
@@ -41,9 +42,9 @@ export function ArticlesTable(p: Props) {
   const relations = useMemo(() => Object.fromEntries(p.rows.map((r) => [String(r.id),
     { syndicated: (r.syndicated ?? []).map(String), similar: (r.similar ?? []).map(String) } as RowRelations])), [p.rows]);
   const cols = useMemo(
-    () => buildColumns({ rows: p.rows, rqs: p.rqs, relations, openRelation: (row, kind) => setRelation({ row, kind }) }, p.channel)
+    () => buildColumns({ brands: brandNames(p.allRows.length ? p.allRows : p.rows), rqs: p.rqs, relations, openRelation: (row, kind) => setRelation({ row, kind }) }, p.channel)
       .filter((c) => !p.hidden.includes(c.group)),
-    [p.rows, p.rqs, relations, p.channel, p.hidden]);
+    [p.rows, p.allRows, p.rqs, relations, p.channel, p.hidden]);
   const byId = useMemo(() => new Map(p.allRows.map((r) => [r.id, r])), [p.allRows]);
   const pinned = (left: number, extra: string) => ({ className: `sticky z-10 bg-white group-hover:bg-slate-50 ${extra}`, style: { left } });
   const last = Math.min(p.offset + PAGE_SIZE, p.total);
@@ -59,7 +60,7 @@ export function ArticlesTable(p: Props) {
                   indeterminate={p.selected.size > 0} onChange={p.onToggleAll} />
               </th>
               <th className={`${th} sticky z-30`} style={{ left: PIN.sno }}>S.No</th>
-              <th className={`${th} sticky z-30`} style={{ left: PIN.status, minWidth: 120 }}>Status</th>
+              <th className={`${th} sticky z-30`} style={{ left: PIN.status, width: STATUS_W, minWidth: STATUS_W, maxWidth: STATUS_W }}>Status</th>
               <th className={`${th} sticky z-30`} style={{ left: PIN.title, minWidth: 260 }}>Title</th>
               {cols.map((c) => <th key={c.id} className={th} style={{ minWidth: c.w }}>{c.head}</th>)}
             </tr>
@@ -71,10 +72,10 @@ export function ArticlesTable(p: Props) {
                   <TriCheckbox ariaLabel={`Select article ${i + 1 + p.offset}`} checked={p.selected.has(r.id)} onChange={() => p.onToggle(r.id)} />
                 </td>
                 <td {...pinned(PIN.sno, "px-3 py-2.5 border-b border-slate-100 text-xs text-slate-400 tabular-nums")}>{p.offset + i + 1}</td>
-                <td {...pinned(PIN.status, "px-3 py-2.5 border-b border-slate-100")}>
+                <td {...pinned(PIN.status, "px-3 py-2.5 border-b border-slate-100 overflow-hidden")} style={{ left: PIN.status, width: STATUS_W, minWidth: STATUS_W, maxWidth: STATUS_W }}>
                   <div className="flex items-center gap-1.5">
-                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap ${STATUS_PILL[r.status]}`}>{r.status}</span>
-                    <span className="hidden group-hover:flex group-focus-within:flex gap-0.5">
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap truncate ${STATUS_PILL[r.status]}`}>{r.status}</span>
+                    <span className="invisible group-hover:visible group-focus-within:visible flex gap-0.5 shrink-0">
                       <button type="button" aria-label="Approve this article" title="Approve" onClick={() => p.onDecide(r.id, "approved")}
                         className="w-5 h-5 rounded text-emerald-700 hover:bg-emerald-50 text-xs">✓</button>
                       <button type="button" aria-label="Reject this article" title="Reject" onClick={() => p.onDecide(r.id, "irrelevant")}

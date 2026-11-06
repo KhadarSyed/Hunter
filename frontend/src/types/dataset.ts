@@ -73,9 +73,7 @@ export interface ArticleFilters {
   q: string;
 }
 
-export interface ArticlePage { rows: ArticleRow[]; total: number; rqs: RqColumn[]; theme_titles: Record<string, string> }
+export interface ArticlePage { rows: ArticleRow[]; total: number; rqs: RqColumn[] }
 
 export interface UploadFileResult { file_name: string; rows_read: number; added: number; duplicates: number; error: string | null }
 export interface UploadResult { files: UploadFileResult[]; added: number; duplicates: number; traditional: number; social: number }
-
-export interface UploadedFile extends UploadFileResult { id: number; uploaded_by: string | null; created_at: number }

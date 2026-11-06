@@ -11,7 +11,7 @@ import type { GroupId } from "./ColumnPicker";
 
 export type Col = { id: string; group: GroupId; head: string; w: number; cell: (r: ArticleRow) => ReactNode };
 export type ColCtx = {
-  rows: ArticleRow[];
+  brands: string[];
   rqs: RqColumn[];
   relations: Record<string, RowRelations>;
   openRelation: (row: ArticleRow, kind: RelationKind) => void;
@@ -28,7 +28,7 @@ function Chips({ values, tone = "bg-indigo-50 text-indigo-700" }: { values: stri
 
 const THEME_LEVELS = [["primary", "Primary theme"], ["secondary", "Secondary theme"], ["tertiary", "Tertiary theme"]] as const;
 
-function brandNames(rows: ArticleRow[]): string[] {
+export function brandNames(rows: ArticleRow[]): string[] {
   return [...new Set(rows.flatMap((r) => (r.tags.brands ?? []).map((b) => b.brand)))];
 }
 
@@ -78,7 +78,7 @@ export function buildColumns(ctx: ColCtx, channel: Channel): Col[] {
   }
   cols.push({ id: "sent", group: "sentiment", w: 110, head: "Sentiment",
     cell: (r) => <span title={r.tags.sentiment_summary ?? ""}><SentimentPill sentiment={r.sentiment} confidence={r.sentiment_confidence} /></span> });
-  for (const name of brandNames(ctx.rows)) {
+  for (const name of ctx.brands) {
     cols.push({ id: `brand.${name}`, group: "sentiment", w: 110, head: name, cell: (r) => {
       const b = r.tags.brands?.find((x) => x.brand === name);
       return b ? <span title={b.summary ?? ""}><SentimentPill sentiment={b.sentiment} confidence={b.confidence} /></span> : dash; } });

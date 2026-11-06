@@ -13,7 +13,7 @@ const V = "#5B2C9D";
 const UNDO_MS = 10_000;
 const ALL_PAGE = 200;
 const EMPTY: ArticleFilters = { channel: "traditional", status: "all", rq: "", sentiment: "", theme: "", brand: "", content_status: "", q: "" };
-const NO_PAGE: ArticlePage = { rows: [], total: 0, rqs: [], theme_titles: {} };
+const NO_PAGE: ArticlePage = { rows: [], total: 0, rqs: [] };
 const errMsg = (e: unknown, fallback: string) => (e instanceof Error ? e.message : fallback);
 
 type Progress = { phase: string; done: number; total: number; minutesLeft: number | null };
@@ -40,7 +40,9 @@ export function DataSet() {
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [hidden, setHiddenState] = useState<GroupId[]>(loadHidden);
-  const [reloadKey, setReloadKey] = useState(0);
+  const [reloadKey, setReloadKey] = useState(0);   // the page itself
+  const [dataKey, setDataKey] = useState(0);       // what the dropdowns and related-article lookups read
+
   const [uploading, setUploading] = useState(false);
   const [upload, setUpload] = useState<UploadResult | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
@@ -49,13 +51,13 @@ export function DataSet() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
-  const phaseStart = useRef<{ phase: string; at: number }>({ phase: "", at: 0 });
+  const phaseStart = useRef<{ phase: string; at: number; seeded: boolean }>({ phase: "", at: 0, seeded: false });
   const toastTimer = useRef<number | undefined>(undefined);
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
+  const reloadData = useCallback(() => { setReloadKey((k) => k + 1); setDataKey((k) => k + 1); }, []);
 
   // A new tab, filter or scope never keeps the old selection.
   const changeFilters = (patch: Partial<ArticleFilters>) => { setFilters((f) => ({ ...f, ...patch })); setOffset(0); setSelected(new Set()); };
-  const changePage = (o: number) => { setOffset(o); setSelected(new Set()); };
 
   useEffect(() => {
     if (!projectId) return;
@@ -83,9 +85,9 @@ export function DataSet() {
         if (rows.length >= p.total || p.rows.length === 0) break;
       }
       if (!stale) setAllRows(rows);
-    })().catch(() => { if (!stale) setAllRows([]); });
+    })().catch((e) => { if (!stale) { setAllRows([]); setError(errMsg(e, "Could not load the filter options")); } });
     return () => { stale = true; };
-  }, [projectId, filters.channel, reloadKey]);
+  }, [projectId, filters.channel, dataKey]);
 
   const syncTagging = useCallback(async () => {
     if (!projectId) return;
@@ -94,6 +96,10 @@ export function DataSet() {
       setTagged(t.counts.tags.tagged ?? 0);
       setArticleTotal(t.counts.total);
       setProgress(t.running ? { phase: t.phase ?? "", done: t.done, total: t.total, minutesLeft: t.minutes_left } : null);
+      // Seed the phase clock from the server's ETA (left = elapsed / done * remaining) so a page opened mid-run keeps counting.
+      const remaining = t.total - t.done;
+      const elapsedMin = t.running && t.minutes_left != null && t.done > 0 && remaining > 0 ? (t.minutes_left * t.done) / remaining : 0;
+      phaseStart.current = { phase: t.running ? (t.phase ?? "") : "", at: Date.now() - elapsedMin * 60000, seeded: t.running && (t.done === 0 || t.minutes_left != null) };
     } catch { /* the strip simply stays as it was */ }
   }, [projectId]);
 
@@ -103,26 +109,31 @@ export function DataSet() {
     void syncTagging();
     const offMsg = agentSocket.onMessage((m) => {
       if (m.type !== "dataset_tagging" || m.project_id !== projectId) return;
-      if (m.phase === "done") { setProgress(null); void syncTagging(); reload(); return; }
-      if (phaseStart.current.phase !== m.phase) phaseStart.current = { phase: m.phase, at: Date.now() };
+      if (m.phase === "done") { setProgress(null); void syncTagging(); reloadData(); return; }
+      if (phaseStart.current.phase !== m.phase) {
+        // First event of a phase we did not see start (page opened mid-run): no guess, ask the server for its ETA.
+        const midRun = m.done > 1;
+        phaseStart.current = { phase: m.phase, at: Date.now(), seeded: !midRun };
+        if (midRun) void syncTagging();
+      }
       const elapsedMin = (Date.now() - phaseStart.current.at) / 60000;
-      const left = m.done > 0 ? Math.round((elapsedMin / m.done) * (m.total - m.done) * 10) / 10 : null;
+      const left = phaseStart.current.seeded && m.done > 0 ? Math.round((elapsedMin / m.done) * (m.total - m.done) * 10) / 10 : null;
       setProgress({ phase: m.phase, done: m.done, total: m.total, minutesLeft: left });
     });
     const offStatus = agentSocket.onStatus((connected) => { if (connected) void syncTagging(); });
     return () => { offMsg(); offStatus(); };
-  }, [projectId, syncTagging, reload]);
+  }, [projectId, syncTagging, reloadData]);
 
   useEffect(() => () => window.clearTimeout(toastTimer.current), []);
 
   const onFiles = async (files: FileList | File[]) => {
     const list = Array.from(files);
-    if (!projectId || list.length === 0) return;
+    if (!projectId || list.length === 0 || uploading) return;
     setUploading(true);
     setError(null);
     try {
       setUpload(await intelApi.uploadArticles(projectId, list));
-      reload();
+      reloadData();
       void syncTagging();
     } catch (e) { setError(errMsg(e, "Upload failed")); }
     finally { setUploading(false); }
@@ -187,7 +198,7 @@ export function DataSet() {
         </div>
       </div>
 
-      <label onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); void onFiles(e.dataTransfer.files); }}
+      <label onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); if (!uploading) void onFiles(e.dataTransfer.files); }}
         className="flex cursor-pointer flex-col items-center gap-1 rounded-xl border-2 border-dashed px-6 py-6 text-center hover:bg-[#f5f3ff]" style={{ borderColor: "#c4b5fd" }}>
         <span className="text-sm font-medium" style={{ color: V }}>{uploading ? "Uploading…" : "Drop article files here or click to choose"}</span>
         <span className="text-xs text-slate-500">.csv, .xlsx or .xls — several files at once; a link already uploaded is counted once</span>
@@ -227,8 +238,8 @@ export function DataSet() {
         <ArticlesTable projectId={projectId} channel={filters.channel} rows={page.rows} allRows={allRows} rqs={page.rqs}
           total={page.total} offset={offset} loading={loading} hidden={hidden} selected={selected}
           selectionComplete={page.total > 0 && selected.size === page.total}
-          onToggle={toggleRow} onToggleAll={() => void toggleAll()} onPage={changePage}
-          onDecide={(id, status) => void decide([id], filters.rq || null, status)} onEdited={reload} />
+          onToggle={toggleRow} onToggleAll={() => void toggleAll()} onPage={setOffset}
+          onDecide={(id, status) => void decide([id], filters.rq || null, status)} onEdited={reloadData} />
       )}
 
       {toast && (

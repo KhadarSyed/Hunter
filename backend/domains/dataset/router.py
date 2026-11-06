@@ -134,7 +134,7 @@ def page(project_id: ProjectId, _: Access, f: Annotated[Filters, Depends()],
     for r in rows:     # raw label -> the consolidated title the deck uses
         labels = [v for v in (r["tags"].get("themes") or {}).values() if v]
         r["theme_titles"] = {v: titles.get(theme_key(v), v) for v in labels}
-    return {"rows": rows, "total": total, "rqs": _rq_columns(project_id), "theme_titles": titles}
+    return {"rows": rows, "total": total, "rqs": _rq_columns(project_id)}
 
 
 @router.get("/articles/{project_id}/ids")

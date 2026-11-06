@@ -1,4 +1,4 @@
-import type { ArticleFilters, ArticlePage, RqStatus, UploadResult, UploadedFile } from "../types/dataset";
+import type { ArticleFilters, ArticlePage, RqStatus, UploadResult } from "../types/dataset";
 
 // Empty by default (relative paths), matching same-origin deploys where the backend
 // serves the built SPA directly. Set VITE_API_BASE_URL (e.g. "https://api.example.com")
@@ -790,8 +790,6 @@ export const intelApi = {
     return fetch(`${API_BASE}/articles/${projectId}/upload`, { method: "POST", credentials: CREDENTIALS, body: form })
       .then((r) => json<UploadResult>(r));
   },
-
-  listUploadFiles: (projectId: number) => get<UploadedFile[]>(`/articles/${projectId}/files`),
 
   startTagging: (projectId: number) => post<{ job_id: string }>(`/articles/${projectId}/tag`),
 

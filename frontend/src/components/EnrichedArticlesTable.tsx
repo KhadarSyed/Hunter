@@ -14,11 +14,7 @@ const V = "#5B2C9D";
 const SENTIMENT_OPTIONS = ["Positive", "Neutral", "Negative"] as const;
 const CLAMP_THRESHOLD = 140; // rough chars-per-3-lines at this column's width
 
-
-
-
 const rowKey = (r: Pick<EnrichedRecord, "dataset_id" | "id">) => `${r.dataset_id}:${r.id}`;
-
 
 /** Which review bucket a record currently belongs to — irrelevant overrides
  * media type, so marking something irrelevant always moves it out of
@@ -28,8 +24,6 @@ function bucketOf(r: EnrichedRecord): "social" | "traditional" | "irrelevant" {
   // "Post" when derived from the source domain; a file's own media type column says "social"
   return /^(post|social)$/i.test(r.media_type || "") ? "social" : "traditional";
 }
-
-
 
 /** Clamps to a fixed 3 lines (caps row height) and — only when the text is
  * long enough that it likely overflowed — shows a "See more" link that opens
@@ -54,13 +48,7 @@ function ClampedCell({ text, onSeeMore }: { text: string; onSeeMore: () => void 
   );
 }
 
-
-
-
 type ReviewQueue = "needs_review" | "auto_accepted" | "all";
-
-
-
 
 /** One review column per question dimension across every research question (same key = same column). */
 function dimensionColumns(dimensions: Record<string, QuestionDimension[]> | undefined): { key: string; label: string; judged: boolean }[] {
@@ -87,8 +75,6 @@ function tagColumns(schemas: TagSchemas | undefined): DynamicTagDef[] {
   }
   return [...byName.values()];
 }
-
-
 
 export function EnrichedArticlesTable({ records, loading, dimensions, tagSchemas, projectId }: EnrichedArticlesTableProps) {
   const dimColumns = useMemo(() => dimensionColumns(dimensions), [dimensions]);
