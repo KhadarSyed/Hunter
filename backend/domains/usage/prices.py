@@ -48,6 +48,8 @@ def _fetch_all() -> list[dict]:
 def _parse(item: dict) -> tuple[str, str, str, float, str] | None:
     """(model, deployment, kind, price per million tokens, effective date) or None for a meter we do not use."""
     name = item.get("meterName") or ""
+    if float(item.get("tierMinimumUnits") or 0) != 0:
+        return None
     m = MODEL.match(name)
     if SKIP.search(name) or not m:
         return None
@@ -77,23 +79,45 @@ def sync_azure(fetch=None) -> int:
             parsed = _parse(item)
             if parsed:
                 model, deployment, kind, price, day = parsed
-                groups[(model, deployment, day)][kind] = price
+                group = groups[(model, deployment, day)]
+                if kind in group:
+                    if group[kind] != price:
+                        logger.warning("Azure price conflict for %s %s %s %s: keeping %s, ignoring %s",
+                                       model, deployment, day, kind, group[kind], price)
+                    continue
+                group[kind] = price
+        written = 0
         for (model, deployment, day), p in groups.items():
-            repo.upsert_price("azure_openai", model, deployment, p.get("input", 0.0), p.get("cached", 0.0),
-                              p.get("output", 0.0), day, "azure_retail")
-        return len(groups)
+            if len(p) < 3:  # a meter that did not change keeps the earlier row's value, never a silent $0
+                earlier = repo.earlier_price("azure_openai", model, deployment, day)
+                if not earlier:
+                    logger.debug("Azure price group %s %s %s skipped: only %s and no earlier row",
+                                 model, deployment, day, sorted(p))
+                    continue
+                for kind, col in (("input", "input_per_m"), ("cached", "cached_per_m"), ("output", "output_per_m")):
+                    p.setdefault(kind, earlier[col])
+            repo.upsert_price("azure_openai", model, deployment, p["input"], p["cached"], p["output"], day,
+                              "azure_retail")
+            written += 1
+        return written
     except Exception as e:
         logger.warning("Azure price sync failed (%s: %s)", type(e).__name__, e)
         return 0
 
 
+def _last_synced() -> float:
+    try:
+        last = float(repo.get_setting(SYNCED_KEY, "0") or 0)
+    except ValueError:
+        return 0.0
+    return last if 0 < last <= time.time() else 0.0
+
+
 def _sync_job() -> None:
     try:
         seed_defaults()
-        last = float(repo.get_setting(SYNCED_KEY, "0") or 0)
-        if time.time() - last >= SYNC_EVERY_S:
-            sync_azure()
-            repo.set_setting(SYNCED_KEY, str(time.time()))
+        if time.time() - _last_synced() >= SYNC_EVERY_S and sync_azure() > 0:
+            repo.set_setting(SYNCED_KEY, str(time.time()))  # a failed sync is retried at the next start
     except Exception as e:
         logger.warning("price sync job failed (%s: %s)", type(e).__name__, e)
 

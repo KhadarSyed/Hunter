@@ -80,3 +80,15 @@ def has_price_row(provider: str, model: str) -> bool:
                             (provider, model)).fetchone() is not None
     finally:
         conn.close()
+
+
+def earlier_price(provider: str, model: str, deployment_type: str, before_day: str) -> dict | None:
+    """The latest row for exactly this model and deployment type that starts before before_day."""
+    conn = _conn()
+    try:
+        row = conn.execute("SELECT * FROM llm_prices WHERE provider = ? AND model = ? AND deployment_type = ? "
+                           "AND effective_from < ? ORDER BY effective_from DESC LIMIT 1",
+                           (provider, model, deployment_type, before_day)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
