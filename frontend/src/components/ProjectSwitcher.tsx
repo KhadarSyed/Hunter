@@ -3,10 +3,12 @@ import { useProject, type ProjectType } from "../context/project-context";
 import { intelApi, type ProjectSummary } from "../services/intel-api";
 import { BrandLogo } from "./BrandLogo";
 import { formatRelativeOrDate } from "../utils/time";
+import { ProjectProgress } from "./ProjectProgress";
+import { useLiveRefetch } from "../hooks/useLiveRefetch";
 
 const MAX_LISTED = 20;
 const VISIBLE_ROWS = 10;
-const ROW_HEIGHT_PX = 60;
+const ROW_HEIGHT_PX = 72;
 const LABEL_MAX_CHARS = 20;
 
 function truncateLabel(name: string): string {
@@ -22,12 +24,16 @@ export function ProjectSwitcher({ onNavigate }: { onNavigate: (page: string) => 
   const [open, setOpen] = useState(false);
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
 
+  const load = () => intelApi.listProjects(activeProject?.project_type)
+    .then((list) => setProjects([...list].sort((a, b) => b.updated_at - a.updated_at)))
+    .catch(() => setProjects((p) => p ?? []));
   useEffect(() => {
     if (!open || projects) return;
-    intelApi.listProjects(activeProject?.project_type)
-      .then((list) => setProjects([...list].sort((a, b) => b.updated_at - a.updated_at)))
-      .catch(() => setProjects([]));
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, projects, activeProject?.project_type]);
+  // live % while the drawer is open: pipeline progress re-reads the list (throttled)
+  useLiveRefetch(() => { if (open) void load(); });
 
   useEffect(() => {
     if (!open) return;
@@ -118,7 +124,8 @@ export function ProjectSwitcher({ onNavigate }: { onNavigate: (page: string) => 
                   >
                     {truncateLabel(p.project_name)}
                   </span>
-                  <span className="text-[11px] text-slate-400 tabular-nums">
+                  <ProjectProgress pct={p.progress_pct} stage={p.current_stage} />
+                  <span className="text-[10px] text-slate-400 tabular-nums">
                     {p.created_at === p.updated_at ? "Created" : "Updated"} {formatRelativeOrDate(p.updated_at)}
                   </span>
                 </span>
