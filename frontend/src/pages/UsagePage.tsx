@@ -3,7 +3,9 @@ import { Icon } from "@iconify/react";
 import { BrandLogo } from "../components/BrandLogo";
 import { useAuth } from "../context/auth-context";
 import { intelApi } from "../services/intel-api";
-import type { UsageCall, UsageCallsPage, UsageQuery, UsageSummary } from "../types/usage";
+import type { UsageCall, UsageCallsPage, UsageLiveRow, UsageQuery, UsageSummary } from "../types/usage";
+import { LiveFeed } from "../components/usage/LiveFeed";
+import { useAgentSocket } from "../hooks/useAgentSocket";
 import { KpiTiles } from "../components/usage/KpiTiles";
 import { TopProjects } from "../components/usage/TopProjects";
 import { SummaryTable } from "../components/usage/SummaryTable";
@@ -131,6 +133,14 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
   const [projects, setProjects] = useState<{ id: number; name: string; brand: string | null; org_id: number | null }[]>([]);
   const [orgs, setOrgs] = useState<{ id: number; name: string }[]>([]);
   const [knownModels, setKnownModels] = useState<{ provider: string; model: string }[]>([]);
+  // Live: each recorded call arrives on the socket; tiles move at once, the rest re-reads quietly every 10 s at most
+  const [liveRows, setLiveRows] = useState<UsageLiveRow[]>([]);
+  const [paused, setPaused] = useState(false);
+  const [liveTick, setLiveTick] = useState(0);
+  const quietSummary = useRef(false);
+  const quietCalls = useRef(false);
+  const liveTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(liveTimer.current), []);
 
   // Review Focus 3: each fetch takes the next id; a response whose id is no longer the latest is dropped.
   // Cleanup bumps the id too, so a response arriving after unmount or a filter change is ignored.
@@ -172,7 +182,8 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
 
   useEffect(() => {
     const id = ++summarySeq.current;
-    setSummaryLoading(true);
+    if (!quietSummary.current) setSummaryLoading(true);
+    quietSummary.current = false;
     setSummaryError("");
     intelApi.usageSummary(query).then((s) => {
       if (id !== summarySeq.current) return;
@@ -192,11 +203,12 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
     });
     return () => { summarySeq.current++; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryKey, retry]);
+  }, [queryKey, retry, liveTick]);
 
   useEffect(() => {
     const id = ++callsSeq.current;
-    setCallsLoading(true);
+    if (!quietCalls.current) setCallsLoading(true);
+    quietCalls.current = false;
     setCallsError("");
     intelApi.usageCalls(callQuery, callOffset, CALL_PAGE_SIZE).then((c) => {
       if (id === callsSeq.current) setCalls(c);
@@ -207,7 +219,36 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
     });
     return () => { callsSeq.current++; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [callKey, callOffset, retry]);
+  }, [callKey, callOffset, retry, liveTick]);
+
+  const todayUtc = new Date().toISOString().slice(0, 10);
+  const matchesFilters = (r: UsageLiveRow): boolean =>
+    filters.to >= todayUtc
+    && (query.project_id == null || r.project_id === query.project_id)
+    && (query.org_id == null || r.org_id === query.org_id)
+    && (!query.stage || r.stage === query.stage)
+    && (!query.model || r.model === query.model);
+  const { connected } = useAgentSocket((m) => {
+    if (m.type !== "llm_usage" || paused) return;
+    const r = m as unknown as UsageLiveRow;
+    if (!matchesFilters(r)) return;
+    setLiveRows((prev) => [r, ...prev].slice(0, 50));
+    setSummary((s) => s && {
+      ...s, kpis: {
+        ...s.kpis, calls: s.kpis.calls + (r.cache_hit ? 0 : 1), cost_usd: s.kpis.cost_usd + (r.cost_usd || 0),
+        input_tokens: s.kpis.input_tokens + r.input_tokens, output_tokens: s.kpis.output_tokens + r.output_tokens,
+        cached_input_tokens: s.kpis.cached_input_tokens + r.cached_input_tokens, total_tokens: s.kpis.total_tokens + r.total_tokens,
+      },
+    });
+    if (liveTimer.current === undefined) {
+      liveTimer.current = window.setTimeout(() => {
+        liveTimer.current = undefined;
+        quietSummary.current = true;
+        quietCalls.current = true;
+        setLiveTick((t) => t + 1);
+      }, 10_000);
+    }
+  });
 
   // Mirror every filter into the URL so a refresh or a shared link reopens the same view.
   useEffect(() => {
@@ -306,6 +347,11 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
       <div className="mt-6">
         <UsageFilters value={filters} onChange={updateFilters} orgOptions={orgOptions}
           projectOptions={projectOptions} stageOptions={stageOptions} modelOptions={modelOptions} />
+      </div>
+
+      <div className="mt-6">
+        <LiveFeed rows={liveRows} paused={paused} connected={connected} onTogglePause={() => setPaused((v) => !v)}
+          projectName={projectName} />
       </div>
 
       {summaryError ? (

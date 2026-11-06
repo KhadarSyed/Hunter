@@ -103,3 +103,10 @@ export interface UsageQuery {
   model?: string;
   sub_stage?: string | null;   // /calls only; "" is sent (the unattributed calls), null is left out
 }
+
+/** One `llm_usage` socket message: the row just recorded. */
+export interface UsageLiveRow extends UsageTokens {
+  ts: number; org_id: number | null; project_id: number | null; user_id: number | null;
+  stage: string; sub_stage: string; provider: string; model: string; kind: string;
+  cost_usd: number; latency_ms: number; cache_hit: number; error: number; credits?: number;
+}

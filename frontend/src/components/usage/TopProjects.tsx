@@ -2,10 +2,27 @@ import { useState } from "react";
 import { Icon } from "@iconify/react";
 import type { UsageProjectRow } from "../../types/usage";
 import { ProviderLogo } from "./ProviderLogo";
+import { BrandLogo } from "../BrandLogo";
 import { money, num, pct, stageLabel } from "./format";
 
 const RANKED_PREVIEW = 10;
 const projectName = (p: UsageProjectRow): string => p.project_name ?? (p.project_id === null ? "No project" : `Project #${p.project_id}`);
+
+/** The project's brand logo (a monogram when none is found); calls with no project get a neutral glyph. */
+function ProjectMark({ p, size }: { p: UsageProjectRow; size: number }) {
+  if (p.project_id === null) {
+    return (
+      <span className="inline-flex shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-400" style={{ width: size, height: size }}>
+        <Icon icon="lucide:circle-dashed" width={Math.round(size * 0.55)} aria-hidden />
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white ring-1 ring-slate-900/5" style={{ width: size, height: size }}>
+      <BrandLogo brandName={projectName(p)} projectId={p.project_id} size={Math.round(size * 0.8)} rounded="lg" />
+    </span>
+  );
+}
 
 function ShareBar({ share }: { share: number }) {
   return (
@@ -24,7 +41,8 @@ function TopCard({ p, onPick, onStage }:
           <span className="inline-flex items-center gap-1 rounded-full bg-[#5B2C9D] px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">
             <Icon icon="lucide:flame" width={12} aria-hidden /> Highest usage
           </span>
-          <h3 className="mt-2 truncate text-xl font-bold text-slate-900">
+          <h3 className="mt-2 flex min-w-0 items-center gap-2.5 text-xl font-bold text-slate-900">
+            <ProjectMark p={p} size={36} />
             {onPick ? (
               <button type="button" onClick={onPick} title={`Filter to ${projectName(p)}`}
                 className="max-w-full truncate text-left hover:text-[#5B2C9D] hover:underline focus-visible:outline-2 focus-visible:outline-[#5B2C9D]">
@@ -109,9 +127,12 @@ export function TopProjects({ projects, onPick, onStage }:
                       className="grid w-full grid-cols-[2rem_minmax(0,1.4fr)_minmax(0,1fr)_auto_auto] items-center gap-3 px-2 py-2.5 text-left text-sm hover:bg-slate-50 disabled:cursor-default disabled:hover:bg-transparent"
                     >
                       <span className="text-center font-bold tabular-nums text-slate-400">#{i + 2}</span>
-                      <span className="min-w-0">
-                        <span className="block truncate font-semibold text-slate-800">{projectName(p)}</span>
-                        <span className="block truncate text-xs text-slate-500">Top stage: {stageLabel(p.top_stage)}</span>
+                      <span className="flex min-w-0 items-center gap-2.5">
+                        <ProjectMark p={p} size={28} />
+                        <span className="min-w-0">
+                          <span className="block truncate font-semibold text-slate-800">{projectName(p)}</span>
+                          <span className="block truncate text-xs text-slate-500">Top stage: {stageLabel(p.top_stage)}</span>
+                        </span>
                       </span>
                       <span className="min-w-0" title={`${num(p.total_tokens)} tokens`}>
                         <ShareBar share={p.share_pct} />

@@ -5,6 +5,7 @@ import { useProject, useActiveProjectId } from "../context/project-context";
 import { BrandLogo } from "../components/BrandLogo";
 import { intelApi } from "../services/intel-api";
 import { STAGE_KEYS, useStageGate } from "../hooks/useStageGate";
+import { ProjectCostChip } from "../components/usage/ProjectCostChip";
 
 type ActivityItem = { action: string; detail: string; timestamp: string };
 const clock = (seconds: number) => formatTime(seconds * 1000);
@@ -243,6 +244,12 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
                 </div>
               </div>
               <div className="mt-4 flex items-center gap-5">
+                {activeProject?.id && (
+                  <>
+                    <ProjectCostChip projectId={activeProject.id} />
+                    <div className="w-px h-8 bg-slate-200" />
+                  </>
+                )}
                 <div>
                   <div className="text-[10px] text-slate-400 uppercase tracking-wider font-medium mb-1">Next Action</div>
                   <button onClick={() => nextStage && onNavigate(nextStage.page)} className="text-sm font-semibold text-[#5B2C9D] hover:underline text-left">
