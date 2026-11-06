@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { UploadedFiles } from "../components/dataset/UploadedFiles";
+import { RqPanel } from "../components/dataset/RqPanel";
+import type { UploadedFile } from "../types/dataset";
 import { intelApi } from "../services/intel-api";
 import { agentSocket } from "../services/ws";
 import { useActiveProjectId } from "../context/project-context";
@@ -44,6 +47,7 @@ export function DataSet() {
   const [dataKey, setDataKey] = useState(0);       // what the dropdowns read
 
   const [uploading, setUploading] = useState(false);
+  const [files, setFiles] = useState<UploadedFile[]>([]);
   const [upload, setUpload] = useState<UploadResult | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [tagged, setTagged] = useState(0);
@@ -71,6 +75,14 @@ export function DataSet() {
     }, filters.q ? 300 : 0);
     return () => { stale = true; window.clearTimeout(id); };
   }, [projectId, filters, offset, reloadKey]);
+
+  // Uploaded files, as chips under the drop zone (they survive a reload, unlike the upload banner)
+  useEffect(() => {
+    if (!projectId) return;
+    let stale = false;
+    intelApi.listDatasetFiles(projectId).then((f) => { if (!stale) setFiles(f); }).catch(() => { /* chips stay as they were */ });
+    return () => { stale = true; };
+  }, [projectId, dataKey]);
 
   // The channel's dropdown values (themes, brands, content statuses), computed on the server.
   useEffect(() => {
@@ -174,6 +186,8 @@ export function DataSet() {
   const toggleRow = (id: number) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const setHidden = (h: GroupId[]) => { setHiddenState(h); saveHidden(h); };
   const running = progress !== null;
+  // Approve / Reject and the filters open once tagging has run and nothing is tagging now
+  const reviewable = !running && tagged > 0;
   const pct = progress && progress.total > 0 ? Math.round((progress.done * 100) / progress.total) : 0;
 
   return (
@@ -199,6 +213,7 @@ export function DataSet() {
           onChange={(e) => { void onFiles(e.target.files ?? []); e.target.value = ""; }} />
       </label>
 
+      {projectId && <UploadedFiles projectId={projectId} files={files} onRemoved={() => { reloadData(); void syncTagging(); }} />}
       {upload && <UploadBanner result={upload} />}
       {error && <div role="alert" className="rounded-lg border border-red-100 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div>}
 
@@ -218,9 +233,18 @@ export function DataSet() {
         <ColumnPicker hidden={hidden} onChange={setHidden} />
       </div>
 
-      <FilterBar filters={filters} rqs={page.rqs} facets={facets} onChange={changeFilters} />
+      {projectId && <RqPanel projectId={projectId} refreshKey={dataKey} disabled={running} onChanged={() => { reloadData(); void syncTagging(); }} />}
 
-      {selected.size > 0 && (
+      {reviewable ? (
+        <FilterBar filters={filters} rqs={page.rqs} facets={facets} onChange={changeFilters} />
+      ) : (
+        <p role="status" className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500">
+          {running ? "Tagging is running. Review, filters and approval open when it finishes."
+                   : "Tag the data set to review, filter and approve articles."}
+        </p>
+      )}
+
+      {reviewable && selected.size > 0 && (
         <BulkBar key={filters.rq} count={selected.size} rqs={page.rqs} defaultRq={filters.rq} busy={busy}
           onApprove={(rq) => void decide([...selected], rq, "approved")}
           onReject={(rq, reason) => void decide([...selected], rq, "irrelevant", reason)}
@@ -232,7 +256,7 @@ export function DataSet() {
           total={page.total} offset={offset} loading={loading} hidden={hidden} selected={selected}
           selectionComplete={page.total > 0 && selected.size === page.total}
           onToggle={toggleRow} onToggleAll={() => void toggleAll()} onPage={setOffset}
-          onDecide={(id, status) => void decide([id], filters.rq || null, status)} onEdited={reloadData} />
+          onDecide={(id, status) => void decide([id], filters.rq || null, status)} onEdited={reloadData} canDecide={reviewable} />
       )}
 
       {toast && (

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { intelApi } from "../services/intel-api";
 import { useActiveProjectId } from "../context/project-context";
+import { TagSchemaView } from "../components/dataset/TagSchemaView";
+import type { TagSchemaField } from "../types/dataset";
 import { BooleanDisplay } from "./SearchStrategy";
 
 type RQ = { question_id: string; question: string; query: string; status?: "draft" | "approved" };
@@ -48,8 +50,8 @@ function AddForm({ onAdd }: { onAdd: (question: string, query: string) => Promis
   );
 }
 
-function Card({ rq, busy, onStatus, onEdit, onDelete }: {
-  rq: RQ; busy: boolean;
+function Card({ rq, busy, schema, onStatus, onEdit, onDelete }: {
+  rq: RQ; busy: boolean; schema?: TagSchemaField[];
   onStatus: (s: "draft" | "approved") => void;
   onEdit: (question: string, query: string) => Promise<boolean>;
   onDelete: () => void;
@@ -98,6 +100,12 @@ function Card({ rq, busy, onStatus, onEdit, onDelete }: {
         ) : (
           <p className="text-xs text-slate-400">No Boolean query yet.</p>
         )}
+        {schema && (
+          <details className="text-xs">
+            <summary className="cursor-pointer font-medium text-slate-500">Tag schema · {schema.length} fields</summary>
+            <div className="mt-2"><TagSchemaView fields={schema} /></div>
+          </details>
+        )}
 
         <div className="flex flex-wrap gap-2 justify-end mt-auto pt-1">
           {editing ? (
@@ -129,6 +137,14 @@ export function MatchingLabel({ onNavigate }: { onNavigate: (page: string) => vo
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
+  // Tag schemas per approved RQ (built at the first tagging run), shown read-only on each card
+  const [schemas, setSchemas] = useState<Record<string, TagSchemaField[]>>({});
+  useEffect(() => {
+    if (!projectId) return;
+    intelApi.datasetRqs(projectId)
+      .then((list) => setSchemas(Object.fromEntries(list.map((q) => [q.rq_id, q.schema.fields]))))
+      .catch(() => setSchemas({}));
+  }, [projectId, rqs]);
 
   const load = useCallback(async () => {
     if (!projectId) return;
@@ -180,7 +196,7 @@ export function MatchingLabel({ onNavigate }: { onNavigate: (page: string) => vo
           {rqs.length === 0 && <p className="text-sm text-slate-500">No research questions yet. Approve a search strategy or add one.</p>}
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-stretch">
           {rqs.map((rq) => (
-            <Card key={`${rq.question_id}|${rq.question}|${rq.query}`} rq={rq} busy={busy}
+            <Card key={`${rq.question_id}|${rq.question}|${rq.query}`} rq={rq} busy={busy} schema={schemas[rq.question_id]}
               onStatus={(s) => void run((sid) => intelApi.setResearchQuestionStatus(sid, rq.question_id, s), "Failed to update status")}
               onEdit={(question, query) => edit(rq, question, query)}
               onDelete={() => void run((sid) => intelApi.deleteResearchQuestion(sid, rq.question_id), "Failed to delete")} />

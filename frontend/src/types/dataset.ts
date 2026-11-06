@@ -80,6 +80,8 @@ export interface ArticleFacets { themes: { label: string; title: string }[]; bra
 export interface ArticlePage { rows: ArticleRow[]; total: number; rqs: RqColumn[] }
 
 export interface UploadFileResult { file_name: string; rows_read: number; added: number; duplicates: number; error: string | null }
+export interface UploadedFile { id: number; file_name: string; s3_key: string | null; rows_read: number | null; added: number | null;
+  duplicates: number | null; error: string | null; uploaded_by: string | null; created_at: number }
 export interface UploadResult { files: UploadFileResult[]; added: number; duplicates: number; traditional: number; social: number }
 
 /** The research-question panel on the Data set page (GET /articles/{id}/rqs and the per-RQ routes). */

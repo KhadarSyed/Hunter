@@ -34,6 +34,8 @@ type Props = {
   onToggleAll: () => void;
   onPage: (offset: number) => void;
   onDecide: (id: number, status: "approved" | "irrelevant") => void;
+  /** false until tagging has run: no row decisions or selection yet */
+  canDecide?: boolean;
   onEdited: () => void;
 };
 
@@ -79,18 +81,18 @@ export function ArticlesTable(p: Props) {
             {p.rows.map((r, i) => (
               <tr key={r.id} className="group align-top">
                 <td {...pinned(PIN.check, "px-3 py-2.5 border-b border-slate-100")}>
-                  <TriCheckbox ariaLabel={`Select article ${i + 1 + p.offset}`} checked={p.selected.has(r.id)} onChange={() => p.onToggle(r.id)} />
+                  {p.canDecide !== false && <TriCheckbox ariaLabel={`Select article ${i + 1 + p.offset}`} checked={p.selected.has(r.id)} onChange={() => p.onToggle(r.id)} />}
                 </td>
                 <td {...pinned(PIN.sno, "px-3 py-2.5 border-b border-slate-100 text-xs text-slate-400 tabular-nums")}>{p.offset + i + 1}</td>
                 <td {...pinned(PIN.status, "px-3 py-2.5 border-b border-slate-100 overflow-hidden")} style={{ left: PIN.status, width: STATUS_W, minWidth: STATUS_W, maxWidth: STATUS_W }}>
                   <div className="flex items-center gap-1.5">
                     <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap truncate ${STATUS_PILL[r.status]}`}>{r.status}</span>
-                    <span className="invisible group-hover:visible group-focus-within:visible flex gap-0.5 shrink-0">
+                    {p.canDecide !== false && <span className="invisible group-hover:visible group-focus-within:visible flex gap-0.5 shrink-0">
                       <button type="button" aria-label="Approve this article" title="Approve" onClick={() => p.onDecide(r.id, "approved")}
                         className="w-5 h-5 rounded text-emerald-700 hover:bg-emerald-50 text-xs">✓</button>
                       <button type="button" aria-label="Reject this article" title="Reject" onClick={() => p.onDecide(r.id, "irrelevant")}
                         className="w-5 h-5 rounded text-red-700 hover:bg-red-50 text-xs">✕</button>
-                    </span>
+                    </span>}
                   </div>
                 </td>
                 <td {...pinned(PIN.title, "px-3 py-2.5 border-b border-slate-100 border-r")}>

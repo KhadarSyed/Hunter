@@ -1,4 +1,4 @@
-import type { ArticleFacets, ArticleFilters, ArticlePage, ArticleRow, Channel, RqCounts, RqEstimate, RqPreview, RqStatus, RqSummary, UploadResult } from "../types/dataset";
+import type { ArticleFacets, ArticleFilters, ArticlePage, ArticleRow, Channel, RqCounts, RqEstimate, RqPreview, RqStatus, RqSummary, UploadResult, UploadedFile } from "../types/dataset";
 import type { UsageCallsPage, UsagePriceRequest, UsagePrices, UsageQuery, UsageSummary } from "../types/usage";
 
 // Empty by default (relative paths), matching same-origin deploys where the backend
@@ -793,6 +793,13 @@ export const intelApi = {
 
   editArticle: (projectId: number, articleId: number, edit: { sentiment?: string; themes?: string[]; brands?: string[] }) =>
     patch<{ ok: boolean; approved_rqs: string[] }>(`/articles/${projectId}/${articleId}`, edit),
+
+  // Data set uploaded files: list, what removing one takes with it, remove (its articles and their RQ rows)
+  listDatasetFiles: (projectId: number) => get<UploadedFile[]>(`/articles/${projectId}/files`),
+  datasetFileImpact: (projectId: number, fileId: number) =>
+    get<{ articles: number; approved: number }>(`/articles/${projectId}/files/${fileId}/impact`),
+  deleteDatasetFile: (projectId: number, fileId: number) =>
+    del<{ ok: boolean; articles_removed: number; approved_removed: number }>(`/articles/${projectId}/files/${fileId}`),
 
   // Data set research-question panel: query preview / save (free re-match), re-tag estimate, re-tag, delete
   datasetRqs: (projectId: number) => get<RqSummary[]>(`/articles/${projectId}/rqs`),
