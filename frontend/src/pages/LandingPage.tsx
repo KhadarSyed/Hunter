@@ -1,8 +1,10 @@
 import { formatDate as formatDateUS } from "../utils/format";
-import { useState, useEffect } from "react";
+import { ProjectProgress } from "../components/ProjectProgress";
+import { useLiveRefetch } from "../hooks/useLiveRefetch";
+import { BrandLogo } from "../components/BrandLogo";
+import { useState, useEffect, useCallback } from "react";
 import { useProject, type ProjectType } from "../context/project-context";
 import { intelApi } from "../services/intel-api";
-import { agentSocket } from "../services/ws";
 
 interface RecentProject {
   id: number;
@@ -10,6 +12,8 @@ interface RecentProject {
   project_type: string;
   brand?: string | null;
   updated_at: number;
+  progress_pct?: number;
+  current_stage?: string;
 }
 
 export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void }) {
@@ -18,9 +22,8 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
   const [loading, setLoading] = useState(true);
   const [counts, setCounts] = useState({ research: 0, qc: 0 });
 
-  useEffect(() => {
-    const load = () =>
-      intelApi
+  const load = useCallback(() => {
+    intelApi
         .listProjects()
         .then((list) => {
           setRecent(list.slice(0, 5));
@@ -31,14 +34,10 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
         })
         .catch(() => {})
         .finally(() => setLoading(false));
-    load();
-    // Live: any client creating or deleting a project re-fetches the (role-scoped) list
-    agentSocket.connect();
-    const off = agentSocket.onMessage((msg) => {
-      if (msg.type === "project_created" || msg.type === "project_deleted") load();
-    });
-    return () => { off(); };
   }, []);
+  useEffect(load, [load]);
+  // Live: projects created or deleted anywhere, and pipeline progress, re-fetch the (role-scoped) list
+  useLiveRefetch(load);
 
   const handleWorkflow = (type: ProjectType) => {
     onNavigate(type === "research" ? "projects" : "qc-projects");
@@ -322,32 +321,21 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
                       onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "rgba(91,44,157,0.03)"; }}
                       onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
                     >
-                      {/* Icon */}
-                      <div
-                        className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
-                        style={{
-                          backgroundColor: isQC ? "rgba(15,123,108,0.08)" : "rgba(91,44,157,0.08)",
-                          border: `1px solid ${isQC ? "rgba(15,123,108,0.12)" : "rgba(91,44,157,0.12)"}`,
-                        }}
-                      >
-                        {isQC ? (
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0F7B6C" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" />
-                          </svg>
-                        ) : (
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-                          </svg>
-                        )}
+                      {/* Logo */}
+                      <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 overflow-hidden bg-white"
+                           style={{ border: "1px solid rgba(30,24,51,0.08)" }}>
+                        <BrandLogo brandName={proj.brand || proj.project_name} projectId={proj.id} size={28} rounded="lg" />
                       </div>
                       {/* Info */}
                       <div className="flex-1 min-w-0">
                         <p className="truncate" style={{ fontSize: 15, fontWeight: 600, color: "#2d2545" }}>
                           {proj.project_name}
                         </p>
-                        <p style={{ fontSize: 12, color: "#9896a6", marginTop: 2 }}>
-                          {isQC ? "Monitoring Quality Check" : "Research Project"}
-                        </p>
+                        {isQC ? (
+                          <p style={{ fontSize: 12, color: "#9896a6", marginTop: 2 }}>Monitoring Quality Check</p>
+                        ) : (
+                          <ProjectProgress pct={proj.progress_pct} stage={proj.current_stage} className="mt-1.5 max-w-xs" />
+                        )}
                       </div>
                       {/* Date */}
                       <span style={{ fontSize: 12, color: "#b0aebf", whiteSpace: "nowrap" as const }}>

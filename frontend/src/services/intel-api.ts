@@ -569,6 +569,9 @@ export interface ProjectSummary {
   brief_source: BriefSource | null;
   created_at: number;
   updated_at: number;
+  /** Live pipeline position: done stages count in full, a running stage adds its job's share. */
+  progress_pct?: number;
+  current_stage?: string;
   org_id?: number | null;
   owner_user_id?: number | null;
   archived_at?: number | null;

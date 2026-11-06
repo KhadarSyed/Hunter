@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ProjectProgress } from "../components/ProjectProgress";
+import { useLiveRefetch } from "../hooks/useLiveRefetch";
 import { createPortal } from "react-dom";
 import { Icon } from "@iconify/react";
 import { BrandLogo } from "../components/BrandLogo";
@@ -6,7 +8,6 @@ import { CountryFlag } from "../components/CountryFlag";
 import { useAuth } from "../context/auth-context";
 import { useProject, type ProjectType } from "../context/project-context";
 import { intelApi, type BriefSource, type ProjectSummary } from "../services/intel-api";
-import { agentSocket } from "../services/ws";
 import { formatRelativeOrDate } from "../utils/time";
 import { money } from "../components/usage/format";
 
@@ -252,6 +253,9 @@ function ProjectCard({ project, onOpen, onEdit, onDelete, selected, onToggleSele
         <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-slate-600">
           {project.description || <span className="text-slate-400">No brief added yet.</span>}
         </p>
+        {project.project_type !== "monitoring_qc" && (
+          <ProjectProgress pct={project.progress_pct} stage={project.current_stage} className="mt-3" />
+        )}
         <div className="mt-auto flex items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs text-slate-500">
           <span>{editedAgo(project.updated_at)}</span>
           <CountryFlag country={project.geography} size={16} showLabel className="truncate" />
@@ -287,20 +291,15 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
   };
   useEffect(load, [projectType]);
 
-  // Live: a project created or deleted anywhere swaps in the fresh list without the loading flash,
-  // dropping any selected ids that no longer exist
-  useEffect(() => {
-    agentSocket.connect();
-    const off = agentSocket.onMessage((msg) => {
-      if (msg.type !== "project_created" && msg.type !== "project_deleted") return;
-      intelApi.listProjects(projectType).then((list) => {
-        setProjects(list);
-        const ids = new Set(list.map((p) => p.id));
-        setSelected((prev) => new Set([...prev].filter((id) => ids.has(id))));
-      }).catch(() => {});
-    });
-    return () => { off(); };
-  }, [projectType]);
+  // Live: projects created or deleted anywhere, and pipeline progress, swap in the fresh list without the loading
+  // flash, dropping any selected ids that no longer exist
+  useLiveRefetch(() => {
+    intelApi.listProjects(projectType).then((list) => {
+      setProjects(list);
+      const ids = new Set(list.map((p) => p.id));
+      setSelected((prev) => new Set([...prev].filter((id) => ids.has(id))));
+    }).catch(() => {});
+  });
 
   // Admins see every project in their org grouped by owning Analyser — resolve
   // owner ids to display names once (the project list itself is already scoped
