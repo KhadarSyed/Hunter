@@ -30,6 +30,7 @@ from .qc.router import router as qc
 from .research.router import router as research
 from .spec.router import router as spec
 from .strategy.router import router as strategy
+from .usage.router import router as usage
 
 router = APIRouter(
     prefix="/api/intel", tags=["intelligence"],
@@ -40,7 +41,7 @@ router = APIRouter(
 # matters within a domain router (literal paths before parameterised ones).
 for domain_router in (
     projects, research, brief, spec, strategy, plan, qc,
-    datasources, deliverable, agent_router, exclusions, memory, dataset,
+    datasources, deliverable, agent_router, exclusions, memory, dataset, usage,
 ):
     router.include_router(domain_router)
 

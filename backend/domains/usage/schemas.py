@@ -1,0 +1,21 @@
+"""Request bodies for the usage API."""
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+
+class PriceRequest(BaseModel):
+    provider: str = Field(min_length=1, max_length=64)
+    model: str = Field(min_length=1, max_length=200)
+    deployment_type: str = Field(default="", max_length=32)
+    input_per_m: float = Field(ge=0)
+    cached_per_m: float = Field(ge=0)
+    output_per_m: float = Field(ge=0)
+    effective_from: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
+class SettingsRequest(BaseModel):
+    deployment_type: Literal["global", "datazone", "regional"] | None = None
+    region: str | None = Field(default=None, min_length=1, max_length=64)
