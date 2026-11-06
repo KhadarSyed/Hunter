@@ -59,7 +59,7 @@ def record(provider: str, model: str, kind: str, *, input_tokens: int = 0, cache
         s, now, model = current(), time.time(), model or "unknown"
         dep = deployment_type(provider)
         stage = s.get("stage") if s.get("stage") in STAGES else "other"
-        repo.insert_usage({
+        row = {
             "ts": now, "org_id": s.get("org_id"), "project_id": s.get("project_id"), "stage": stage,
             "sub_stage": str(s.get("sub_stage") or "")[:64],
             "user_id": s.get("user_id"), "provider": provider, "model": model, "deployment_type": dep,
@@ -68,6 +68,18 @@ def record(provider: str, model: str, kind: str, *, input_tokens: int = 0, cache
             "requests": int(requests), "credits": float(credits), "latency_ms": int(latency_ms),
             "cache_hit": int(cache_hit), "error": int(error),
             "cost_usd": 0.0 if cache_hit else cost_usd(provider, model, dep, input_tokens, cached_input_tokens,
-                                                       output_tokens, now)})
+                                                       output_tokens, now)}
+        repo.insert_usage(row)
     except Exception as e:
         logger.warning("LLM usage not recorded: %s", type(e).__name__)
+        return
+    _broadcast(row)
+
+
+def _broadcast(row: dict) -> None:
+    """Live feed for the Usage page; delivery follows the project's access rules (no project: super admins)."""
+    try:
+        from ...core import events
+        events.broadcast({"type": "llm_usage", **row})
+    except Exception as e:
+        logger.debug("usage broadcast skipped: %s", type(e).__name__)

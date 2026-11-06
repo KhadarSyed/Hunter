@@ -25,6 +25,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi import Path as PathParam
 
 from ...agents.meltwater_query_builder import run as run_mqb
+from ..projects import gates
 from ...agents.meltwater_query_builder import quote_bare_phrases, validate_boolean_syntax
 from ...agents.query_evaluator import evaluate_sample
 from ...core import store
@@ -520,6 +521,7 @@ def generate_search_strategy(req: GenerateStrategyRequest, user: Annotated[dict,
     project = store.get_project(req.project_id)
     if not project:
         raise HTTPException(404, "Project not found")
+    gates.require(req.project_id, "search_strategy")
 
     research = store.get_latest_research(req.project_id)
     if not research:

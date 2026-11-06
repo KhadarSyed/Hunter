@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from ...core import store
 from ...core.auth import require_project_access
 from ..deckstudio import data_tables, revise
+from ..projects import gates
 from . import deck_store, engine, latest24h, notify, repair_run
 from . import rows as engine_rows
 from .schemas import (DataCoverageResponse, DeckDesign, DeckDesignChange, DeckDesignResult, DeliverableRunPayload,
@@ -52,6 +53,7 @@ def _payload(run_id: int) -> dict:
 
 @router.post("/deliverable/{project_id}/run", response_model=DeliverableRunStarted)
 def start(project_id: ProjectId, _: Access):
+    gates.require(project_id, "deliverables")
     try:
         return {"run_id": engine.start_run(project_id)}
     except engine.RunBusy as e:

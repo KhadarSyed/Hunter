@@ -54,6 +54,41 @@ def list_files(project_id: int) -> list[dict]:
                        "FROM intel_upload_files WHERE project_id = ? ORDER BY id DESC", (project_id,)))
 
 
+_FILE_ARTICLES = "SELECT id FROM intel_articles WHERE project_id = ? AND file_id = ?"
+
+
+def get_file(project_id: int, file_id: int) -> dict | None:
+    rows = _dicts(_run("SELECT id, file_name, s3_key FROM intel_upload_files WHERE project_id = ? AND id = ?",
+                       (project_id, file_id)))
+    return rows[0] if rows else None
+
+
+def file_impact(project_id: int, file_id: int) -> dict:
+    """What removing a file takes with it: its articles (deduped copies stay with the file that added them)."""
+    row = _run(f"SELECT (SELECT COUNT(*) FROM ({_FILE_ARTICLES}) f) AS articles, "
+               f"(SELECT COUNT(DISTINCT article_id) FROM intel_article_rq WHERE status = 'approved' "
+               f"AND article_id IN ({_FILE_ARTICLES})) AS approved",
+               (project_id, file_id, project_id, file_id), one=True)
+    return {"articles": int(row["articles"]), "approved": int(row["approved"])}
+
+
+def delete_file(project_id: int, file_id: int) -> dict:
+    """Remove a file, its articles and their RQ rows in one transaction."""
+    impact = file_impact(project_id, file_id)
+    conn = _conn()
+    try:
+        conn.execute(f"DELETE FROM intel_article_rq WHERE article_id IN ({_FILE_ARTICLES})", (project_id, file_id))
+        conn.execute("DELETE FROM intel_articles WHERE project_id = ? AND file_id = ?", (project_id, file_id))
+        conn.execute("DELETE FROM intel_upload_files WHERE project_id = ? AND id = ?", (project_id, file_id))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {"articles_removed": impact["articles"], "approved_removed": impact["approved"]}
+
+
 # ---- articles ------------------------------------------------------------------------------------------------------
 def insert_articles(project_id: int, file_id: int, records: list[dict]) -> tuple[int, int]:
     added = 0

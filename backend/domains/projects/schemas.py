@@ -92,6 +92,14 @@ class ProjectListItem(ApiModel):
     geography: str | None = None
     client: str | None = None
     brief_source: dict | None = None  # {type: pdf|docx|pptx|xlsx|doc|ppt|xls|txt|text, file_name}
+    progress_pct: float = 0
+    current_stage: str = ""
+
+
+class GatesResponse(ApiModel):
+    gates: dict[str, str]
+    progress_pct: float
+    current_stage: str
 
 
 class JobResponse(ApiModel):

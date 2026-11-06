@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse
 from ...agents.brand_intelligence import run as run_bi
 from ...core import store, writing_locale
 from ..datasources import repository as ds_repo
+from ..projects import gates
 from ..exclusions import service as exclusions
 from ..datasources import service as ds_service
 from ...core.llm_provider import get_llm_client
@@ -74,6 +75,7 @@ def start_background_research(req: StartResearchRequest, user: Annotated[dict, D
     spec = req.spec
     if req.project_id:
         check_project_id_access(req.project_id, user)
+        gates.require(req.project_id, "background_research")
     # a new project is the creator's (and gets its email); a matched one is never moved to the caller's org
     project_id = req.project_id or store.get_or_create_project(spec, user["org_id"], user["id"])
     job_id = f"research_{uuid.uuid4().hex[:12]}"

@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Path as PathParam, 
 from ...agents import question_tag_schema as tag_schema
 from ...core import store
 from ...core.auth import require_project_access
+from ..projects import gates
 from ..deliverable import rows as engine_rows
 from ..deliverable.labels import theme_key
 from . import repository as repo, service
@@ -49,6 +50,7 @@ def _bad_ext(name: str) -> str | None:
 
 @router.post("/articles/{project_id}/upload")
 def upload(project_id: ProjectId, user: Access, files: list[UploadFile] = File(...)):
+    gates.require(project_id, "data_set")
     accepted, refused = [], []
     for f in files:
         name = f.filename or "upload"
@@ -74,8 +76,39 @@ def files(project_id: ProjectId, _: Access):
     return repo.list_files(project_id)
 
 
+FileId = Annotated[int, PathParam(ge=1)]
+
+
+def _file_of(project_id: int, file_id: int) -> dict:
+    f = repo.get_file(project_id, file_id)
+    if not f:
+        raise HTTPException(404, "No such file in this project")
+    return f
+
+
+@router.get("/articles/{project_id}/files/{file_id}/impact")
+def file_impact(project_id: ProjectId, file_id: FileId, _: Access):
+    _file_of(project_id, file_id)
+    return repo.file_impact(project_id, file_id)
+
+
+@router.delete("/articles/{project_id}/files/{file_id}")
+def delete_file(project_id: ProjectId, file_id: FileId, _: Access):
+    f = _file_of(project_id, file_id)
+    _guard(project_id)
+    out = repo.delete_file(project_id, file_id)
+    if f.get("s3_key"):
+        try:
+            from ...core import object_store
+            object_store.delete(f["s3_key"])
+        except Exception as e:      # the rows are gone; a stray object is only storage
+            logger.warning("upload file %s: S3 delete failed (%s)", file_id, type(e).__name__)
+    return {"ok": True, **out}
+
+
 @router.post("/articles/{project_id}/tag")
 def tag(project_id: ProjectId, user: Access):
+    gates.require(project_id, "data_set")
     try:
         return {"job_id": service.start_tagging(project_id, _who(user))}
     except service.TaggingBusy as e:

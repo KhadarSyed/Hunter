@@ -15,6 +15,7 @@ from ...core.events import broadcast as _broadcast
 from .schemas import (
     CreateProjectRequest,
     DeleteProjectResponse,
+    GatesResponse,
     JobResponse,
     ProjectListItem,
     ProjectLogoResponse,
@@ -23,8 +24,18 @@ from .schemas import (
     _require_project_fields,
 )
 from .logo import project_logo
+from . import gates
 
 router = APIRouter()
+
+
+def _with_progress(projects: list[dict]) -> list[dict]:
+    # shortcut: a few queries per project in the list; batch them when projects > 200
+    out = []
+    for p in projects:
+        s = gates.summary(p["id"])
+        out.append({**p, "progress_pct": s["progress_pct"], "current_stage": s["current_stage"]})
+    return out
 
 
 @router.get("/projects", response_model=list[ProjectListItem])
@@ -32,12 +43,18 @@ def list_projects_route(
     user: Annotated[dict, Depends(get_current_user)], type: str | None = None,
 ):
     if user["role"] == "super_admin":
-        return store.list_projects(project_type=type)
+        return _with_progress(store.list_projects(project_type=type))
     if user["org_id"] is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "No organization assigned")
     if user["role"] == "admin":
-        return store.list_projects(project_type=type, org_id=user["org_id"])
-    return store.list_projects(project_type=type, org_id=user["org_id"], owner_user_id=user["id"])
+        return _with_progress(store.list_projects(project_type=type, org_id=user["org_id"]))
+    return _with_progress(store.list_projects(project_type=type, org_id=user["org_id"], owner_user_id=user["id"]))
+
+
+@router.get("/projects/{project_id}/gates", response_model=GatesResponse)
+def project_gates_route(project_id: Annotated[int, Path(ge=1)],
+                        _access: Annotated[dict, Depends(require_project_access)]):
+    return gates.summary(project_id)
 
 
 @router.post("/projects", response_model=ProjectResponse)
