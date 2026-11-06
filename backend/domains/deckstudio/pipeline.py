@@ -236,10 +236,11 @@ def run_studio(run, project_id: int, llm, plan_input: PlanInput, brand_colors: l
     # another organization's deck on the same brand, spend nothing on it (shared asset table)
     def cached_photo_for(s):
         key = assets.photo_key(plan_input.title, _role(s), s.image["query"])
-        photo = assets.cached_photo(key, deck_dir / "photos", used)
+        photo = (assets.cached_photo(key, deck_dir / "photos", used)
+                 or assets.similar_photo(plan_input.title, _role(s), s.image["query"], deck_dir / "photos", used))
         if photo is None:
             photo = photo_for(s)
-            assets.remember_photo(key, photo, _role(s))
+            assets.remember_photo(key, photo, _role(s), plan_input.title, s.image["query"])
         return photo
 
     # Each slide's photo search is independent (30-75s of search and vision checks), so several run at once;

@@ -397,12 +397,7 @@ def _capped_jpeg(path: Path) -> bytes | None:
     return buf.getvalue()
 
 
-def cached_photo(key: str, folder: Path, used: set[str]) -> Photo | None:
-    """The photo an earlier run (of any project) chose for the same subject, slide shape and search, reused with no
-    search and no vision check. None when there is none."""
-    saved = asset_store.get("photo", key)
-    if not saved or not saved["content"]:
-        return None
+def _photo_from_saved(key: str, saved: dict, folder: Path, used: set[str]) -> Photo | None:
     meta = saved["meta"]
     try:
         name = f"cached-{hashlib.sha1(key.encode()).hexdigest()[:16]}"
@@ -417,7 +412,27 @@ def cached_photo(key: str, folder: Path, used: set[str]) -> Photo | None:
         return None
 
 
-def remember_photo(key: str, photo: Photo, role: str) -> None:
+def cached_photo(key: str, folder: Path, used: set[str]) -> Photo | None:
+    """The photo an earlier run (of any project) chose for the same subject, slide shape and search, reused with no
+    search and no vision check. None when there is none."""
+    saved = asset_store.get("photo", key)
+    if not saved or not saved["content"]:
+        return None
+    return _photo_from_saved(key, saved, folder, used)
+
+
+def similar_photo(subject: str, role: str, query: str, folder: Path, used: set[str]) -> Photo | None:
+    """A photo an earlier run kept for the same subject and slide role, under a near-identical search (score >= 0.9),
+    reused before any web search. Never a picture this deck already shows, from any host."""
+    saved = asset_store.similar("photo", f"{subject} {query}", brand=subject, role=role, min_score=0.9)
+    if not saved or not saved["content"]:
+        return None
+    if saved["meta"].get("source_url") in used or is_duplicate(saved["content"], used):
+        return None
+    return _photo_from_saved(saved["key"], saved, folder, used)
+
+
+def remember_photo(key: str, photo: Photo, role: str, subject: str = "", query: str = "") -> None:
     """Keep a found photo's original (capped) for every later run. A slide with no photo is not kept: it searches
     again."""
     if not photo.path:
@@ -427,7 +442,7 @@ def remember_photo(key: str, photo: Photo, role: str) -> None:
     if data:
         asset_store.put("photo", key, data, "image/jpeg",
                         {"source_url": photo.source_url, "licence": photo.licence, "why": photo.why, "role": role,
-                         "credit": credit_of(photo.path)})
+                         "credit": credit_of(photo.path), "subject": subject, "brand": subject, "query": query})
 
 
 def _keep(data: bytes, url: str, licence: str, why: str, role: str, folder: Path, slug: str, used: set[str],
