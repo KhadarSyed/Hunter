@@ -37,6 +37,17 @@ export function IconRailSidebar({ currentPage, onNavigate }: { currentPage: Page
         </svg>
       ),
     },
+    {
+      page: "usage",
+      label: "Usage & cost",
+      icon: (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="8" cy="8" r="6" />
+          <path d="M8 5.5v5M6.5 6.8h2.3a1 1 0 0 1 0 2H7.2a1 1 0 0 0 0 2h2.3" />
+          <path d="M14 21v-4M18 21v-8M22 21V9" />
+        </svg>
+      ),
+    },
   ];
 
   return (
@@ -53,6 +64,7 @@ export function IconRailSidebar({ currentPage, onNavigate }: { currentPage: Page
               key={item.page}
               onClick={() => onNavigate(item.page)}
               title={item.label}
+              aria-label={item.label}
               className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors ${
                 isActive ? "bg-[#5B2C9D10] text-[#5B2C9D]" : "text-slate-400 hover:bg-slate-50 hover:text-slate-600"
               }`}

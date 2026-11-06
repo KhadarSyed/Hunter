@@ -8,6 +8,7 @@ import { useProject, type ProjectType } from "../context/project-context";
 import { intelApi, type BriefSource, type ProjectSummary } from "../services/intel-api";
 import { agentSocket } from "../services/ws";
 import { formatRelativeOrDate } from "../utils/time";
+import { money } from "../components/usage/format";
 
 interface Props {
   onNavigate: (page: string) => void;
@@ -98,9 +99,46 @@ interface ProjectCardProps {
   onDelete: () => void;
   selected: boolean;
   onToggleSelect: () => void;
+  onUsage: () => void;
 }
 
-function ProjectCard({ project, onOpen, onEdit, onDelete, selected, onToggleSelect }: ProjectCardProps) {
+/** Opens Usage & cost filtered to this project; hovering shows the cost so far, loaded on the first hover. */
+function UsageButton({ project, onUsage }: { project: ProjectSummary; onUsage: () => void }) {
+  const [total, setTotal] = useState<string | null>(null);
+  const [hover, setHover] = useState(false);
+  const requested = useRef(false);
+  const load = () => {
+    setHover(true);
+    if (requested.current) return;
+    requested.current = true;
+    intelApi.projectUsageTotal(project.id)
+      .then((t) => setTotal(`${money(t.cost_usd)} · ${t.total_tokens.toLocaleString("en-US")} tokens so far`))
+      .catch(() => { requested.current = false; setTotal("Cost not available"); });
+  };
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onMouseEnter={load}
+        onMouseLeave={() => setHover(false)}
+        onFocus={load}
+        onBlur={() => setHover(false)}
+        onClick={(e) => { e.stopPropagation(); onUsage(); }}
+        className="rounded-md px-1.5 py-0.5 text-slate-400 hover:bg-slate-100 hover:text-[#5B2C9D]"
+        aria-label={`Usage and cost for ${project.project_name}`}
+      >
+        <Icon icon="lucide:circle-dollar-sign" width={18} aria-hidden />
+      </button>
+      {hover && (
+        <span role="tooltip" className="pointer-events-none absolute right-0 top-full z-30 mt-1 whitespace-nowrap rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg">
+          {total ?? "Loading cost…"}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ProjectCard({ project, onOpen, onEdit, onDelete, selected, onToggleSelect, onUsage }: ProjectCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -173,6 +211,7 @@ function ProjectCard({ project, onOpen, onEdit, onDelete, selected, onToggleSele
               {project.project_name}
             </h3>
           </button>
+          <UsageButton project={project} onUsage={onUsage} />
           <div className="relative">
             <button
               ref={menuButtonRef}
@@ -305,6 +344,12 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
     }
     return groups;
   }, [filtered, user?.role]);
+
+  // Usage & cost reads ?project= on mount; App carries the query over to /usage
+  const openUsage = (projectId: number) => {
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}?project=${projectId}`);
+    onNavigate("usage");
+  };
 
   const select = (p: ProjectSummary, page: string) => {
     setActiveProject({ id: p.id, name: p.project_name, project_type: (p.project_type as ProjectType) || projectType, brand: p.brand });
@@ -473,6 +518,7 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
                     onDelete={() => setPendingDelete([p])}
                     selected={selected.has(p.id)}
                     onToggleSelect={() => toggleSelected(p.id)}
+                    onUsage={() => openUsage(p.id)}
                   />
                 ))}
               </div>
@@ -490,6 +536,7 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
               onDelete={() => setPendingDelete([p])}
               selected={selected.has(p.id)}
               onToggleSelect={() => toggleSelected(p.id)}
+              onUsage={() => openUsage(p.id)}
             />
           ))}
           <button

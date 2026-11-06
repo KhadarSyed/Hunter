@@ -25,6 +25,7 @@ import { QCUpload } from "./pages/QCUpload";
 import { QCFieldMapping } from "./pages/QCFieldMapping";
 import { QCResults } from "./pages/QCResults";
 import { QCExport } from "./pages/QCExport";
+import { UsagePage } from "./pages/UsagePage";
 
 type PageProps = { onNavigate: (page: string) => void };
 
@@ -52,6 +53,7 @@ const PAGES = {
   "qc-results": QCResults,
   "qc-export": QCExport,
   settings: SettingsPage,
+  usage: UsagePage,
 } satisfies Record<string, ComponentType<PageProps>>;
 
 export type Page = keyof typeof PAGES;
@@ -64,7 +66,7 @@ const isPage = (p: string): p is Page => p in PAGES;
 const BROWSING_PAGES = new Set<Page>([
   "landing", "projects", "qc-projects",
   "new-project", "new-qc-project", "edit-project", "edit-qc-project",
-  "settings",
+  "settings", "usage",
 ]);
 
 /** URL shape: `/{projectId}/{pageSlug}` once a project is active, else `/{pageSlug}` —
@@ -83,7 +85,8 @@ function parseUrl(pathname: string): { projectId: number | null; page: Page | nu
 }
 
 function buildUrl(projectId: number | null, page: Page): string {
-  return projectId ? `/${projectId}/${page}` : `/${page}`;
+  // Usage & cost is not inside a project: it has its own Project filter (?project=), so it never takes the prefix
+  return projectId && page !== "usage" ? `/${projectId}/${page}` : `/${page}`;
 }
 
 /** Routing + demo-sync shell — rendered inside ProjectProvider/DemoStateProvider so it
@@ -154,8 +157,12 @@ function AppShell() {
     if (!hydrated || openingProjectId !== null) return;
     const url = buildUrl(activeProject?.id ?? null, page);
     if (window.location.pathname !== url) {
-      if (pushNext.current) window.history.pushState(null, "", url);
-      else window.history.replaceState(null, "", url);
+      // Usage & cost keeps its filters in the query (a project card puts ?project= there before navigating): the
+      // query moves to the new entry and comes off the page being left. Every other page drops the query.
+      const carried = page === "usage" ? window.location.search : "";
+      if (carried) window.history.replaceState(window.history.state, "", window.location.pathname);
+      if (pushNext.current) window.history.pushState(null, "", url + carried);
+      else window.history.replaceState(null, "", url + carried);
     }
     pushNext.current = false;
   }, [page, activeProject?.id, hydrated, openingProjectId]);

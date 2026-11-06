@@ -1,4 +1,5 @@
 import type { ArticleFacets, ArticleFilters, ArticlePage, ArticleRow, Channel, RqStatus, UploadResult } from "../types/dataset";
+import type { UsageCallsPage, UsagePriceRequest, UsagePrices, UsageQuery, UsageSummary } from "../types/usage";
 
 // Empty by default (relative paths), matching same-origin deploys where the backend
 // serves the built SPA directly. Set VITE_API_BASE_URL (e.g. "https://api.example.com")
@@ -935,7 +936,28 @@ export const intelApi = {
     post<DeckDesignResult>(`/deliverable/${projectId}/runs/${runId}/design`, change),
   deckDesignReset: (projectId: number, runId: number) =>
     post<DeckDesignResult>(`/deliverable/${projectId}/runs/${runId}/design/reset`, {}),
+
+  // LLM usage & cost (backend/domains/usage/router.py), scoped server-side to the caller's role
+  usageSummary: (q: UsageQuery) => get<UsageSummary>(`/usage/summary${usageQuery(q)}`),
+  usageCalls: (q: UsageQuery, offset = 0, limit = 50) =>
+    get<UsageCallsPage>(`/usage/calls${usageQuery(q, { offset, limit })}`),
+  usagePrices: () => get<UsagePrices>("/usage/prices"),
+  setUsagePrice: (body: UsagePriceRequest) => put<{ ok: boolean }>("/usage/prices", body),
+  setUsageSettings: (body: { deployment_type?: string; region?: string }) =>
+    put<{ deployment_type: string; region: string }>("/usage/settings", body),
+  projectUsageTotal: (projectId: number) =>
+    get<{ cost_usd: number; total_tokens: number }>(`/usage/projects/${projectId}/total`),
 };
+
+/** "?date_from=…&model=…" with only the filters that are set. */
+function usageQuery(q: UsageQuery, extra: Record<string, number> = {}): string {
+  const p = new URLSearchParams();
+  Object.entries({ ...q, ...extra }).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== "") p.set(k, String(v));
+  });
+  const s = p.toString();
+  return s ? `?${s}` : "";
+}
 
 /** Deck colours are 6 hex digits without '#'. */
 export interface DeckDesignChange { primary?: string; accent?: string }
