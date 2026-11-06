@@ -100,8 +100,9 @@ function TopCard({ p, onPick, onStage }:
 export function TopProjects({ projects, onPick, onStage }:
   { projects: UsageProjectRow[]; onPick: (projectId: number) => void; onStage: (projectId: number | null, stage: string) => void }) {
   const [showAll, setShowAll] = useState(false);
-  if (projects.length === 0) return null;
-  const [top, ...rest] = projects;
+  const saved = projects.filter((p) => p.project_id !== null);   // calls made before a project existed (brief parsing) are not a project
+  if (saved.length === 0) return null;
+  const [top, ...rest] = saved;
   const shown = showAll ? rest : rest.slice(0, RANKED_PREVIEW - 1);
   const pickFor = (p: UsageProjectRow) => (p.project_id === null ? undefined : () => onPick(p.project_id as number));
 

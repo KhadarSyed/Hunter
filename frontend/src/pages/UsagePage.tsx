@@ -223,7 +223,7 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
 
   const todayUtc = new Date().toISOString().slice(0, 10);
   const matchesFilters = (r: UsageLiveRow): boolean =>
-    filters.to >= todayUtc
+    (filters.preset !== "custom" || filters.to >= todayUtc)    // a preset range always ends now, even past midnight
     && (query.project_id == null || r.project_id === query.project_id)
     && (query.org_id == null || r.org_id === query.org_id)
     && (!query.stage || r.stage === query.stage)
@@ -236,6 +236,8 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
     setSummary((s) => s && {
       ...s, kpis: {
         ...s.kpis, calls: s.kpis.calls + (r.cache_hit ? 0 : 1), cost_usd: s.kpis.cost_usd + (r.cost_usd || 0),
+        cache_hits: s.kpis.cache_hits + (r.cache_hit ? 1 : 0),
+        nvidia_credits: s.kpis.nvidia_credits + (r.provider === "nvidia" ? Number(r.credits) || 0 : 0),
         input_tokens: s.kpis.input_tokens + r.input_tokens, output_tokens: s.kpis.output_tokens + r.output_tokens,
         cached_input_tokens: s.kpis.cached_input_tokens + r.cached_input_tokens, total_tokens: s.kpis.total_tokens + r.total_tokens,
       },
@@ -370,7 +372,7 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
         </div>
       ) : (
         <div className={`mt-6 space-y-6 transition-opacity ${summaryLoading ? "opacity-60" : ""}`} aria-busy={summaryLoading}>
-          <KpiTiles kpis={summary.kpis} />
+          <KpiTiles kpis={summary.kpis} live={connected && !paused} />
 
           {filters.project === null && (
             <TopProjects projects={summary.by_project} onPick={(id) => updateFilters({ ...filters, project: id })} onStage={openProjectStage} />
