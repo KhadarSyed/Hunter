@@ -399,6 +399,8 @@ def _capped_jpeg(path: Path) -> bytes | None:
 
 def _photo_from_saved(key: str, saved: dict, folder: Path, used: set[str]) -> Photo | None:
     meta = saved["meta"]
+    if meta.get("source_url") in used or is_duplicate(saved["content"], used):   # never one picture twice in a deck
+        return None
     try:
         name = f"cached-{hashlib.sha1(key.encode()).hexdigest()[:16]}"
         src = asset_store.write_file(folder / f"{name}.src", saved["content"])
@@ -426,8 +428,6 @@ def similar_photo(subject: str, role: str, query: str, folder: Path, used: set[s
     reused before any web search. Never a picture this deck already shows, from any host."""
     saved = asset_store.similar("photo", f"{subject} {query}", brand=subject, role=role, min_score=0.9)
     if not saved or not saved["content"]:
-        return None
-    if saved["meta"].get("source_url") in used or is_duplicate(saved["content"], used):
         return None
     return _photo_from_saved(saved["key"], saved, folder, used)
 

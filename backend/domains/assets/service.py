@@ -38,8 +38,10 @@ Fetch = Callable[[], "tuple[bytes, str, dict] | None"]
 def summary_for(kind: str, key: str, meta: dict) -> str:
     """One line on what the asset is and why a deck used it: what similarity search matches on."""
     subject = meta.get("brand") or meta.get("subject") or key.split("#")[0]
-    why = meta.get("why") or meta.get("query") or ""
-    parts = [f"{_LABELS.get(kind, kind)} for {subject}"] + ([f"used for: {why}"] if why else []) + \
+    why = meta.get("why") or ""
+    query = meta.get("query") or ""     # kept beside why: similar() searches "subject query"
+    parts = [f"{_LABELS.get(kind, kind)} for {subject}"] + ([f"search: {query}"] if query else []) + \
+            ([f"used for: {why}"] if why else []) + \
             ([f"slide role: {meta['role']}"] if meta.get("role") else []) + \
             ([f"source: {meta['source_url']}"] if meta.get("source_url") else [])
     return "; ".join(parts)[:500]
