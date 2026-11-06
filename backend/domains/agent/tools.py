@@ -225,18 +225,6 @@ def _pending_dataset(ctx, args) -> int:
     return pending[0]["id"]
 
 
-def _enrich_dataset(ctx, args):
-    did = _pending_dataset(ctx, args)
-    ctx.api.call("POST", f"/dataset/{did}/enrich")
-    deadline = time.time() + JOB_TIMEOUT
-    while time.time() < deadline:
-        d = store.get_dataset_by_id(did)
-        if d.get("enrichment_status") in ("done", "error"):
-            return {"dataset_id": did, "enrichment_status": d["enrichment_status"]}
-        time.sleep(RUN_POLL_SECONDS)
-    raise ToolError(f"dataset {did} enrichment still running")
-
-
 def _approve_dataset(ctx, args):
     _gate(ctx, "datasets")
     did = _pending_dataset(ctx, args)
@@ -297,8 +285,6 @@ for _tool in (
          "mapping: {file path: [question ids]}; omitted means match by file name.",
          {"type": "object", "properties": {"mapping": {
              "type": "object", "additionalProperties": {"type": "array", "items": _STR}}}}, _upload_datasets, costly=True),
-    Tool("enrich_dataset", "Enrich a parsed dataset with the LLM (small datasets only).",
-         {"type": "object", "properties": {"dataset_id": {"type": "integer"}}}, _enrich_dataset, costly=True),
     Tool("approve_dataset", "Approve a parsed dataset.",
          {"type": "object", "properties": {"dataset_id": {"type": "integer"}}}, _approve_dataset),
     Tool("run_deliverable", "Build the deliverable: analyses, insights and the deck (~6-30 min).", _NO_ARGS,

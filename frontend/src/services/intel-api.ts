@@ -316,14 +316,6 @@ export interface BrandSentiment {
   confidence: number | null;
 }
 
-/** What a research question asks to break volume down by (sport, injury type, ...); judged = LLM-only categories. */
-export interface QuestionDimension {
-  key: string;
-  label: string;
-  judged?: boolean;
-  values: { name: string; terms: string[] }[];
-}
-
 /** One tag a research question needs, derived from the question itself (no fixed taxonomy). */
 export interface DynamicTagDef {
   tag_name: string;
@@ -333,26 +325,6 @@ export interface DynamicTagDef {
   extraction_rule: string;
   review_column: string | null;
 }
-
-export interface QuestionTagSchema {
-  question_id: string;
-  question: string;
-  question_intent: string;
-  required_tags: DynamicTagDef[];
-  review_columns: { key: string; label: string }[];
-}
-
-/** A tag against the Review table: points and weights are read there, never generated. */
-export interface ReviewMapping {
-  question_id: string;
-  tag_name: string;
-  review_column: string | null;
-  review_criterion: string | null;
-  points: string;
-  weight: string;
-}
-
-export type TagSchemas = Record<string, { schema: QuestionTagSchema; review_mapping: ReviewMapping[] }>;
 
 export interface EnrichedRecord {
   id: string;
@@ -840,56 +812,8 @@ export const intelApi = {
   getSectionVideo: (query: string, brandName: string) =>
     get<SectionVideoResponse>(`/video/section?query=${encodeURIComponent(query)}&brand_name=${encodeURIComponent(brandName)}`),
 
-  // Dataset
-  uploadDataset: async (projectId: number, file: File, researchQuestionId?: string) => {
-    const form = new FormData();
-    form.append("file", file);
-    let url = `${API_BASE}/dataset/upload?project_id=${projectId}`;
-    if (researchQuestionId) url += `&research_question_id=${encodeURIComponent(researchQuestionId)}`;
-    const res = await fetch(url, {
-      method: "POST",
-      credentials: CREDENTIALS,
-      body: form,
-    });
-    const ct = res.headers.get("content-type") || "";
-    if (!ct.includes("application/json")) {
-      throw new Error("Backend not reachable — restart the backend server and try again");
-    }
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(err.detail || "Upload failed");
-    }
-    return res.json();
-  },
-
   getAllDatasets: (projectId: number) =>
     get<any[]>(`/dataset/${projectId}?scope=all`),
-
-  approveDataset: (datasetId: number) =>
-    post<{ ok: boolean }>(`/dataset/${datasetId}/approve`, {}),
-
-  deleteDataset: (datasetId: number) =>
-    fetch(`${API_BASE}/dataset/${datasetId}`, { method: "DELETE", credentials: CREDENTIALS }).then((r) => json<{ ok: boolean }>(r)),
-
-  /** What tagging a dataset would cost in model calls, tokens, USD and minutes (nothing is called). */
-  enrichEstimate: (datasetId: number) => get<EnrichEstimate>(`/dataset/${datasetId}/enrich-estimate`),
-  enrichDataset: (datasetId: number) =>
-    post<{ job_id: string; dataset_id: number }>(`/dataset/${datasetId}/enrich`, {}),
-
-  /** Tag a bounded sample across every research question (at most 500 records, at least 100 per question). */
-  enrichSample: (projectId: number) =>
-    post<{ job_id: string; project_id: number }>(`/dataset/enrich-sample/${projectId}`, {}),
-
-  getProjectEnriched: (projectId: number) =>
-    get<{ records: EnrichedRecord[]; dimensions?: Record<string, QuestionDimension[]>; tag_schemas?: TagSchemas }>(`/dataset/enriched/${projectId}`),
-
-  /** Syndicated / similar articles among the Review tab's rows, keyed "<dataset_id>:<record id>". */
-  getEnrichedRelations: (projectId: number) =>
-    get<{ relations: Record<string, RowRelations>; method: ResearchItemRelationsResult["method"] }>(
-      `/dataset/enriched/${projectId}/relations`),
-
-  updateEnrichedRecord: (datasetId: number, recordId: string, updates: Partial<EnrichedRecord>) =>
-    patch<EnrichedRecord>(`/dataset/${datasetId}/enriched/${recordId}`, updates),
 
   // Research Plan
   generatePlan: (projectId: number) =>
@@ -1052,9 +976,6 @@ export interface DeliverableProgress { pct: number; stage: string; label: string
 export type AgentStep = { key: string; label: string; state: "done" | "ready" | "waiting" | "failed" | "todo"; detail: string };
 export type Autorun = { status: "idle" | "running" | "done" | "blocked";
   step?: "research" | "brief" | "strategy" | "data-sources"; job_id?: string | null; error?: string | null };
-export type EnrichEstimate = { articles: number; skipped: number; calls: number; input_tokens: number;
-  output_tokens: number; cost_usd: number; minutes: number; warn: boolean; warn_above: number;
-  price_input_per_1m: number; price_output_per_1m: number };
 export type AgentState ={ autopilot: { status: string; note: string; updated_at: number } | null;
   status: { project_id: number; name: string; steps: AgentStep[]; next: string | null } };
 export type CopilotReply = { reply: string; actions: { tool: string; ok: boolean; error?: string }[];

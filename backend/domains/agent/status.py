@@ -6,7 +6,6 @@ from ...core import store
 STEP_KEYS = ("scope", "research", "brief", "strategy", "datasets", "deliverable")
 LABELS = {"scope": "Scope", "research": "Background research", "brief": "Analyst brief", "strategy": "Search strategy",
           "datasets": "Datasets", "deliverable": "Deck"}
-ENRICH_MAX_RECORDS = 2000
 _RUNNING_JOB = ("pending", "running", "queued")
 _JOB_FOR = {"scope": "spec_generation", "research": "background_research", "strategy": "search_strategy"}
 
@@ -95,8 +94,6 @@ def next_step(status: dict) -> str | None:
             pending = [d for d in status["datasets"] if d.get("processing_status") == "done" and not _approved(d)]
             if not pending:
                 return "upload_datasets"
-            d = pending[0]
-            small = (d.get("record_count") or 0) <= ENRICH_MAX_RECORDS
-            return "enrich_dataset" if small and d.get("enrichment_status") not in ("done", "error") else "approve_dataset"
+            return "approve_dataset"
         return "run_deliverable"
     return None

@@ -13,10 +13,8 @@ import itertools
 import json
 import logging
 import re
-import threading
 import time
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlparse
@@ -24,14 +22,10 @@ from urllib.parse import urlparse
 import openpyxl
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi import Path as PathParam
-from fastapi.responses import Response
 
-from ...agents.dataset_enrichment import enrich_dataset, estimate as estimate_enrichment
 from ...agents.meltwater_query_builder import run as run_mqb
 from ...agents.meltwater_query_builder import quote_bare_phrases, validate_boolean_syntax
 from ...agents.query_evaluator import evaluate_sample
-from ...agents.question_dimensions import keyword_hits as qd_keyword_hits, query_groups as qd_query_groups
-from ...agents.question_dimensions import to_json as qd_to_json
 from ...core import store
 from ...core.llm_provider import extract_json_object as _extract_json_object, get_llm_client
 from ...core.api import OkResponse
@@ -42,15 +36,12 @@ from ...core.auth import (
     require_project_access,
     require_strategy_access,
 )
-from ...core.config import UPLOAD_DIR, get_app_settings
+from ...core.config import UPLOAD_DIR
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from ...core.tabular import decode_text, sniff_delimiter
 from ..research.schemas import ApproveRequest
 from ..research.web_research import COMPETITOR_PATTERNS
-from . import sample_enrichment, tag_schemas
-from ...agents import question_tag_schema as tag_schema
-from .dimensions import dimensions_for_dataset, project_dimensions
 from .schemas import (
     DatasetRecord,
     DatasetUploadResponse,
@@ -60,7 +51,6 @@ from .schemas import (
     AddRQResult,
     EditRQRequest,
     RQStatusRequest,
-    EnrichmentStartResponse,
     EvaluationUploadResponse,
     FinalApprovalRequest,
     FinalApprovalResult,
@@ -1189,373 +1179,6 @@ def approve_dataset(dataset_id: IdPath):
 def delete_dataset(dataset_id: IdPath):
     store.delete_dataset(dataset_id)
     return {"ok": True}
-
-
-# Domains that identify a record as social-platform content when the uploaded
-# file has no media-type column of its own (common for raw social exports) —
-# applied per-row at enrichment time so classification never depends on
-# whatever heuristic happened to run at upload time.
-_SOCIAL_DOMAINS = {
-    "reddit.com", "x.com", "twitter.com", "facebook.com", "instagram.com",
-    "tiktok.com", "youtube.com", "linkedin.com", "pinterest.com", "snapchat.com",
-    "threads.net", "tumblr.com",
-    # Community/forum/review sites: not "social media" in the strict sense, but
-    # user-generated discussion rather than press/editorial — same "Post"
-    # bucket for review purposes. Necessarily incomplete for domains this list
-    # hasn't seen; a dataset whose column_mapping already resolved a real
-    # media_type column (checked by the caller before falling back here) is
-    # always more accurate than this guess.
-    "edmunds.com", "cargurus.com", "kbb.com", "autotrader.com", "carfax.com",
-    "yelp.com", "tripadvisor.com", "quora.com", "discord.com",
-}
-
-
-def _infer_media_type_from_url(url: str) -> str:
-    try:
-        domain = urlparse(url).hostname or ""
-    except ValueError:
-        return "Article"
-    domain = domain.lower()
-    if domain.startswith("www."):
-        domain = domain[4:]
-    return "Post" if domain in _SOCIAL_DOMAINS else "Article"
-
-
-def _load_all_records(file_path: str, mapped: dict) -> list[dict]:
-    """Every row of an uploaded dataset file, as enrichment-ready records —
-    reusing the column_mapping already resolved for this dataset at upload
-    time (MELTWATER_COLUMN_MAP, or the LLM-assisted fallback) rather than
-    re-detecting it. Unlike _parse_and_analyze's streaming pass (which keeps
-    only a 20-row preview), this keeps every row — enrichment needs the full
-    title + content of each one, not just summary stats.
-    """
-    def pick(row: dict, field: str) -> str:
-        # A workbook's sheets can name their columns differently (a manual sheet's "Full Content" vs the
-        # Meltwater sheet's "Hit Sentence"); the dataset mapping comes from the first sheet, so fall back
-        # to this row's own columns by alias.
-        col = mapped.get(field)
-        if not col or col not in row:
-            lower = {str(k).strip().lower(): k for k in row}
-            col = next((lower[a] for a in MELTWATER_COLUMN_MAP.get(field, []) if a in lower), None)
-        return str(row.get(col, "") or "").strip() if col else ""
-
-    ext = Path(file_path).suffix.lower()
-    rows: list[dict] = []
-    if ext in (".xlsx", ".xls"):
-        wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
-        for ws in wb.worksheets:
-            headers: list[str] = []
-            for row in ws.iter_rows(values_only=True):
-                if not headers:
-                    if _is_header_row(row):
-                        headers = [str(c or "").strip() for c in row]
-                    continue
-                if all(v is None for v in row):
-                    continue
-                rows.append({h: v for h, v in zip(headers, row) if h})
-        wb.close()
-    else:
-        with io.StringIO(_read_csv_text(file_path), newline="") as f:
-            rows = list(csv.DictReader(f, delimiter=sniff_delimiter(f.getvalue())))
-
-    records = []
-    for i, row in enumerate(rows):
-        url = pick(row, "url")
-        media_type = pick(row, "media_type") or _infer_media_type_from_url(url)
-        content = pick(row, "snippet") or pick(row, "headline")
-        # Social posts typically have no separate headline column — fall back to
-        # the first line of the post body as a display title rather than leaving
-        # it blank (which would make the record look untaggable).
-        title = pick(row, "headline") or (content[:80] + ("..." if len(content) > 80 else ""))
-        records.append({
-            "id": str(i),
-            "title": title,
-            "content": content,
-            "url": url,
-            "date": pick(row, "date"),
-            "source_name": pick(row, "source_name"),
-            "author": pick(row, "author"),
-            "country": pick(row, "geography"),
-            "media_type": media_type,
-            "reach": pick(row, "reach"),
-            "review_status": "relevant",
-            "approval_status": "pending",
-            "disapproval_reason": None,
-            "reviewed_by": None,
-            "reviewed_at": None,
-            "manually_edited": False,
-        })
-    return records
-
-
-TAG_WARN_ARTICLES = 500    # tagging more than this asks the analyst to confirm the model cost first
-
-
-@router.get("/dataset/{dataset_id}/enrich-estimate")
-def enrich_estimate_route(dataset_id: IdPath, _access: Annotated[dict, Depends(require_dataset_access)]):
-    """The model calls, tokens, cost and minutes tagging this dataset would take (no model is called)."""
-    dataset = store.get_dataset_by_id(dataset_id)
-    if not dataset:
-        raise HTTPException(404, "Dataset not found")
-    records = _load_all_records(dataset["file_path"], dataset["column_mapping"].get("mapped", {}))
-    edited = {str(r.get("id")) for r in json.loads(dataset["enrichment_json"] or "[]") if r.get("manually_edited")}
-    settings = get_app_settings()
-    est = estimate_enrichment([r for r in records if str(r["id"]) not in edited],
-                              settings.llm_price_input_per_1m, settings.llm_price_output_per_1m)
-    return {**est, "warn": est["articles"] > TAG_WARN_ARTICLES, "warn_above": TAG_WARN_ARTICLES,
-            "price_input_per_1m": settings.llm_price_input_per_1m,
-            "price_output_per_1m": settings.llm_price_output_per_1m}
-
-
-# shortcut: per process (one server); a restart clears it, which is right since the threads die with it
-_ENRICHING: set[int] = set()
-_ENRICHING_LOCK = threading.Lock()
-
-
-@router.post("/dataset/{dataset_id}/enrich", response_model=EnrichmentStartResponse)
-def enrich_dataset_route(dataset_id: IdPath, _access: Annotated[dict, Depends(require_dataset_access)]):
-    dataset = store.get_dataset_by_id(dataset_id)
-    if not dataset:
-        raise HTTPException(404, "Dataset not found")
-    if dataset["processing_status"] != "done":
-        raise HTTPException(400, "Dataset is still processing")
-
-    project = store.get_project(dataset["project_id"])
-    if not project:
-        raise HTTPException(404, "Project not found")
-
-    brand_name = project.get("brand") or project.get("name") or ""
-    latest_spec_row = store.get_latest_spec(dataset["project_id"])
-    raw_brief_text = (latest_spec_row or {}).get("raw_brief_text", "") or ""
-    competitors = _extract_competitors_from_text(raw_brief_text, brand_name)
-
-    with _ENRICHING_LOCK:      # a second click while it runs would tag every record twice (twice the GPT calls)
-        if dataset_id in _ENRICHING:
-            raise HTTPException(409, "This dataset is already being enriched")
-        _ENRICHING.add(dataset_id)
-
-    job_id = f"enrich_{uuid.uuid4().hex[:12]}"
-    store.create_job(job_id, dataset["project_id"], "dataset_enrichment")
-    store.update_dataset_enrichment(dataset_id, "processing")
-
-    def progress(message: str) -> None:
-        store.update_job(job_id, status="running", progress_pct=5, progress_message=message)
-        _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running", "progress_pct": 5,
-                    "message": message})
-
-    def worker():
-        def on_event(event_type: str, payload: dict):
-            messages = {
-                "enrichment_started": f"Enriching {payload.get('taggable', 0)} of {payload.get('total_records', 0)} records ({payload.get('skipped', 0)} skipped — missing title/content)",
-                "enrichment_batch": f"Batch {payload.get('completed_batches', 0)}/{payload.get('total_batches', 0)} done — {payload.get('tagged_count', 0)}/{payload.get('total_taggable', 0)} tagged (sentiment, themes, entities, brand scores)",
-                "enrichment_complete": f"Enrichment complete — {payload.get('tagged_count', 0)} tagged, {payload.get('failed_count', 0)} failed, {payload.get('skipped_count', 0)} skipped in {payload.get('elapsed_seconds', 0)}s",
-            }
-            pct = {"enrichment_started": 10, "enrichment_batch": None, "enrichment_complete": 100}[event_type]
-            message = messages[event_type]
-            if event_type == "enrichment_batch" and payload.get("total_batches"):
-                pct = 10 + round(80 * payload["completed_batches"] / payload["total_batches"])
-            store.update_job(job_id, status="running" if event_type != "enrichment_complete" else "completed",
-                             progress_pct=pct, progress_message=message)
-            _broadcast({"type": "intel_job_update", "job_id": job_id,
-                         "status": "running" if event_type != "enrichment_complete" else "completed",
-                         "progress_pct": pct, "message": message})
-
-        try:
-            llm_client = get_llm_client()
-            if not llm_client or not llm_client.is_reachable():
-                raise RuntimeError("No LLM reachable — dataset enrichment requires Azure OpenAI")
-            progress("Reading the dataset")
-            records = _load_all_records(dataset["file_path"], dataset["column_mapping"].get("mapped", {}))
-
-            # A re-enrich run (e.g. retried after a partial failure) must never
-            # discard an analyst's manual tag/approval edits from the prior run —
-            # those records are kept as-is and excluded from re-tagging.
-            previous = json.loads(dataset["enrichment_json"]) if dataset.get("enrichment_json") else []
-            preserved_by_id = {str(r.get("id")): r for r in previous if r.get("manually_edited")}
-
-            to_tag = [r for r in records if str(r["id"]) not in preserved_by_id]
-            # Tag against what this file's research question asks about (sport, injury type, ...), not only the
-            # fixed sentiment/theme/entity schema
-            # these three ask GPT what to tag for this question before any record is tagged: say so, or the job
-            # sits silently at "pending" for minutes
-            progress("Working out what to tag for this research question (1/3)")
-            dimensions = dimensions_for_dataset(dataset, llm_client)
-            progress("Matching other research questions this data also answers (2/3)")
-            to_tag, also = tag_schemas.with_also_questions(dataset, to_tag, llm_client)
-            progress("Building the tag schema (3/3)")
-            schema = tag_schemas.schema_for_dataset(dataset, llm_client)
-            result = enrich_dataset(to_tag, brand_name, competitors, llm_client=llm_client, emit=on_event,
-                                    dimensions=dimensions, tag_schema=schema, also_schemas=also)
-            tagged_by_id = {str(r["id"]): r for r in result["records"]}
-            merged = [preserved_by_id.get(str(r["id"])) or tagged_by_id[str(r["id"])] for r in records]
-
-            store.update_dataset_enrichment(dataset_id, "done", enrichment=merged)
-            store.update_job(job_id, status="completed", progress_pct=100,
-                             progress_message="Enrichment complete",
-                             result={"dataset_id": dataset_id, "tagged_count": result["tagged_count"]})
-        except Exception as e:
-            logger.error("[enrich:%s] Failed: %s", job_id, e, exc_info=True)
-            store.update_dataset_enrichment(dataset_id, "error", error=str(e))
-            store.update_job(job_id, status="failed", error=str(e))
-            _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "failed", "error": str(e)})
-        finally:
-            with _ENRICHING_LOCK:
-                _ENRICHING.discard(dataset_id)
-
-    submit(worker, name="strategy:dataset-enrich")
-    return {"job_id": job_id, "dataset_id": dataset_id}
-
-
-@router.post("/dataset/enrich-sample/{project_id}")
-def enrich_sample_route(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)],
-                        total: int = sample_enrichment.TOTAL):
-    """Tag a bounded sample across every research question (never more than 500 records, at least 100 per
-    question) instead of every row of every file."""
-    total = max(1, min(total, sample_enrichment.TOTAL))
-    if not any(d.get("approval_status") == "approved" for d in store.get_datasets_by_project(project_id)):
-        raise HTTPException(400, "Approve at least one dataset before enriching")
-    if any(str(j.get("id", "")).startswith("enrich_sample_") and j.get("status") in ("queued", "running")
-           for j in store.list_jobs(project_id)):      # two runs would overwrite each other's tags
-        raise HTTPException(409, "A sample enrichment is already running for this project")
-    job_id = f"enrich_sample_{uuid.uuid4().hex[:12]}"
-    store.create_job(job_id, project_id, "dataset_enrichment")
-
-    def worker():
-        done = {"n": 0}
-
-        def on_event(event_type: str, payload: dict):
-            if event_type == "enrichment_batch":
-                done["n"] += 1
-                message = f"Sample enrichment: batch {done['n']} done ({payload.get('tagged_count', 0)} tagged in this file)"
-                store.update_job(job_id, status="running", progress_pct=min(95, 5 + done["n"]), progress_message=message)
-                _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running", "message": message})
-
-        try:
-            llm_client = get_llm_client()
-            if not llm_client or not llm_client.is_reachable():
-                raise RuntimeError("No LLM reachable — dataset enrichment requires Azure OpenAI")
-            store.update_job(job_id, status="running", progress_pct=5,
-                             progress_message=f"Enriching up to {total} records across every research question")
-            out = sample_enrichment.run_sample(project_id, llm_client, total=total, per_rq=sample_enrichment.PER_RQ,
-                                               emit=on_event)
-            store.update_job(job_id, status="completed", progress_pct=100,
-                             progress_message=f"Sample enrichment complete — {out['total']} records tagged"
-                             + (f", {out['retagged']} re-tagged with the question schema" if out.get("retagged") else ""),
-                             result=out)
-            _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "completed"})
-        except Exception as e:
-            logger.error("[enrich-sample:%s] Failed: %s", job_id, type(e).__name__)
-            store.update_job(job_id, status="failed", error=str(e)[:300])
-            _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "failed"})
-
-    submit(worker, name="strategy:dataset-enrich-sample")
-    return {"job_id": job_id, "project_id": project_id}
-
-
-@router.get("/dataset/{dataset_id}/enriched")
-def get_dataset_enriched(dataset_id: IdPath, _access: Annotated[dict, Depends(require_dataset_access)]):
-    dataset = store.get_dataset_by_id(dataset_id)
-    if not dataset:
-        raise HTTPException(404, "Dataset not found")
-    enrichment = json.loads(dataset["enrichment_json"]) if dataset.get("enrichment_json") else None
-    return {
-        "dataset_id": dataset_id,
-        "status": dataset.get("enrichment_status"),
-        "error": dataset.get("enrichment_error"),
-        "records": enrichment or [],
-    }
-
-
-# shortcut: dataset rows share intel_research_item_vectors with research items, keyed negative so the two never
-# collide; fits a 32-bit key while datasets stay below id 21,000 and files below 100,000 rows
-_ROW_KEY_SPAN = 100_000
-
-
-def _row_vector_key(record: dict) -> int | None:
-    try:
-        row = int(record["id"])
-        return -(int(record["dataset_id"]) * _ROW_KEY_SPAN + row + 1) if 0 <= row < _ROW_KEY_SPAN else None
-    except (KeyError, TypeError, ValueError):
-        return None
-
-
-@router.get("/dataset/enriched/{project_id}/relations")
-def get_project_enriched_relations(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)]):
-    """Syndicated copies and similar articles among the project's enriched dataset articles, keyed
-    "<dataset_id>:<record id>" like the Review table's rows -- the same rules as the All Articles table
-    (research/relations.py). Embeds (and stores) each article once; never calls the chat model."""
-    from ..research import relations
-    by_key: dict[int, str] = {}
-    items = []
-    for r in store.get_enriched_records_by_project(project_id):
-        key = _row_vector_key(r)
-        if key is None:
-            continue
-        by_key[key] = f"{r['dataset_id']}:{r['id']}"
-        items.append({"id": key, "url": r.get("url") or "", "title": r.get("title") or "",
-                      "content": r.get("content") or "", "publication": r.get("source_name") or ""})
-    found, method = relations.find_relations(items, get_llm_client())
-    return {"method": method,
-            "relations": {by_key[k]: {kind: [by_key[i] for i in ids] for kind, ids in rel.items()}
-                          for k, rel in found.items()}}
-
-
-@router.get("/dataset/enriched/{project_id}")
-def get_project_enriched(project_id: IdPath, _access: Annotated[dict, Depends(require_project_access)]):
-    dims = project_dimensions(project_id, None)   # stored copy only: a GET never calls the LLM
-    schemas = {rq: tag_schema.from_json(row["schema"]) for rq, row in store.get_question_tag_schemas(project_id).items()}
-    records = store.get_enriched_records_by_project(project_id)
-    questions = ((store.get_latest_strategy(project_id) or {}).get("strategy") or {}).get("research_question_queries") or []
-    terms = {q.get("question_id") or f"RQ{i}": [t for g in qd_query_groups(q.get("query") or "", []) for t in g]
-             + [t for d in dims.get(q.get("question_id") or f"RQ{i}", []) for v in d.values for t in v.terms]
-             for i, q in enumerate(questions, start=1)}
-    for r in records:              # which of its question's search keywords the article actually contains
-        r["keyword_matches"] = qd_keyword_hits(f"{r.get('title') or ''}\n{r.get('content') or ''}",
-                                               terms.get(r.get("research_question_id") or "", []))
-    body = {"records": records,
-            "dimensions": {rq: qd_to_json(d) for rq, d in dims.items()},
-            "tag_schemas": {rq: {"schema": tag_schema.to_json(s), "review_mapping": tag_schema.review_mapping(s)}
-                            for rq, s in schemas.items()}}
-    # encoded once here: FastAPI's field-by-field encoder took ~10 s on a 50k-article project
-    return Response(json.dumps(body, default=str), media_type="application/json")
-
-
-# Fields that constitute an analyst edit to a record's tagging (as opposed to
-# bookkeeping fields like reviewed_by/reviewed_at themselves) — touching any of
-# these, or the approval/review status, stamps the record as manually_edited so
-# a future re-enrichment run preserves it instead of overwriting it.
-_ENRICHMENT_EDIT_FIELDS = (
-    "overall_sentiment", "overall_sentiment_confidence", "themes", "signals",
-    "entities", "brand_sentiments", "reason", "review_status", "approval_status",
-    "question_tags", "author_type",
-)
-
-
-@router.patch("/dataset/{dataset_id}/enriched/{record_id}")
-def update_enriched_record_route(dataset_id: IdPath, record_id: str, updates: dict,
-                                 access_user: Annotated[dict, Depends(require_dataset_access)]):
-    """Analyst correction of one enriched record's tags (sentiment, themes,
-    entities, brand scores, reason, ...), its review_status (relevant/
-    irrelevant), or its approval_status (approved/disapproved) — merged in
-    place, never re-runs the LLM. Every such edit is attributed to the acting
-    user and marks the record manually_edited so later re-enrichment runs
-    leave it alone (see enrich_dataset_route)."""
-    updates = {k: v for k, v in updates.items() if k != "id"}
-
-    if updates.get("approval_status") == "disapproved" and not (updates.get("disapproval_reason") or "").strip():
-        raise HTTPException(400, "A reason is required to disapprove an article")
-    if updates.get("approval_status") == "approved":
-        updates.setdefault("disapproval_reason", None)
-
-    if any(k in updates for k in _ENRICHMENT_EDIT_FIELDS):
-        updates["reviewed_by"] = access_user.get("email")
-        updates["reviewed_at"] = datetime.now(timezone.utc).isoformat()
-        updates["manually_edited"] = True
-
-    record = store.update_enriched_record(dataset_id, record_id, updates)
-    if record is None:
-        raise HTTPException(404, "Record not found, or dataset has no enrichment yet")
-    return record
 
 
 @router.post("/evaluation/upload", response_model=EvaluationUploadResponse)

@@ -27,11 +27,6 @@ class FinalApprovalRequest(BaseModel):
     acknowledge_meltwater_validation: bool = False
 
 
-class EnrichmentStartResponse(ApiModel):
-    job_id: str
-    dataset_id: int
-
-
 class AddRQRequest(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
     query: str = Field(default="", max_length=10000)

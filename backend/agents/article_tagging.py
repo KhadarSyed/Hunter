@@ -105,7 +105,7 @@ def normalise(raw: dict) -> dict:
 
 
 def _body(article: dict) -> str:
-    from ..domains.dataset import batching  # lazy: the domains package imports dataset_enrichment, which imports this module
+    from ..domains.dataset import batching  # lazy: keeps the domains package out of this module's import time
     return batching.trim(article.get("content") or article.get("summary") or "")
 
 

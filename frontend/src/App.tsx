@@ -17,7 +17,6 @@ import { BriefScopeReview } from "./pages/BriefScopeReview";
 import { BackgroundResearch } from "./pages/BackgroundResearch";
 import { SearchStrategy } from "./pages/SearchStrategy";
 import { QueryEvaluation } from "./pages/QueryEvaluation";
-import { DataSources } from "./pages/DataSources";
 import { DataSet } from "./pages/DataSet";
 import { MatchingLabel } from "./pages/MatchingLabel";
 import { ResearchPlan } from "./pages/ResearchPlan";
@@ -46,7 +45,6 @@ const PAGES = {
   "query-evaluation": QueryEvaluation,
   "matching-label": MatchingLabel,
   "data-set": DataSet,
-  "data-sources": DataSources,
   "research-plan": ResearchPlan,
   deliverables: DeliverablesPage,
   "qc-upload": QCUpload,
@@ -73,7 +71,8 @@ const BROWSING_PAGES = new Set<Page>([
  * the page slug is the same id used internally (PAGES keys / onNavigate strings), so
  * there is exactly one name for each page, not a separate URL-vs-internal mapping. */
 function parseUrl(pathname: string): { projectId: number | null; page: Page | null } {
-  const segments = pathname.split("/").filter(Boolean).map(decodeURIComponent);
+  // "data-sources" is the old name of the Data set page; old links and emails still open it
+  const segments = pathname.split("/").filter(Boolean).map(decodeURIComponent).map((s) => (s === "data-sources" ? "data-set" : s));
   if (segments.length === 0) return { projectId: null, page: null };
   const maybeId = Number(segments[0]);
   if (Number.isInteger(maybeId) && maybeId > 0) {
