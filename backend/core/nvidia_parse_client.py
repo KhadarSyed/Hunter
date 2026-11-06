@@ -32,6 +32,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 import requests
@@ -175,13 +176,28 @@ class NvidiaParseClient:
             "tool_choice": {"type": "function", "function": {"name": PARSE_TOOL}},
         }
         headers = {"Authorization": f"Bearer {self.api_key}", "Accept": "application/json"}
+        from ..domains.usage import service as usage_service      # lazy: domains import core
+        started = time.time()
+
+        def record(model: str, **kw) -> None:
+            usage_service.record("nvidia", model, "parse", latency_ms=int((time.time() - started) * 1000), **kw)
+
         try:
             r = requests.post(f"{self.api_url}/chat/completions", headers=headers, json=payload,
                               timeout=REQUEST_TIMEOUT_S)
         except requests.RequestException as e:
+            record(self.model, error=True)
             raise NvidiaParseError(f"NVIDIA parse request failed: {e}") from e
         if r.status_code != 200:
+            record(self.model, error=True)
             raise NvidiaParseError(f"NVIDIA parse failed: {r.status_code} {r.text[:200]}")
+        try:
+            body = r.json()
+            u = body.get("usage") or {}
+            record(body.get("model") or self.model, credits=1, input_tokens=int(u.get("prompt_tokens") or 0),
+                   output_tokens=int(u.get("completion_tokens") or 0))
+        except (AttributeError, TypeError, ValueError):
+            record(self.model, credits=1)
         try:
             message = r.json()["choices"][0]["message"]
             calls = message.get("tool_calls") or []

@@ -126,6 +126,9 @@ class HybridLLMClient:
         cached = memory.recall_llm(key) if key not in self._asked else None
         self._asked.add(key)
         if cached is not None:
+            from ..domains.usage import service as usage_service
+            usage_service.record("azure_openai", getattr(backend, "deployment", "") or "unknown", "chat",
+                                 cache_hit=True, requests=0)
             if on_token:
                 on_token(cached)
             return cached

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 
 import numpy as np
 import requests
@@ -49,10 +50,23 @@ class NvidiaEmbedClient:
             "input_type": input_type,
             "encoding_format": "float",
         }
-        r = requests.post(f"{self.api_url}/embeddings", headers=headers, json=payload, timeout=60)
+        from ..domains.usage import service as usage_service      # lazy: domains import core
+        started = time.time()
+        try:
+            r = requests.post(f"{self.api_url}/embeddings", headers=headers, json=payload, timeout=60)
+        except requests.RequestException:
+            usage_service.record("nvidia", self.model, "embed", error=True,
+                                 latency_ms=int((time.time() - started) * 1000))
+            raise
         if r.status_code != 200:
+            usage_service.record("nvidia", self.model, "embed", error=True,
+                                 latency_ms=int((time.time() - started) * 1000))
             raise NvidiaEmbedError(f"NVIDIA embeddings failed: {r.status_code} {r.text[:300]}")
         data = r.json()
+        u = data.get("usage") or {}
+        tokens = int(u.get("prompt_tokens") or u.get("total_tokens") or sum(len(t) for t in payload["input"]) // 4)
+        usage_service.record("nvidia", data.get("model") or self.model, "embed", input_tokens=tokens, credits=1,
+                             latency_ms=int((time.time() - started) * 1000))
         items = sorted(data["data"], key=lambda item: item.get("index", 0))
         return [np.array(item["embedding"], dtype=np.float32) for item in items]
 
