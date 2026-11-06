@@ -68,7 +68,8 @@ def _url_model(url: str) -> str:
     return m.group(1) if m else ""
 
 
-def _post(url: str, headers: dict, payload: dict, timeout: int = 180, stream: bool = False) -> requests.Response:
+def _post(url: str, headers: dict, payload: dict, timeout: int = 180, stream: bool = False,
+          kind: str = "chat") -> requests.Response:
     """A request that survives a dropped connection (a proxy's TLS reset), a rate limit or a server hiccup: a
     long run makes hundreds of calls, and one transient failure must not fail it. With stream=True the caller
     reads (and closes) the body; a response given up on here is closed before the retry."""
@@ -78,7 +79,7 @@ def _post(url: str, headers: dict, payload: dict, timeout: int = 180, stream: bo
         try:
             r = requests.post(url, headers=headers, json=payload, timeout=timeout, stream=stream)
         except (requests.ConnectionError, requests.Timeout) as e:
-            _record(_url_model(url), "chat", None, started, error=True)
+            _record(_url_model(url), kind, None, started, error=True)
             if dropped == len(CONNECTION_BACKOFF_S):
                 raise
             logger.warning("Azure OpenAI call retried after %s", type(e).__name__)
@@ -86,7 +87,7 @@ def _post(url: str, headers: dict, payload: dict, timeout: int = 180, stream: bo
             dropped += 1
             continue
         if r.status_code == 429 and rate_limited < RATE_LIMIT_ATTEMPTS - 1:
-            _record(_url_model(url), "chat", None, started, error=True)
+            _record(_url_model(url), kind, None, started, error=True)
             wait = _rate_limit_wait(r, rate_limited)
             logger.warning("Azure OpenAI rate limited; retrying in %.1fs (%d)", wait, rate_limited + 1)
             r.close()
@@ -96,7 +97,7 @@ def _post(url: str, headers: dict, payload: dict, timeout: int = 180, stream: bo
         if r.status_code not in _RETRY_STATUS or failures == ATTEMPTS - 1:
             return r
         logger.warning("Azure OpenAI call retried after HTTP %s", r.status_code)
-        _record(_url_model(url), "chat", None, started, error=True)
+        _record(_url_model(url), kind, None, started, error=True)
         r.close()
         time.sleep(BACKOFF_S[failures])
         failures += 1
@@ -149,7 +150,11 @@ class AzureOpenAIClient:
             if r.status_code != 200:
                 _record(self.deployment, "chat", None, started, error=True)
                 raise AzureOpenAIError(f"Azure OpenAI chat failed: {r.status_code} {r.text[:300]}")
-            body = r.json()
+            try:
+                body = r.json()
+            except ValueError:
+                _record(self.deployment, "chat", None, started, error=True)
+                raise
             _record(body.get("model") or self.deployment, "chat", body.get("usage"), started)
             choice = body["choices"][0]
             if choice.get("finish_reason") == "length":     # raised, not returned: a cut-off reply is never cached
@@ -161,8 +166,9 @@ class AzureOpenAIClient:
         full: list[str] = []
         done = cut_off = False
         model, usage = "", None
+        r = _post(self._url(), headers, payload, stream=True)    # records its own failed attempts
         try:
-            with _post(self._url(), headers, payload, stream=True) as r:
+            with r:
                 if r.status_code != 200:
                     raise AzureOpenAIError(f"Azure OpenAI chat failed: {r.status_code} {r.text[:300]}")
                 for line in r.iter_lines():
@@ -185,7 +191,7 @@ class AzureOpenAIClient:
         except Exception:
             _record(model or self.deployment, "chat", usage, started, error=usage is None)
             raise
-        _record(model or self.deployment, "chat", usage, started)
+        _record(model or self.deployment, "chat", usage, started, error=usage is None and not done)
         if cut_off:
             raise AzureOpenAIError(f"Azure OpenAI reply cut off at max_completion_tokens={MAX_OUTPUT_TOKENS}")
         if not done:        # partial text is raised, not returned, so it is never cached as the answer
@@ -199,11 +205,15 @@ class AzureOpenAIClient:
         if tools:
             payload.update(tools=tools, tool_choice=tool_choice)
         started = time.time()
-        r = _post(self._url(), headers, payload)
+        r = _post(self._url(), headers, payload, kind="tools")
         if r.status_code != 200:
             _record(self.deployment, "tools", None, started, error=True)
             raise AzureOpenAIError(f"Azure OpenAI tool call failed: {r.status_code} {r.text[:300]}")
-        body = r.json()
+        try:
+            body = r.json()
+        except ValueError:
+            _record(self.deployment, "tools", None, started, error=True)
+            raise
         _record(body.get("model") or self.deployment, "tools", body.get("usage"), started)
         message = body["choices"][0]["message"]
         calls = []
