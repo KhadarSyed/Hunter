@@ -150,6 +150,11 @@ class _Run:
                    **line, "message": _wire(message)})
 
     def stage(self, name: str, status: str, detail: str = "") -> None:
+        from ..usage import service as usage
+        if status == "running":     # LLM calls from here on count under this sub-stage of the current usage scope
+            usage.fill(sub_stage=name)
+        elif status in ("done", "failed"):      # calls between phases are not the last phase's
+            usage.fill(sub_stage="")
         self.stages[name] = status
         now = time.time()
         if status == "running":

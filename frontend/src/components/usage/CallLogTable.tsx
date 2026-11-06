@@ -1,12 +1,12 @@
 import { Icon } from "@iconify/react";
 import type { UsageCall } from "../../types/usage";
 import { ProviderLogo } from "./ProviderLogo";
-import { money, num, stageLabel } from "./format";
+import { money, num, stageLabel, subStageLabel } from "./format";
 
 export const CALL_PAGE_SIZE = 50;
 
-const HEADERS = ["Date and time", "Project", "Stage", "Model", "Kind", "Input", "Output", "Total", "Cost", "Latency", "Cache hit"];
-const NUMERIC_FROM = 5;
+const HEADERS = ["Date and time", "Project", "Stage", "Sub-stage", "Model", "Kind", "Input", "Output", "Total", "Cost", "Latency", "Cache hit"];
+const NUMERIC_FROM = 6;
 
 /** The newest calls first, 50 per page; times are shown in the viewer's local time zone. */
 export function CallLogTable({ rows, total, offset, loading, onOffset }:
@@ -15,7 +15,7 @@ export function CallLogTable({ rows, total, offset, loading, onOffset }:
   return (
     <div>
       <div className={`overflow-x-auto transition-opacity ${loading ? "opacity-50" : ""}`} aria-busy={loading}>
-        <table className="w-full min-w-[1100px] text-sm">
+        <table className="w-full min-w-[1200px] text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-[11px] uppercase tracking-wide text-slate-500">
               {HEADERS.map((h, i) => (
@@ -31,6 +31,7 @@ export function CallLogTable({ rows, total, offset, loading, onOffset }:
                   {r.project_name ?? (r.project_id === null ? <span className="text-slate-400">No project</span> : `#${r.project_id}`)}
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-slate-700">{stageLabel(r.stage)}</td>
+                <td className={`whitespace-nowrap px-3 py-2 ${r.sub_stage ? "text-slate-700" : "text-slate-400"}`}>{r.sub_stage ? subStageLabel(r.sub_stage) : "—"}</td>
                 <td className="max-w-[16rem] px-3 py-2"><ProviderLogo provider={r.provider} model={r.model} /></td>
                 <td className="px-3 py-2 text-slate-700">
                   {r.kind}

@@ -29,6 +29,12 @@ export const STAGE_ICONS: Record<string, string> = {
 export const stageLabel = (stage: string | null | undefined): string =>
   stage ? STAGE_LABELS[stage] ?? stage : "Other";
 
+const SUB_STAGE_LABELS: Record<string, string> = { qc: "QC" };
+
+/** A raw sub-stage name, title-cased only at its first letter ("article tags" -> "Article tags", "RQ1 tags" kept). */
+export const subStageLabel = (sub: string): string =>
+  !sub ? "(unattributed)" : SUB_STAGE_LABELS[sub] ?? sub.charAt(0).toUpperCase() + sub.slice(1);
+
 export const PROVIDER_LABELS: Record<string, string> = { azure_openai: "Azure OpenAI", nvidia: "NVIDIA" };
 export const providerLabel = (p: string): string => PROVIDER_LABELS[p] ?? p;
 

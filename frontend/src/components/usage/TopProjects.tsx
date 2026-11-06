@@ -15,7 +15,7 @@ function ShareBar({ share }: { share: number }) {
   );
 }
 
-function TopCard({ p, onPick }: { p: UsageProjectRow; onPick?: () => void }) {
+function TopCard({ p, onPick, onStage }: { p: UsageProjectRow; onPick?: () => void; onStage: (stage: string) => void }) {
   return (
     <div className="rounded-3xl border-2 border-[#5B2C9D] bg-gradient-to-br from-white to-violet-50 p-5 shadow-md">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -47,7 +47,11 @@ function TopCard({ p, onPick }: { p: UsageProjectRow; onPick?: () => void }) {
         <div className="mt-1.5"><ShareBar share={p.share_pct} /></div>
         <p className="mt-1.5 text-xs tabular-nums text-slate-500">
           {num(p.input_tokens)} input · {num(p.cached_input_tokens)} cached · {num(p.output_tokens)} output
-          <span className="mx-2 text-slate-300">|</span>Top stage: <b className="text-slate-700">{stageLabel(p.top_stage)}</b>
+          <span className="mx-2 text-slate-300">|</span>Top stage:{" "}
+          <button type="button" onClick={() => onStage(p.top_stage)} title="Show this stage's sub-stages"
+            className="rounded-full bg-[#5B2C9D]/10 px-2 py-0.5 font-semibold text-[#5B2C9D] hover:bg-[#5B2C9D]/20 focus-visible:outline-2 focus-visible:outline-[#5B2C9D]">
+            {stageLabel(p.top_stage)}<span className="sr-only"> (show sub-stages)</span>
+          </button>
         </p>
       </div>
 
@@ -74,7 +78,8 @@ function TopCard({ p, onPick }: { p: UsageProjectRow; onPick?: () => void }) {
 }
 
 /** Top projects by token usage: the #1 project highlighted, then a ranked list. Clicking sets the Project filter. */
-export function TopProjects({ projects, onPick }: { projects: UsageProjectRow[]; onPick: (projectId: number) => void }) {
+export function TopProjects({ projects, onPick, onStage }:
+  { projects: UsageProjectRow[]; onPick: (projectId: number) => void; onStage: (stage: string) => void }) {
   const [showAll, setShowAll] = useState(false);
   if (projects.length === 0) return null;
   const [top, ...rest] = projects;
@@ -87,7 +92,7 @@ export function TopProjects({ projects, onPick }: { projects: UsageProjectRow[];
         <Icon icon="lucide:trophy" width={18} aria-hidden className="text-[#5B2C9D]" /> Top projects by token usage
       </h2>
       <div className="mt-4 grid gap-5 xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-        <TopCard p={top} onPick={pickFor(top)} />
+        <TopCard p={top} onPick={pickFor(top)} onStage={onStage} />
         {rest.length > 0 ? (
           <div>
             <ol className="divide-y divide-slate-100">

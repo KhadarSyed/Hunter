@@ -11,8 +11,9 @@ import { CallLogTable, CALL_PAGE_SIZE } from "../components/usage/CallLogTable";
 import { ProviderLogo } from "../components/usage/ProviderLogo";
 import { UsageTrendChart } from "../components/usage/UsageTrendChart";
 import { UsageBarChart } from "../components/usage/UsageBarChart";
+import { StageDrillDown, StageTable } from "../components/usage/StageDrillDown";
 import { UsageFilters, presetRange, type Preset, type SelectOption, type UsageFilterState } from "../components/usage/UsageFilters";
-import { STAGE_ICONS, STAGE_LABELS, providerLabel, stageLabel } from "../components/usage/format";
+import { STAGE_ICONS, STAGE_LABELS, providerLabel, stageLabel, subStageLabel } from "../components/usage/format";
 
 const PRESET_IDS: Preset[] = ["today", "7d", "30d", "month", "custom"];
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -24,7 +25,7 @@ const intParam = (v: string | null): number | null => {
 };
 
 /** Filters from the URL query (?project= comes from a project card's usage icon); missing dates use the preset. */
-function filtersFromUrl(): { filters: UsageFilterState; logModel: string } {
+function filtersFromUrl(): { filters: UsageFilterState; logModel: string; logSubStage: string | null } {
   const q = new URLSearchParams(window.location.search);
   const presetParam = q.get("preset") as Preset | null;
   const from = q.get("from") ?? "", to = q.get("to") ?? "";
@@ -39,6 +40,7 @@ function filtersFromUrl(): { filters: UsageFilterState; logModel: string } {
       stage: q.get("stage") ?? "", model: q.get("model") ?? "",
     },
     logModel: q.get("log_model") ?? "",
+    logSubStage: q.get("log_sub"),
   };
 }
 
@@ -69,10 +71,22 @@ function buildCsv(f: UsageFilterState, s: UsageSummary, calls: UsageCall[]): str
       p.input_tokens, p.cached_input_tokens, p.output_tokens, p.total_tokens, p.share_pct, p.calls, stageLabel(p.top_stage),
       p.models.map((m) => m.model).join("; "), p.cost_usd])),
     "",
+    csvRow(["By stage"]),
+    csvRow(["Stage", "Calls", "Input tokens", "Cached input tokens", "Output tokens", "Total tokens", "Cost (USD)"]),
+    ...s.by_stage.map((st) => csvRow([stageLabel(st.stage), st.calls, st.input_tokens, st.cached_input_tokens,
+      st.output_tokens, st.total_tokens, st.cost_usd])),
+    "",
+    csvRow(["Sub-stages"]),
+    csvRow(["Stage", "Sub-stage", "Calls", "Input tokens", "Cached input tokens", "Output tokens", "Total tokens", "Cost (USD)",
+      "Avg latency (ms)", "Models"]),
+    ...s.by_stage.flatMap((st) => st.sub_stages.map((x) => csvRow([stageLabel(st.stage), subStageLabel(x.sub_stage), x.calls,
+      x.input_tokens, x.cached_input_tokens, x.output_tokens, x.total_tokens, x.cost_usd, x.avg_latency_ms,
+      x.models.map((m) => m.model).join("; ")]))),
+    "",
     csvRow(["Call log"]),
-    csvRow(["Date and time (UTC)", "Project", "Stage", "Provider", "Model", "Kind", "Input tokens", "Cached input tokens", "Output tokens",
+    csvRow(["Date and time (UTC)", "Project", "Stage", "Sub-stage", "Provider", "Model", "Kind", "Input tokens", "Cached input tokens", "Output tokens",
       "Total tokens", "Cost (USD)", "Latency (ms)", "Cache hit", "Failed"]),
-    ...calls.map((c) => csvRow([new Date(c.ts * 1000).toISOString(), c.project_name ?? c.project_id, stageLabel(c.stage), providerLabel(c.provider),
+    ...calls.map((c) => csvRow([new Date(c.ts * 1000).toISOString(), c.project_name ?? c.project_id, stageLabel(c.stage), c.sub_stage ? subStageLabel(c.sub_stage) : "", providerLabel(c.provider),
       c.model, c.kind, c.input_tokens, c.cached_input_tokens, c.output_tokens, c.total_tokens, c.cost_usd, c.latency_ms,
       c.cache_hit ? "yes" : "no", c.error ? "yes" : "no"])),
   ];
@@ -97,6 +111,9 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
   const initial = useMemo(filtersFromUrl, []);
   const [filters, setFilters] = useState<UsageFilterState>(initial.filters);
   const [logModel, setLogModel] = useState(initial.logModel);   // the summary-table row that narrows the call log only
+  const [logSubStage, setLogSubStage] = useState<string | null>(initial.logSubStage);   // narrows the call log; "" = unattributed
+  const [openStage, setOpenStage] = useState<string | null>(null);   // the stage whose drill-down is open
+  const callLogHeading = useRef<HTMLHeadingElement>(null);
   const [callOffset, setCallOffset] = useState(0);
 
   const [summary, setSummary] = useState<UsageSummary | null>(null);
@@ -120,7 +137,7 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
 
   const query = useMemo(() => toQuery(filters, isSuper), [filters, isSuper]);
   const queryKey = JSON.stringify(query);
-  const callQuery = useMemo(() => ({ ...query, model: logModel || query.model }), [query, logModel]);
+  const callQuery = useMemo(() => ({ ...query, model: logModel || query.model, sub_stage: logSubStage }), [query, logModel, logSubStage]);
   const callKey = JSON.stringify(callQuery);
 
   const updateFilters = (next: UsageFilterState) => {
@@ -128,9 +145,19 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
     const orphan = next.org !== filters.org && next.org !== null && next.project !== null && projects.length > 0
       && !projects.some((p) => p.id === next.project && p.org_id === next.org);
     setFilters(orphan ? { ...next, project: null } : next);
+    if (next.stage !== filters.stage) setLogSubStage(null);   // a sub-stage only means something within its stage
     setCallOffset(0);
   };
   const pickLogModel = (m: string) => { setLogModel(m); setCallOffset(0); };
+  const pickLogSubStage = (sub: string | null) => { setLogSubStage(sub); setCallOffset(0); };
+  const showStageCalls = (stage: string, sub: string | null) => {
+    updateFilters({ ...filters, stage });
+    pickLogSubStage(sub);
+    setOpenStage(null);
+    // after the modal has closed and handed focus back to its opener: bring the call log into view
+    setTimeout(() => callLogHeading.current?.focus(), 0);
+  };
+  const openStageRow = summary?.by_stage.find((s) => s.stage === openStage) ?? null;
 
   useEffect(() => {
     const id = ++summarySeq.current;
@@ -172,8 +199,9 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
     if (filters.stage) q.set("stage", filters.stage);
     if (filters.model) q.set("model", filters.model);
     if (logModel) q.set("log_model", logModel);
+    if (logSubStage !== null) q.set("log_sub", logSubStage);
     window.history.replaceState(window.history.state, "", `${window.location.pathname}?${q}`);
-  }, [filters, logModel, isSuper]);
+  }, [filters, logModel, logSubStage, isSuper]);
 
   // Project options: the role-scoped projects list (the same list the Projects page shows).
   useEffect(() => {
@@ -281,12 +309,12 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
           <KpiTiles kpis={summary.kpis} />
 
           {filters.project === null && (
-            <TopProjects projects={summary.by_project} onPick={(id) => updateFilters({ ...filters, project: id })} />
+            <TopProjects projects={summary.by_project} onPick={(id) => updateFilters({ ...filters, project: id })} onStage={setOpenStage} />
           )}
 
           <div data-slot="usage-charts" className="grid gap-6 2xl:grid-cols-2">
             <UsageTrendChart rows={summary.trend} from={filters.from} to={filters.to} />
-            <UsageBarChart summary={summary} projectFiltered={filters.project !== null} />
+            <UsageBarChart summary={summary} projectFiltered={filters.project !== null} onPickStage={setOpenStage} />
           </div>
 
           <section aria-labelledby="model-summary-heading" className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-900/5">
@@ -296,15 +324,31 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
             <SummaryTable rows={summary.by_model} selectedModel={logModel} onPickModel={pickLogModel} />
           </section>
 
+          <section aria-labelledby="stage-summary-heading" className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-900/5">
+            <h2 id="stage-summary-heading" className="mb-3 flex items-center gap-2 text-lg font-semibold text-slate-900">
+              <Icon icon="lucide:layers" width={18} aria-hidden className="text-[#5B2C9D]" /> By stage
+              <span className="text-sm font-normal text-slate-500">· pick a stage for its sub-stages</span>
+            </h2>
+            <StageTable rows={summary.by_stage} onOpen={setOpenStage} />
+          </section>
+
           <section aria-labelledby="call-log-heading" className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-900/5">
             <div className="mb-3 flex flex-wrap items-center gap-3">
-              <h2 id="call-log-heading" className="flex items-center gap-2 text-lg font-semibold text-slate-900">
+              <h2 id="call-log-heading" ref={callLogHeading} tabIndex={-1} className="scroll-mt-4 outline-none flex items-center gap-2 text-lg font-semibold text-slate-900">
                 <Icon icon="lucide:list" width={18} aria-hidden className="text-[#5B2C9D]" /> Call log
               </h2>
               {logModel && (
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-[#5B2C9D]/10 py-1 pl-3 pr-1.5 text-xs font-semibold text-[#5B2C9D]">
                   Model: {logModel}
                   <button type="button" aria-label="Show calls of every model" onClick={() => pickLogModel("")} className="rounded-full p-0.5 hover:bg-[#5B2C9D]/20">
+                    <Icon icon="lucide:x" width={12} aria-hidden />
+                  </button>
+                </span>
+              )}
+              {logSubStage !== null && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#5B2C9D]/10 py-1 pl-3 pr-1.5 text-xs font-semibold text-[#5B2C9D]">
+                  Sub-stage: {subStageLabel(logSubStage)}
+                  <button type="button" aria-label="Show calls of every sub-stage" onClick={() => pickLogSubStage(null)} className="rounded-full p-0.5 hover:bg-[#5B2C9D]/20">
                     <Icon icon="lucide:x" width={12} aria-hidden />
                   </button>
                 </span>
@@ -323,6 +367,10 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
             )}
           </section>
         </div>
+      )}
+      {openStageRow && (
+        <StageDrillDown stage={openStageRow} onClose={() => setOpenStage(null)}
+          onShowCalls={(sub) => showStageCalls(openStageRow.stage, sub)} />
       )}
     </div>
   );

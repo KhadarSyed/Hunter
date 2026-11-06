@@ -61,6 +61,7 @@ def record(provider: str, model: str, kind: str, *, input_tokens: int = 0, cache
         stage = s.get("stage") if s.get("stage") in STAGES else "other"
         repo.insert_usage({
             "ts": now, "org_id": s.get("org_id"), "project_id": s.get("project_id"), "stage": stage,
+            "sub_stage": str(s.get("sub_stage") or "")[:64],
             "user_id": s.get("user_id"), "provider": provider, "model": model, "deployment_type": dep,
             "kind": kind, "input_tokens": int(input_tokens), "cached_input_tokens": int(cached_input_tokens),
             "output_tokens": int(output_tokens), "total_tokens": int(input_tokens) + int(output_tokens),

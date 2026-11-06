@@ -166,7 +166,8 @@ def repair_context(plan_input: PlanInput, checklist_rows: list[dict]) -> dict:
 
 def run_studio(run, project_id: int, llm, *args, **kwargs) -> dict:
     from ..usage.service import scope as usage_scope
-    with usage_scope(project_id=project_id, stage="deck_studio"):
+    # a new holder, so Studio's sub-stages never land in the engine's; it starts unattributed, not as the engine's
+    with usage_scope(project_id=project_id, stage="deck_studio", sub_stage=""):
         return _run_studio(run, project_id, llm, *args, **kwargs)
 
 

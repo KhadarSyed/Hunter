@@ -953,7 +953,7 @@ export const intelApi = {
 function usageQuery(q: UsageQuery, extra: Record<string, number> = {}): string {
   const p = new URLSearchParams();
   Object.entries({ ...q, ...extra }).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== "") p.set(k, String(v));
+    if (v !== undefined && v !== null && (v !== "" || k === "sub_stage")) p.set(k, String(v));
   });
   const s = p.toString();
   return s ? `?${s}` : "";

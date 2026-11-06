@@ -7,10 +7,11 @@ from ...core.db import _conn
 
 _COLS = ("ts", "org_id", "project_id", "stage", "user_id", "provider", "model", "deployment_type", "kind",
          "input_tokens", "cached_input_tokens", "output_tokens", "total_tokens", "requests", "credits",
-         "latency_ms", "cache_hit", "error", "cost_usd")
+         "latency_ms", "cache_hit", "error", "cost_usd", "sub_stage")
 
 
 def insert_usage(row: dict) -> None:
+    row = {"sub_stage": "", **row}      # NOT NULL: a writer that predates sub-stages leaves it unattributed
     conn = _conn()
     try:
         conn.execute(f"INSERT INTO llm_usage ({', '.join(_COLS)}) VALUES ({', '.join('?' for _ in _COLS)})",
@@ -129,7 +130,13 @@ def summary(where: str, params: list) -> dict:
     trend = _rows(f"SELECT {_DAY} AS day, u.provider, u.model, COALESCE(SUM(u.cost_usd), 0) AS cost_usd, "
                   f"COALESCE(SUM(u.total_tokens), 0) AS total_tokens {base} "
                   f"GROUP BY 1, u.provider, u.model ORDER BY 1, u.provider, u.model", params)
-    by_stage = _rows(f"SELECT u.stage, {_SUMS} {base} GROUP BY u.stage ORDER BY SUM(u.total_tokens) DESC", params)
+    by_stage = _rows(f"SELECT u.stage, COUNT(*) AS calls, {_SUMS} {base} GROUP BY u.stage "
+                     f"ORDER BY SUM(u.total_tokens) DESC", params)
+    sub_stages = _rows(
+        f"SELECT u.stage, u.sub_stage, u.provider, u.model, COUNT(*) AS calls, {_SUMS}, "
+        f"COALESCE(SUM(CASE WHEN u.cache_hit = 0 THEN u.latency_ms END), 0) AS latency_sum, "
+        f"COALESCE(SUM(1 - u.cache_hit), 0) AS latency_n "
+        f"{base} GROUP BY u.stage, u.sub_stage, u.provider, u.model ORDER BY SUM(u.total_tokens) DESC", params)
     by_project = _rows(
         f"SELECT u.project_id, MAX(p.project_name) AS project_name, MAX(o.display_name) AS owner_name, {_SUMS}, "
         f"COUNT(*) AS calls FROM llm_usage u LEFT JOIN intel_projects p ON p.id = u.project_id "
@@ -141,15 +148,16 @@ def summary(where: str, params: list) -> dict:
     project_stages = _rows(
         f"SELECT u.project_id, u.stage, {_SUMS} {base} GROUP BY u.project_id, u.stage "
         f"ORDER BY SUM(u.total_tokens) DESC", params)
-    return {"kpi": kpi, "by_model": by_model, "trend": trend, "by_stage": by_stage, "by_project": by_project,
-            "project_models": project_models, "project_stages": project_stages}
+    return {"kpi": kpi, "by_model": by_model, "trend": trend, "by_stage": by_stage, "sub_stages": sub_stages,
+            "by_project": by_project, "project_models": project_models, "project_stages": project_stages}
 
 
 def calls(where: str, params: list, limit: int, offset: int) -> tuple[list[dict], int]:
     total = _rows(f"SELECT COUNT(*) AS n FROM llm_usage u WHERE {where}", params)[0]["n"]
     rows = _rows(
-        "SELECT u.ts, u.project_id, p.project_name, u.stage, u.provider, u.model, u.kind, u.input_tokens, "
-        "u.cached_input_tokens, u.output_tokens, u.total_tokens, u.cost_usd, u.latency_ms, u.cache_hit, u.error "
+        "SELECT u.ts, u.project_id, p.project_name, u.stage, u.sub_stage, u.provider, u.model, u.kind, "
+        "u.input_tokens, u.cached_input_tokens, u.output_tokens, u.total_tokens, u.cost_usd, u.latency_ms, "
+        "u.cache_hit, u.error "
         f"FROM llm_usage u LEFT JOIN intel_projects p ON p.id = u.project_id WHERE {where} "
         "ORDER BY u.ts DESC, u.id DESC LIMIT ? OFFSET ?", [*params, limit, offset])
     return rows, total

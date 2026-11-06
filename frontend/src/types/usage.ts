@@ -25,7 +25,20 @@ export interface UsageModelRow extends UsageTokens {
   cost_usd: number;
 }
 
-export interface UsageStageRow extends UsageTokens { stage: string; cost_usd: number }
+export interface UsageSubStageRow extends UsageTokens {
+  sub_stage: string;   // "" = calls made outside any named phase ("(unattributed)")
+  calls: number;
+  cost_usd: number;
+  avg_latency_ms: number | null;   // mean over non-cache-hit calls; null when every call was a cache hit
+  models: { provider: string; model: string; total_tokens: number; cost_usd: number }[];
+}
+
+export interface UsageStageRow extends UsageTokens {
+  stage: string;
+  calls: number;
+  cost_usd: number;
+  sub_stages: UsageSubStageRow[];
+}
 
 export interface UsageProjectModel {
   provider: string; model: string; input_tokens: number; output_tokens: number; total_tokens: number; cost_usd: number;
@@ -56,6 +69,7 @@ export interface UsageCall extends UsageTokens {
   project_id: number | null;
   project_name: string | null;
   stage: string;
+  sub_stage: string;
   provider: string;
   model: string;
   kind: string;
@@ -87,4 +101,5 @@ export interface UsageQuery {
   project_id?: number | null;
   stage?: string;
   model?: string;
+  sub_stage?: string | null;   // /calls only; "" is sent (the unattributed calls), null is left out
 }

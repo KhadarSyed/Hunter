@@ -70,6 +70,8 @@ class _Progress:
         self.phase, self.total, self.done = "", 0, 0
 
     def begin(self, phase: str, total: int) -> None:
+        from ..usage import service as usage
+        usage.fill(sub_stage=phase)     # phases run one after another; their pools share this holder
         self.phase, self.total, self.done = phase, total, 0
         with _LOCK:
             _STATE[self.pid] = {"phase": phase, "done": 0, "total": total, "phase_started": time.time()}

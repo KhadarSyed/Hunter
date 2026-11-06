@@ -7,7 +7,7 @@ import { ChartToggle, type Metric } from "./UsageTrendChart";
 import { stageLabel } from "./format";
 
 type Category = "model" | "stage" | "project";
-interface Bar { category: string; fresh: number; cached: number; output: number; cost: number; logos: string[] }
+interface Bar { key: string; category: string; fresh: number; cached: number; output: number; cost: number; logos: string[] }
 
 const MAX_PROJECT_BARS = 12;   // shortcut: only the top 12 projects get a bar; add paging if the long tail matters
 const COLORS = { fresh: "#A98BD6", cached: "#CBD5E1", output: "#5B2C9D" };
@@ -16,12 +16,12 @@ const LOGO = 18;
 const bar = (category: string, t: { input_tokens: number; cached_input_tokens: number; output_tokens: number; cost_usd: number },
   logos: string[] = []): Bar => ({
   // cached input is part of input_tokens, so the stack shows uncached input + cached + output = total
-  category, fresh: Math.max(0, t.input_tokens - t.cached_input_tokens), cached: t.cached_input_tokens,
+  key: category, category, fresh: Math.max(0, t.input_tokens - t.cached_input_tokens), cached: t.cached_input_tokens,
   output: t.output_tokens, cost: t.cost_usd, logos,
 });
 
 function bars(summary: UsageSummary, category: Category): Bar[] {
-  if (category === "stage") return summary.by_stage.map((s) => bar(stageLabel(s.stage), s));
+  if (category === "stage") return summary.by_stage.map((s) => ({ ...bar(stageLabel(s.stage), s), key: s.stage }));
   if (category === "project") {
     return summary.by_project.slice(0, MAX_PROJECT_BARS).map((p) =>
       bar(p.project_name ?? (p.project_id === null ? "No project" : `Project #${p.project_id}`), p));
@@ -38,8 +38,11 @@ function bars(summary: UsageSummary, category: Category): Bar[] {
 }
 
 /** Stacked tokens (uncached input, cached input, output) or cost per model, stage or project; model bars carry provider logos. */
-export function UsageBarChart({ summary, projectFiltered }: { summary: UsageSummary; projectFiltered: boolean }) {
+export function UsageBarChart({ summary, projectFiltered, onPickStage }:
+  { summary: UsageSummary; projectFiltered: boolean; onPickStage: (stage: string) => void }) {
   const ref = useRef<HTMLDivElement>(null);
+  const pickStage = useRef(onPickStage);   // read at click time, so a new callback never rebuilds the chart
+  pickStage.current = onPickStage;
   const [metric, setMetric] = useState<Metric>("tokens");
   const [category, setCategory] = useState<Category>(projectFiltered ? "stage" : "model");
   useEffect(() => setCategory(projectFiltered ? "stage" : "model"), [projectFiltered]);
@@ -74,6 +77,13 @@ export function UsageBarChart({ summary, projectFiltered }: { summary: UsageSumm
         tooltip: am5.Tooltip.new(root, { labelText: "{categoryX}\n{name}: {valueY}" }),
       }));
       series.columns.template.setAll({ width: am5.percent(60), strokeOpacity: 0 });
+      if (category === "stage") {     // a Stage bar opens that stage's sub-stage drill-down
+        series.columns.template.set("cursorOverStyle", "pointer");
+        series.columns.template.events.on("click", (ev) => {
+          const b = ev.target.dataItem?.dataContext as Bar | undefined;
+          if (b) pickStage.current(b.key);
+        });
+      }
       series.data.setAll(data);
     };
     if (metric === "cost") {
@@ -102,7 +112,7 @@ export function UsageBarChart({ summary, projectFiltered }: { summary: UsageSumm
             options={[{ value: "tokens", label: "Tokens" }, { value: "cost", label: "Cost" }]} />
         </div>
       </div>
-      <div ref={ref} style={{ height: 360 }} role="img" aria-label={`Bar chart of ${metric} by ${category}`} />
+      <div ref={ref} style={{ height: 360 }} role="img" aria-label={`Bar chart of ${metric} by ${category}${category === "stage" ? "; the By stage table below opens each stage's sub-stages" : ""}`} />
     </section>
   );
 }

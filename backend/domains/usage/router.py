@@ -44,7 +44,8 @@ def _epoch(day: str) -> float:
 
 
 def _filters(user: dict, date_from: str | None, date_to: str | None, org_id: int | None,
-             project_id: int | None, stage: str | None, model: str | None) -> tuple[str, list]:
+             project_id: int | None, stage: str | None, model: str | None,
+             sub_stage: str | None = None) -> tuple[str, list]:
     sql, params = _scope_where(user, org_id)
     parts = [sql]
     if date_from:
@@ -53,7 +54,7 @@ def _filters(user: dict, date_from: str | None, date_to: str | None, org_id: int
     if date_to:   # inclusive UTC day: everything before the next midnight
         parts.append("u.ts < ?")
         params.append(_epoch(date_to) + _DAY_SECONDS)
-    for col, val in (("project_id", project_id), ("stage", stage), ("model", model)):
+    for col, val in (("project_id", project_id), ("stage", stage), ("model", model), ("sub_stage", sub_stage)):
         if val is not None:
             parts.append(f"u.{col} = ?")
             params.append(val)
@@ -62,6 +63,27 @@ def _filters(user: dict, date_from: str | None, date_to: str | None, org_id: int
 
 def _pick(row: dict, *keys: str) -> dict:
     return {k: row[k] for k in keys}
+
+
+def _with_sub_stages(by_stage: list[dict], rows: list[dict]) -> list[dict]:
+    """by_stage rows, each with its sub-stages assembled from one (stage, sub_stage, provider, model) grouping."""
+    subs: dict = {}
+    for r in rows:     # arrive ordered by tokens desc, so each sub-stage's models are too
+        sub = subs.setdefault(r["stage"], {}).setdefault(r["sub_stage"], {
+            "sub_stage": r["sub_stage"], "calls": 0, **{k: 0 for k in _TOK}, "cost_usd": 0.0,
+            "latency_sum": 0, "latency_n": 0, "models": []})
+        for k in ("calls", *_TOK, "latency_sum", "latency_n"):
+            sub[k] += r[k]
+        sub["cost_usd"] += float(r["cost_usd"])
+        sub["models"].append(_pick(r, "provider", "model", "total_tokens", "cost_usd"))
+    out = []
+    for st in by_stage:
+        items = []
+        for sub in subs.get(st["stage"], {}).values():
+            n, total = sub.pop("latency_n"), sub.pop("latency_sum")
+            items.append({**sub, "avg_latency_ms": round(total / n) if n else None})
+        out.append({**st, "sub_stages": sorted(items, key=lambda x: -x["total_tokens"])})
+    return out
 
 
 @router.get("/summary")
@@ -90,7 +112,7 @@ def usage_summary(user: UserDep, date_from: DateParam = None, date_to: DateParam
         "trend": s["trend"],
         "by_model": [_pick(m, "provider", "model", "deployment_type", "calls", *_TOK, "cost_usd")
                      for m in s["by_model"]],
-        "by_stage": s["by_stage"],
+        "by_stage": _with_sub_stages(s["by_stage"], s["sub_stages"]),
         "by_project": by_project,
     }
 
@@ -98,8 +120,9 @@ def usage_summary(user: UserDep, date_from: DateParam = None, date_to: DateParam
 @router.get("/calls")
 def usage_calls(user: UserDep, date_from: DateParam = None, date_to: DateParam = None, org_id: int | None = None,
                 project_id: int | None = None, stage: str | None = None, model: str | None = None,
+                sub_stage: Annotated[str | None, Query(max_length=64)] = None,
                 offset: Annotated[int, Query(ge=0)] = 0, limit: Annotated[int, Query(ge=1, le=200)] = 50) -> dict:
-    where, params = _filters(user, date_from, date_to, org_id, project_id, stage, model)
+    where, params = _filters(user, date_from, date_to, org_id, project_id, stage, model, sub_stage)
     rows, total = repo.calls(where, params, limit, offset)
     return {"rows": rows, "total": total}
 
