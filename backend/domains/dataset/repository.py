@@ -13,7 +13,7 @@ _LIST_COLS = ("a.id, a.project_id, a.norm_url, a.url, a.channel, a.title, a.summ
               "a.country, a.reach, a.author_name, a.author_id, a.post_id, a.file_id, a.content_status, a.tags_json, "
               "a.tag_status, a.tag_error, a.sentiment, a.sentiment_confidence, a.syndicated_json, a.similar_json")
 _RQ_COLS = ("id, article_id, rq_id, signature, matched, match_confidence, keywords_json, tags_json, evidence_json, "
-            "summary, reason, status, decided_by, decided_at, decision_reason, tagged_at")
+            "summary, reason, status, decided_by, decided_at, decision_reason, tagged_at, query_changed")
 # A row counts toward an article's status when the RQ matched it or an analyst decided it.
 _COUNTED = "(m.matched = 1 OR m.decided_by IS NOT NULL)"
 
@@ -148,12 +148,68 @@ def theme_titles(project_id: int) -> dict[str, str]:
 
 
 # ---- per-RQ rows ---------------------------------------------------------------------------------------------------
+# Signature of a row a query edit re-matched for free: current until the next RQ run adopts the real signature.
+# An empty signature marks a row that needs tagging (e.g. it matches the edited query and did not before).
+REMATCHED = "rematched"
+_NEEDING = ("FROM intel_articles a LEFT JOIN intel_article_rq r ON r.article_id = a.id AND r.rq_id = ? "
+            "WHERE a.project_id = ? AND a.tag_status = 'tagged' AND (r.id IS NULL OR r.signature NOT IN (?, ?))")
+
+
 def rq_rows_needing(project_id: int, rq_id: str, signature: str, limit: int) -> list[dict]:
     return _dicts(_run(
         "SELECT a.id, a.norm_url, a.url, a.channel, a.title, a.summary, a.content, a.content_status, a.tags_json "
-        "FROM intel_articles a LEFT JOIN intel_article_rq r ON r.article_id = a.id AND r.rq_id = ? "
-        "WHERE a.project_id = ? AND a.tag_status = 'tagged' AND (r.id IS NULL OR r.signature <> ?) "
-        "ORDER BY a.id LIMIT ?", (rq_id, project_id, signature, limit)))
+        f"{_NEEDING} ORDER BY a.id LIMIT ?", (rq_id, project_id, signature, REMATCHED, limit)))
+
+
+def adopt_rematched(project_id: int, rq_id: str, signature: str) -> None:
+    _run("UPDATE intel_article_rq SET signature = ? WHERE project_id = ? AND rq_id = ? AND signature = ?",
+         (signature, project_id, rq_id, REMATCHED))
+
+
+def rq_counts(project_id: int, rq_id: str, signature: str) -> dict:
+    row = _run("SELECT COALESCE(SUM(matched), 0) AS matched, COUNT(tagged_at) AS tagged, "
+               "COALESCE(SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END), 0) AS approved, "
+               "COALESCE(SUM(query_changed), 0) AS query_changed FROM intel_article_rq "
+               "WHERE project_id = ? AND rq_id = ?", (project_id, rq_id), one=True)
+    need = _run(f"SELECT COUNT(*) {_NEEDING}", (rq_id, project_id, signature, REMATCHED), one=True)[0]
+    return {**{k: int(row[k]) for k in ("matched", "tagged", "approved", "query_changed")}, "needs_tagging": int(need)}
+
+
+def match_texts(project_id: int) -> list[dict]:
+    """Every article's id, title and the text a Boolean query is matched on (title, summary, content)."""
+    return _dicts(_run("SELECT id, title, CONCAT_WS(CHR(10), title, summary, content) AS text FROM intel_articles "
+                       "WHERE project_id = ? ORDER BY id", (project_id,)))
+
+
+def apply_rematch(project_id: int, rq_id: str, added: list[int], dropped: list[int], reason: str) -> None:
+    """After a query edit, in one transaction: every tagged row counts as current (REMATCHED); an article the edit
+    added needs tagging (matched, empty signature; an undecided row goes back to pending); a dropped undecided row
+    becomes irrelevant; a dropped analyst-decided row keeps its decision and is flagged query_changed."""
+    conn = _conn()
+    try:
+        conn.execute("UPDATE intel_article_rq SET signature = ? WHERE project_id = ? AND rq_id = ? AND signature <> ''",
+                     (REMATCHED, project_id, rq_id))
+        for aid in added:
+            conn.execute(
+                "INSERT INTO intel_article_rq (project_id, article_id, rq_id, signature, matched, status) "
+                "VALUES (?, ?, ?, '', 1, 'pending') ON CONFLICT (article_id, rq_id) DO UPDATE SET signature = '', "
+                "matched = 1, query_changed = 0, status = CASE WHEN intel_article_rq.decided_by IS NULL "
+                "THEN 'pending' ELSE intel_article_rq.status END", (project_id, aid, rq_id))
+        if dropped:
+            conn.execute("UPDATE intel_article_rq SET matched = 0, status = 'irrelevant', reason = ? "
+                         "WHERE project_id = ? AND rq_id = ? AND decided_by IS NULL AND article_id = ANY(?)",
+                         (reason, project_id, rq_id, dropped))
+            conn.execute("UPDATE intel_article_rq SET query_changed = 1 "
+                         "WHERE project_id = ? AND rq_id = ? AND decided_by IS NOT NULL AND article_id = ANY(?)",
+                         (project_id, rq_id, dropped))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def deck_run_active(project_id: int) -> bool:
+    return _run("SELECT 1 FROM intel_deliverable_runs WHERE project_id = ? AND status IN ('running', 'queued') "
+                "LIMIT 1", (project_id,), one=True) is not None
 
 
 def save_rq(article_id: int, project_id: int, rq_id: str, signature: str, result: dict, status: str) -> None:

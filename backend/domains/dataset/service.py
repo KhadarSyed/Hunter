@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
+import time
 import uuid
 from pathlib import Path
 
@@ -78,3 +80,64 @@ def upload(project_id: int, files: list[tuple[str, bytes]], user: str | None) ->
 
 # ---- tagging (the job lives in tagging_job.py) ---------------------------------------------------------------------
 from .tagging_job import TaggingBusy, is_tagging, start_tagging, tagging_state  # noqa: E402,F401
+
+
+# ---- query panel: per-RQ query preview, free re-match, needs-tagging counts and the re-tag estimate -----------------
+PREVIEW_TITLES = 50
+DROPPED_REASON = "No longer matches the edited query"
+
+
+def _matching(query: str, arts: list[dict]) -> set[int]:
+    from ...agents import rq_tagging
+    return {a["id"] for a in arts if rq_tagging.keyword_hits(query, a["text"])}
+
+
+def preview(project_id: int, current: str, edited: str) -> dict:
+    """What the edited query would match against the current one. Reads only; writes nothing."""
+    from ...agents.meltwater_query_builder import validate_boolean_syntax
+    arts = repo.match_texts(project_id)
+    old, new = _matching(current, arts), _matching(edited, arts)
+    titles = {a["id"]: a["title"] for a in arts}
+
+    def listed(ids: set[int]) -> list[dict]:
+        return [{"id": i, "title": titles[i]} for i in sorted(ids)[:PREVIEW_TITLES]]
+    errors = validate_boolean_syntax(edited)
+    return {"valid": not errors, "errors": errors, "current": len(old), "edited": len(new),
+            "added": listed(new - old), "dropped": listed(old - new)}
+
+
+def rematch(project_id: int, rq_id: str, current: str, edited: str) -> None:
+    """Free re-match after a query edit (keyword hits, no GPT); see repository.apply_rematch."""
+    arts = repo.match_texts(project_id)
+    old, new = _matching(current, arts), _matching(edited, arts)
+    repo.apply_rematch(project_id, rq_id, sorted(new - old), sorted(old - new), DROPPED_REASON)
+
+
+def rq_schemas(project_id: int) -> dict:
+    from ..strategy import tag_schemas
+    return tag_schemas.project_tag_schemas(project_id, None)
+
+
+def rq_signature(rq, schemas: dict) -> str:
+    from ...agents import rq_tagging
+    return rq_tagging.signature(rq, schemas.get(rq.id))
+
+
+def rq_counts(project_id: int, rq, schemas: dict) -> dict:
+    return repo.rq_counts(project_id, rq.id, rq_signature(rq, schemas))
+
+
+def estimate(project_id: int, rq) -> dict:
+    """What "Re-tag this question" would send to GPT: the rows needing tagging, packed as the job packs them."""
+    from ...agents import rq_tagging
+    from ..usage import service as usage
+    from . import batching
+    from .tagging_job import ALL
+    todo = repo.rq_rows_needing(project_id, rq.id, rq_signature(rq, rq_schemas(project_id)), ALL)
+    batches = batching.pack(todo, rq_tagging._body, out_per_item=rq_tagging.OUT_PER_ARTICLE)
+    inp = sum(batching.tokens(rq_tagging._body(a)) for a in todo)
+    out = rq_tagging.OUT_PER_ARTICLE * len(todo)
+    cost = usage.cost_usd("azure_openai", os.getenv("AZURE_OPENAI_MODEL", ""), usage.deployment_type("azure_openai"),
+                          inp, 0, out, time.time())
+    return {"articles": len(todo), "batches": len(batches), "input_tokens": inp, "output_tokens": out,
+            "cost_usd": cost}

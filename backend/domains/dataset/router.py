@@ -1,4 +1,4 @@
-"""Data set API: upload, tag, page/filter, select-all ids, bulk decisions with undo, article edit."""
+"""Data set API: upload, tag, page/filter, select-all ids, bulk decisions with undo, article edit, per-RQ query panel."""
 from __future__ import annotations
 
 import json
@@ -15,10 +15,11 @@ from ...core.auth import require_project_access
 from ..deliverable import rows as engine_rows
 from ..deliverable.labels import theme_key
 from . import repository as repo, service
-from .schemas import ArticleEdit, DecisionRequest, UndoRequest
+from .schemas import ArticleEdit, DecisionRequest, RQQuery, UndoRequest
 
 router = APIRouter()
 ProjectId = Annotated[int, PathParam(ge=1)]
+RqId = Annotated[str, PathParam(min_length=1, max_length=40)]
 Access = Annotated[dict, Depends(require_project_access)]
 UNDO_SECONDS = 60
 _UNDO: dict[str, tuple[float, int, list[dict]]] = {}   # token -> (expires_at, project_id, snapshot)
@@ -108,7 +109,8 @@ def _row(a: dict) -> dict:
                               "match_confidence": r["match_confidence"], "keywords": _loads(r["keywords_json"], []),
                               "tags": _loads(r["tags_json"], {}), "evidence": _loads(r["evidence_json"], {}),
                               "summary": r["summary"], "reason": r["reason"], "decided_by": r["decided_by"],
-                              "decided_at": r["decided_at"]} for r in rq_rows}
+                              "decided_at": r["decided_at"], "query_changed": bool(r["query_changed"])}
+                 for r in rq_rows}
     out["matched_rqs"] = [r["rq_id"] for r in rq_rows if r["matched"]]
     out["status"] = _status(rq_rows)
     return out
@@ -195,3 +197,75 @@ def edit(project_id: ProjectId, article_id: Annotated[int, PathParam(ge=1)], req
     if matched:
         repo.decide(project_id, [article_id], matched, "approved", _who(user), "edited")
     return {"ok": True, "approved_rqs": matched}
+
+
+# ---- query panel ---------------------------------------------------------------------------------------------------
+def _approved_rq(project_id: int, rq_id: str):
+    rq = next((q for q in engine_rows.approved_rqs(project_id) if q.id == rq_id), None)
+    if rq is None:
+        raise HTTPException(404, f"{rq_id} is not an approved research question of this project")
+    return rq
+
+
+def _guard(project_id: int) -> None:
+    """Changing an RQ while its rows are being tagged or read into a deck would race them."""
+    if service.is_tagging(project_id):
+        raise HTTPException(409, "Tagging is running for this project; try again when it finishes")
+    if repo.deck_run_active(project_id):
+        raise HTTPException(409, "A deck is being built or queued for this project; try again when it finishes")
+
+
+def _schema_view(schema) -> dict:
+    return {"fields": [{"name": t.tag_name, "type": t.tag_type, "values": list(t.allowed_values)}
+                       for t in (schema.tags if schema else [])]}
+
+
+@router.get("/articles/{project_id}/rqs")
+def rqs(project_id: ProjectId, _: Access):
+    schemas = service.rq_schemas(project_id)
+    return [{"rq_id": q.id, "question": q.question, "query": q.query, "status": q.status,
+             "counts": service.rq_counts(project_id, q, schemas), "schema": _schema_view(schemas.get(q.id))}
+            for q in engine_rows.approved_rqs(project_id)]
+
+
+@router.post("/articles/{project_id}/rqs/{rq_id}/preview")
+def preview_rq(project_id: ProjectId, rq_id: RqId, req: RQQuery, _: Access):
+    return service.preview(project_id, _approved_rq(project_id, rq_id).query, req.query)
+
+
+@router.post("/articles/{project_id}/rqs/{rq_id}/save")
+def save_rq(project_id: ProjectId, rq_id: RqId, req: RQQuery, _: Access):
+    rq = _approved_rq(project_id, rq_id)
+    _guard(project_id)
+    strategy = store.get_latest_strategy(project_id)
+    if not strategy or not store.update_research_question(strategy["id"], rq_id, rq.question, req.query):
+        raise HTTPException(404, "Research question not found")
+    service.rematch(project_id, rq_id, rq.query, req.query)
+    edited = _approved_rq(project_id, rq_id)
+    return {"counts": service.rq_counts(project_id, edited, service.rq_schemas(project_id))}
+
+
+@router.get("/articles/{project_id}/rqs/{rq_id}/estimate")
+def estimate_rq(project_id: ProjectId, rq_id: RqId, _: Access):
+    return service.estimate(project_id, _approved_rq(project_id, rq_id))
+
+
+@router.post("/articles/{project_id}/rqs/{rq_id}/retag")
+def retag_rq(project_id: ProjectId, rq_id: RqId, user: Access):
+    _approved_rq(project_id, rq_id)
+    _guard(project_id)
+    try:
+        return {"job_id": service.start_tagging(project_id, _who(user), only_rq=rq_id)}
+    except service.TaggingBusy as e:
+        raise HTTPException(409, str(e))
+
+
+@router.delete("/articles/{project_id}/rqs/{rq_id}")
+def delete_rq(project_id: ProjectId, rq_id: RqId, _: Access):
+    _approved_rq(project_id, rq_id)
+    _guard(project_id)
+    removed = repo.approved_count(project_id, [rq_id])
+    strategy = store.get_latest_strategy(project_id)
+    if not strategy or not store.delete_research_question(strategy["id"], rq_id):
+        raise HTTPException(404, "Research question not found")
+    return {"removed_approved": removed}

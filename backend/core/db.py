@@ -1551,6 +1551,8 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             UNIQUE (provider, model, deployment_type, effective_from))""",
         "CREATE TABLE IF NOT EXISTS llm_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     ]),
+    # Data set query panel: an analyst-decided row the edited RQ query no longer matches keeps its decision, flagged.
+    (40, "rq query changed flag", ["ALTER TABLE intel_article_rq ADD COLUMN query_changed INTEGER NOT NULL DEFAULT 0"]),
 ]
 
 

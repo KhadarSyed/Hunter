@@ -46,7 +46,8 @@ def tagging_state(project_id: int) -> dict:
             "minutes_left": left, "counts": repo.tagging_counts(project_id)}
 
 
-def start_tagging(project_id: int, user: str | None = None) -> str:
+def start_tagging(project_id: int, user: str | None = None, only_rq: str | None = None) -> str:
+    """only_rq: re-tag that one approved RQ's rows needing it; the other phases are skipped."""
     with _LOCK:
         if project_id in _RUNNING:
             raise TaggingBusy("Tagging is already running for this project")
@@ -54,7 +55,7 @@ def start_tagging(project_id: int, user: str | None = None) -> str:
     job_id = uuid.uuid4().hex
     try:
         store.create_job(job_id, project_id, "dataset_tagging")
-        runner.submit(run_job, project_id, job_id, None, name=f"dataset_tagging_{project_id}")
+        runner.submit(run_job, project_id, job_id, None, only_rq, name=f"dataset_tagging_{project_id}")
     except Exception:
         with _LOCK:
             _RUNNING.discard(project_id)
@@ -206,14 +207,17 @@ def _themes_phase(pid: int, llm, prog: _Progress) -> None:
     prog.advance()
 
 
-def _rq_phase(pid: int, llm, prog: _Progress) -> None:
+def _rq_phase(pid: int, llm, prog: _Progress, only_rq: str | None = None) -> None:
     from ...agents import rq_tagging
     from ..deliverable import rows
     from ..strategy import tag_schemas
     schemas = tag_schemas.project_tag_schemas(pid, llm)
     for rq in rows.approved_rqs(pid):
+        if only_rq and rq.id != only_rq:
+            continue
         schema = schemas.get(rq.id)
         sig = rq_tagging.signature(rq, schema)
+        repo.adopt_rematched(pid, rq.id, sig)       # rows a query edit re-matched for free are current
         todo = repo.rq_rows_needing(pid, rq.id, sig, ALL)
         prog.begin(f"{rq.id} tags", len(todo))
         batches = batching.pack(todo, rq_tagging._body, out_per_item=rq_tagging.OUT_PER_ARTICLE)
@@ -242,13 +246,13 @@ def _relations_phase(pid: int, llm, prog: _Progress) -> None:
     prog.advance()
 
 
-def run_job(project_id: int, job_id: str, llm=None) -> None:
+def run_job(project_id: int, job_id: str, llm=None, only_rq: str | None = None) -> None:
     from ..usage.service import scope as usage_scope
     with usage_scope(project_id=project_id, stage="dataset_tagging"):
-        _run_job(project_id, job_id, llm)
+        _run_job(project_id, job_id, llm, only_rq)
 
 
-def _run_job(project_id: int, job_id: str, llm=None) -> None:
+def _run_job(project_id: int, job_id: str, llm=None, only_rq: str | None = None) -> None:
     """The job body. A failed phase is logged and the next one still runs; the running flag is always cleared."""
     prog = _Progress(project_id, job_id)
     with _LOCK:
@@ -270,6 +274,8 @@ def _run_job(project_id: int, job_id: str, llm=None) -> None:
         steps = (("content", lambda: _content_phase(project_id, prog)), ("article tags", tags), ("themes", themes),
                  ("RQ tags", lambda: _rq_phase(project_id, llm, prog)),
                  ("relations", lambda: _relations_phase(project_id, llm, prog)))
+        if only_rq:
+            steps = (("RQ tags", lambda: _rq_phase(project_id, llm, prog, only_rq)),)
         for name, step in steps:
             try:
                 step()

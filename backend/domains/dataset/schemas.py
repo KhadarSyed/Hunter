@@ -21,3 +21,7 @@ class ArticleEdit(BaseModel):
     sentiment: Literal["Positive", "Neutral", "Negative"] | None = None
     themes: list[str] | None = Field(default=None, max_length=3)
     brands: list[str] | None = Field(default=None, max_length=50)
+
+
+class RQQuery(BaseModel):
+    query: str = Field(min_length=1, max_length=20_000, pattern=r"\S")
