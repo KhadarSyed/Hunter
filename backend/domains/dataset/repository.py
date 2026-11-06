@@ -82,7 +82,8 @@ def channel_counts(project_id: int) -> dict[str, int]:
 
 
 def articles_needing(project_id: int, phase: str, limit: int) -> list[dict]:
-    cond = {"content": "content_status = 'pending' AND channel = 'traditional'",
+    # social rows go through the content phase too: content.fetch keeps the post's own text, with no network call
+    cond = {"content": "content_status = 'pending'",
             "tags": "tag_status IN ('pending', 'failed') AND content_status <> 'pending'"}[phase]
     return _dicts(_run(f"SELECT id, norm_url, url, channel, title, summary, outlet, published, content, content_status, "
                        f"tags_json FROM intel_articles WHERE project_id = ? AND {cond} ORDER BY id LIMIT ?",
@@ -179,7 +180,8 @@ def _existing_pairs(conn, project_id: int, article_ids: list[int]) -> set[tuple[
 def decide(project_id: int, article_ids: list[int], rq_ids: list[str] | None, status: str, by: str,
            reason: str | None) -> list[dict]:
     """Set status on those articles' RQ rows; returns the snapshot `undo` needs (created rows are marked).
-    Only articles of this project are touched; ids of other projects are dropped."""
+    Only articles of this project are touched; ids of other projects are dropped. rq_ids None ("all matched RQs")
+    touches only existing rows: matched ones, plus analyst-decided ones when not approving, and creates none."""
     if not article_ids:
         return []
     now = time.time()
@@ -195,6 +197,8 @@ def decide(project_id: int, article_ids: list[int], rq_ids: list[str] | None, st
         if rq_ids is not None:
             sql += " AND rq_id = ANY(?)"
             params.append(list(rq_ids))
+        else:   # never approve an RQ the article did not match
+            sql += " AND matched = 1" if status == "approved" else " AND (matched = 1 OR decided_by IS NOT NULL)"
         snapshot = _dicts(conn.execute(sql, tuple(params)).fetchall())
         if snapshot:
             conn.execute("UPDATE intel_article_rq SET status = ?, decided_by = ?, decided_at = ?, decision_reason = ? "
@@ -263,6 +267,9 @@ def _where(project_id: int, f: dict) -> tuple[str, list]:
         sql.append("EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(CAST(a.tags_json AS jsonb) -> 'brands', "
                    "CAST('[]' AS jsonb))) b WHERE LOWER(b ->> 'brand') = LOWER(?))")
         params.append(f["brand"])
+    if f.get("ids"):
+        sql.append("a.id = ANY(?)")
+        params.append(list(f["ids"]))
     if f.get("q"):
         sql.append("(a.title ILIKE ? OR a.summary ILIKE ? OR a.outlet ILIKE ?)")
         params += [f"%{f['q']}%"] * 3
@@ -277,9 +284,9 @@ def _where(project_id: int, f: dict) -> tuple[str, list]:
 
 
 def page(project_id: int, *, channel=None, status=None, rq_id=None, sentiment=None, theme=None, brand=None,
-         content_status=None, q=None, offset: int = 0, limit: int = 50) -> tuple[list[dict], int]:
+         content_status=None, q=None, ids=None, offset: int = 0, limit: int = 50) -> tuple[list[dict], int]:
     where, params = _where(project_id, dict(channel=channel, status=status, rq_id=rq_id, sentiment=sentiment,
-                                            theme=theme, brand=brand, content_status=content_status, q=q))
+                                            theme=theme, brand=brand, content_status=content_status, q=q, ids=ids))
     total = int(_run(f"SELECT COUNT(*) FROM intel_articles a WHERE {where}", tuple(params), one=True)[0])
     arts = _dicts(_run(f"SELECT {_LIST_COLS}, a.content FROM intel_articles a WHERE {where} ORDER BY a.id LIMIT ? OFFSET ?",
                        (*params, limit, offset)))
@@ -292,6 +299,23 @@ def page(project_id: int, *, channel=None, status=None, rq_id=None, sentiment=No
         for a in arts:
             a["rq"] = by_art.get(a["id"], [])
     return arts, total
+
+
+def facets(project_id: int, channel: str) -> dict:
+    """The filter dropdowns' values for one channel: distinct theme labels, brand names and content statuses."""
+    base = "FROM intel_articles a WHERE a.project_id = ? AND a.channel = ?"
+    themes = _run("SELECT DISTINCT x.v FROM intel_articles a CROSS JOIN LATERAL (VALUES "
+                  + ", ".join(f"(CAST(a.tags_json AS jsonb) #>> '{{themes,{p}}}')" for p in ("primary", "secondary", "tertiary"))
+                  + ") AS x(v) WHERE a.project_id = ? AND a.channel = ? AND COALESCE(x.v, '') <> '' ORDER BY x.v",
+                  (project_id, channel))
+    brands = _run("SELECT DISTINCT b ->> 'brand' AS v FROM intel_articles a CROSS JOIN LATERAL jsonb_array_elements("
+                  "CASE WHEN jsonb_typeof(CAST(a.tags_json AS jsonb) -> 'brands') = 'array' "
+                  "THEN CAST(a.tags_json AS jsonb) -> 'brands' ELSE CAST('[]' AS jsonb) END) b "
+                  "WHERE a.project_id = ? AND a.channel = ? AND COALESCE(b ->> 'brand', '') <> '' ORDER BY 1",
+                  (project_id, channel))
+    statuses = _run(f"SELECT DISTINCT a.content_status AS v {base} ORDER BY 1", (project_id, channel))
+    return {"themes": [r[0] for r in themes], "brands": [r[0] for r in brands],
+            "content_statuses": [r[0] for r in statuses]}
 
 
 def ids_matching(project_id: int, **filters) -> list[int]:
@@ -333,16 +357,10 @@ def approved_counts_by_rq(project_id: int, rq_ids: list[str]) -> dict[str, int]:
         "AND rq_id = ANY(?) GROUP BY rq_id", (project_id, list(rq_ids)))}
 
 
-def articles_with_rq(project_id: int, article_ids: list[int]) -> set[int]:
-    if not article_ids:
-        return set()
-    return {r[0] for r in _run("SELECT DISTINCT article_id FROM intel_article_rq WHERE project_id = ? "
-                               "AND article_id = ANY(?)", (project_id, list(article_ids)))}
-
-
 def edit_article(project_id: int, article_id: int, sentiment: str | None, themes: list[str] | None,
                  brands: list[str] | None) -> list[str] | None:
-    """Apply an analyst's edit to the article's tags; returns the RQ ids it matched, or None when it is not found."""
+    """Apply an analyst's edit to the article's tags; returns the matched RQ ids still undecided (an edit confirms
+    those; an analyst's earlier decision stays), or None when it is not found."""
     row = _run("SELECT tags_json FROM intel_articles WHERE id = ? AND project_id = ?", (article_id, project_id), one=True)
     if not row:
         return None
@@ -357,5 +375,6 @@ def edit_article(project_id: int, article_id: int, sentiment: str | None, themes
         tags["entities"] = {**(tags.get("entities") or {}), "brands": list(brands)}   # the deck reads entities.brands
     _run("UPDATE intel_articles SET tags_json = ?, sentiment = COALESCE(?, sentiment) WHERE id = ?",
          (json.dumps(tags, default=str), sentiment, article_id))
-    return [r[0] for r in _run("SELECT rq_id FROM intel_article_rq WHERE article_id = ? AND matched = 1 ORDER BY rq_id",
+    return [r[0] for r in _run("SELECT rq_id FROM intel_article_rq WHERE article_id = ? AND matched = 1 "
+                               "AND decided_by IS NULL ORDER BY rq_id",
                                (article_id,))]

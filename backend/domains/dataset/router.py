@@ -137,6 +137,21 @@ def page(project_id: ProjectId, _: Access, f: Annotated[Filters, Depends()],
     return {"rows": rows, "total": total, "rqs": _rq_columns(project_id)}
 
 
+@router.get("/articles/{project_id}/facets")
+def facets(project_id: ProjectId, _: Access, channel: Literal["traditional", "social"]):
+    out = repo.facets(project_id, channel)
+    titles = repo.theme_titles(project_id)
+    out["themes"] = [{"label": l, "title": titles.get(theme_key(l), l)} for l in out["themes"]]
+    return out
+
+
+@router.get("/articles/{project_id}/by-ids")
+def by_ids(project_id: ProjectId, _: Access, ids: Annotated[list[int], Query(min_length=1, max_length=200)]):
+    """Articles of this project by id (Syndicated / Similar lookups across pages)."""
+    arts, _n = repo.page(project_id, ids=ids, limit=len(ids))
+    return {"rows": [_row(a) for a in arts]}
+
+
 @router.get("/articles/{project_id}/ids")
 def ids(project_id: ProjectId, _: Access, f: Annotated[Filters, Depends()]):
     return {"ids": repo.ids_matching(project_id, **f.kw)}
@@ -156,15 +171,8 @@ def decide(project_id: ProjectId, req: DecisionRequest, user: Access):
     by = _who(user)
     if req.rq_id and req.rq_id not in {q.id for q in engine_rows.approved_rqs(project_id)}:
         raise HTTPException(422, f"{req.rq_id} is not an approved research question of this project")
-    if req.rq_id:
-        snapshot = repo.decide(project_id, req.article_ids, [req.rq_id], req.status, by, req.reason)
-    else:   # every RQ row the article has; an article with none ("No RQ match") gets rows for the approved RQs
-        have = repo.articles_with_rq(project_id, req.article_ids)
-        snapshot = repo.decide(project_id, [i for i in req.article_ids if i in have], None, req.status, by, req.reason)
-        bare = [i for i in req.article_ids if i not in have]
-        approved = [q.id for q in engine_rows.approved_rqs(project_id)]
-        if bare and approved:
-            snapshot += repo.decide(project_id, bare, approved, req.status, by, req.reason)
+    # no rq_id: the article's matched RQ rows only; an article with none ("No RQ match") is left alone
+    snapshot = repo.decide(project_id, req.article_ids, [req.rq_id] if req.rq_id else None, req.status, by, req.reason)
     return {"changed": len(snapshot), "undo_token": _remember(project_id, snapshot)}
 
 

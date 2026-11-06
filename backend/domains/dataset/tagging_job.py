@@ -62,6 +62,7 @@ def start_tagging(project_id: int, user: str | None = None) -> str:
 
 
 class _Progress:
+    # Progress counts articles, not batches (a deliberate deviation from the spec's "batches": finer and comparable).
     def __init__(self, project_id: int, job_id: str):
         self.pid, self.job_id = project_id, job_id
         self.phase, self.total, self.done = "", 0, 0
