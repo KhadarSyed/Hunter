@@ -7,13 +7,13 @@ import { ArticlesTable, PAGE_SIZE } from "../components/dataset/ArticlesTable";
 import { BulkBar } from "../components/dataset/BulkBar";
 import { ColumnPicker, loadHidden, saveHidden, type GroupId } from "../components/dataset/ColumnPicker";
 import { FilterBar } from "../components/dataset/FilterBar";
-import type { ArticleFilters, ArticlePage, ArticleRow, Channel, RqStatus, UploadResult } from "../types/dataset";
+import type { ArticleFacets, ArticleFilters, ArticlePage, Channel, RqStatus, UploadResult } from "../types/dataset";
 
 const V = "#5B2C9D";
 const UNDO_MS = 10_000;
-const ALL_PAGE = 200;
 const EMPTY: ArticleFilters = { channel: "traditional", status: "all", rq: "", sentiment: "", theme: "", brand: "", content_status: "", q: "" };
 const NO_PAGE: ArticlePage = { rows: [], total: 0, rqs: [] };
+const NO_FACETS: ArticleFacets = { themes: [], brands: [], content_statuses: [] };
 const errMsg = (e: unknown, fallback: string) => (e instanceof Error ? e.message : fallback);
 
 type Progress = { phase: string; done: number; total: number; minutesLeft: number | null };
@@ -36,12 +36,12 @@ export function DataSet() {
   const [filters, setFilters] = useState<ArticleFilters>(EMPTY);
   const [offset, setOffset] = useState(0);
   const [page, setPage] = useState<ArticlePage>(NO_PAGE);
-  const [allRows, setAllRows] = useState<ArticleRow[]>([]);
+  const [facets, setFacets] = useState<ArticleFacets>(NO_FACETS);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [hidden, setHiddenState] = useState<GroupId[]>(loadHidden);
   const [reloadKey, setReloadKey] = useState(0);   // the page itself
-  const [dataKey, setDataKey] = useState(0);       // what the dropdowns and related-article lookups read
+  const [dataKey, setDataKey] = useState(0);       // what the dropdowns read
 
   const [uploading, setUploading] = useState(false);
   const [upload, setUpload] = useState<UploadResult | null>(null);
@@ -72,20 +72,13 @@ export function DataSet() {
     return () => { stale = true; window.clearTimeout(id); };
   }, [projectId, filters, offset, reloadKey]);
 
-  // Every article of the channel: dropdown values and Syndicated / Similar lookups across pages.
+  // The channel's dropdown values (themes, brands, content statuses), computed on the server.
   useEffect(() => {
     if (!projectId) return;
     let stale = false;
-    (async () => {
-      const base = { ...EMPTY, channel: filters.channel };
-      const rows: ArticleRow[] = [];
-      for (let o = 0; ; o += ALL_PAGE) {
-        const p = await intelApi.listArticles(projectId, base, o, ALL_PAGE);
-        rows.push(...p.rows);
-        if (rows.length >= p.total || p.rows.length === 0) break;
-      }
-      if (!stale) setAllRows(rows);
-    })().catch((e) => { if (!stale) { setAllRows([]); setError(errMsg(e, "Could not load the filter options")); } });
+    intelApi.articleFacets(projectId, filters.channel)
+      .then((f) => { if (!stale) setFacets(f); })
+      .catch((e) => { if (!stale) { setFacets(NO_FACETS); setError(errMsg(e, "Could not load the filter options")); } });
     return () => { stale = true; };
   }, [projectId, filters.channel, dataKey]);
 
@@ -225,7 +218,7 @@ export function DataSet() {
         <ColumnPicker hidden={hidden} onChange={setHidden} />
       </div>
 
-      <FilterBar filters={filters} rqs={page.rqs} options={allRows} onChange={changeFilters} />
+      <FilterBar filters={filters} rqs={page.rqs} facets={facets} onChange={changeFilters} />
 
       {selected.size > 0 && (
         <BulkBar key={filters.rq} count={selected.size} rqs={page.rqs} defaultRq={filters.rq} busy={busy}
@@ -235,7 +228,7 @@ export function DataSet() {
       )}
 
       {projectId && (
-        <ArticlesTable projectId={projectId} channel={filters.channel} rows={page.rows} allRows={allRows} rqs={page.rqs}
+        <ArticlesTable projectId={projectId} channel={filters.channel} rows={page.rows} brands={facets.brands} rqs={page.rqs}
           total={page.total} offset={offset} loading={loading} hidden={hidden} selected={selected}
           selectionComplete={page.total > 0 && selected.size === page.total}
           onToggle={toggleRow} onToggleAll={() => void toggleAll()} onPage={setOffset}

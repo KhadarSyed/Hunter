@@ -1,4 +1,4 @@
-import type { ArticleFilters, ArticlePage, RqStatus, UploadResult } from "../types/dataset";
+import type { ArticleFacets, ArticleFilters, ArticlePage, ArticleRow, Channel, RqStatus, UploadResult } from "../types/dataset";
 
 // Empty by default (relative paths), matching same-origin deploys where the backend
 // serves the built SPA directly. Set VITE_API_BASE_URL (e.g. "https://api.example.com")
@@ -767,6 +767,12 @@ export const intelApi = {
 
   listArticles: (projectId: number, f: ArticleFilters, offset = 0, limit = 100) =>
     get<ArticlePage>(`/articles/${projectId}?${articleQuery(f, { offset, limit })}`),
+
+  articleFacets: (projectId: number, channel: Channel) =>
+    get<ArticleFacets>(`/articles/${projectId}/facets?channel=${channel}`),
+
+  articlesByIds: (projectId: number, ids: number[]) =>
+    get<{ rows: ArticleRow[] }>(`/articles/${projectId}/by-ids?${ids.slice(0, 200).map((i) => `ids=${i}`).join("&")}`).then((r) => r.rows),
 
   articleIds: (projectId: number, f: ArticleFilters) =>
     get<{ ids: number[] }>(`/articles/${projectId}/ids?${articleQuery(f)}`).then((r) => r.ids),

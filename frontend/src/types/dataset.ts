@@ -27,7 +27,7 @@ export interface RqRow {
   summary: string | null;
   reason: string | null;
   decided_by: string | null;
-  decided_at: string | null;
+  decided_at: number | null;   // epoch seconds
 }
 
 export interface ArticleRow {
@@ -72,6 +72,9 @@ export interface ArticleFilters {
   content_status: string;
   q: string;
 }
+
+/** The filter dropdowns' values for one channel (GET /articles/{id}/facets). */
+export interface ArticleFacets { themes: { label: string; title: string }[]; brands: string[]; content_statuses: string[] }
 
 export interface ArticlePage { rows: ArticleRow[]; total: number; rqs: RqColumn[] }
 

@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { intelApi } from "../../services/intel-api";
 import type { RowRelations } from "../../services/intel-api";
 import type { ArticleRow, Channel, RqColumn } from "../../types/dataset";
 import { RelatedArticlesDrawer, type RelationKind } from "../RelatedArticlesDrawer";
@@ -21,7 +22,7 @@ type Props = {
   projectId: number;
   channel: Channel;
   rows: ArticleRow[];
-  allRows: ArticleRow[];      // every article of the channel, to resolve Syndicated / Similar links across pages
+  brands: string[];           // every brand of the channel: one column each
   rqs: RqColumn[];
   total: number;
   offset: number;
@@ -41,11 +42,20 @@ export function ArticlesTable(p: Props) {
   const [relation, setRelation] = useState<{ row: ArticleRow; kind: RelationKind } | null>(null);
   const relations = useMemo(() => Object.fromEntries(p.rows.map((r) => [String(r.id),
     { syndicated: (r.syndicated ?? []).map(String), similar: (r.similar ?? []).map(String) } as RowRelations])), [p.rows]);
+  const [related, setRelated] = useState<ArticleRow[]>([]);
   const cols = useMemo(
-    () => buildColumns({ brands: brandNames(p.allRows.length ? p.allRows : p.rows), rqs: p.rqs, relations, openRelation: (row, kind) => setRelation({ row, kind }) }, p.channel)
+    () => buildColumns({ brands: p.brands.length ? p.brands : brandNames(p.rows), rqs: p.rqs, relations, openRelation: (row, kind) => setRelation({ row, kind }) }, p.channel)
       .filter((c) => !p.hidden.includes(c.group)),
-    [p.rows, p.allRows, p.rqs, relations, p.channel, p.hidden]);
-  const byId = useMemo(() => new Map(p.allRows.map((r) => [r.id, r])), [p.allRows]);
+    [p.rows, p.brands, p.rqs, relations, p.channel, p.hidden]);
+  // Syndicated / Similar articles may sit on other pages: fetch them by id when the drawer opens.
+  useEffect(() => {
+    setRelated([]);
+    const ids = relation ? (relation.kind === "syndicated" ? relation.row.syndicated : relation.row.similar) ?? [] : [];
+    if (ids.length === 0) return;
+    let stale = false;
+    intelApi.articlesByIds(p.projectId, ids).then((rows) => { if (!stale) setRelated(rows); }).catch(() => { /* drawer shows none */ });
+    return () => { stale = true; };
+  }, [relation, p.projectId]);
   const pinned = (left: number, extra: string) => ({ className: `sticky z-10 bg-white group-hover:bg-slate-50 ${extra}`, style: { left } });
   const last = Math.min(p.offset + PAGE_SIZE, p.total);
 
@@ -108,8 +118,7 @@ export function ArticlesTable(p: Props) {
       {drawer && <ArticleDrawer projectId={p.projectId} row={drawer} rqs={p.rqs} onClose={() => setDrawer(null)} onSaved={() => { setDrawer(null); p.onEdited(); }} />}
       {relation && (
         <RelatedArticlesDrawer kind={relation.kind} source={{ title: relation.row.title, publisher: relation.row.outlet }}
-          related={((relation.kind === "syndicated" ? relation.row.syndicated : relation.row.similar) ?? [])
-            .map((id) => byId.get(id)).filter((x): x is ArticleRow => !!x)
+          related={related
             .map((x) => ({ key: String(x.id), url: x.url, title: x.title, publisher: x.outlet, date: x.published ?? "",
               content: x.content || x.summary, tags: [x.sentiment, x.tags.themes?.primary].filter((t): t is string => !!t) }))}
           onClose={() => setRelation(null)} />

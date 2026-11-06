@@ -1,4 +1,4 @@
-import type { ArticleFilters, ArticleRow, RqColumn, StatusFilter } from "../../types/dataset";
+import type { ArticleFacets, ArticleFilters, RqColumn, StatusFilter } from "../../types/dataset";
 
 const STATUSES: { id: StatusFilter; label: string }[] = [
   { id: "all", label: "All" }, { id: "approved", label: "Approved" }, { id: "review", label: "Review" },
@@ -6,27 +6,24 @@ const STATUSES: { id: StatusFilter; label: string }[] = [
 ];
 const sel = "rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700";
 
-const unique = (xs: (string | null | undefined)[]) => [...new Set(xs.filter((x): x is string => !!x))].sort();
-
 type Props = {
   filters: ArticleFilters;
   rqs: RqColumn[];
-  options: ArticleRow[];   // rows the dropdown values are drawn from
+  facets: ArticleFacets;   // the channel's dropdown values
   onChange: (patch: Partial<ArticleFilters>) => void;
 };
 
-export function FilterBar({ filters, rqs, options, onChange }: Props) {
+export function FilterBar({ filters, rqs, facets, onChange }: Props) {
   // The column shows consolidated titles but the API filters on the raw label: list title, value label.
-  const labelTitle = new Map(options.flatMap((r) => Object.entries(r.theme_titles ?? {})));
-  const themes = unique(options.flatMap((r) => Object.values(r.tags.themes ?? {})));
+  const labelTitle = new Map(facets.themes.map((t) => [t.label, t.title]));
+  const themes = facets.themes.map((t) => t.label);
   const titleCount = new Map<string, number>();
   themes.forEach((l) => titleCount.set(labelTitle.get(l) ?? l, (titleCount.get(labelTitle.get(l) ?? l) ?? 0) + 1));
   const themeOptions = themes.map((l) => {
     const title = labelTitle.get(l) ?? l;
     return { value: l, text: (titleCount.get(title) ?? 0) > 1 ? `${title} (${l})` : title };
   }).sort((a, b) => a.text.localeCompare(b.text));
-  const brands = unique(options.flatMap((r) => (r.tags.brands ?? []).map((b) => b.brand)));
-  const contentStatuses = unique(options.map((r) => r.content_status));
+  const { brands, content_statuses: contentStatuses } = facets;
   const select = (label: string, key: "rq" | "sentiment" | "theme" | "brand" | "content_status", values: { value: string; text: string }[], all: string) => (
     <select aria-label={label} className={sel} value={filters[key]} onChange={(e) => onChange({ [key]: e.target.value })}>
       <option value="">{all}</option>
@@ -46,7 +43,7 @@ export function FilterBar({ filters, rqs, options, onChange }: Props) {
       {select("Theme", "theme", themeOptions, "Any theme")}
       {select("Brand", "brand", brands.map((v) => ({ value: v, text: v })), "Any brand")}
       {select("Content status", "content_status", contentStatuses.map((v) => ({ value: v, text: v })), "Any content status")}
-      <input type="search" aria-label="Search articles" placeholder="Search title or content" value={filters.q} maxLength={200}
+      <input type="search" aria-label="Search articles" placeholder="Search title, summary or outlet" value={filters.q} maxLength={200}
         onChange={(e) => onChange({ q: e.target.value })} className={`${sel} w-56`} />
     </div>
   );

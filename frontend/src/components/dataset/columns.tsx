@@ -51,7 +51,7 @@ function rqColumns(q: RqColumn): Col[] {
         ? <div className="text-xs text-slate-700 space-y-0.5">{rr.summary && <p>{rr.summary}</p>}{rr.reason && <p className="text-slate-500">{rr.reason}</p>}</div> : dash; } },
     { id: `${q.id}.status`, group: "rq", w: 100, head: `${q.id} · Status`,
       cell: (r) => { const rr = rowOf(r); return rr
-        ? <span title={rr.decided_by ? `Decided by ${rr.decided_by}` : "Auto"} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${PILL[rr.status]}`}>{rr.status === "irrelevant" ? "Rejected" : rr.status === "pending" ? "Review" : "Approved"}</span> : dash; } },
+        ? <span title={rr.decided_by ? `Decided by ${rr.decided_by}${rr.decided_at ? ` on ${new Date(Number(rr.decided_at) * 1000).toLocaleString()}` : ""}` : "Auto"} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${PILL[rr.status]}`}>{rr.status === "irrelevant" ? "Rejected" : rr.status === "pending" ? "Review" : "Approved"}</span> : dash; } },
   ];
 }
 
