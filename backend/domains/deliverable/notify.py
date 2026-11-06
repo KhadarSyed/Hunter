@@ -261,24 +261,14 @@ def notify_ready(project_id: int, run_id: int) -> None:
 STAGE_GATES = {
     "background_research": ("Background research", "background-research", "Open it and run it again"),
     "search_strategy": ("Search strategy", "search-strategy", "Open it and run it again"),
-    "dataset_enrichment": ("Dataset review", "data-sources", "Review the tagged datasets and approve them"),
 }
-WAITS = {"dataset_enrichment"}
 _SENT: set[tuple] = set()     # shortcut: per process, so a restart mid-stage can send one repeat; fine on one server
 _SENT_LOCK = threading.Lock()
 
 
 def _stage_key(job: dict) -> tuple | None:
-    """What one email covers, or None when nothing is sent yet: a project uploads several datasets at once, so its
-    enrichment jobs are one email, sent when the last of them finishes."""
-    if job["status"] == "failed":
-        return (job["id"], "failed")
-    if job["job_type"] not in WAITS:
-        return None
-    siblings = store.list_jobs(job["project_id"], job["job_type"])
-    if any(j["status"] in ("pending", "running") for j in siblings):
-        return None
-    return (job["project_id"], job["job_type"], tuple(sorted(j["id"] for j in siblings)))
+    """What one email covers: a failed job, once. A completed job sends nothing (no stage waits on a person here)."""
+    return (job["id"], "failed") if job["status"] == "failed" else None
 
 
 def owner_email(project: dict, name: str, page: str, action: str, *, error: str = "",
@@ -307,7 +297,7 @@ def send_stage_email(job_id: str) -> bool:
     project = store.get_project(job["project_id"])
     if not project:
         return False
-    with _SENT_LOCK:            # two enrichment jobs finishing together must not both send
+    with _SENT_LOCK:            # two failures landing together must not both send
         key = _stage_key(job)
         if key is None or key in _SENT:
             return False

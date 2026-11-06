@@ -93,7 +93,8 @@
 | Background Research | `background-research` | 6-tab brand intelligence, interactive terms/exclusions | API-connected, web search, news approval |
 | Search Strategy | `search-strategy` | Editable queries, version history, exclusion toggles, Gate 3 | API-connected, LLM/deterministic generation |
 | Query Evaluation | `query-evaluation` | Simulated 200-record sample, classification, refinements | — |
-| Data set (replaces Data Sources / Review) | `data-set` (`data-sources` is an alias) | Upload, tagging, per-RQ approve/reject; Matching label tab precedes it | Old per-RQ upload, enrichment and Review tab removed (tables kept) |
+| Matching label | `matching-label` | Research questions with their queries, approve/edit/delete | API-connected |
+| Data set (replaces Data Sources / Review) | `data-set` (`data-sources` is an alias) | Upload, tagging, per-RQ approve/reject | API-connected; old per-RQ upload, enrichment and Review tab removed (tables kept) |
 | Workflow Overview | `workflow` | 10-stage pipeline cards | — |
 | Research Plan | `research-plan` | Locked state with gate indicators | API-connected: generate, approve/reject, 4-tab view (objectives, execution units, methods, deliverables) |
 | Research Execution | `research-execution` | Locked state with gate indicator | API-connected: start/pause/resume/cancel execution, unit progress table, evidence viewer, execution log, retry failed units |

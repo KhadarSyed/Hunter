@@ -12,7 +12,7 @@ from ...core import config, store
 from ...core.auth import SESSION_COOKIE_NAME
 
 logger = logging.getLogger(__name__)
-WALK = ("landing", "projects", "dashboard", "background-research", "search-strategy", "data-sources", "deliverables")
+WALK = ("landing", "projects", "dashboard", "background-research", "search-strategy", "data-set", "deliverables")
 FADE_SAMPLE_MS = 100
 FADE_WINDOW_MS = 1500
 FADED_BELOW = 0.6

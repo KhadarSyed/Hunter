@@ -75,7 +75,7 @@ def _run(project_id: int, user_id: int) -> None:
         api = ApiClient(user_id)
         _steps(api, project_id, f"autorun:{user_id}")
         _set(project_id, status="done", step="data-sources", job_id=None)
-        notify.notify_owner(project_id, "Data Sources", "data-sources",
+        notify.notify_owner(project_id, "Data set", "data-set",
                             "Review the research questions, upload your datasets and approve them")
     except Exception as e:
         logger.warning("[autorun:%s] stopped at %s: %s", project_id, status(project_id).get("step"), e)

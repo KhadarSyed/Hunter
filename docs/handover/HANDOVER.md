@@ -79,7 +79,7 @@ Each stage is a backend module + a frontend page. Stages run sequentially per pr
 | 2 | **Brief Scope Review** | `research_spec_service.py` + `agents/brief_scope.py` | `BriefScopeReview.tsx` | Working — LLM or rule-based spec generation |
 | 3 | **Background Research** | `background_brief_service.py` + `web_research_adapter.py` | `BackgroundResearch.tsx` | Working — DuckDuckGo search, LLM or rule-based composition |
 | 4 | **Search Strategy** | `intelligence_api.py` (`_build_deterministic_strategy`) + `agents/meltwater_query_builder.py` | `SearchStrategy.tsx` | Working — deterministic fallback just fixed |
-| 5 | **Data Sources** | `intelligence_api.py` (data source endpoints) | `DataSources.tsx` | UI exists |
+| 5 | **Data Sources** | `strategy/router.py` (RQ routes) + `domains/dataset/` | `MatchingLabel.tsx`, `DataSet.tsx` | Working |
 | 6 | **Research Execution** | `research.py` + `executor_service.py` | — | UI removed 2026-10-16 (deck engine analyses datasets directly) |
 | 7 | **Evidence Library** | `evidence_library.py` | `EvidenceLibrary.tsx` | UI exists |
 | 8 | **Analysis & Insights** | `insight_generator.py` | `InsightsPage.tsx` | Analysis page removed 2026-10-16; deck insights show on Deliverables |

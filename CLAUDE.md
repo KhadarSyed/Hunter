@@ -110,7 +110,7 @@ not scaffolding.
 | Brief & Scope | `brief/parser.py`, `agents/brief_scope.py`, `spec/service.py`, `spec/renderer.py` | `NewProject.tsx`, `BriefScopeReview.tsx` |
 | Background Research | `research/service.py`, `research/web_research.py`, `research/news_search.py`, `agents/brand_intelligence.py` | `BackgroundResearch.tsx` |
 | Search Strategy + dataset evaluation | `strategy/router.py` (`_build_deterministic_strategy()`), `agents/meltwater_query_builder.py`, `agents/query_evaluator.py` | `SearchStrategy.tsx`, `QueryEvaluation.tsx` |
-| Matching label + Data set | `domains/dataset/` (router, service, tagging_job, batching, repository; carries the matching-label routes), `agents/article_tagging.py`, `agents/rq_tagging.py` | `MatchingLabel.tsx`, `DataSet.tsx` (+ `components/dataset/`); `data-sources` URLs alias `data-set` |
+| Matching label + Data set | `dataset/` (router, service, tagging_job, batching, repository) plus the RQ routes in `strategy/router.py`, `agents/article_tagging.py`, `agents/rq_tagging.py` | `MatchingLabel.tsx`, `DataSet.tsx` (+ `components/dataset/`); `data-sources` URLs alias `data-set` |
 | Research Plan | `plan/service.py`; `execution/service.py` holds only the dataset loaders used by `deliverable/` and `strategy/` | `ResearchPlan.tsx` |
 | Deliverables (deck engine) | `deliverable/`, `deckstudio/` | `DeliverablesPage.tsx` |
 | QC flow (separate from the pipeline) | `qc/parser.py`, `qc/service.py`, `qc/export.py`, `qc/source_retrieval.py` | `QCUpload.tsx` → `QCFieldMapping.tsx` → `QCResults.tsx` → `QCExport.tsx` |

@@ -17,7 +17,7 @@ const GUIDE: Record<Stage, { title: string; purpose: string; processes: string[]
     why: "A deliverable is only ever built from inputs a person has signed off." },
   ingest: { title: "Ingesting approved datasets", share: 0,
     purpose: "Reads every approved dataset into one clean set of articles.",
-    processes: ["Each approved Meltwater export", "The enrichment tags from the Review tab", "Duplicate URLs merged into one article"],
+    processes: ["Each approved Meltwater export", "The approved tags from the Data set tab", "Duplicate URLs merged into one article"],
     why: "Every later number counts each article once." },
   routing: { title: "Routing articles to questions", share: 0.3,
     purpose: "Decides which research questions each article answers.",

@@ -1,5 +1,5 @@
 """Dataset loaders: read an uploaded Meltwater/Empower CSV or XLSX export into normalised
-row dicts (used by deliverable/rows.py and strategy/sample_enrichment.py)."""
+row dicts (used by deliverable/rows.py)."""
 from __future__ import annotations
 
 import csv

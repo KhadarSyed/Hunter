@@ -30,7 +30,7 @@ def _state(row: dict | None, running: bool) -> str:
 def _datasets_state(datasets: list[dict]) -> str:
     if not datasets:
         return "todo"
-    if any(d.get("processing_status") not in ("done", "error") or d.get("enrichment_status") == "running" for d in datasets):
+    if any(d.get("processing_status") not in ("done", "error") for d in datasets):
         return "waiting"
     usable = [d for d in datasets if d.get("processing_status") == "done"]
     if usable and all(_approved(d) for d in usable):
