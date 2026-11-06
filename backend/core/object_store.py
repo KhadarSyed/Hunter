@@ -22,9 +22,13 @@ def _client():
     bucket = _env("AWS_S3_BUCKET")
     if not (bucket and _env("AWS_ACCESS_KEY_ID") and _env("AWS_SECRET_ACCESS_KEY")):
         return None
-    import boto3
-    return boto3.client("s3", region_name=_env("AWS_REGION") or None, aws_access_key_id=_env("AWS_ACCESS_KEY_ID"),
-                        aws_secret_access_key=_env("AWS_SECRET_ACCESS_KEY")), bucket
+    try:
+        import boto3
+        return boto3.client("s3", region_name=_env("AWS_REGION") or None, aws_access_key_id=_env("AWS_ACCESS_KEY_ID"),
+                            aws_secret_access_key=_env("AWS_SECRET_ACCESS_KEY")), bucket
+    except Exception as e:          # a bad region or missing boto3 means "no S3", never a crash
+        logger.warning("S3 client not created: %s", type(e).__name__)
+        return None
 
 
 def enabled() -> bool:

@@ -8,6 +8,7 @@ MISSING_RETRY_S; a transient failure (network error) is never stored. The table 
 be read or written the fetch simply goes ahead, so assets never fail a deck."""
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import time
@@ -17,10 +18,16 @@ from pathlib import Path
 
 import requests
 
-from . import repository
+from ...core import object_store
+from . import library, repository
 
 logger = logging.getLogger(__name__)
-KINDS = ("logo", "icon", "favicon", "flag", "photo")
+KINDS = ("logo", "icon", "favicon", "flag", "photo", "svg_icon", "product_logo", "slide_image", "house_logo", "deck")
+_EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/gif": ".gif", "image/svg+xml": ".svg",
+        "image/webp": ".webp", "image/x-icon": ".ico", "image/vnd.microsoft.icon": ".ico"}
+_LABELS = {"logo": "Brand logo", "product_logo": "Product logo", "icon": "Icon", "svg_icon": "SVG icon",
+           "favicon": "Site icon", "flag": "Country flag", "photo": "Slide photo", "slide_image": "Slide image",
+           "house_logo": "House logo", "deck": "Research deck"}
 MISSING_RETRY_S = 7 * 86_400       # a brand / site with no logo or icon is asked again after a week
 
 # fetch() -> (bytes, content type, meta) | None (the source definitely has none); raising RequestException / OSError
@@ -28,7 +35,28 @@ MISSING_RETRY_S = 7 * 86_400       # a brand / site with no logo or icon is aske
 Fetch = Callable[[], "tuple[bytes, str, dict] | None"]
 
 
-def get(kind: str, key: str) -> dict | None:
+def summary_for(kind: str, key: str, meta: dict) -> str:
+    """One line on what the asset is and why a deck used it: what similarity search matches on."""
+    subject = meta.get("brand") or meta.get("subject") or key.split("#")[0]
+    why = meta.get("why") or meta.get("query") or ""
+    parts = [f"{_LABELS.get(kind, kind)} for {subject}"] + ([f"used for: {why}"] if why else []) + \
+            ([f"slide role: {meta['role']}"] if meta.get("role") else []) + \
+            ([f"source: {meta['source_url']}"] if meta.get("source_url") else [])
+    return "; ".join(parts)[:500]
+
+
+def _embed(text: str) -> list[float] | None:
+    """Best-effort: None on any error (unconfigured, unreachable, bad model)."""
+    try:
+        from ...core.llm_provider import get_llm_client
+        client = get_llm_client()
+        return [float(x) for x in client.embed(text)] if client else None
+    except Exception as e:
+        logger.info("asset embedding skipped: %s", type(e).__name__)
+        return None
+
+
+def _legacy_get(kind: str, key: str) -> dict | None:
     try:
         return repository.get_asset(kind, key)
     except Exception as e:          # a cache that cannot be read costs one API call, never the asset
@@ -36,11 +64,74 @@ def get(kind: str, key: str) -> dict | None:
         return None
 
 
-def put(kind: str, key: str, content: bytes, content_type: str = "", meta: dict | None = None) -> None:
+def _legacy_put(kind: str, key: str, content: bytes, content_type: str, meta: dict) -> None:
     try:
-        repository.put_asset(kind, key, content, content_type, meta or {})
+        repository.put_asset(kind, key, content, content_type, meta)
     except Exception as e:
         logger.warning("asset %s/%s not saved to the database: %s", kind, key[:80], type(e).__name__)
+
+
+def get(kind: str, key: str) -> dict | None:
+    if object_store.enabled():
+        try:
+            row = library.get(kind, key)
+        except Exception as e:
+            logger.warning("asset %s/%s library not read: %s", kind, key[:80], type(e).__name__)
+            row = None
+        if row and row["missing"]:
+            return {"content": b"", "content_type": "", "meta": row["meta"], "created_at": row["created_at"]}
+        if row and row["s3_key"]:
+            data = object_store.get_bytes(row["s3_key"])
+            if data is not None:
+                try:
+                    library.touch(row["id"])
+                except Exception as e:
+                    logger.info("asset touch failed: %s", type(e).__name__)
+                return {"content": data, "content_type": row["content_type"], "meta": row["meta"],
+                        "created_at": row["created_at"]}
+    return _legacy_get(kind, key)
+
+
+def put(kind: str, key: str, content: bytes, content_type: str = "", meta: dict | None = None) -> None:
+    meta = meta or {}
+    if not object_store.enabled():
+        _legacy_put(kind, key, content, content_type, meta)
+        return
+    try:
+        sha = hashlib.sha256(content).hexdigest()
+        s3_key = None
+        if content:
+            ext = _EXT.get(content_type.split(";")[0].strip().lower(), ".bin")
+            s3_key = object_store.put_bytes(f"assets/{kind}/{sha[:2]}/{sha}{ext}", content, content_type)
+            if s3_key is None:      # S3 refused it: keep the asset in Postgres as before
+                _legacy_put(kind, key, content, content_type, meta)
+                return
+        summary = summary_for(kind, key, meta)
+        library.upsert(kind, key, s3_key=s3_key, content_type=content_type, sha256=sha, size=len(content),
+                       brand=str(meta.get("brand") or ""), summary=summary, meta=meta,
+                       embedding=_embed(summary) if content else None, missing=not content)
+    except Exception as e:
+        logger.warning("asset %s/%s not saved: %s", kind, key[:80], type(e).__name__)
+
+
+def similar(kind: str, text: str, *, brand: str | None = None, role: str | None = None,
+            min_score: float = 0.9) -> dict | None:
+    """The best stored asset of this kind whose summary is at least min_score close to text, else None."""
+    try:
+        vec = _embed(text) if object_store.enabled() else None
+        if not vec:
+            return None
+        for r in library.nearest(kind, vec, brand=brand, role=role, limit=1):
+            if r["score"] < min_score:
+                continue
+            data = object_store.get_bytes(r["s3_key"])
+            if data:
+                library.touch(r["id"])
+                return {"content": data, "content_type": r["content_type"], "meta": r["meta"],
+                        "created_at": r["created_at"], "key": r["key"], "summary": r["summary"], "score": r["score"]}
+    except Exception as e:          # e.g. dimension mismatch after an embedding-model switch
+        logger.info("asset similarity search failed: %s", type(e).__name__)
+    return None
 
 
 def lookup(kind: str, key: str, fetch: Fetch) -> tuple[bytes, dict] | None:
