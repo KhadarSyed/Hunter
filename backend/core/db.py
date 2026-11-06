@@ -1487,6 +1487,11 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             last_used_at REAL, created_at REAL NOT NULL, UNIQUE (kind, key))""",
         "CREATE INDEX IF NOT EXISTS idx_asset_library_kind_brand ON intel_asset_library(kind, brand)",
     ]),
+    # A finished deck's file kept in S3 instead of chunks (content b"" for such a row). Version 36 is applied by number
+    # membership, so it still runs on databases that already have 37 and 38.
+    (36, "deck files in S3", [
+        "ALTER TABLE intel_deliverable_files ADD COLUMN s3_key TEXT",
+    ]),
     # One project-wide data set: every uploaded file (bytes in S3, or here without S3), one row per unique article
     # (deduped by normalised link across files) with its content and article-level tags, and one row per article per
     # research question with that question's tags and review status (docs/plans/2026-11-05-dataset-tagging-...).

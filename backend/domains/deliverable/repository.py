@@ -236,7 +236,7 @@ def fail_interrupted_latest24h_refreshes() -> int:
 # ─── A finished deck's files (deck_store.py) ────────────────────────────────
 
 def save_deck_files(run_id: int, project_id: int, parts) -> int:
-    """Replace the run's stored files with `parts` ((name, part, gz, bytes) pairs, read one at a time) and drop the
+    """Replace the run's stored files with `parts` ((name, part, gz, bytes[, s3_key]) tuples, read one at a time) and drop the
     project's other runs, in one transaction: a failed save keeps the previous run. Returns the bytes stored."""
     conn = _conn()
     total = 0
@@ -244,9 +244,10 @@ def save_deck_files(run_id: int, project_id: int, parts) -> int:
         with conn:
             conn.execute("DELETE FROM intel_deliverable_files WHERE run_id = ?", (run_id,))
             now = time.time()
-            for name, part, gz, content in parts:
+            for name, part, gz, content, *rest in parts:
                 conn.execute("INSERT INTO intel_deliverable_files (run_id, project_id, name, part, gz, content, "
-                             "created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", (run_id, project_id, name, part, gz, content, now))
+                             "created_at, s3_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                             (run_id, project_id, name, part, gz, content, now, rest[0] if rest else None))
                 total += len(content)
             conn.execute("DELETE FROM intel_deliverable_files WHERE project_id = ? AND run_id != ?", (project_id, run_id))
     finally:
@@ -259,6 +260,17 @@ def deck_file_names(run_id: int) -> list[str]:
     try:
         return [r[0] for r in conn.execute("SELECT DISTINCT name FROM intel_deliverable_files WHERE run_id = ?",
                                            (run_id,))]
+    finally:
+        conn.close()
+
+
+def deck_file_s3_key(run_id: int, name: str) -> Optional[str]:
+    """The S3 key the file was stored under, or None when it is kept as chunks."""
+    conn = _conn()
+    try:
+        row = conn.execute("SELECT s3_key FROM intel_deliverable_files WHERE run_id = ? AND name = ? AND part = 0",
+                           (run_id, name)).fetchone()
+        return row[0] if row and row[0] else None
     finally:
         conn.close()
 

@@ -8,12 +8,30 @@ from pathlib import Path
 
 from pptx import Presentation
 
-from ...core import config, store
+from ...core import config, object_store, store
 
 logger = logging.getLogger(__name__)
 DEFAULT_TEMPLATE = config.TEMPLATES_DIR / "Hunter PR Research_Johnson’s (Baby) Editorial _May 2026.pptx"
 _WORD = re.compile(r"[a-z]{3,}")
 MAX_TEXT = 4000
+S3_PREFIX = "ppt-templates/"
+
+
+def _s3_names() -> dict[str, str]:
+    """{deck file name: S3 key} for the reference decks kept in S3 (empty without S3)."""
+    return {k.rsplit("/", 1)[-1]: k for k, _ in object_store.list_keys(S3_PREFIX) if k.lower().endswith(".pptx")}
+
+
+def ensure_local(path: Path) -> Path | None:
+    """The deck on this disk: `path` itself, else its copy downloaded from S3 into DATA_DIR/ppt-templates (kept for
+    the run). None when it is in neither place."""
+    path = Path(path)
+    if path.exists():
+        return path
+    target = config.DATA_DIR / "ppt-templates" / path.name
+    if target.exists():
+        return target
+    return object_store.download(S3_PREFIX + path.name, target)
 
 
 def is_usable(path: Path) -> bool:
@@ -46,28 +64,47 @@ def _embed_model(llm) -> str:
 _REINDEX_TRIED: set[tuple[str, str]] = set()   # (path, model) already re-indexed this process: a failed embed is not retried
 
 
+def _index_one(path: Path, key: str, llm, model: str, existing: dict) -> None:
+    text = _deck_text(path)
+    vec = _embed(llm, text)
+    if vec is None and key in existing:     # a failed embed never overwrites a deck's existing row
+        return
+    store.save_reference_deck(key, text, vec, model if vec is not None else "")
+
+
 def index_templates(llm=None, stale_only: bool = False) -> int:
     """Embed the reference decks. `stale_only`: just those not embedded by the current model, once per process.
-    A failed embed never overwrites a deck's existing row."""
+    With no local .pptx the decks come from S3 one at a time, each deleted after it is indexed (the index keeps
+    its text and embedding)."""
     model = _embed_model(llm)
     folder = Path(config.TEMPLATES_DIR)
     existing = {d["path"]: d for d in store.list_reference_decks()}
+    local = sorted(folder.glob("*.pptx")) if folder.exists() else []
+    remote = {} if local else _s3_names()
     count = 0
-    for path in sorted(folder.glob("*.pptx")) if folder.exists() else []:
+    for path in local or [folder / n for n in sorted(remote)]:
         key = str(path)
-        if path.name.startswith("~$") or not is_usable(path):
+        if path.name.startswith("~$"):
             continue
         if stale_only:
             if (key, model) in _REINDEX_TRIED or existing.get(key, {}).get("model") == model:
                 continue
             _REINDEX_TRIED.add((key, model))
-        text = _deck_text(path)
-        vec = _embed(llm, text)
-        if vec is None and key in existing:
+        elif remote and key in existing:    # already indexed: do not download a large deck again
             count += 1
             continue
-        store.save_reference_deck(key, text, vec, model if vec is not None else "")
-        count += 1
+        fetched = None
+        if remote:
+            fetched = object_store.download(remote[path.name], config.DATA_DIR / "ppt-templates" / path.name)
+            if not fetched:
+                continue
+        try:
+            if is_usable(fetched or path):
+                _index_one(fetched or path, key, llm, model, existing)
+                count += 1
+        finally:
+            if fetched:
+                fetched.unlink(missing_ok=True)
     return count
 
 
@@ -84,6 +121,7 @@ def _cosine(a, b) -> float:
 def choose_template_explained(scope_text: str, llm=None) -> tuple[Path, str]:
     """The template deck and a one-line reason a person can read in the run log."""
     path, score, count = _choose_scored(scope_text, llm)
+    path = ensure_local(Path(path)) or path
     if not Path(path).exists() and is_usable(config.TEMPLATE_PATH):
         # a deployed server ships without the reference decks (client work); the house template travels in the image
         return Path(config.TEMPLATE_PATH), "no reference decks on this server, so the house template is used"
@@ -98,7 +136,9 @@ def _choose_scored(scope_text: str, llm=None) -> tuple[Path, float, int]:
     folder = str(Path(config.TEMPLATES_DIR))
 
     def current():
-        return [d for d in store.list_reference_decks() if d["path"].startswith(folder) and Path(d["path"]).exists()]
+        decks = [d for d in store.list_reference_decks() if d["path"].startswith(folder)]
+        remote = _s3_names() if any(not Path(d["path"]).exists() for d in decks) else {}
+        return [d for d in decks if Path(d["path"]).exists() or Path(d["path"]).name in remote]
 
     model = _embed_model(llm)
     decks = current()

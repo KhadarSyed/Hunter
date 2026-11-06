@@ -17,7 +17,7 @@ import threading
 import uuid
 from pathlib import Path
 
-from ...core import config, store
+from ...core import config, object_store, store
 
 logger = logging.getLogger(__name__)
 CHUNK = 8 * 1024 * 1024            # a part this size at most in memory: Render free has 512 MB
@@ -67,8 +67,13 @@ def files_to_keep(run: dict, deck_dir: Path) -> dict[str, Path]:
     return {name: p for p in paths if p.is_file() and (name := _name(p))}
 
 
-def _parts(files: dict[str, Path]):
+def _parts(files: dict[str, Path], s3_prefix: str | None = None):
+    """Each file as one S3 row when S3 takes it, else as chunks (a failed upload falls back, the deck is never lost)."""
     for name, path in files.items():
+        key = object_store.put_file(f"{s3_prefix}/{name}", path) if s3_prefix and object_store.enabled() else None
+        if key:
+            yield name, 0, 0, b"", key
+            continue
         with path.open("rb") as f:
             part = 0
             while True:
@@ -91,7 +96,9 @@ def persist(run_id: int, deck_dir: Path | str) -> int:
         return 0
     try:
         files = files_to_keep(run, Path(deck_dir))
-        total = store.save_deck_files(run_id, run["project_id"], _parts(files))
+        prefix = f"decks/project-{run['project_id']}/run-{run_id}"
+        total = store.save_deck_files(run_id, run["project_id"], _parts(files, prefix))
+        _index_deck(run, files, prefix)
     except Exception as e:
         logger.error("run %s: deck not kept in the database (%s: %s)", run_id, type(e).__name__, e)
         return 0
@@ -99,9 +106,32 @@ def persist(run_id: int, deck_dir: Path | str) -> int:
     return total
 
 
+def _index_deck(run: dict, files: dict[str, Path], prefix: str) -> None:
+    """A library row for the deck (no bytes copied) so a later brief can find it by similarity. Best effort."""
+    try:
+        pptx = next((n for k in ("studio_pptx_path", "pptx_path") if run.get(k) and (n := _name(Path(run[k])))
+                     and n in files), None)
+        if not pptx or not object_store.enabled():
+            return
+        from ..assets import library, service
+        from . import rows
+        project = store.get_project(run["project_id"]) or {}
+        brand = ((project.get("spec") or {}).get("commissioning_brand") or {}).get("name") or project.get("brand") or ""
+        summary = f"{brand} research deck: " + "; ".join(q.question for q in rows.approved_rqs(run["project_id"]))[:400]
+        library.upsert("deck", f"run-{run['id']}", s3_key=f"{prefix}/{pptx}", content_type="", sha256="",
+                       size=files[pptx].stat().st_size, brand=brand, summary=summary,
+                       meta={"project_id": run["project_id"]}, embedding=service._embed(summary))
+    except Exception as e:
+        logger.info("run %s: deck not added to the asset library (%s: %s)", run.get("id"), type(e).__name__, e)
+
+
 def _write(run_id: int, name: str) -> None:
     target = config.DATA_DIR / name
     target.parent.mkdir(parents=True, exist_ok=True)
+    if key := store.deck_file_s3_key(run_id, name):
+        if not object_store.download(key, target):
+            raise OSError(f"S3 download failed for {key}")
+        return
     partial = target.with_name(f".{target.name}.{uuid.uuid4().hex}.part")
     with partial.open("wb") as f:
         for gz, content in store.deck_file_parts(run_id, name):
