@@ -17,20 +17,20 @@ function ShareBar({ share }: { share: number }) {
 
 function TopCard({ p, onPick }: { p: UsageProjectRow; onPick?: () => void }) {
   return (
-    <div
-      role={onPick ? "button" : undefined}
-      tabIndex={onPick ? 0 : undefined}
-      aria-label={onPick ? `Filter to ${projectName(p)}` : undefined}
-      onClick={onPick}
-      onKeyDown={(e) => { if (onPick && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onPick(); } }}
-      className={`rounded-3xl border-2 border-[#5B2C9D] bg-gradient-to-br from-white to-violet-50 p-5 shadow-md ${onPick ? "cursor-pointer hover:shadow-lg" : ""}`}
-    >
+    <div className="rounded-3xl border-2 border-[#5B2C9D] bg-gradient-to-br from-white to-violet-50 p-5 shadow-md">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <span className="inline-flex items-center gap-1 rounded-full bg-[#5B2C9D] px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">
             <Icon icon="lucide:flame" width={12} aria-hidden /> Highest usage
           </span>
-          <h3 className="mt-2 truncate text-xl font-bold text-slate-900">{projectName(p)}</h3>
+          <h3 className="mt-2 truncate text-xl font-bold text-slate-900">
+            {onPick ? (
+              <button type="button" onClick={onPick} title={`Filter to ${projectName(p)}`}
+                className="max-w-full truncate text-left hover:text-[#5B2C9D] hover:underline focus-visible:outline-2 focus-visible:outline-[#5B2C9D]">
+                {projectName(p)}<span className="sr-only"> (filter to this project)</span>
+              </button>
+            ) : projectName(p)}
+          </h3>
           <p className="text-sm text-slate-500">{p.owner_name ? `Owner: ${p.owner_name}` : "No owner"}</p>
         </div>
         <div className="text-right">

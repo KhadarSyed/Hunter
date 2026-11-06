@@ -9,6 +9,8 @@ import { TopProjects } from "../components/usage/TopProjects";
 import { SummaryTable } from "../components/usage/SummaryTable";
 import { CallLogTable, CALL_PAGE_SIZE } from "../components/usage/CallLogTable";
 import { ProviderLogo } from "../components/usage/ProviderLogo";
+import { UsageTrendChart } from "../components/usage/UsageTrendChart";
+import { UsageBarChart } from "../components/usage/UsageBarChart";
 import { UsageFilters, presetRange, type Preset, type SelectOption, type UsageFilterState } from "../components/usage/UsageFilters";
 import { STAGE_ICONS, STAGE_LABELS, providerLabel, stageLabel } from "../components/usage/format";
 
@@ -40,8 +42,9 @@ function filtersFromUrl(): { filters: UsageFilterState; logModel: string } {
   };
 }
 
-function toQuery(f: UsageFilterState): UsageQuery {
-  return { date_from: f.from, date_to: f.to, org_id: f.org, project_id: f.project, stage: f.stage, model: f.model };
+/** The Org filter is a super_admin control: anyone else never sends org_id, whatever the URL says. */
+function toQuery(f: UsageFilterState, isSuper: boolean): UsageQuery {
+  return { date_from: f.from, date_to: f.to, org_id: isSuper ? f.org : null, project_id: f.project, stage: f.stage, model: f.model };
 }
 
 function csvCell(v: unknown): string {
@@ -115,12 +118,18 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
   const summarySeq = useRef(0);
   const callsSeq = useRef(0);
 
-  const query = useMemo(() => toQuery(filters), [filters]);
+  const query = useMemo(() => toQuery(filters, isSuper), [filters, isSuper]);
   const queryKey = JSON.stringify(query);
   const callQuery = useMemo(() => ({ ...query, model: logModel || query.model }), [query, logModel]);
   const callKey = JSON.stringify(callQuery);
 
-  const updateFilters = (next: UsageFilterState) => { setFilters(next); setCallOffset(0); };
+  const updateFilters = (next: UsageFilterState) => {
+    // a new Org drops a Project filter that is not one of that org's projects
+    const orphan = next.org !== filters.org && next.org !== null && next.project !== null && projects.length > 0
+      && !projects.some((p) => p.id === next.project && p.org_id === next.org);
+    setFilters(orphan ? { ...next, project: null } : next);
+    setCallOffset(0);
+  };
   const pickLogModel = (m: string) => { setLogModel(m); setCallOffset(0); };
 
   useEffect(() => {
@@ -158,13 +167,13 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
   // Mirror every filter into the URL so a refresh or a shared link reopens the same view.
   useEffect(() => {
     const q = new URLSearchParams({ preset: filters.preset, from: filters.from, to: filters.to });
-    if (filters.org !== null) q.set("org", String(filters.org));
+    if (isSuper && filters.org !== null) q.set("org", String(filters.org));
     if (filters.project !== null) q.set("project", String(filters.project));
     if (filters.stage) q.set("stage", filters.stage);
     if (filters.model) q.set("model", filters.model);
     if (logModel) q.set("log_model", logModel);
     window.history.replaceState(window.history.state, "", `${window.location.pathname}?${q}`);
-  }, [filters, logModel]);
+  }, [filters, logModel, isSuper]);
 
   // Project options: the role-scoped projects list (the same list the Projects page shows).
   useEffect(() => {
@@ -188,7 +197,7 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
     ? orgs.map((o) => ({ value: String(o.id), label: o.name, icon: <Icon icon="lucide:building-2" width={16} aria-hidden className="text-slate-500" /> }))
     : null;
   const projectOptions: SelectOption[] = projects
-    .filter((p) => filters.org === null || p.org_id === filters.org)
+    .filter((p) => !isSuper || filters.org === null || p.org_id === filters.org)
     .map((p) => ({ value: String(p.id), label: p.name, icon: <BrandLogo brandName={p.brand ?? ""} projectId={p.id} size={16} /> }));
   if (filters.project !== null && !projectOptions.some((o) => o.value === String(filters.project))) {
     projectOptions.unshift({ value: String(filters.project), label: `Project #${filters.project}` });
@@ -239,7 +248,7 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
           <button
             type="button"
             onClick={exportCsv}
-            disabled={!summary || exporting || isEmpty}
+            disabled={!summary || summaryLoading || exporting || isEmpty}
             className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-md transition-colors hover:bg-slate-800 disabled:opacity-50"
           >
             <Icon icon={exporting ? "lucide:loader-2" : "lucide:download"} width={16} aria-hidden className={exporting ? "animate-spin" : ""} />
@@ -275,8 +284,10 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
             <TopProjects projects={summary.by_project} onPick={(id) => updateFilters({ ...filters, project: id })} />
           )}
 
-          {/* ── Task 7: charts (daily cost trend, by model, by stage) go here, between Top projects and the tables. ── */}
-          <div data-slot="usage-charts" />
+          <div data-slot="usage-charts" className="grid gap-6 2xl:grid-cols-2">
+            <UsageTrendChart rows={summary.trend} from={filters.from} to={filters.to} />
+            <UsageBarChart summary={summary} projectFiltered={filters.project !== null} />
+          </div>
 
           <section aria-labelledby="model-summary-heading" className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-900/5">
             <h2 id="model-summary-heading" className="mb-3 flex items-center gap-2 text-lg font-semibold text-slate-900">

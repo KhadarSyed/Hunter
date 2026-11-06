@@ -113,7 +113,7 @@ function UsageButton({ project, onUsage }: { project: ProjectSummary; onUsage: (
     requested.current = true;
     intelApi.projectUsageTotal(project.id)
       .then((t) => setTotal(`${money(t.cost_usd)} · ${t.total_tokens.toLocaleString("en-US")} tokens so far`))
-      .catch(() => { requested.current = false; setTotal("Cost not available"); });
+      .catch(() => setTotal("Cost not available"));   // no retry on hover: a 403 would refetch on every hover
   };
   return (
     <div className="relative">
