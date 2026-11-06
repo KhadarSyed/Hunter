@@ -71,3 +71,12 @@ def set_setting(key: str, value: str) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def has_price_row(provider: str, model: str) -> bool:
+    conn = _conn()
+    try:
+        return conn.execute("SELECT 1 FROM llm_prices WHERE provider = ? AND model = ? LIMIT 1",
+                            (provider, model)).fetchone() is not None
+    finally:
+        conn.close()

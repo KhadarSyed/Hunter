@@ -68,6 +68,11 @@ async def lifespan(app: FastAPI):
         templates_index.warm_in_background()
     except Exception as e:
         logger.warning("reference deck warm-up not started (%s)", type(e).__name__)
+    try:
+        from .domains.usage import prices
+        prices.sync_in_background()
+    except Exception as e:
+        logger.warning("price sync not started (%s)", type(e).__name__)
     logger.info("Hunter started (%s)", get_app_settings().environment)
     try:
         yield
