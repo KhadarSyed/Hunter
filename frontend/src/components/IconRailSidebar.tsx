@@ -52,7 +52,7 @@ export function IconRailSidebar({ currentPage, onNavigate }: { currentPage: Page
 
   return (
     <aside className="w-16 border-r border-slate-200 bg-white flex flex-col items-center shrink-0 py-4">
-      <img src="/logo.png" alt="InfoVision Intelligence" className="h-8 w-8 rounded-md object-cover mb-6" />
+      <img src="/alphametricx-mark.png" alt="Alphametricx" className="h-8 w-8 object-contain mb-6" />
       <nav className="flex-1 flex flex-col items-center gap-1.5">
         {items.map((item) => {
           const isActive =

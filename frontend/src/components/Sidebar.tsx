@@ -82,7 +82,7 @@ export function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavi
   return (
     <aside className="w-16 border-r border-slate-200 bg-white flex flex-col items-center shrink-0 py-4">
       <button onClick={() => onNavigate("landing")} className="hover:opacity-80 transition-opacity mb-3" title="Home">
-        <img src="/logo.png" alt="InfoVision Intelligence" className="h-8 w-8 rounded-md object-cover" />
+        <img src="/alphametricx-mark.png" alt="Alphametricx" className="h-8 w-8 object-contain" />
       </button>
 
       {activeProject && (
