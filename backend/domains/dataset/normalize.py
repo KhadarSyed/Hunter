@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from ..deliverable.ingest import normalize_url, parse_date
+from ..deliverable.ingest import infer_date_order, normalize_url, parse_date
 from ..deliverable.rows import author_of
 
 SOCIAL_TYPES = ("social", "twitter", "facebook", "instagram", "tiktok", "reddit", "youtube", "forum", "x ")
@@ -59,12 +59,12 @@ def _reach(v) -> int:
         return 0
 
 
-def _iso(v) -> str | None:
-    d = parse_date(v)
+def _iso(v, order: str = "ymd") -> str | None:
+    d = parse_date(v, order)
     return d.isoformat() if d else None
 
 
-def _record(r: dict) -> dict | None:
+def _record(r: dict, order: str = "ymd") -> dict | None:
     url = str(r.get("url") or "").strip()
     title = str(r.get("headline") or r.get("title") or "").strip()
     if not (url or title):
@@ -76,14 +76,15 @@ def _record(r: dict) -> dict | None:
     return {"norm_url": link_key(url) or "title:" + title.lower(), "url": url, "channel": chan, "title": title,
             "summary": str(r.get("content") or r.get("snippet") or "").strip(),
             "outlet": str(r.get("source") or r.get("source_name") or _host(url)).strip(),
-            "published": _iso(r.get("date")), "country": str(r.get("country") or "").strip(),
+            "published": _iso(r.get("date"), order), "country": str(r.get("country") or "").strip(),
             "reach": _reach(r.get("reach")), "author_name": name, "author_id": handle or from_url,
             "post_id": str(r.get("post_id") or r.get("post_id_") or "").strip() or post_id(url), "raw": r}
 
 
 def records(raw: list[dict]) -> tuple[list[dict], str | None]:
     """(records, error): an error when no row has a link or a title, naming the columns the file does have."""
-    out = [rec for rec in map(_record, raw) if rec]
+    order = infer_date_order(r.get("date") for r in raw)   # day-first when any dash date has a day over 12
+    out = [rec for rec in (_record(r, order) for r in raw) if rec]
     if raw and not out:
         return [], "No link or title column (columns: " + ", ".join(k for k in raw[0] if k) + ")"
     return out, None if raw else "No rows"
