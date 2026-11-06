@@ -266,18 +266,27 @@ def _run_job(project_id: int, job_id: str, llm=None, only_rq: str | None = None)
             llm = get_llm_client()
         new_tags = 0
 
+        def match():        # a new upload is mapped to the questions first (free): no match, no GPT
+            if repo.tagging_counts(project_id)["unmatched"]:
+                from .service import match_rqs
+                match_rqs(project_id)
+
         def tags():
             nonlocal new_tags
             new_tags = _tags_phase(project_id, llm, prog)
+            repo.inherit_article_tags(project_id)       # syndicated copies take their original's tags
 
         def themes():
             if new_tags or _untitled_labels(project_id):          # unchanged tags keep their titles: no GPT call
                 _themes_phase(project_id, llm, prog)
-        steps = (("content", lambda: _content_phase(project_id, prog)), ("article tags", tags), ("themes", themes),
-                 ("RQ tags", lambda: _rq_phase(project_id, llm, prog)),
+        def rq_tags(only=None):
+            _rq_phase(project_id, llm, prog, only)
+            repo.inherit_rq_rows(project_id)            # ...and their original's research-question results
+        steps = (("match", match), ("content", lambda: _content_phase(project_id, prog)), ("article tags", tags),
+                 ("themes", themes), ("RQ tags", rq_tags),
                  ("relations", lambda: _relations_phase(project_id, llm, prog)))
         if only_rq:
-            steps = (("RQ tags", lambda: _rq_phase(project_id, llm, prog, only_rq)),)
+            steps = (("RQ tags", lambda: rq_tags(only_rq)),)
         for name, step in steps:
             try:
                 step()

@@ -156,6 +156,39 @@ def _matching(query: str, arts: list[dict]) -> set[int]:
     return {a["id"] for a in arts if qd.keyword_hits(a["text"], terms) and not (nots and qd.keyword_hits(a["text"], nots))}
 
 
+def match_rqs(project_id: int) -> dict:
+    """Map every article to the approved research questions its Boolean query matches (keyword hits, no GPT).
+    Articles no question matches go to Irrelevant and are never tagged. A question with no searchable terms
+    matches every article (nothing to filter on). Returns matched articles per question and the pool sizes."""
+    from ..deliverable import rows
+    arts = repo.match_texts(project_id)
+    groups = _syndication_groups(arts)
+    repo.save_copies(project_id, {c: g[0] for g in groups for c in g[1:]})
+    group_of = {i: g for g in groups for i in g}
+    by_rq = {}
+    for q in rows.approved_rqs(project_id):
+        hits = _matching(q.query, arts) if match_terms(q.query) else {a["id"] for a in arts}
+        by_rq[q.id] = {m for i in hits for m in group_of.get(i, (i,))}    # a group matches as one story
+    repo.save_rq_matches(project_id, by_rq)
+    matched = set().union(*by_rq.values()) if by_rq else set()
+    return {"per_rq": {k: len(v) for k, v in by_rq.items()}, "matched": len(matched),
+            "irrelevant": len(arts) - len(matched), "total": len(arts),
+            "copies": sum(len(g) - 1 for g in groups)}
+
+
+def _syndication_groups(arts: list[dict]) -> list[list[int]]:
+    """Syndicated copies, found in Python: the same headline once its publisher suffix is cleaned off
+    ("Ford bets $1B - Automotive News" and "Ford bets $1B | Reuters"). Groups of 2+, ids ascending (first = original).
+    Near-identical text under a new headline is left to the relations phase (embeddings)."""
+    from ..research.relations import _title_key
+    by_key: dict[str, list[int]] = {}
+    for a in arts:
+        key = _title_key(a.get("title"))
+        if len(key) >= 20:          # a short headline ("Breaking news") is not evidence of the same story
+            by_key.setdefault(key, []).append(a["id"])
+    return [sorted(ids) for ids in by_key.values() if len(ids) > 1]
+
+
 def _before_after(project_id: int, rq, edited: str) -> tuple[set[int], set[int], dict[int, str]]:
     """Articles the current query matches (its stored matched rows when it has no searchable terms) and the edited."""
     arts = repo.match_texts(project_id)

@@ -66,9 +66,11 @@ def _record(model: str, kind: str, usage: dict | None, started: float, *, error:
 def _http_reason(r) -> str:
     """HTTP status plus the service's own error message (never the prompt)."""
     try:
-        msg = ((r.json() or {}).get("error") or {}).get("message") or ""
+        body = r.json()
     except ValueError:
-        msg = ""
+        body = None
+    err = body.get("error") if isinstance(body, dict) else None
+    msg = str(err.get("message") or "") if isinstance(err, dict) else str(err or "")
     return f"HTTP {r.status_code}" + (f": {msg[:160]}" if msg else "")
 
 

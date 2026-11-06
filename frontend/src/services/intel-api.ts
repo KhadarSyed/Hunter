@@ -70,7 +70,7 @@ function patch<T>(path: string, body?: unknown): Promise<T> {
 /** Query string for the Data set page / select-all endpoints: only the filters that are set. */
 function articleQuery(f: ArticleFilters, extra: Record<string, number> = {}): string {
   const p = new URLSearchParams({ channel: f.channel });
-  for (const k of ["status", "rq", "sentiment", "theme", "brand", "content_status", "q"] as const) {
+  for (const k of ["status", "rq", "sentiment", "theme", "brand", "content_status", "q", "pool"] as const) {
     if (f[k] && !(k === "status" && f[k] === "all")) p.set(k, f[k]);
   }
   Object.entries(extra).forEach(([k, v]) => p.set(k, String(v)));
@@ -759,7 +759,8 @@ export const intelApi = {
 
   taggingState: (projectId: number) =>
     get<{ running: boolean; phase: string | null; done: number; total: number; minutes_left: number | null;
-          counts: { total: number; content: Record<string, number>; tags: Record<string, number> } }>(
+          counts: { total: number; content: Record<string, number>; tags: Record<string, number>;
+                    matched?: number; irrelevant?: number; unmatched?: number } }>(
       `/articles/${projectId}/tagging`),
 
   // Data set (uploaded articles, tagging, per-RQ decisions)
@@ -771,6 +772,9 @@ export const intelApi = {
   },
 
   startTagging: (projectId: number) => post<{ job_id: string }>(`/articles/${projectId}/tag`),
+  /** Free: each approved question's Boolean query maps the articles; the rest go to Irrelevant (never tagged). */
+  matchRqs: (projectId: number) =>
+    post<{ per_rq: Record<string, number>; matched: number; irrelevant: number; total: number; copies: number }>(`/articles/${projectId}/match`, {}),
 
   listArticles: (projectId: number, f: ArticleFilters, offset = 0, limit = 100) =>
     get<ArticlePage>(`/articles/${projectId}?${articleQuery(f, { offset, limit })}`),

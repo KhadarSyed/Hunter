@@ -51,6 +51,9 @@ export function DataSet() {
   const [upload, setUpload] = useState<UploadResult | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [tagged, setTagged] = useState(0);
+  const [pools, setPools] = useState({ matched: 0, irrelevant: 0, unmatched: 0 });
+  const [matching, setMatching] = useState(false);
+  const [matchNote, setMatchNote] = useState<string | null>(null);
   const [articleTotal, setArticleTotal] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,6 +102,7 @@ export function DataSet() {
     try {
       const t = await intelApi.taggingState(projectId);
       setTagged(t.counts.tags.tagged ?? 0);
+      setPools({ matched: t.counts.matched ?? 0, irrelevant: t.counts.irrelevant ?? 0, unmatched: t.counts.unmatched ?? 0 });
       setArticleTotal(t.counts.total);
       setProgress(t.running ? { phase: t.phase ?? "", done: t.done, total: t.total, minutesLeft: t.minutes_left } : null);
       // Seed the phase clock from the server's ETA (left = elapsed / done * remaining) so a page opened mid-run keeps counting.
@@ -144,6 +148,22 @@ export function DataSet() {
     finally { setUploading(false); }
   };
 
+  // Step 1 (free): each approved question's Boolean query maps the articles; no match -> Irrelevant, never tagged
+  const matchRqs = async () => {
+    if (!projectId) return;
+    setMatching(true);
+    setError(null);
+    try {
+      const r = await intelApi.matchRqs(projectId);
+      const per = Object.entries(r.per_rq).map(([q, n]) => `${q} ${n.toLocaleString()}`).join(" · ");
+      setMatchNote(`${per} — ${r.matched.toLocaleString()} matched, ${r.irrelevant.toLocaleString()} irrelevant`
+        + (r.copies ? `, ${r.copies.toLocaleString()} syndicated copies (tagged once, through their original)` : ""));
+      reloadData();
+      void syncTagging();
+    } catch (e) { setError(errMsg(e, "Could not match the research questions")); }
+    finally { setMatching(false); }
+  };
+
   const startTagging = async () => {
     if (!projectId) return;
     setError(null);
@@ -187,20 +207,27 @@ export function DataSet() {
   const setHidden = (h: GroupId[]) => { setHiddenState(h); saveHidden(h); };
   const running = progress !== null;
   // Approve / Reject and the filters open once tagging has run and nothing is tagging now
-  const reviewable = !running && tagged > 0;
+  const reviewable = !running && tagged > 0 && filters.pool !== "irrelevant";
+  const allArticles = pools.matched + pools.irrelevant + pools.unmatched;
   const pct = progress && progress.total > 0 ? Math.round((progress.done * 100) / progress.total) : 0;
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-4 px-6 py-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-4">
-          <button type="button" onClick={startTagging} disabled={running || articleTotal === 0}
+          <button type="button" onClick={() => void matchRqs()} disabled={running || matching || allArticles === 0}
+            title="Free: runs each research question's Boolean query over the articles; no match goes to Irrelevant"
+            className="rounded-lg border px-4 py-2 text-sm font-medium disabled:opacity-50" style={{ borderColor: V, color: V }}>
+            {matching ? "Matching…" : "1 · Match research questions"}
+          </button>
+          <button type="button" onClick={startTagging} disabled={running || pools.matched + pools.unmatched === 0}
+            title="Tags only the articles a research question matched (new uploads are matched first)"
             className="rounded-lg px-5 py-2 text-sm font-medium text-white disabled:opacity-50" style={{ background: V }}>
-            {tagged > 0 ? "Re-tag" : "Start tagging"}
+            {tagged > 0 ? "2 · Re-tag matched" : `2 · Tag ${(pools.matched + pools.unmatched).toLocaleString()} matched`}
           </button>
           <div>
             <h1 className="text-xl font-bold text-slate-900">Data set</h1>
-            <p className="text-sm text-slate-500">Upload article files, tag them against the approved research questions, then approve or reject per question.</p>
+            <p className="text-sm text-slate-500">Upload article files, match them to the research questions' Boolean queries, tag only the matched ones, then approve or reject per question.</p>
           </div>
         </div>
       </div>
@@ -227,8 +254,13 @@ export function DataSet() {
         </div>
       )}
 
+      {matchNote && <div role="status" className="rounded-lg border border-violet-100 bg-violet-50 px-4 py-2 text-sm text-violet-900">{matchNote}</div>}
+
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Tabs<Channel> label="Channel" active={filters.channel} onChange={(c) => changeFilters({ ...EMPTY, channel: c })}
+        <Tabs<"matched" | "irrelevant"> label="Pool" active={filters.pool ?? "matched"} onChange={(pool) => changeFilters({ pool })}
+          tabs={[{ id: "matched", label: `Matched (${(pools.matched + pools.unmatched).toLocaleString()})`, icon: "mdi:check-decagram-outline" },
+                 { id: "irrelevant", label: `Irrelevant (${pools.irrelevant.toLocaleString()})`, icon: "mdi:filter-remove-outline" }]} />
+        <Tabs<Channel> label="Channel" active={filters.channel} onChange={(c) => changeFilters({ ...EMPTY, pool: filters.pool, channel: c })}
           tabs={[{ id: "traditional", label: "Traditional", icon: "mdi:newspaper-variant-outline" }, { id: "social", label: "Social media", icon: "mdi:account-group-outline" }]} />
         <ColumnPicker hidden={hidden} onChange={setHidden} />
       </div>
@@ -239,8 +271,9 @@ export function DataSet() {
         <FilterBar filters={filters} rqs={page.rqs} facets={facets} onChange={changeFilters} />
       ) : (
         <p role="status" className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500">
-          {running ? "Tagging is running. Review, filters and approval open when it finishes."
-                   : "Tag the data set to review, filter and approve articles."}
+          {filters.pool === "irrelevant" ? "No research question's Boolean query matches these articles, so they are not tagged. Edit a question's query above to bring some in."
+            : running ? "Tagging is running. Review, filters and approval open when it finishes."
+            : "Match the research questions, then tag the matched articles to review, filter and approve them."}
         </p>
       )}
 

@@ -1556,6 +1556,13 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
     # LLM usage: the phase inside a stage (deck engine / Deck Studio / repair / tagging); '' when unattributed.
     (41, "llm usage sub-stage", ["ALTER TABLE llm_usage ADD COLUMN sub_stage TEXT NOT NULL DEFAULT ''"]),
     (42, "llm usage error reason", ["ALTER TABLE llm_usage ADD COLUMN error_reason TEXT NOT NULL DEFAULT ''"]),
+    # NULL: not matched yet; 1: a research question's Boolean query matches it; 0: none does (Irrelevant, never tagged).
+    # Articles already in the table were tagged under the old tag-everything flow, so they count as matched.
+    (43, "article research-question match", ["ALTER TABLE intel_articles ADD COLUMN rq_matched INTEGER",
+                                             "UPDATE intel_articles SET rq_matched = 1 WHERE tag_status = 'tagged'"]),
+    # a syndicated copy (same headline, cleaned of its publisher suffix) points at its original: only the original
+    # is fetched and sent to GPT, the copy inherits its article tags and research-question tags
+    (44, "article syndicated copy", ["ALTER TABLE intel_articles ADD COLUMN copy_of INTEGER"]),
 ]
 
 

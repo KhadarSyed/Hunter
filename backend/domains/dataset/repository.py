@@ -118,8 +118,9 @@ def channel_counts(project_id: int) -> dict[str, int]:
 
 def articles_needing(project_id: int, phase: str, limit: int) -> list[dict]:
     # social rows go through the content phase too: content.fetch keeps the post's own text, with no network call
-    cond = {"content": "content_status = 'pending'",
-            "tags": "tag_status IN ('pending', 'failed') AND content_status <> 'pending'"}[phase]
+    cond = {"content": "content_status = 'pending' AND rq_matched IS DISTINCT FROM 0 AND copy_of IS NULL",
+            "tags": "tag_status IN ('pending', 'failed') AND content_status <> 'pending' AND rq_matched IS DISTINCT FROM 0 "
+                    "AND copy_of IS NULL"}[phase]
     return _dicts(_run(f"SELECT id, norm_url, url, channel, title, summary, outlet, published, content, content_status, "
                        f"tags_json FROM intel_articles WHERE project_id = ? AND {cond} ORDER BY id LIMIT ?",
                        (project_id, limit)))
@@ -158,11 +159,85 @@ def save_relations(project_id: int, relations: dict[int, dict]) -> None:
 def tagging_counts(project_id: int) -> dict:
     out: dict = {"total": 0, "content": {}, "tags": {}}
     for key, col in (("content", "content_status"), ("tags", "tag_status")):
-        for r in _run(f"SELECT {col} AS s, COUNT(*) AS n FROM intel_articles WHERE project_id = ? GROUP BY {col}",
-                      (project_id,)):
+        for r in _run(f"SELECT {col} AS s, COUNT(*) AS n FROM intel_articles WHERE project_id = ? "
+                      f"AND rq_matched IS DISTINCT FROM 0 GROUP BY {col}", (project_id,)):
             out[key][r["s"]] = int(r["n"])
     out["total"] = sum(out["tags"].values())
+    pools = {r["m"]: int(r["n"]) for r in _run("SELECT COALESCE(rq_matched, -1) AS m, COUNT(*) AS n FROM intel_articles "
+                                               "WHERE project_id = ? GROUP BY 1", (project_id,))}
+    out["matched"], out["irrelevant"], out["unmatched"] = pools.get(1, 0), pools.get(0, 0), pools.get(-1, 0)
     return out
+
+
+def save_copies(project_id: int, copy_of: dict[int, int]) -> None:
+    """copy id -> original id; every other article of the project is an original."""
+    conn = _conn()
+    try:
+        conn.execute("UPDATE intel_articles SET copy_of = NULL WHERE project_id = ?", (project_id,))
+        for copy_id, orig in copy_of.items():
+            conn.execute("UPDATE intel_articles SET copy_of = ? WHERE id = ? AND project_id = ?", (orig, copy_id, project_id))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def inherit_article_tags(project_id: int) -> int:
+    """Copies take their tagged original's article tags (no GPT call of their own)."""
+    conn = _conn()
+    try:
+        n = conn.execute(
+            "UPDATE intel_articles a SET tags_json = o.tags_json, sentiment = o.sentiment, "
+            "sentiment_confidence = o.sentiment_confidence, tag_status = o.tag_status, tag_error = NULL, "
+            "content_status = CASE WHEN a.content_status = 'pending' THEN 'not_needed' ELSE a.content_status END "
+            "FROM intel_articles o WHERE a.copy_of = o.id AND a.project_id = ? AND o.tag_status = 'tagged' "
+            "AND a.tag_status <> 'tagged'", (project_id,)).rowcount
+        conn.commit()
+        return n
+    finally:
+        conn.close()
+
+
+def inherit_rq_rows(project_id: int) -> int:
+    """Copies take their original's research-question result (match, tags, summary, status) for each question both
+    rows exist for; a copy an analyst decided is never touched."""
+    conn = _conn()
+    try:
+        n = conn.execute(
+            "UPDATE intel_article_rq r SET signature = o.signature, matched = o.matched, "
+            "match_confidence = o.match_confidence, keywords_json = o.keywords_json, tags_json = o.tags_json, "
+            "evidence_json = o.evidence_json, summary = o.summary, reason = o.reason, status = o.status, "
+            "tagged_at = o.tagged_at FROM intel_articles a, intel_article_rq o "
+            "WHERE r.article_id = a.id AND a.copy_of = o.article_id AND o.rq_id = r.rq_id AND r.project_id = ? "
+            "AND r.decided_by IS NULL AND o.tagged_at IS NOT NULL "
+            "AND (r.signature <> o.signature OR r.tagged_at IS NULL)", (project_id,)).rowcount
+        conn.commit()
+        return n
+    finally:
+        conn.close()
+
+
+def save_rq_matches(project_id: int, by_rq: dict[str, set[int]]) -> None:
+    """The Boolean match, in one transaction: a "needs tagging" row per matched (article, question) pair (a row
+    already there is left as it is), and each article flagged matched (1) or Irrelevant (0)."""
+    matched = set().union(*by_rq.values()) if by_rq else set()
+    conn = _conn()
+    try:
+        for rq_id, ids in by_rq.items():
+            for aid in ids:
+                conn.execute("INSERT INTO intel_article_rq (project_id, article_id, rq_id, signature, matched, status) "
+                             "VALUES (?, ?, ?, '', 1, 'pending') ON CONFLICT (article_id, rq_id) DO NOTHING",
+                             (project_id, aid, rq_id))
+        conn.execute("UPDATE intel_articles SET rq_matched = CASE WHEN id = ANY(?) THEN 1 ELSE 0 END "
+                     "WHERE project_id = ?", (list(matched), project_id))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def save_theme_titles(project_id: int, mapping: dict[str, str]) -> None:
@@ -186,8 +261,9 @@ def theme_titles(project_id: int) -> dict[str, str]:
 # Signature of a row a query edit re-matched for free: current until the next RQ run adopts the real signature.
 # An empty signature marks a row that needs tagging (e.g. it matches the edited query and did not before).
 REMATCHED = "rematched"
-_NEEDING = ("FROM intel_articles a LEFT JOIN intel_article_rq r ON r.article_id = a.id AND r.rq_id = ? "
-            "WHERE a.project_id = ? AND a.tag_status = 'tagged' AND (r.id IS NULL OR r.signature NOT IN (?, ?))")
+# only the (article, question) pairs the Boolean match wrote: an article a question's query misses is never sent
+_NEEDING = ("FROM intel_articles a JOIN intel_article_rq r ON r.article_id = a.id AND r.rq_id = ? AND r.matched = 1 "
+            "WHERE a.project_id = ? AND a.tag_status = 'tagged' AND a.copy_of IS NULL AND r.signature NOT IN (?, ?)")
 
 
 def rq_rows_needing(project_id: int, rq_id: str, signature: str, limit: int) -> list[dict]:
@@ -367,6 +443,10 @@ def _where(project_id: int, f: dict) -> tuple[str, list]:
         sql.append("EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(CAST(a.tags_json AS jsonb) -> 'brands', "
                    "CAST('[]' AS jsonb))) b WHERE LOWER(b ->> 'brand') = LOWER(?))")
         params.append(f["brand"])
+    if f.get("pool") == "irrelevant":
+        sql.append("a.rq_matched = 0")
+    elif f.get("pool") == "matched":
+        sql.append("a.rq_matched IS DISTINCT FROM 0")
     if f.get("ids"):
         sql.append("a.id = ANY(?)")
         params.append(list(f["ids"]))
@@ -384,9 +464,10 @@ def _where(project_id: int, f: dict) -> tuple[str, list]:
 
 
 def page(project_id: int, *, channel=None, status=None, rq_id=None, sentiment=None, theme=None, brand=None,
-         content_status=None, q=None, ids=None, offset: int = 0, limit: int = 50) -> tuple[list[dict], int]:
+         content_status=None, q=None, ids=None, pool=None, offset: int = 0, limit: int = 50) -> tuple[list[dict], int]:
     where, params = _where(project_id, dict(channel=channel, status=status, rq_id=rq_id, sentiment=sentiment,
-                                            theme=theme, brand=brand, content_status=content_status, q=q, ids=ids))
+                                            theme=theme, brand=brand, content_status=content_status, q=q, ids=ids,
+                                            pool=pool))
     total = int(_run(f"SELECT COUNT(*) FROM intel_articles a WHERE {where}", tuple(params), one=True)[0])
     arts = _dicts(_run(f"SELECT {_LIST_COLS}, a.content FROM intel_articles a WHERE {where} ORDER BY a.id LIMIT ? OFFSET ?",
                        (*params, limit, offset)))

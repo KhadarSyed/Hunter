@@ -35,9 +35,11 @@ class Filters:
                  status: Literal["all", "approved", "review", "irrelevant", "no_match"] = "all",
                  rq: str | None = Query(None, max_length=40), sentiment: str | None = Query(None, max_length=20),
                  theme: str | None = Query(None, max_length=200), brand: str | None = Query(None, max_length=200),
-                 content_status: str | None = Query(None, max_length=40), q: str | None = Query(None, max_length=200)):
+                 content_status: str | None = Query(None, max_length=40), q: str | None = Query(None, max_length=200),
+                 pool: Literal["matched", "irrelevant", "all"] = "matched"):
         self.kw = dict(channel=channel, status=None if status == "all" else status, rq_id=rq, sentiment=sentiment,
-                       theme=theme, brand=brand, content_status=content_status, q=q)
+                       theme=theme, brand=brand, content_status=content_status, q=q,
+                       pool=None if pool == "all" else pool)
 
 
 def _who(user: dict) -> str:
@@ -104,6 +106,14 @@ def delete_file(project_id: ProjectId, file_id: FileId, _: Access):
         except Exception as e:      # the rows are gone; a stray object is only storage
             logger.warning("upload file %s: S3 delete failed (%s)", file_id, type(e).__name__)
     return {"ok": True, **out}
+
+
+@router.post("/articles/{project_id}/match")
+def match(project_id: ProjectId, _: Access):
+    """Run each approved research question's Boolean query over the articles (free, no GPT)."""
+    gates.require(project_id, "data_set")
+    _guard(project_id)
+    return service.match_rqs(project_id)
 
 
 @router.post("/articles/{project_id}/tag")

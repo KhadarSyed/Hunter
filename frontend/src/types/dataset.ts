@@ -72,6 +72,8 @@ export interface ArticleFilters {
   brand: string;
   content_status: string;
   q: string;
+  /** matched (default): articles a question's Boolean query matched (or not matched yet); irrelevant: none did */
+  pool?: "matched" | "irrelevant";
 }
 
 /** The filter dropdowns' values for one channel (GET /articles/{id}/facets). */
