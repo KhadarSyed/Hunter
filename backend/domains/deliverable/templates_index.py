@@ -90,6 +90,15 @@ def index_templates(llm=None, stale_only: bool = False, from_s3: bool = False) -
     model = _embed_model(llm)
     folder = Path(config.TEMPLATES_DIR)
     existing = {d["path"]: d for d in store.list_reference_decks()}
+    if stale_only:      # re-embed the indexed rows from their stored text: no local or S3 file list is needed
+        count = 0
+        for key, row in sorted(existing.items()):
+            if not key.startswith(str(folder)) or (key, model) in _REINDEX_TRIED or row["model"] == model:
+                continue
+            _REINDEX_TRIED.add((key, model))
+            _save(key, row["text"], llm, model, existing)
+            count += 1
+        return count
     local = sorted(folder.glob("*.pptx")) if folder.exists() else []
     remote = _s3_names() if from_s3 and not local else {}
     count = 0
@@ -97,15 +106,7 @@ def index_templates(llm=None, stale_only: bool = False, from_s3: bool = False) -
         key = str(path)
         if path.name.startswith("~$"):
             continue
-        if stale_only:
-            if (key, model) in _REINDEX_TRIED or existing.get(key, {}).get("model") == model:
-                continue
-            _REINDEX_TRIED.add((key, model))
-            if key in existing:
-                _save(key, existing[key]["text"], llm, model, existing)
-                count += 1
-                continue
-        elif remote and key in existing:    # already indexed: do not download a large deck again
+        if remote and key in existing:    # already indexed: do not download a large deck again
             count += 1
             continue
         if not remote:
@@ -124,29 +125,28 @@ def index_templates(llm=None, stale_only: bool = False, from_s3: bool = False) -
 _warming = threading.Lock()
 
 
-def _warm(llm) -> None:
-    if _warming.acquire(blocking=False):
-        try:
-            logger.info("reference decks: %d indexed from S3", index_templates(llm, from_s3=True))
-        except Exception as e:
-            logger.warning("reference deck warm-up failed (%s: %s)", type(e).__name__, e)
-        finally:
-            _warming.release()
-
-
-def warm_in_background() -> bool:
-    """At startup: when S3 holds reference decks that are not indexed yet (and none are local), index them in a job so
-    no deck run waits for the download. True when a job was started."""
+def _warm() -> None:
+    """The warm-up job: when S3 holds reference decks that are not indexed yet (and none are local), index them."""
     folder = Path(config.TEMPLATES_DIR)
     if not object_store.enabled() or (folder.exists() and any(folder.glob("*.pptx"))):
-        return False
+        return
     indexed = {d["path"] for d in store.list_reference_decks()}
-    if all(str(folder / n) in indexed for n in _s3_names()):
-        return False
+    if all(str(folder / n) in indexed for n in _s3_names()) or not _warming.acquire(blocking=False):
+        return
+    try:
+        from ...core.llm_provider import get_llm_client
+        logger.info("reference decks: %d indexed from S3", index_templates(get_llm_client(), from_s3=True))
+    except Exception as e:
+        logger.warning("reference deck warm-up failed (%s: %s)", type(e).__name__, e)
+    finally:
+        _warming.release()
+
+
+def warm_in_background() -> None:
+    """At startup: queue the warm-up job (all S3 and database checks run inside it) so no deck run waits for the
+    download and the server starts at once."""
     from ...core import jobs
-    from ...core.llm_provider import get_llm_client
-    jobs.runner.submit(lambda: _warm(get_llm_client()), name="reference-deck-warmup")
-    return True
+    jobs.runner.submit(_warm, name="reference-deck-warmup")
 
 
 def _tokens(text: str) -> set[str]:
