@@ -24,7 +24,7 @@ def current() -> dict:
 @contextlib.contextmanager
 def scope(**fields):
     """A new scope holder for a job or block: the outer scope's fields, overridden by these."""
-    token = SCOPE.set({**current(), **fields})
+    token = SCOPE.set({**current(), **{k: v for k, v in fields.items() if v is not None}})
     try:
         yield
     finally:
