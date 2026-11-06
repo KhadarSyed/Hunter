@@ -81,6 +81,20 @@ never import a `router.py`. Frontend (`frontend/src/`): `pages/` · `components/
   plus the unused legacy tables of the deleted products) lives there.
   Uploaded dataset files are also kept in `intel_dataset_files`, since a hosted server's disk may
   not survive a restart.
+- **S3 object store (optional):** `core/object_store.py` puts everything kept beyond the database under the
+  `HunterAgent/` prefix of `AWS_S3_BUCKET` (keys `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`,
+  `AWS_S3_BUCKET`; values are `.strip()`ped). Without the keys every call returns None and callers fall back to
+  Postgres; failures log and never fail a deck or a tagging run. Finished decks (`deliverable/deck_store.py`) and
+  the PPT reference decks live there; uploaded Data set files go under `datasets/project-{id}/`.
+- **Asset library:** `domains/assets/` (`library.py` = table `intel_asset_library`, migration 35; `service.py` =
+  fetchers) holds logos, site icons, flags and slide photos shared across organisations: bytes in S3, summary +
+  embedding in Postgres, so a near-identical photo of the same subject and role is reused before any search.
+  Embeddings come from `EMBEDDING_MODEL_API_KEY` / `EMBEDDING_MODEL_BASE_URL` / `EMBEDDING_MODEL_NAME` (falling
+  back to the `NVIDIA_EMBED_*` keys).
+- **Data set domain:** `domains/dataset/` is the new upload → tag → review flow (`DataSet.tsx`): project-wide
+  `intel_articles` (deduped on normalised URL), one `intel_article_rq` row per article per approved RQ, and the
+  tagging job (`tagging_job.py`: content → article tags → themes → RQs → relations). The deck reads only approved
+  rows, through `deliverable/rows.approved_rows`. Analyst decisions are final: a Re-tag never overwrites a decided row.
 - **LLM chain:** `backend/core/llm_provider.py::build_llm_client(settings)` is the single factory
   used everywhere a chat/embedding client is needed (`get_llm_client()` in the same module,
   and every other call site — `domains/plan/service.py`,
