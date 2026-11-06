@@ -67,11 +67,13 @@ def files_to_keep(run: dict, deck_dir: Path) -> dict[str, Path]:
     return {name: p for p in paths if p.is_file() and (name := _name(p))}
 
 
-def _parts(files: dict[str, Path], s3_prefix: str | None = None):
+def _parts(files: dict[str, Path], s3_prefix: str | None = None, s3_bytes: list[int] | None = None):
     """Each file as one S3 row when S3 takes it, else as chunks (a failed upload falls back, the deck is never lost)."""
     for name, path in files.items():
         key = object_store.put_file(f"{s3_prefix}/{name}", path) if s3_prefix and object_store.enabled() else None
         if key:
+            if s3_bytes is not None:
+                s3_bytes.append(path.stat().st_size)
             yield name, 0, 0, b"", key
             continue
         with path.open("rb") as f:
@@ -88,22 +90,39 @@ def _parts(files: dict[str, Path], s3_prefix: str | None = None):
                     break
 
 
+def _drop_old_s3(old: list[tuple[int, str]], keep_run: int) -> None:
+    """Delete the S3 objects (and library rows) of the runs persist just replaced. Best effort."""
+    from ..assets import library
+    for _, key in old:
+        object_store.delete(key)
+    for run_id in {r for r, _ in old if r != keep_run}:
+        try:
+            library.delete("deck", f"run-{run_id}")
+        except Exception as e:
+            logger.info("deck library row run-%s not removed (%s)", run_id, type(e).__name__)
+
+
 def persist(run_id: int, deck_dir: Path | str) -> int:
-    """Store the run's files (see the module doc) and drop the project's older runs. Returns bytes stored, 0 when
-    nothing was stored; never raises (the deck on disk is already finished)."""
+    """Store the run's files (see the module doc) and drop the project's older runs. Returns the bytes kept (S3 and
+    Postgres), 0 when nothing was stored; never raises (the deck on disk is already finished)."""
     run = store.get_deliverable_run(run_id)
     if not run or not deck_dir:
         return 0
     try:
         files = files_to_keep(run, Path(deck_dir))
-        prefix = f"decks/project-{run['project_id']}/run-{run_id}"
-        total = store.save_deck_files(run_id, run["project_id"], _parts(files, prefix))
+        # a random part: the local and the Render database share the bucket and both count runs from 1
+        prefix = f"decks/project-{run['project_id']}/run-{run_id}-{uuid.uuid4().hex[:8]}"
+        old = store.project_deck_s3_keys(run["project_id"]) if object_store.enabled() else []
+        s3_bytes: list[int] = []
+        db_bytes = store.save_deck_files(run_id, run["project_id"], _parts(files, prefix, s3_bytes))
+        _drop_old_s3(old, run_id)
         _index_deck(run, files, prefix)
     except Exception as e:
         logger.error("run %s: deck not kept in the database (%s: %s)", run_id, type(e).__name__, e)
         return 0
-    logger.info("run %s: %d files kept in the database (%.1f MB)", run_id, len(files), total / 1e6)
-    return total
+    logger.info("run %s: %d files kept (%.1f MB in S3, %.1f MB in the database)", run_id, len(files),
+                sum(s3_bytes) / 1e6, db_bytes / 1e6)
+    return sum(s3_bytes) + db_bytes
 
 
 def _index_deck(run: dict, files: dict[str, Path], prefix: str) -> None:
@@ -120,7 +139,7 @@ def _index_deck(run: dict, files: dict[str, Path], prefix: str) -> None:
         summary = f"{brand} research deck: " + "; ".join(q.question for q in rows.approved_rqs(run["project_id"]))[:400]
         library.upsert("deck", f"run-{run['id']}", s3_key=f"{prefix}/{pptx}", content_type="", sha256="",
                        size=files[pptx].stat().st_size, brand=brand, summary=summary,
-                       meta={"project_id": run["project_id"]}, embedding=service._embed(summary))
+                       meta={"project_id": run["project_id"]}, embedding=service.embed_text(summary))
     except Exception as e:
         logger.info("run %s: deck not added to the asset library (%s: %s)", run.get("id"), type(e).__name__, e)
 

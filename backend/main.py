@@ -63,6 +63,11 @@ async def lifespan(app: FastAPI):
     if os.environ.get("HUNTER_AUTOFIX", "1") == "1" and os.environ.get("HUNTER_SUPERVISED") == "1":
         from .domains.agent.repair import worker
         worker.start()
+    try:
+        from .domains.deliverable import templates_index
+        templates_index.warm_in_background()
+    except Exception as e:
+        logger.warning("reference deck warm-up not started (%s)", type(e).__name__)
     logger.info("Hunter started (%s)", get_app_settings().environment)
     try:
         yield

@@ -6,6 +6,7 @@ from __future__ import annotations
 import functools
 import logging
 import os
+import uuid
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -85,7 +86,7 @@ def download(key: str, out: Path) -> Path | None:
         return None
     s3, bucket = c
     out.parent.mkdir(parents=True, exist_ok=True)
-    part = out.with_name(f".{out.name}.part")
+    part = out.with_name(f".{out.name}.{uuid.uuid4().hex[:8]}.part")
     try:
         s3.download_file(bucket, _full(key), str(part))
         os.replace(part, out)
@@ -94,6 +95,19 @@ def download(key: str, out: Path) -> Path | None:
         logger.info("S3 download %s failed: %s", key[:120], type(e).__name__)
         part.unlink(missing_ok=True)
         return None
+
+
+def delete(key: str) -> bool:
+    c = _client()
+    if c is None:
+        return False
+    s3, bucket = c
+    try:
+        s3.delete_object(Bucket=bucket, Key=_full(key))
+        return True
+    except Exception as e:
+        logger.warning("S3 delete %s failed: %s", key[:120], type(e).__name__)
+        return False
 
 
 def presign(key: str, seconds: int = 604_800) -> str | None:

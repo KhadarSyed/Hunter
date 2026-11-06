@@ -32,6 +32,15 @@ def upsert(kind: str, key: str, *, s3_key: str | None, content_type: str, sha256
         conn.close()
 
 
+def delete(kind: str, key: str) -> None:
+    conn = _conn()
+    try:
+        conn.execute("DELETE FROM intel_asset_library WHERE kind = ? AND key = ?", (kind, key))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _out(r) -> dict:
     return {"id": r["id"], "kind": r["kind"], "key": r["key"], "s3_key": r["s3_key"],
             "content_type": r["content_type"], "brand": r["brand"], "summary": r["summary"],

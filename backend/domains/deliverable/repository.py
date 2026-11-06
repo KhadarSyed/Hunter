@@ -264,6 +264,17 @@ def deck_file_names(run_id: int) -> list[str]:
         conn.close()
 
 
+def project_deck_s3_keys(project_id: int) -> list[tuple[int, str]]:
+    """(run_id, S3 key) of every file of the project's stored decks that lives in S3."""
+    conn = _conn()
+    try:
+        return [(r[0], r[1]) for r in conn.execute(
+            "SELECT run_id, s3_key FROM intel_deliverable_files WHERE project_id = ? AND s3_key IS NOT NULL",
+            (project_id,))]
+    finally:
+        conn.close()
+
+
 def deck_file_s3_key(run_id: int, name: str) -> Optional[str]:
     """The S3 key the file was stored under, or None when it is kept as chunks."""
     conn = _conn()

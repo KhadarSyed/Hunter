@@ -47,7 +47,7 @@ def summary_for(kind: str, key: str, meta: dict) -> str:
     return "; ".join(parts)[:500]
 
 
-def _embed(text: str) -> list[float] | None:
+def embed_text(text: str) -> list[float] | None:
     """Best-effort: None on any error (unconfigured, unreachable, bad model)."""
     try:
         from ...core.llm_provider import get_llm_client
@@ -111,7 +111,7 @@ def put(kind: str, key: str, content: bytes, content_type: str = "", meta: dict 
         summary = summary_for(kind, key, meta)
         library.upsert(kind, key, s3_key=s3_key, content_type=content_type, sha256=sha, size=len(content),
                        brand=str(meta.get("brand") or ""), summary=summary, meta=meta,
-                       embedding=_embed(summary) if content else None, missing=not content)
+                       embedding=embed_text(summary) if content else None, missing=not content)
     except Exception as e:
         logger.warning("asset %s/%s not saved: %s", kind, key[:80], type(e).__name__)
 
@@ -120,7 +120,7 @@ def similar(kind: str, text: str, *, brand: str | None = None, role: str | None 
             min_score: float = 0.9) -> dict | None:
     """The best stored asset of this kind whose summary is at least min_score close to text, else None."""
     try:
-        vec = _embed(text) if object_store.enabled() else None
+        vec = embed_text(text) if object_store.enabled() else None
         if not vec:
             return None
         for r in library.nearest(kind, vec, brand=brand, role=role, limit=1):
