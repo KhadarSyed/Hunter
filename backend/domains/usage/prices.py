@@ -87,7 +87,7 @@ def sync_azure(fetch=None) -> int:
                     continue
                 group[kind] = price
         written = 0
-        for (model, deployment, day), p in groups.items():
+        for (model, deployment, day), p in sorted(groups.items(), key=lambda kv: kv[0][2]):  # oldest first
             if len(p) < 3:  # a meter that did not change keeps the earlier row's value, never a silent $0
                 earlier = repo.earlier_price("azure_openai", model, deployment, day)
                 if not earlier:
