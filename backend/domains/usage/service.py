@@ -54,7 +54,7 @@ def cost_usd(provider: str, model: str, dep_type: str, input_tokens: int, cached
 
 def record(provider: str, model: str, kind: str, *, input_tokens: int = 0, cached_input_tokens: int = 0,
            output_tokens: int = 0, requests: int = 1, credits: float = 0.0, latency_ms: int = 0,
-           cache_hit: bool = False, error: bool = False) -> None:
+           cache_hit: bool = False, error: bool = False, reason: str = "") -> None:
     try:
         s, now, model = current(), time.time(), model or "unknown"
         dep = deployment_type(provider)
@@ -66,7 +66,7 @@ def record(provider: str, model: str, kind: str, *, input_tokens: int = 0, cache
             "kind": kind, "input_tokens": int(input_tokens), "cached_input_tokens": int(cached_input_tokens),
             "output_tokens": int(output_tokens), "total_tokens": int(input_tokens) + int(output_tokens),
             "requests": int(requests), "credits": float(credits), "latency_ms": int(latency_ms),
-            "cache_hit": int(cache_hit), "error": int(error),
+            "cache_hit": int(cache_hit), "error": int(error), "error_reason": str(reason)[:200] if error else "",
             "cost_usd": 0.0 if cache_hit else cost_usd(provider, model, dep, input_tokens, cached_input_tokens,
                                                        output_tokens, now)}
         repo.insert_usage(row)

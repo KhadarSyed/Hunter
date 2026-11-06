@@ -15,7 +15,10 @@ export interface UsageKpis extends UsageTokens {
   saved_by_cache_usd: number;
 }
 
-export interface UsageTrendRow { day: string; provider: string; model: string; cost_usd: number; total_tokens: number }
+/** The trend's bucket follows the range: under 7 days hourly, to ~3 months daily, to 3 years monthly, then yearly. */
+export type TrendGrain = "hour" | "day" | "month" | "year";
+/** bucket is UTC text: 2026-11-07T04 (hour) / 2026-11-07 / 2026-11 / 2026 */
+export interface UsageTrendRow { bucket: string; provider: string; model: string; cost_usd: number; total_tokens: number }
 
 export interface UsageModelRow extends UsageTokens {
   provider: string;
@@ -58,6 +61,7 @@ export interface UsageProjectRow extends UsageTokens {
 
 export interface UsageSummary {
   kpis: UsageKpis;
+  grain: TrendGrain;
   trend: UsageTrendRow[];
   by_model: UsageModelRow[];
   by_stage: UsageStageRow[];
@@ -77,6 +81,7 @@ export interface UsageCall extends UsageTokens {
   latency_ms: number | null;
   cache_hit: number;
   error: number;   // 1 when the call failed
+  error_reason?: string;   // why it failed: HTTP status and message, timeout, rate limit, bad reply
 }
 
 export interface UsageCallsPage { rows: UsageCall[]; total: number }
@@ -108,5 +113,5 @@ export interface UsageQuery {
 export interface UsageLiveRow extends UsageTokens {
   ts: number; org_id: number | null; project_id: number | null; user_id: number | null;
   stage: string; sub_stage: string; provider: string; model: string; kind: string;
-  cost_usd: number; latency_ms: number; cache_hit: number; error: number; credits?: number;
+  cost_usd: number; latency_ms: number; cache_hit: number; error: number; error_reason?: string; credits?: number;
 }

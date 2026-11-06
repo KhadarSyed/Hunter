@@ -54,12 +54,12 @@ class NvidiaEmbedClient:
         started = time.time()
         try:
             r = requests.post(f"{self.api_url}/embeddings", headers=headers, json=payload, timeout=60)
-        except requests.RequestException:
-            usage_service.record("nvidia", self.model, "embed", error=True,
+        except requests.RequestException as e:
+            usage_service.record("nvidia", self.model, "embed", error=True, reason=type(e).__name__,
                                  latency_ms=int((time.time() - started) * 1000))
             raise
         if r.status_code != 200:
-            usage_service.record("nvidia", self.model, "embed", error=True,
+            usage_service.record("nvidia", self.model, "embed", error=True, reason=f"HTTP {r.status_code}: {r.text[:120]}",
                                  latency_ms=int((time.time() - started) * 1000))
             raise NvidiaEmbedError(f"NVIDIA embeddings failed: {r.status_code} {r.text[:300]}")
         data = r.json()

@@ -7,11 +7,11 @@ from ...core.db import _conn
 
 _COLS = ("ts", "org_id", "project_id", "stage", "user_id", "provider", "model", "deployment_type", "kind",
          "input_tokens", "cached_input_tokens", "output_tokens", "total_tokens", "requests", "credits",
-         "latency_ms", "cache_hit", "error", "cost_usd", "sub_stage")
+         "latency_ms", "cache_hit", "error", "cost_usd", "sub_stage", "error_reason")
 
 
 def insert_usage(row: dict) -> None:
-    row = {"sub_stage": "", **row}      # NOT NULL: a writer that predates sub-stages leaves it unattributed
+    row = {"sub_stage": "", "error_reason": "", **row}      # NOT NULL: older writers leave them empty
     conn = _conn()
     try:
         conn.execute(f"INSERT INTO llm_usage ({', '.join(_COLS)}) VALUES ({', '.join('?' for _ in _COLS)})",
@@ -98,7 +98,8 @@ def earlier_price(provider: str, model: str, deployment_type: str, before_day: s
 # ---- reads for the usage API -------------------------------------------------------------------------------------
 _TOK = ("input_tokens", "cached_input_tokens", "output_tokens", "total_tokens")
 _SUMS = ", ".join(f"COALESCE(SUM(u.{c}), 0) AS {c}" for c in _TOK) + ", COALESCE(SUM(u.cost_usd), 0) AS cost_usd"
-_DAY = "to_char(to_timestamp(u.ts) AT TIME ZONE 'UTC', 'YYYY-MM-DD')"
+# trend bucket per grain, as UTC text: 2026-11-07T04 / 2026-11-07 / 2026-11 / 2026
+_BUCKET = {"hour": 'YYYY-MM-DD"T"HH24', "day": "YYYY-MM-DD", "month": "YYYY-MM", "year": "YYYY"}
 
 
 def _num(v):
@@ -117,7 +118,7 @@ def _rows(sql: str, params) -> list[dict]:
         conn.close()
 
 
-def summary(where: str, params: list) -> dict:
+def summary(where: str, params: list, grain: str = "day") -> dict:
     """Every aggregate of the dashboard; `where` is the scope + filters on llm_usage aliased u."""
     base = f"FROM llm_usage u WHERE {where}"
     kpi = _rows(f"SELECT {_SUMS}, COUNT(*) AS calls, COALESCE(SUM(u.cache_hit), 0) AS cache_hits, "
@@ -127,7 +128,8 @@ def summary(where: str, params: list) -> dict:
         f"COALESCE(SUM(u.cache_hit), 0) AS cache_hits, "
         f"AVG(CASE WHEN u.cache_hit = 0 AND u.kind = 'chat' THEN u.cost_usd END) AS avg_chat_cost "
         f"{base} GROUP BY u.provider, u.model, u.deployment_type ORDER BY SUM(u.cost_usd) DESC, u.model", params)
-    trend = _rows(f"SELECT {_DAY} AS day, u.provider, u.model, COALESCE(SUM(u.cost_usd), 0) AS cost_usd, "
+    bucket = f"to_char(to_timestamp(u.ts) AT TIME ZONE 'UTC', '{_BUCKET[grain]}')"
+    trend = _rows(f"SELECT {bucket} AS bucket, u.provider, u.model, COALESCE(SUM(u.cost_usd), 0) AS cost_usd, "
                   f"COALESCE(SUM(u.total_tokens), 0) AS total_tokens {base} "
                   f"GROUP BY 1, u.provider, u.model ORDER BY 1, u.provider, u.model", params)
     by_stage = _rows(f"SELECT u.stage, COUNT(*) AS calls, {_SUMS} {base} GROUP BY u.stage "
@@ -157,7 +159,7 @@ def calls(where: str, params: list, limit: int, offset: int) -> tuple[list[dict]
     rows = _rows(
         "SELECT u.ts, u.project_id, p.project_name, u.stage, u.sub_stage, u.provider, u.model, u.kind, "
         "u.input_tokens, u.cached_input_tokens, u.output_tokens, u.total_tokens, u.cost_usd, u.latency_ms, "
-        "u.cache_hit, u.error "
+        "u.cache_hit, u.error, u.error_reason "
         f"FROM llm_usage u LEFT JOIN intel_projects p ON p.id = u.project_id WHERE {where} "
         "ORDER BY u.ts DESC, u.id DESC LIMIT ? OFFSET ?", [*params, limit, offset])
     return rows, total

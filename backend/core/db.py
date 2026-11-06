@@ -1555,6 +1555,7 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
     (40, "rq query changed flag", ["ALTER TABLE intel_article_rq ADD COLUMN query_changed INTEGER NOT NULL DEFAULT 0"]),
     # LLM usage: the phase inside a stage (deck engine / Deck Studio / repair / tagging); '' when unattributed.
     (41, "llm usage sub-stage", ["ALTER TABLE llm_usage ADD COLUMN sub_stage TEXT NOT NULL DEFAULT ''"]),
+    (42, "llm usage error reason", ["ALTER TABLE llm_usage ADD COLUMN error_reason TEXT NOT NULL DEFAULT ''"]),
 ]
 
 

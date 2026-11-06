@@ -186,10 +186,10 @@ class NvidiaParseClient:
             r = requests.post(f"{self.api_url}/chat/completions", headers=headers, json=payload,
                               timeout=REQUEST_TIMEOUT_S)
         except requests.RequestException as e:
-            record(self.model, error=True)
+            record(self.model, error=True, reason=type(e).__name__)
             raise NvidiaParseError(f"NVIDIA parse request failed: {e}") from e
         if r.status_code != 200:
-            record(self.model, error=True)
+            record(self.model, error=True, reason=f"HTTP {r.status_code}: {r.text[:120]}")
             raise NvidiaParseError(f"NVIDIA parse failed: {r.status_code} {r.text[:200]}")
         try:
             body = r.json()

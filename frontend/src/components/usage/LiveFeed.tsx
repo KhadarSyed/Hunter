@@ -40,7 +40,7 @@ export function LiveFeed({ rows, paused, connected, onTogglePause, projectName }
               <span className="tabular-nums text-xs text-slate-400">{time(r.ts)}</span>
               <span className="flex min-w-0 items-center gap-2">
                 <ProviderLogo provider={r.provider} model={r.model} size={18} />
-                {r.error ? <span className="rounded bg-red-50 px-1.5 text-[10px] font-semibold text-red-600">error</span> : null}
+                {r.error ? <span className="max-w-[14rem] truncate rounded bg-red-50 px-1.5 text-[10px] text-red-600" title={r.error_reason || "Failed"}><b>Failed</b>{r.error_reason ? `: ${r.error_reason}` : ""}</span> : null}
                 {r.cache_hit ? <span className="rounded bg-sky-50 px-1.5 text-[10px] font-semibold text-sky-700">cache</span> : null}
               </span>
               <span className="min-w-0 truncate text-xs text-slate-500" title={r.sub_stage || undefined}>

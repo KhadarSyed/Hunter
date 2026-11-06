@@ -86,11 +86,21 @@ def _with_sub_stages(by_stage: list[dict], rows: list[dict]) -> list[dict]:
     return out
 
 
+def trend_grain(date_from: str | None, date_to: str | None) -> str:
+    """The trend's bucket for a range: under 7 days hourly, to ~3 months daily, to 3 years monthly, then yearly."""
+    from datetime import date
+    if not date_from or not date_to:
+        return "day"
+    days = (date.fromisoformat(date_to) - date.fromisoformat(date_from)).days + 1
+    return "hour" if days < 7 else "day" if days <= 92 else "month" if days <= 3 * 366 else "year"
+
+
 @router.get("/summary")
 def usage_summary(user: UserDep, date_from: DateParam = None, date_to: DateParam = None, org_id: int | None = None,
                   project_id: int | None = None, stage: str | None = None, model: str | None = None) -> dict:
     where, params = _filters(user, date_from, date_to, org_id, project_id, stage, model)
-    s = repo.summary(where, params)
+    grain = trend_grain(date_from, date_to)
+    s = repo.summary(where, params, grain)
     # "saved by cache": cache hits x the model's average cost of a real (non-hit) chat call in range
     saved = sum(m["cache_hits"] * float(m["avg_chat_cost"] or 0) for m in s["by_model"])
     total = sum(p["total_tokens"] for p in s["by_project"])
@@ -109,6 +119,7 @@ def usage_summary(user: UserDep, date_from: DateParam = None, date_to: DateParam
     return {
         "kpis": {**_pick(s["kpi"], "cost_usd", *_TOK, "calls", "cache_hits", "nvidia_credits"),
                  "saved_by_cache_usd": saved},
+        "grain": grain,
         "trend": s["trend"],
         "by_model": [_pick(m, "provider", "model", "deployment_type", "calls", *_TOK, "cost_usd")
                      for m in s["by_model"]],

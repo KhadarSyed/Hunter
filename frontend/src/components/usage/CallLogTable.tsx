@@ -35,7 +35,11 @@ export function CallLogTable({ rows, total, offset, loading, onOffset }:
                 <td className="max-w-[16rem] px-3 py-2"><ProviderLogo provider={r.provider} model={r.model} /></td>
                 <td className="px-3 py-2 text-slate-700">
                   {r.kind}
-                  {r.error ? <span className="ml-1.5 rounded bg-red-50 px-1.5 py-0.5 text-[11px] font-semibold text-red-700">failed</span> : null}
+                  {r.error ? (
+                    <span className="mt-1 block max-w-[18rem] rounded bg-red-50 px-1.5 py-0.5 text-[11px] text-red-700" title={r.error_reason || "Failed"}>
+                      <b className="font-semibold">Failed</b>{r.error_reason ? `: ${r.error_reason}` : ""}
+                    </span>
+                  ) : null}
                 </td>
                 <td className="px-3 py-2 text-right">{num(r.input_tokens)}</td>
                 <td className="px-3 py-2 text-right">{num(r.output_tokens)}</td>

@@ -11,7 +11,7 @@ import { TopProjects } from "../components/usage/TopProjects";
 import { SummaryTable } from "../components/usage/SummaryTable";
 import { CallLogTable, CALL_PAGE_SIZE } from "../components/usage/CallLogTable";
 import { ProviderLogo } from "../components/usage/ProviderLogo";
-import { UsageTrendChart } from "../components/usage/UsageTrendChart";
+import { UsageTrendChart, bucketOf } from "../components/usage/UsageTrendChart";
 import { UsageBarChart } from "../components/usage/UsageBarChart";
 import { StageDrillDown, StageTable } from "../components/usage/StageDrillDown";
 import { UsageFilters, presetRange, type Preset, type SelectOption, type UsageFilterState } from "../components/usage/UsageFilters";
@@ -87,10 +87,10 @@ function buildCsv(f: UsageFilterState, s: UsageSummary, calls: UsageCall[]): str
     "",
     csvRow(["Call log"]),
     csvRow(["Date and time (UTC)", "Project", "Stage", "Sub-stage", "Provider", "Model", "Kind", "Input tokens", "Cached input tokens", "Output tokens",
-      "Total tokens", "Cost (USD)", "Latency (ms)", "Cache hit", "Failed"]),
+      "Total tokens", "Cost (USD)", "Latency (ms)", "Cache hit", "Failed", "Failure reason"]),
     ...calls.map((c) => csvRow([new Date(c.ts * 1000).toISOString(), c.project_name ?? c.project_id, stageLabel(c.stage), c.sub_stage ? subStageLabel(c.sub_stage) : "", providerLabel(c.provider),
       c.model, c.kind, c.input_tokens, c.cached_input_tokens, c.output_tokens, c.total_tokens, c.cost_usd, c.latency_ms,
-      c.cache_hit ? "yes" : "no", c.error ? "yes" : "no"])),
+      c.cache_hit ? "yes" : "no", c.error ? "yes" : "no", c.error_reason ?? ""])),
   ];
   return lines.join("\r\n");
 }
@@ -234,7 +234,14 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
     if (!matchesFilters(r)) return;
     setLiveRows((prev) => [r, ...prev].slice(0, 50));
     setSummary((s) => s && {
-      ...s, kpis: {
+      ...s,
+      trend: (() => {     // the call lands in its bucket, so the trend chart moves live too
+        const bucket = bucketOf(r.ts, s.grain ?? "day");
+        const i = s.trend.findIndex((t) => t.bucket === bucket && t.provider === r.provider && t.model === r.model);
+        if (i < 0) return [...s.trend, { bucket, provider: r.provider, model: r.model, cost_usd: r.cost_usd || 0, total_tokens: r.total_tokens }];
+        return s.trend.map((t, j) => (j === i ? { ...t, cost_usd: t.cost_usd + (r.cost_usd || 0), total_tokens: t.total_tokens + r.total_tokens } : t));
+      })(),
+      kpis: {
         ...s.kpis, calls: s.kpis.calls + (r.cache_hit ? 0 : 1), cost_usd: s.kpis.cost_usd + (r.cost_usd || 0),
         cache_hits: s.kpis.cache_hits + (r.cache_hit ? 1 : 0),
         nvidia_credits: s.kpis.nvidia_credits + (r.provider === "nvidia" ? Number(r.credits) || 0 : 0),
@@ -379,7 +386,7 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
           )}
 
           <div data-slot="usage-charts" className="grid gap-6 2xl:grid-cols-2">
-            <UsageTrendChart rows={summary.trend} from={filters.from} to={filters.to} />
+            <UsageTrendChart rows={summary.trend} from={filters.from} to={filters.to} grain={summary.grain} />
             <UsageBarChart summary={summary} projectFiltered={filters.project !== null} onPickStage={setOpenStage} />
           </div>
 
