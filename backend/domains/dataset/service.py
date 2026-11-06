@@ -91,17 +91,57 @@ NO_TERMS = "No searchable terms in this query"
 _OPERATOR = re.compile(r"^(AND|OR|NOT|NEAR(/\d+)?)$", re.IGNORECASE)
 
 
-def match_terms(query: str) -> list[str]:
-    """The terms the free re-match looks for (tagging itself is unchanged): the tagger's bracketed groups, else every
-    quoted phrase and every bare word outside the operators (wildcards stripped; a trailing * still matches endings)."""
-    from ...agents import rq_tagging
-    terms = rq_tagging._terms(query or "")
-    if terms:
-        return terms
-    phrases = [p.strip() for p in re.findall(r'"([^"]*)"', query or "") if p.strip()]
-    words = re.split(r"[\s()\[\]]+", re.sub(r'"[^"]*"', " ", query or ""))
+_NOT = re.compile(r"\bNOT\b\s*")     # Meltwater operators are upper case; "not" inside a phrase is a word
+
+
+def _clause_end(query: str, j: int) -> int:
+    """End of the term, quoted phrase or whole bracketed group that starts at j."""
+    if query[j:j + 1] == "(":
+        depth = 0
+        for k in range(j, len(query)):
+            depth += {"(": 1, ")": -1}.get(query[k], 0)
+            if depth == 0:
+                return k + 1
+        return len(query)
+    if query[j:j + 1] == '"':
+        k = query.find('"', j + 1)
+        return len(query) if k < 0 else k + 1
+    m = re.match(r"[^\s()]+", query[j:])
+    return j + (m.end() if m else 0)
+
+
+def _split_not(query: str) -> tuple[str, str]:
+    """(the query without its NOT clauses, the NOT clauses' text)."""
+    kept, negated, pos = [], [], 0
+    for m in _NOT.finditer(query):
+        if m.start() < pos or query[:m.start()].count('"') % 2:     # inside a clause already taken, or a phrase
+            continue
+        end = _clause_end(query, m.end())
+        kept.append(query[pos:m.start()])
+        negated.append(query[m.end():end])
+        pos = end
+    kept.append(query[pos:])
+    return " ".join(kept), " ".join(negated)
+
+
+def _plain_terms(text: str) -> list[str]:
+    phrases = [p.strip() for p in re.findall(r'"([^"]*)"', text) if p.strip()]
+    words = re.split(r"[\s()\[\]]+", re.sub(r'"[^"]*"', " ", text))
     bare = [w.strip("*?") + ("*" if w.endswith("*") else "") for w in words if w and not _OPERATOR.match(w)]
     return phrases + [w for w in bare if w.strip("*")]
+
+
+def match_terms(query: str) -> list[str]:
+    """The terms the free re-match looks for (tagging itself is unchanged): the tagger's bracketed groups, else every
+    quoted phrase and every bare word outside the operators and outside NOT clauses (wildcards stripped; a trailing *
+    still matches endings)."""
+    from ...agents import rq_tagging
+    return rq_tagging._terms(query or "") or _plain_terms(_split_not(query or "")[0])
+
+
+def not_terms(query: str) -> list[str]:
+    """The terms of the query's NOT clauses (the term, phrase or bracketed group right after each NOT)."""
+    return _plain_terms(_split_not(query or "")[1])
 
 
 def query_errors(query: str) -> list[str]:
@@ -109,17 +149,18 @@ def query_errors(query: str) -> list[str]:
     return validate_boolean_syntax(query) + ([] if match_terms(query) else [NO_TERMS])
 
 
-def _matching(terms: list[str], arts: list[dict]) -> set[int]:
-    from ...agents import question_dimensions
-    return {a["id"] for a in arts if question_dimensions.keyword_hits(a["text"], terms)}
+def _matching(query: str, arts: list[dict]) -> set[int]:
+    """Articles with a positive term and none of the NOT terms."""
+    from ...agents import question_dimensions as qd
+    terms, nots = match_terms(query), not_terms(query)
+    return {a["id"] for a in arts if qd.keyword_hits(a["text"], terms) and not (nots and qd.keyword_hits(a["text"], nots))}
 
 
 def _before_after(project_id: int, rq, edited: str) -> tuple[set[int], set[int], dict[int, str]]:
     """Articles the current query matches (its stored matched rows when it has no searchable terms) and the edited."""
     arts = repo.match_texts(project_id)
-    old_terms = match_terms(rq.query)
-    old = _matching(old_terms, arts) if old_terms else set(repo.matched_ids(project_id, rq.id))
-    return old, _matching(match_terms(edited), arts), {a["id"]: a["title"] for a in arts}
+    old = _matching(rq.query, arts) if match_terms(rq.query) else set(repo.matched_ids(project_id, rq.id))
+    return old, _matching(edited, arts), {a["id"]: a["title"] for a in arts}
 
 
 def preview(project_id: int, rq, edited: str) -> dict:
