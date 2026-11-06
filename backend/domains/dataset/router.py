@@ -13,6 +13,7 @@ from ...agents import question_tag_schema as tag_schema
 from ...core import store
 from ...core.auth import require_project_access
 from ..deliverable import rows as engine_rows
+from ..deliverable.labels import theme_key
 from . import repository as repo, service
 from .schemas import ArticleEdit, DecisionRequest, UndoRequest
 
@@ -128,8 +129,12 @@ def _rq_columns(project_id: int) -> list[dict]:
 def page(project_id: ProjectId, _: Access, f: Annotated[Filters, Depends()],
          offset: Annotated[int, Query(ge=0)] = 0, limit: Annotated[int, Query(ge=1, le=200)] = 50):
     arts, total = repo.page(project_id, **f.kw, offset=offset, limit=limit)
-    return {"rows": [_row(a) for a in arts], "total": total, "rqs": _rq_columns(project_id),
-            "theme_titles": repo.theme_titles(project_id)}
+    titles = repo.theme_titles(project_id)
+    rows = [_row(a) for a in arts]
+    for r in rows:     # raw label -> the consolidated title the deck uses
+        labels = [v for v in (r["tags"].get("themes") or {}).values() if v]
+        r["theme_titles"] = {v: titles.get(theme_key(v), v) for v in labels}
+    return {"rows": rows, "total": total, "rqs": _rq_columns(project_id), "theme_titles": titles}
 
 
 @router.get("/articles/{project_id}/ids")

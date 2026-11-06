@@ -1,3 +1,4 @@
+import type { ArticleFilters, ArticlePage, RqStatus, UploadResult, UploadedFile } from "../types/dataset";
 
 // Empty by default (relative paths), matching same-origin deploys where the backend
 // serves the built SPA directly. Set VITE_API_BASE_URL (e.g. "https://api.example.com")
@@ -63,6 +64,16 @@ function patch<T>(path: string, body?: unknown): Promise<T> {
     headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   }).then((r) => json<T>(r));
+}
+
+/** Query string for the Data set page / select-all endpoints: only the filters that are set. */
+function articleQuery(f: ArticleFilters, extra: Record<string, number> = {}): string {
+  const p = new URLSearchParams({ channel: f.channel });
+  for (const k of ["status", "rq", "sentiment", "theme", "brand", "content_status", "q"] as const) {
+    if (f[k] && !(k === "status" && f[k] === "all")) p.set(k, f[k]);
+  }
+  Object.entries(extra).forEach(([k, v]) => p.set(k, String(v)));
+  return p.toString();
 }
 
 const AUTH_BASE = `${API_ORIGIN}/api/auth`;
@@ -771,6 +782,34 @@ export const intelApi = {
     get<{ running: boolean; phase: string | null; done: number; total: number; minutes_left: number | null;
           counts: { total: number; content: Record<string, number>; tags: Record<string, number> } }>(
       `/articles/${projectId}/tagging`),
+
+  // Data set (uploaded articles, tagging, per-RQ decisions)
+  uploadArticles: (projectId: number, files: File[]) => {
+    const form = new FormData();
+    files.forEach((f) => form.append("files", f));
+    return fetch(`${API_BASE}/articles/${projectId}/upload`, { method: "POST", credentials: CREDENTIALS, body: form })
+      .then((r) => json<UploadResult>(r));
+  },
+
+  listUploadFiles: (projectId: number) => get<UploadedFile[]>(`/articles/${projectId}/files`),
+
+  startTagging: (projectId: number) => post<{ job_id: string }>(`/articles/${projectId}/tag`),
+
+  listArticles: (projectId: number, f: ArticleFilters, offset = 0, limit = 100) =>
+    get<ArticlePage>(`/articles/${projectId}?${articleQuery(f, { offset, limit })}`),
+
+  articleIds: (projectId: number, f: ArticleFilters) =>
+    get<{ ids: number[] }>(`/articles/${projectId}/ids?${articleQuery(f)}`).then((r) => r.ids),
+
+  decideArticles: (projectId: number, articleIds: number[], rqId: string | null, status: RqStatus, reason?: string) =>
+    post<{ changed: number; undo_token: string }>(`/articles/${projectId}/decisions`,
+      { article_ids: articleIds, rq_id: rqId, status, reason: reason || undefined }),
+
+  undoDecision: (projectId: number, undoToken: string) =>
+    post<{ restored: number }>(`/articles/${projectId}/decisions/undo`, { undo_token: undoToken }),
+
+  editArticle: (projectId: number, articleId: number, edit: { sentiment?: string; themes?: string[]; brands?: string[] }) =>
+    patch<{ ok: boolean; approved_rqs: string[] }>(`/articles/${projectId}/${articleId}`, edit),
 
   deleteResearchQuestion: (strategyId: number, questionId: string) =>
     del<{ ok: boolean }>(`/strategy/${strategyId}/research-question/${questionId}`),

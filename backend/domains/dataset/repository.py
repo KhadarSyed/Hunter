@@ -281,7 +281,7 @@ def page(project_id: int, *, channel=None, status=None, rq_id=None, sentiment=No
     where, params = _where(project_id, dict(channel=channel, status=status, rq_id=rq_id, sentiment=sentiment,
                                             theme=theme, brand=brand, content_status=content_status, q=q))
     total = int(_run(f"SELECT COUNT(*) FROM intel_articles a WHERE {where}", tuple(params), one=True)[0])
-    arts = _dicts(_run(f"SELECT {_LIST_COLS} FROM intel_articles a WHERE {where} ORDER BY a.id LIMIT ? OFFSET ?",
+    arts = _dicts(_run(f"SELECT {_LIST_COLS}, a.content FROM intel_articles a WHERE {where} ORDER BY a.id LIMIT ? OFFSET ?",
                        (*params, limit, offset)))
     if arts:
         rows = _run("SELECT " + _RQ_COLS + " FROM intel_article_rq WHERE project_id = ? AND article_id = ANY(?) ORDER BY rq_id",
