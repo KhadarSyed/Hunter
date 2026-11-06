@@ -787,7 +787,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
   // Autorun (after Brief & Scope approval): this page follows its research job, the server writes and approves the
   // brief, then Search Strategy opens. A blocked chain falls back to the manual review below.
   const autorun = useAutorun(projectId, ["research", "brief"],
-                             (step) => onNavigate(step === "data-sources" ? "data-sources" : "search-strategy"));
+                             (step) => onNavigate(step === "data-sources" ? "matching-label" : "search-strategy"));
   const autorunning = autorun?.status === "running";
   const autorunningRef = useRef(false);      // read when the job finishes, without re-running that effect later
   autorunningRef.current = autorunning;

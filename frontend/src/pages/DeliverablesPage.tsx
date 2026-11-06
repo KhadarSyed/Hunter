@@ -407,8 +407,8 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
       )}
 
       <div className="flex items-center justify-between">
-        <button onClick={() => onNavigate("data-sources")} className="text-sm font-medium text-slate-500 hover:text-slate-700">
-          Back to Data Sources
+        <button onClick={() => onNavigate("data-set")} className="text-sm font-medium text-slate-500 hover:text-slate-700">
+          Back to Data set
         </button>
         <button onClick={generate} disabled={running}
           className="rounded-lg bg-[#5B2C9D] px-4 py-2 text-sm font-medium text-white disabled:opacity-50">

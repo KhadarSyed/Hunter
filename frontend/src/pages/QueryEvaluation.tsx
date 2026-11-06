@@ -248,10 +248,10 @@ export function QueryEvaluation({ onNavigate }: Props) {
               Back to Search Strategy
             </button>
             <button
-              onClick={() => onNavigate("data-sources")}
+              onClick={() => onNavigate("matching-label")}
               className="px-5 py-2.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
             >
-              Proceed to Data Sources
+              Proceed to Matching label
             </button>
           </div>
         </>

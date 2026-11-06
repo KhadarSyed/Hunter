@@ -148,6 +148,7 @@ export function MatchingLabel({ onNavigate }: { onNavigate: (page: string) => vo
 
   const run = async (fn: (sid: number) => Promise<unknown>, fallback: string): Promise<boolean> => {
     if (strategyId == null) return false;
+    setHint(null);
     setBusy(true);
     try { await fn(strategyId); await load(); return true; }
     catch (e) { setError(errMsg(e, fallback)); return false; }
@@ -158,7 +159,7 @@ export function MatchingLabel({ onNavigate }: { onNavigate: (page: string) => vo
     const ok = await run((sid) => intelApi.editResearchQuestion(sid, rq.question_id, question, query), "Failed to save");
     if (ok && projectId) {
       const t = await intelApi.taggingState(projectId).catch(() => null);
-      const tagged = !!t && Object.entries(t.counts.tags).some(([k, n]) => n > 0 && k !== "pending" && k !== "null");
+      const tagged = !!t && (t.counts.tags.tagged ?? 0) > 0;
       setHint(tagged ? `${rq.question_id} will be re-tagged on the next Start tagging.` : null);
     }
     return ok;
@@ -178,7 +179,7 @@ export function MatchingLabel({ onNavigate }: { onNavigate: (page: string) => vo
         <>
           {rqs.length === 0 && <p className="text-sm text-slate-500">No research questions yet. Approve a search strategy or add one.</p>}
           {rqs.map((rq) => (
-            <Card key={rq.question_id} rq={rq} busy={busy}
+            <Card key={`${rq.question_id}|${rq.question}|${rq.query}`} rq={rq} busy={busy}
               onStatus={(s) => void run((sid) => intelApi.setResearchQuestionStatus(sid, rq.question_id, s), "Failed to update status")}
               onEdit={(question, query) => edit(rq, question, query)}
               onDelete={() => void run((sid) => intelApi.deleteResearchQuestion(sid, rq.question_id), "Failed to delete")} />

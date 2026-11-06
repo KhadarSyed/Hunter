@@ -405,10 +405,10 @@ export function ResearchPlan({ onNavigate }: { onNavigate: (page: string) => voi
             ))}
           </div>
           <button
-            onClick={() => onNavigate("data-sources")}
+            onClick={() => onNavigate("data-set")}
             className="mt-4 px-5 py-2.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
           >
-            Go to Data Sources
+            Go to Data set
           </button>
         </div>
       </div>
@@ -661,8 +661,8 @@ export function ResearchPlan({ onNavigate }: { onNavigate: (page: string) => voi
 
       {/* Navigation */}
       <div className="flex items-center justify-between pt-4">
-        <button onClick={() => onNavigate("data-sources")} className="px-4 py-2.5 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
-          Back to Data Sources
+        <button onClick={() => onNavigate("data-set")} className="px-4 py-2.5 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+          Back to Data set
         </button>
         <button onClick={() => onNavigate("deliverables")} className="px-5 py-2.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm">
           Proceed to Deliverables
