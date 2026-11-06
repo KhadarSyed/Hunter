@@ -114,6 +114,8 @@ def update_research_question(strategy_id: int, question_id: str, question: str, 
     rqs = strategy.get("research_question_queries", [])
     for rq in rqs:
         if rq.get("question_id") == question_id:
+            if rq.get("query") != query:   # tagging reads match_query first; the edited query must be the one matched
+                rq.pop("match_query", None)
             rq["question"] = question
             rq["query"] = query
             break
@@ -138,8 +140,8 @@ def get_strategy_project_id(strategy_id: int) -> int | None:
 
 
 def add_research_question(strategy_id: int, question: str, query: str) -> str | None:
-    """Append an analyst-added RQ numbered after the highest existing RQn; returns its id (None if no strategy).
-    The row is locked before the read (FOR UPDATE), so two concurrent adds can't pick the same RQn."""
+    """Append an analyst-added RQ numbered after the highest RQn ever used (a deleted id is never reused); returns its
+    id (None if no strategy). The row is locked before the read (FOR UPDATE), so two concurrent adds can't pick the same RQn."""
     conn = _conn()
     row = conn.execute("SELECT strategy_json FROM intel_search_strategies WHERE id = ? FOR UPDATE",
                        (strategy_id,)).fetchone()
@@ -150,7 +152,9 @@ def add_research_question(strategy_id: int, question: str, query: str) -> str | 
     rqs = strategy.get("research_question_queries", [])
     numbers = [int(rq["question_id"][2:]) for rq in rqs
                if str(rq.get("question_id", "")).startswith("RQ") and str(rq["question_id"])[2:].isdigit()]
-    question_id = f"RQ{max(numbers, default=0) + 1}"
+    number = max([*numbers, int(strategy.get("last_rq_number") or 0)], default=0) + 1
+    question_id = f"RQ{number}"
+    strategy["last_rq_number"] = number
     rqs.append({"question_id": question_id, "question": question, "query": query, "user_added": True,
                 "status": "draft"})
     strategy["research_question_queries"] = rqs
@@ -184,8 +188,10 @@ def set_research_question_status(strategy_id: int, question_id: str, status: str
 
 
 def delete_research_question(strategy_id: int, question_id: str) -> bool:
+    """Remove the RQ and its Data set rows (tags and decisions), and remember its number so it is never reused."""
     conn = _conn()
-    row = conn.execute("SELECT strategy_json FROM intel_search_strategies WHERE id = ?", (strategy_id,)).fetchone()
+    row = conn.execute("SELECT project_id, strategy_json FROM intel_search_strategies WHERE id = ? FOR UPDATE",
+                       (strategy_id,)).fetchone()
     if not row:
         conn.close()
         return False
@@ -197,10 +203,13 @@ def delete_research_question(strategy_id: int, question_id: str) -> bool:
         conn.close()
         return False
     strategy["research_question_queries"] = rqs
+    if question_id.startswith("RQ") and question_id[2:].isdigit():
+        strategy["last_rq_number"] = max(int(strategy.get("last_rq_number") or 0), int(question_id[2:]))
     conn.execute(
         "UPDATE intel_search_strategies SET strategy_json = ? WHERE id = ?",
         (json.dumps(strategy), strategy_id),
     )
+    conn.execute("DELETE FROM intel_article_rq WHERE project_id = ? AND rq_id = ?", (row["project_id"], question_id))
     conn.commit()
     conn.close()
     return True
@@ -378,64 +387,6 @@ def get_dataset_by_id(dataset_id: int) -> dict | None:
     d["column_mapping"] = json.loads(d["column_mapping_json"]) if d.get("column_mapping_json") else {}
     d["stats"] = json.loads(d["stats_json"]) if d.get("stats_json") else {}
     return _restored(d)
-
-
-def update_enriched_record(dataset_id: int, record_id: str, updates: dict) -> dict | None:
-    """Merge analyst edits (review_status, or any corrected tag field) into one
-    record within a dataset's enrichment_json array. Returns the updated record,
-    or None if the dataset has no enrichment yet or the record id isn't in it."""
-    conn = _conn()
-    row = conn.execute("SELECT enrichment_json FROM intel_datasets WHERE id = ?", (dataset_id,)).fetchone()
-    if not row or not row["enrichment_json"]:
-        conn.close()
-        return None
-    records = json.loads(row["enrichment_json"])
-    updated = None
-    for rec in records:
-        if str(rec.get("id")) == str(record_id):
-            rec.update(updates)
-            updated = rec
-            break
-    if updated is not None:
-        conn.execute("UPDATE intel_datasets SET enrichment_json = ? WHERE id = ?", (json.dumps(records), dataset_id))
-        conn.commit()
-    conn.close()
-    return updated
-
-
-def update_dataset_enrichment(dataset_id: int, status: str, enrichment: list | None = None, error: str | None = None):
-    conn = _conn()
-    conn.execute(
-        "UPDATE intel_datasets SET enrichment_status = ?, enrichment_json = ?, enrichment_error = ? WHERE id = ?",
-        (status, json.dumps(enrichment) if enrichment is not None else None, error, dataset_id),
-    )
-    conn.commit()
-    conn.close()
-
-
-def get_enriched_records_by_project(project_id: int) -> list[dict]:
-    """Every enriched record across every dataset for this project, each tagged
-    with its source dataset_id/file_name/research_question_id — the Data Sources
-    Review tab's feed, aggregated across however many files were enriched."""
-    conn = _conn()
-    rows = conn.execute(
-        "SELECT id, file_name, research_question_id, enrichment_json FROM intel_datasets "
-        "WHERE project_id = ? AND enrichment_status = 'done' AND enrichment_json IS NOT NULL "
-        "ORDER BY created_at ASC",
-        (project_id,),
-    ).fetchall()
-    conn.close()
-    out: list[dict] = []
-    for row in rows:
-        records = json.loads(row["enrichment_json"]) or []
-        for rec in records:
-            out.append({
-                **rec,
-                "dataset_id": row["id"],
-                "dataset_file_name": row["file_name"],
-                "research_question_id": row["research_question_id"],
-            })
-    return out
 
 
 # ─── Evaluation ────────────────────────────────────────────────────────
