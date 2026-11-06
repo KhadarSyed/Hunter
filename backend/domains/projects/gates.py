@@ -2,6 +2,9 @@
 project list's progress bar all read this one function."""
 from __future__ import annotations
 
+import threading
+import time
+
 from fastapi import HTTPException
 
 from ...core import store
@@ -14,6 +17,9 @@ _RUNNING = ("pending", "running", "queued")
 _JOB = {"brief_scope": "spec_generation", "background_research": "background_research",
         "search_strategy": "search_strategy"}
 _SHARE = 100 / len(STAGES)
+_TTL_S = 4               # live pages refetch on every progress event; a burst reads one computed summary
+_CACHE: dict[int, tuple[float, dict]] = {}
+_CACHE_LOCK = threading.Lock()
 
 
 def _approved(row: dict | None) -> bool:
@@ -129,7 +135,20 @@ def progress(project_id: int) -> tuple[float, str]:
 
 
 def summary(project_id: int) -> dict:
-    """Gates plus progress, for the /gates route and the project list; never raises."""
+    """Gates plus progress, for the /gates route and the project list; never raises. Cached for a few seconds
+    (display only: require() always reads fresh)."""
+    now = time.time()
+    with _CACHE_LOCK:
+        hit = _CACHE.get(project_id)
+    if hit and now - hit[0] < _TTL_S:
+        return hit[1]
+    out = _summary(project_id)
+    with _CACHE_LOCK:
+        _CACHE[project_id] = (now, out)
+    return out
+
+
+def _summary(project_id: int) -> dict:
     try:
         f = _facts(project_id)
         g = _gates_from(f)

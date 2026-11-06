@@ -30,12 +30,11 @@ router = APIRouter()
 
 
 def _with_progress(projects: list[dict]) -> list[dict]:
-    # shortcut: a few queries per project in the list; batch them when projects > 200
-    out = []
-    for p in projects:
-        s = gates.summary(p["id"])
-        out.append({**p, "progress_pct": s["progress_pct"], "current_stage": s["current_stage"]})
-    return out
+    # shortcut: a few queries per project, run in parallel and cached 4 s; batch into one query when projects > 200
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        sums = list(pool.map(lambda p: gates.summary(p["id"]), projects))
+    return [{**p, "progress_pct": s["progress_pct"], "current_stage": s["current_stage"]} for p, s in zip(projects, sums)]
 
 
 @router.get("/projects", response_model=list[ProjectListItem])
