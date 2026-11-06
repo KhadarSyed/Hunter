@@ -19,14 +19,6 @@ const RESEARCH_NAV: NavItem[] = [
   { page: "dashboard", label: "Dashboard", icon: "grid" },
 ];
 
-const QC_NAV: NavItem[] = [
-  { page: "qc-upload", label: "Upload Report", icon: "upload" },
-  { page: "qc-results", label: "QC Results", icon: "check-circle" },
-  { page: "qc-export", label: "Export", icon: "download" },
-];
-
-const QC_PAGES = new Set<string>(["qc-projects", "new-qc-project", "edit-qc-project", "qc-upload", "qc-field-mapping", "qc-results", "qc-export"]);
-
 function NavIcon({ name, size = 16 }: { name: string; size?: number }) {
   const props = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 
@@ -44,11 +36,8 @@ function NavIcon({ name, size = 16 }: { name: string; size?: number }) {
  * App.tsx's BROWSING_PAGES. */
 export function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavigate: (page: string) => void }) {
   const { activeProject, setActiveProject } = useProject();
-  const isQCPage = QC_PAGES.has(currentPage);
-  const isQC = isQCPage || activeProject?.project_type === "monitoring_qc";
-  const navItems = isQC ? QC_NAV : RESEARCH_NAV;
-
-  const accentColor = isQC ? "#0F7B6C" : "#5B2C9D";
+  const navItems = RESEARCH_NAV;
+  const accentColor = "#5B2C9D";
 
   const [editingProject, setEditingProject] = useState(false);
   const [editName, setEditName] = useState("");
@@ -99,7 +88,7 @@ export function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavi
                 className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold shrink-0"
                 style={{ backgroundColor: accentColor }}
               >
-                {isQC ? "Q" : "R"}
+                {"R"}
               </div>
             )}
           </button>
@@ -170,7 +159,7 @@ export function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavi
               className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors ${
                 isActive ? "" : "text-slate-400 hover:bg-slate-50 hover:text-slate-600"
               }`}
-              style={isActive ? { backgroundColor: isQC ? "#0F7B6C10" : "#5B2C9D10", color: accentColor } : undefined}
+              style={isActive ? { backgroundColor: "#5B2C9D10", color: accentColor } : undefined}
             >
               <NavIcon name={item.icon} size={17} />
             </button>

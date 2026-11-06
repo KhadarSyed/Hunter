@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
 import { intelApi } from "../services/intel-api";
 
-export type ProjectType = "research" | "monitoring_qc";
+export type ProjectType = "research";
 
 interface ActiveProject {
   id: number;

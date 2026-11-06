@@ -28,16 +28,6 @@ export function IconRailSidebar({ currentPage, onNavigate }: { currentPage: Page
       ),
     },
     {
-      page: "qc-projects",
-      label: "QC Projects",
-      icon: (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-          <path d="M22 4L12 14.01l-3-3" />
-        </svg>
-      ),
-    },
-    {
       page: "usage",
       label: "Usage & cost",
       icon: (
@@ -57,8 +47,7 @@ export function IconRailSidebar({ currentPage, onNavigate }: { currentPage: Page
         {items.map((item) => {
           const isActive =
             item.page === currentPage ||
-            (item.page === "projects" && (currentPage === "new-project" || currentPage === "edit-project")) ||
-            (item.page === "qc-projects" && (currentPage === "new-qc-project" || currentPage === "edit-qc-project"));
+            (item.page === "projects" && (currentPage === "new-project" || currentPage === "edit-project"));
           return (
             <button
               key={item.page}

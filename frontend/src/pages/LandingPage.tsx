@@ -20,7 +20,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
   const { setActiveProject } = useProject();
   const [recent, setRecent] = useState<RecentProject[]>([]);
   const [loading, setLoading] = useState(true);
-  const [counts, setCounts] = useState({ research: 0, qc: 0 });
+  const [counts, setCounts] = useState({ research: 0 });
 
   const load = useCallback(() => {
     intelApi
@@ -28,8 +28,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
         .then((list) => {
           setRecent(list.slice(0, 5));
           setCounts({
-            research: list.filter((p) => p.project_type !== "monitoring_qc").length,
-            qc: list.filter((p) => p.project_type === "monitoring_qc").length,
+            research: list.length,
           });
         })
         .catch(() => {})
@@ -39,9 +38,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
   // Live: projects created or deleted anywhere, and pipeline progress, re-fetch the (role-scoped) list
   useLiveRefetch(load);
 
-  const handleWorkflow = (type: ProjectType) => {
-    onNavigate(type === "research" ? "projects" : "qc-projects");
-  };
+  const handleWorkflow = (_type: ProjectType) => onNavigate("projects");
 
   const handleSelectRecent = (proj: RecentProject) => {
     const pType = (proj.project_type as ProjectType) || "research";
@@ -51,7 +48,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
       project_type: pType,
       brand: proj.brand,
     });
-    onNavigate(pType === "monitoring_qc" ? "qc-upload" : "dashboard");
+    onNavigate("dashboard");
   };
 
   const formatDate = (ts: number) => {
@@ -71,13 +68,6 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
         background: "radial-gradient(circle, rgba(91,44,157,0.06) 0%, transparent 65%)",
         filter: "blur(80px)",
       }} />
-      {/* Ambient glow — QC (teal, right) */}
-      <div className="absolute rounded-full" style={{
-        width: 650, height: 650,
-        top: "12%", right: "0%",
-        background: "radial-gradient(circle, rgba(15,123,108,0.05) 0%, transparent 65%)",
-        filter: "blur(80px)",
-      }} />
 
       {/* ── Content ── */}
       <div className="relative z-10 flex-1 flex flex-col items-center px-6 pt-16 pb-8 animate-fade-in">
@@ -94,15 +84,15 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
               </span>
             </div>
             <h1 className="mb-3" style={{ fontSize: 38, fontWeight: 700, letterSpacing: "-0.02em", lineHeight: 1.15, color: "#1e1833" }}>
-              Choose how you want to work
+              Start where your research is
             </h1>
             <p className="mx-auto leading-relaxed" style={{ color: "#43386b", fontSize: 15, maxWidth: 480 }}>
-              Start a research project or validate a monitoring report before delivery.
+              Turn a client brief into research, a tagged data set and a branded deck.
             </p>
           </header>
 
           {/* ── Workflow Cards ── */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-20 animate-fade-in-1">
+          <div className="mx-auto mb-20 grid max-w-xl grid-cols-1 gap-6 animate-fade-in-1">
 
             {/* Research card */}
             <button
@@ -196,92 +186,6 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
                 </svg>
               </div>
             </button>
-
-            {/* QC card */}
-            <button
-              onClick={() => handleWorkflow("monitoring_qc")}
-              className="group text-left flex flex-col transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400/50 focus-visible:ring-offset-2"
-              style={{
-                borderRadius: 22,
-                padding: "36px 32px 32px",
-                backgroundColor: "#ffffff",
-                border: "1px solid rgba(15,123,108,0.08)",
-                boxShadow: "0 1px 2px rgba(15,123,108,0.04), 0 4px 24px rgba(15,123,108,0.06)",
-              }}
-              onMouseEnter={(e) => {
-                const el = e.currentTarget;
-                el.style.transform = "translateY(-4px)";
-                el.style.borderColor = "rgba(15,123,108,0.18)";
-                el.style.boxShadow = "0 2px 4px rgba(15,123,108,0.06), 0 12px 40px rgba(15,123,108,0.1), 0 0 0 1px rgba(15,123,108,0.04)";
-              }}
-              onMouseLeave={(e) => {
-                const el = e.currentTarget;
-                el.style.transform = "translateY(0)";
-                el.style.borderColor = "rgba(15,123,108,0.08)";
-                el.style.boxShadow = "0 1px 2px rgba(15,123,108,0.04), 0 4px 24px rgba(15,123,108,0.06)";
-              }}
-            >
-              {/* Icon */}
-              <div className="mb-6 flex items-center justify-center rounded-2xl" style={{
-                width: 56, height: 56,
-                background: "linear-gradient(135deg, rgba(15,123,108,0.1) 0%, rgba(20,184,166,0.06) 100%)",
-                border: "1px solid rgba(15,123,108,0.1)",
-              }}>
-                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#0F7B6C" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                  <polyline points="9 12 11 14 15 10" />
-                </svg>
-              </div>
-              {/* Eyebrow */}
-              <span className="block mb-2" style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", color: "#0F7B6C", textTransform: "uppercase" as const }}>
-                Quality Assurance
-              </span>
-              {/* Title */}
-              <h2 className="mb-2" style={{ fontSize: 26, fontWeight: 700, lineHeight: 1.2, letterSpacing: "-0.01em", color: "#1e1833" }}>
-                Monitoring Quality Check
-              </h2>
-              {/* Description */}
-              <p className="mb-6 leading-relaxed" style={{ fontSize: 15, color: "#6b6980", lineHeight: 1.6 }}>
-                Validate monitoring reports for accuracy, completeness and delivery readiness before they reach the client.
-              </p>
-              {/* Workflow steps */}
-              <div className="flex items-center gap-2 mb-8" style={{ fontSize: 12, fontWeight: 500 }}>
-                <span style={{ color: "#0d9488" }}>Upload</span>
-                <span style={{ color: "#99f6e4", fontSize: 10 }}>&rarr;</span>
-                <span style={{ color: "#0d9488" }}>Validate</span>
-                <span style={{ color: "#99f6e4", fontSize: 10 }}>&rarr;</span>
-                <span style={{ color: "#0d9488" }}>Review</span>
-                <span style={{ color: "#99f6e4", fontSize: 10 }}>&rarr;</span>
-                <span style={{ color: "#0d9488" }}>Export</span>
-              </div>
-              {/* Metric */}
-              {counts.qc > 0 && (
-                <p className="mb-5" style={{ fontSize: 12, color: "#a5a3b3" }}>
-                  {counts.qc} report{counts.qc !== 1 ? "s" : ""} checked
-                </p>
-              )}
-              {/* CTA */}
-              <div className="mt-auto flex items-center gap-2 transition-all duration-200" style={{
-                fontSize: 14, fontWeight: 600, color: "#0F7B6C",
-              }}>
-                <span
-                  className="px-4 py-2 rounded-lg transition-all duration-200"
-                  style={{
-                    backgroundColor: "rgba(15,123,108,0.08)",
-                    border: "1px solid rgba(15,123,108,0.12)",
-                  }}
-                >
-                  Run Quality Check
-                </span>
-                <svg
-                  className="transition-transform duration-200 group-hover:translate-x-0.5"
-                  width="16" height="16" viewBox="0 0 24 24" fill="none"
-                  stroke="#0F7B6C" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                >
-                  <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
-                </svg>
-              </div>
-            </button>
           </div>
 
           {/* ── Recent Projects ── */}
@@ -301,7 +205,6 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
                 boxShadow: "0 1px 3px rgba(30,24,51,0.04), 0 4px 16px rgba(30,24,51,0.03)",
               }}>
                 {recent.map((proj, i) => {
-                  const isQC = proj.project_type === "monitoring_qc";
                   return (
                     <button
                       key={proj.id}
@@ -323,11 +226,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
                         <p className="truncate" style={{ fontSize: 15, fontWeight: 600, color: "#2d2545" }}>
                           {proj.project_name}
                         </p>
-                        {isQC ? (
-                          <p style={{ fontSize: 12, color: "#9896a6", marginTop: 2 }}>Monitoring Quality Check</p>
-                        ) : (
-                          <ProjectProgress pct={proj.progress_pct} stage={proj.current_stage} className="mt-1.5 max-w-xs" />
-                        )}
+                        <ProjectProgress pct={proj.progress_pct} stage={proj.current_stage} className="mt-1.5 max-w-xs" />
                       </div>
                       {/* Date */}
                       <span style={{ fontSize: 12, color: "#b0aebf", whiteSpace: "nowrap" as const }}>
@@ -336,11 +235,11 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
                       {/* Badge */}
                       <span className="shrink-0 rounded-md px-2.5 py-1" style={{
                         fontSize: 11, fontWeight: 600,
-                        backgroundColor: isQC ? "rgba(15,123,108,0.08)" : "rgba(91,44,157,0.08)",
-                        color: isQC ? "#0F7B6C" : "#7c3aed",
-                        border: `1px solid ${isQC ? "rgba(15,123,108,0.1)" : "rgba(91,44,157,0.1)"}`,
+                        backgroundColor: "rgba(91,44,157,0.08)",
+                        color: "#7c3aed",
+                        border: "1px solid rgba(91,44,157,0.1)",
                       }}>
-                        {isQC ? "Monitoring QC" : "Research"}
+                        {"Research"}
                       </span>
                       {/* Chevron */}
                       <svg

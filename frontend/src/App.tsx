@@ -22,10 +22,6 @@ import { DataSet } from "./pages/DataSet";
 import { MatchingLabel } from "./pages/MatchingLabel";
 import { ResearchPlan } from "./pages/ResearchPlan";
 import { DeliverablesPage } from "./pages/DeliverablesPage";
-import { QCUpload } from "./pages/QCUpload";
-import { QCFieldMapping } from "./pages/QCFieldMapping";
-import { QCResults } from "./pages/QCResults";
-import { QCExport } from "./pages/QCExport";
 import { UsagePage } from "./pages/UsagePage";
 
 type PageProps = { onNavigate: (page: string) => void };
@@ -35,11 +31,8 @@ const PAGES = {
   landing: LandingPage,
   dashboard: Dashboard,
   projects: ProjectsPage,
-  "qc-projects": (p: PageProps) => <ProjectsPage {...p} projectType="monitoring_qc" />,
   "new-project": NewProject,
-  "new-qc-project": (p: PageProps) => <NewProject {...p} projectType="monitoring_qc" />,
   "edit-project": (p: PageProps) => <NewProject {...p} mode="edit" />,
-  "edit-qc-project": (p: PageProps) => <NewProject {...p} projectType="monitoring_qc" mode="edit" />,
   "brief-analysis": BriefAnalysis,
   "brief-scope-review": BriefScopeReview,
   "background-research": BackgroundResearch,
@@ -49,10 +42,6 @@ const PAGES = {
   "data-set": DataSet,
   "research-plan": ResearchPlan,
   deliverables: DeliverablesPage,
-  "qc-upload": QCUpload,
-  "qc-field-mapping": QCFieldMapping,
-  "qc-results": QCResults,
-  "qc-export": QCExport,
   settings: SettingsPage,
   usage: UsagePage,
 } satisfies Record<string, ComponentType<PageProps>>;
@@ -65,8 +54,8 @@ const isPage = (p: string): p is Page => p in PAGES;
  * icon-rail sidebar. Every other page is a pipeline stage inside an opened
  * project and keeps the full stage-by-stage Sidebar. */
 const BROWSING_PAGES = new Set<Page>([
-  "landing", "projects", "qc-projects",
-  "new-project", "new-qc-project", "edit-project", "edit-qc-project",
+  "landing", "projects",
+  "new-project", "edit-project",
   "settings", "usage",
 ]);
 

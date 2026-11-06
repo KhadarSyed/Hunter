@@ -253,9 +253,7 @@ function ProjectCard({ project, onOpen, onEdit, onDelete, selected, onToggleSele
         <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-slate-600">
           {project.description || <span className="text-slate-400">No brief added yet.</span>}
         </p>
-        {project.project_type !== "monitoring_qc" && (
-          <ProjectProgress pct={project.progress_pct} stage={project.current_stage} className="mt-3" />
-        )}
+        <ProjectProgress pct={project.progress_pct} stage={project.current_stage} className="mt-3" />
         <div className="mt-auto flex items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs text-slate-500">
           <span>{editedAgo(project.updated_at)}</span>
           <CountryFlag country={project.geography} size={16} showLabel className="truncate" />
@@ -267,7 +265,6 @@ function ProjectCard({ project, onOpen, onEdit, onDelete, selected, onToggleSele
 
 /** Project list ("All Projects") — entry point after the landing page. */
 export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
-  const isQC = projectType === "monitoring_qc";
   const { user } = useAuth();
   const { activeProject, setActiveProject, clearProject } = useProject();
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
@@ -400,15 +397,15 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
     setDeleteError("");
   };
 
-  const openPage = isQC ? "qc-upload" : "dashboard";
-  const newPage = isQC ? "new-qc-project" : "new-project";
-  const editPage = isQC ? "edit-qc-project" : "edit-project";
+  const openPage = "dashboard";
+  const newPage = "new-project";
+  const editPage = "edit-project";
 
   return (
     <div className="flex h-full flex-col bg-gradient-to-br from-slate-100 via-slate-50 to-violet-50">
       <div className="shrink-0 px-8 pt-8">
       <nav className="text-sm text-slate-500">
-        {isQC ? "Monitoring QC" : "Research"} <span className="mx-2 text-slate-300">›</span>
+        Research <span className="mx-2 text-slate-300">›</span>
         <span className="font-semibold text-slate-900">Projects</span>
       </nav>
 

@@ -39,10 +39,9 @@ interface Props {
 
 /**
  * New / Edit Project form. Nothing is written to the database until "Analyze Brief"
- * (or, for QC, "Save & Upload Report") is clicked — "Save Draft" is browser-only.
+ * is clicked — "Save Draft" is browser-only.
  */
 export function NewProject({ onNavigate, projectType = "research", mode = "new" }: Props) {
-  const isQC = projectType === "monitoring_qc";
   const { activeProject, setActiveProject } = useProject();
   const editingId = mode === "edit" ? activeProject?.id ?? null : null;
   const draft = editingId ? null : loadDraft();
@@ -156,22 +155,7 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
     return result;
   };
 
-  const qcFieldsValid = projectName.trim() && client.trim() && geography.trim();
-  const researchFieldsValid = qcFieldsValid && researchType.trim() && timePeriod.trim() && briefText.trim();
-
-  const handleSaveQC = async () => {
-    if (!qcFieldsValid) return;
-    setCreating(true);
-    setError("");
-    try {
-      await persistProject({ commissioning_brand: { name: client || projectName }, project_type: "monitoring_qc", client, geography });
-      localStorage.removeItem(DRAFT_KEY);
-      onNavigate("qc-upload");
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Saving the project failed");
-      setCreating(false);
-    }
-  };
+  const researchFieldsValid = projectName.trim() && client.trim() && geography.trim() && researchType.trim() && timePeriod.trim() && briefText.trim();
 
   const handleAnalyze = async () => {
     if (!researchFieldsValid) return;
@@ -235,8 +219,8 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
     }
   };
 
-  const listPage = isQC ? "qc-projects" : "projects";
-  const title = `${editingId !== null ? "Edit" : "New"} ${isQC ? "QC " : ""}Project`;
+  const listPage = "projects";
+  const title = `${editingId !== null ? "Edit" : "New"} Project`;
   const geographyOptions = GEOGRAPHIES.some((g) => g.name === geography) ? GEOGRAPHIES : [...GEOGRAPHIES, { name: geography, code: null }];
 
   if (loadingProject) {
@@ -253,9 +237,7 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
         </nav>
         <h1 className="mt-2 text-xl font-semibold text-slate-900">{title}</h1>
         <p className="text-sm text-slate-500 mt-0.5">
-          {isQC
-            ? "Name the QC project, then upload the monitoring report. All fields marked * are required."
-            : "Type or paste the client brief (or upload a file to extract it — upload is optional), then click Analyze Brief. All fields marked * are required."}
+          {"Type or paste the client brief (or upload a file to extract it — upload is optional), then click Analyze Brief. All fields marked * are required."}
         </p>
         {draft && <span className="text-xs text-slate-400">Draft from {formatDate(draft.savedAt)}</span>}
       </div>
@@ -265,7 +247,7 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
           <label className="block">
             <span className="block text-xs font-medium text-slate-500 mb-1.5">Project Name <span className="text-red-500">*</span></span>
             <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)}
-              placeholder={isQC ? "e.g. July 2026 QC - Acme Corp" : "e.g. Brand Audience Research"} className={INPUT} />
+              placeholder="e.g. Brand Audience Research" className={INPUT} />
           </label>
           <label className="block">
             <span className="block text-xs font-medium text-slate-500 mb-1.5">Client <span className="text-red-500">*</span></span>
@@ -273,7 +255,7 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
           </label>
         </div>
 
-        <div className={`grid gap-5 ${isQC ? "grid-cols-1 max-w-xs" : "grid-cols-3"}`}>
+        <div className="grid gap-5 grid-cols-3">
           <label className="block">
             <span className="block text-xs font-medium text-slate-500 mb-1.5">Geography <span className="text-red-500">*</span></span>
             <div className="relative">
@@ -283,8 +265,6 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
               </select>
             </div>
           </label>
-          {!isQC && (
-            <>
               <label className="block">
                 <span className="block text-xs font-medium text-slate-500 mb-1.5">Research Type <span className="text-red-500">*</span></span>
                 <select value={researchType} onChange={(e) => setResearchType(e.target.value)} className={INPUT}>
@@ -305,12 +285,9 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
                   <option>Past 12 months</option>
                 </select>
               </label>
-            </>
-          )}
         </div>
       </div>
 
-      {!isQC && (
         <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
           <label className="block">
             <span className="block text-xs font-medium text-slate-500 mb-1.5">
@@ -385,7 +362,6 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
             )}
           </div>
         </div>
-      )}
 
       {error && <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">{error}</div>}
 
@@ -404,13 +380,6 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
           className="px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-700 disabled:opacity-40">
           Cancel
         </button>
-        {isQC ? (
-          <button disabled={!qcFieldsValid || creating} onClick={handleSaveQC}
-            title={!qcFieldsValid ? "Fill in all required fields (Project Name, Client, Geography) first" : undefined}
-            className="px-5 py-2.5 text-sm font-medium text-white rounded-lg shadow-sm disabled:opacity-40 disabled:cursor-not-allowed bg-[#0F7B6C] hover:bg-[#0A6558]">
-            {creating ? "Saving..." : "Save & Upload Report"}
-          </button>
-        ) : (
           <>
             {editingId === null && (
               <button onClick={handleSaveDraft} disabled={creating}
@@ -431,7 +400,6 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
               </button>
             )}
           </>
-        )}
       </div>
     </div>
   );

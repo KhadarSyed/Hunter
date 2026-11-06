@@ -882,39 +882,6 @@ export const intelApi = {
   getJob: (jobId: string) =>
     get<JobStatus>(`/job/${jobId}`),
 
-  // ─── Monitoring QC ───────────────────────────────────────────────────
-
-  qcGetReport: (projectId: number) =>
-    get<Record<string, unknown>>(`/qc/report/${projectId}`),
-
-  qcGetReportDetail: (reportId: number) =>
-    get<Record<string, unknown>>(`/qc/report/detail/${reportId}`),
-
-  qcGetPreview: (reportId: number) =>
-    get<{ status: string; preview: Record<string, string>[]; error?: string }>(`/qc/preview/${reportId}`),
-
-  qcSaveFieldMapping: (reportId: number, mapping: Record<string, string>) =>
-    post<{ ok: boolean }>(`/qc/field-mapping/${reportId}`, { mapping }),
-
-  qcStartRun: (reportId: number) =>
-    post<{ status: string; report_id: number; job_id: string }>(`/qc/run/${reportId}`),
-
-  qcGetRuns: (reportId: number) =>
-    get<Record<string, unknown>[]>(`/qc/runs/${reportId}`),
-
-  qcGetResults: (runId: number, severity?: string, checkType?: string) => {
-    const params = new URLSearchParams();
-    if (severity) params.set("severity", severity);
-    if (checkType) params.set("check_type", checkType);
-    const qs = params.toString();
-    return get<Record<string, unknown>[]>(`/qc/results/${runId}${qs ? `?${qs}` : ""}`);
-  },
-
-  qcExport: (runId: number) =>
-    post<{ export_id: number; file_name: string }>(`/qc/export/${runId}`),
-
-  qcExportDownloadUrl: (exportId: number) =>
-    `${API_BASE}/qc/export/download/${exportId}`,
 
   // Settings > Exclusions: websites/domains and keywords kept out of research, datasets, decks and reports
   listExclusions: () => get<ExclusionRecord[]>("/exclusions"),
