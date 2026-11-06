@@ -866,7 +866,12 @@ def _run_engine(run_id: int, project_id: int, llm) -> None:
                 rqs, {**sections_by_rq, BRAND_KEY: brand_secs}, rows_by_rq, rows, brands,
                 {**{q.id: _relevant_urls(rows_by_rq[q.id], answer_tags[q.id], brands) for q in rqs},
                  BRAND_KEY: {r.article.norm_url for r in brand_evidence}})
-            plan_input.latest24h = _latest24h(project_id, llm, run.log)
+            from ..usage import service as usage
+            usage.fill(sub_stage="latest 24h")      # its LLM summary runs between the qc and Studio phases
+            try:
+                plan_input.latest24h = _latest24h(project_id, llm, run.log)
+            finally:
+                usage.fill(sub_stage="")
             plan_input.latest24h_icons = _outlet_icon_files(plan_input.latest24h, out_dir / "favicons")
             plan_input.articles, plan_input.article_icons = _drill_articles(rows, out_dir / "favicons")
             studio = run_studio(run, project_id, llm, plan_input,

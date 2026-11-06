@@ -114,6 +114,8 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
   const [logSubStage, setLogSubStage] = useState<string | null>(initial.logSubStage);   // narrows the call log; "" = unattributed
   const [openStage, setOpenStage] = useState<string | null>(null);   // the stage whose drill-down is open
   const callLogHeading = useRef<HTMLHeadingElement>(null);
+  // a project's Top stage chip: the stage to open once that project's summary has landed (never range-wide data)
+  const pendingStage = useRef<{ project: number; stage: string } | null>(null);
   const [callOffset, setCallOffset] = useState(0);
 
   const [summary, setSummary] = useState<UsageSummary | null>(null);
@@ -145,6 +147,7 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
     const orphan = next.org !== filters.org && next.org !== null && next.project !== null && projects.length > 0
       && !projects.some((p) => p.id === next.project && p.org_id === next.org);
     setFilters(orphan ? { ...next, project: null } : next);
+    if (pendingStage.current && next.project !== pendingStage.current.project) pendingStage.current = null;
     if (next.stage !== filters.stage) setLogSubStage(null);   // a sub-stage only means something within its stage
     setCallOffset(0);
   };
@@ -158,6 +161,14 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
     setTimeout(() => callLogHeading.current?.focus(), 0);
   };
   const openStageRow = summary?.by_stage.find((s) => s.stage === openStage) ?? null;
+  const openProjectStage = (projectId: number | null, stage: string) => {
+    if (projectId === null || projectId === filters.project) { setOpenStage(stage); return; }
+    pendingStage.current = { project: projectId, stage };
+    updateFilters({ ...filters, project: projectId });
+  };
+  const projectName = (id: number): string =>
+    projects.find((p) => p.id === id)?.name ?? summary?.by_project.find((p) => p.project_id === id)?.project_name ?? `#${id}`;
+  const stageScope = filters.project === null ? "All projects in range" : `Project: ${projectName(filters.project)}`;
 
   useEffect(() => {
     const id = ++summarySeq.current;
@@ -166,9 +177,16 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
     intelApi.usageSummary(query).then((s) => {
       if (id !== summarySeq.current) return;
       setSummary(s);
+      const pending = pendingStage.current;
+      if (pending && query.project_id === pending.project) {
+        pendingStage.current = null;
+        setOpenStage(pending.stage);
+      }
       if (!query.model) setKnownModels(s.by_model.map((m) => ({ provider: m.provider, model: m.model })));
     }).catch((e) => {
-      if (id === summarySeq.current) setSummaryError(errText(e, "Could not load usage"));
+      if (id !== summarySeq.current) return;
+      pendingStage.current = null;
+      setSummaryError(errText(e, "Could not load usage"));
     }).finally(() => {
       if (id === summarySeq.current) setSummaryLoading(false);
     });
@@ -309,7 +327,7 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
           <KpiTiles kpis={summary.kpis} />
 
           {filters.project === null && (
-            <TopProjects projects={summary.by_project} onPick={(id) => updateFilters({ ...filters, project: id })} onStage={setOpenStage} />
+            <TopProjects projects={summary.by_project} onPick={(id) => updateFilters({ ...filters, project: id })} onStage={openProjectStage} />
           )}
 
           <div data-slot="usage-charts" className="grid gap-6 2xl:grid-cols-2">
@@ -369,7 +387,7 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
         </div>
       )}
       {openStageRow && (
-        <StageDrillDown stage={openStageRow} onClose={() => setOpenStage(null)}
+        <StageDrillDown stage={openStageRow} scope={stageScope} onClose={() => setOpenStage(null)}
           onShowCalls={(sub) => showStageCalls(openStageRow.stage, sub)} />
       )}
     </div>

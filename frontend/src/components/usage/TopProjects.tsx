@@ -15,7 +15,8 @@ function ShareBar({ share }: { share: number }) {
   );
 }
 
-function TopCard({ p, onPick, onStage }: { p: UsageProjectRow; onPick?: () => void; onStage: (stage: string) => void }) {
+function TopCard({ p, onPick, onStage }:
+  { p: UsageProjectRow; onPick?: () => void; onStage: (projectId: number | null, stage: string) => void }) {
   return (
     <div className="rounded-3xl border-2 border-[#5B2C9D] bg-gradient-to-br from-white to-violet-50 p-5 shadow-md">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -48,7 +49,7 @@ function TopCard({ p, onPick, onStage }: { p: UsageProjectRow; onPick?: () => vo
         <p className="mt-1.5 text-xs tabular-nums text-slate-500">
           {num(p.input_tokens)} input · {num(p.cached_input_tokens)} cached · {num(p.output_tokens)} output
           <span className="mx-2 text-slate-300">|</span>Top stage:{" "}
-          <button type="button" onClick={() => onStage(p.top_stage)} title="Show this stage's sub-stages"
+          <button type="button" onClick={() => onStage(p.project_id, p.top_stage)} title="Show this project's sub-stages of this stage"
             className="rounded-full bg-[#5B2C9D]/10 px-2 py-0.5 font-semibold text-[#5B2C9D] hover:bg-[#5B2C9D]/20 focus-visible:outline-2 focus-visible:outline-[#5B2C9D]">
             {stageLabel(p.top_stage)}<span className="sr-only"> (show sub-stages)</span>
           </button>
@@ -79,7 +80,7 @@ function TopCard({ p, onPick, onStage }: { p: UsageProjectRow; onPick?: () => vo
 
 /** Top projects by token usage: the #1 project highlighted, then a ranked list. Clicking sets the Project filter. */
 export function TopProjects({ projects, onPick, onStage }:
-  { projects: UsageProjectRow[]; onPick: (projectId: number) => void; onStage: (stage: string) => void }) {
+  { projects: UsageProjectRow[]; onPick: (projectId: number) => void; onStage: (projectId: number | null, stage: string) => void }) {
   const [showAll, setShowAll] = useState(false);
   if (projects.length === 0) return null;
   const [top, ...rest] = projects;

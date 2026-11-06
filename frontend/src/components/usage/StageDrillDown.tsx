@@ -51,8 +51,8 @@ const Stat = ({ label, value }: { label: string; value: string }) => (
 );
 
 /** A modal with one stage's totals and its sub-stages; "Show these calls" narrows the call log to them. */
-export function StageDrillDown({ stage, onClose, onShowCalls }:
-  { stage: UsageStageRow; onClose: () => void; onShowCalls: (subStage: string | null) => void }) {
+export function StageDrillDown({ stage, scope, onClose, onShowCalls }:
+  { stage: UsageStageRow; scope: string; onClose: () => void; onShowCalls: (subStage: string | null) => void }) {
   const panel = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -67,7 +67,8 @@ export function StageDrillDown({ stage, onClose, onShowCalls }:
     const items = [...panel.current.querySelectorAll<HTMLElement>(FOCUSABLE)];
     if (items.length === 0) return;
     const first = items[0], last = items[items.length - 1];
-    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    // the panel itself holds focus after a click on its plain space: Shift+Tab from there wraps to the end
+    if (e.shiftKey && (document.activeElement === first || document.activeElement === panel.current)) { e.preventDefault(); last.focus(); }
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   };
 
@@ -75,8 +76,9 @@ export function StageDrillDown({ stage, onClose, onShowCalls }:
   const share = (t: number) => (stage.total_tokens ? (100 * t) / stage.total_tokens : 0);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div ref={panel} role="dialog" aria-modal="true" aria-labelledby="stage-drill-title" onKeyDown={onKeyDown}
-        className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
+      <div ref={panel} role="dialog" aria-modal="true" aria-labelledby="stage-drill-title" aria-describedby="stage-drill-scope"
+        tabIndex={-1} onKeyDown={onKeyDown}
+        className="outline-none max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <h2 id="stage-drill-title" className="flex items-center gap-2 text-xl font-bold text-slate-900">
             <Icon icon={STAGE_ICONS[stage.stage] ?? "lucide:circle-dashed"} width={20} aria-hidden className="text-[#5B2C9D]" />
@@ -86,6 +88,8 @@ export function StageDrillDown({ stage, onClose, onShowCalls }:
             <Icon icon="lucide:x" width={18} aria-hidden />
           </button>
         </div>
+
+        <p id="stage-drill-scope" className="mt-1 text-sm text-slate-500">{scope}</p>
 
         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
           <Stat label="Calls" value={num(stage.calls)} />
@@ -142,11 +146,12 @@ export function StageDrillDown({ stage, onClose, onShowCalls }:
           </table>
         </div>
 
-        <div className="mt-5 flex justify-end">
-          <button type="button" onClick={() => onShowCalls(null)}
+        <div className="mt-5 flex flex-col items-end gap-1">
+          <button type="button" onClick={() => onShowCalls(null)} aria-describedby="stage-drill-hint"
             className="inline-flex items-center gap-2 rounded-full bg-[#5B2C9D] px-5 py-2.5 text-sm font-semibold text-white shadow-md hover:bg-[#4a2380]">
             <Icon icon="lucide:list" width={16} aria-hidden /> Show these calls
           </button>
+          <span id="stage-drill-hint" className="text-xs text-slate-500">Filters the whole page to this stage</span>
         </div>
       </div>
     </div>
