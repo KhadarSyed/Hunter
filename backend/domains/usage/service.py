@@ -56,12 +56,12 @@ def record(provider: str, model: str, kind: str, *, input_tokens: int = 0, cache
            output_tokens: int = 0, requests: int = 1, credits: float = 0.0, latency_ms: int = 0,
            cache_hit: bool = False, error: bool = False) -> None:
     try:
-        s, now = current(), time.time()
+        s, now, model = current(), time.time(), model or "unknown"
         dep = deployment_type(provider)
         stage = s.get("stage") if s.get("stage") in STAGES else "other"
         repo.insert_usage({
             "ts": now, "org_id": s.get("org_id"), "project_id": s.get("project_id"), "stage": stage,
-            "user_id": s.get("user_id"), "provider": provider, "model": model or "unknown", "deployment_type": dep,
+            "user_id": s.get("user_id"), "provider": provider, "model": model, "deployment_type": dep,
             "kind": kind, "input_tokens": int(input_tokens), "cached_input_tokens": int(cached_input_tokens),
             "output_tokens": int(output_tokens), "total_tokens": int(input_tokens) + int(output_tokens),
             "requests": int(requests), "credits": float(credits), "latency_ms": int(latency_ms),
