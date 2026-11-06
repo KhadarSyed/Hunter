@@ -123,11 +123,6 @@ def _normalize_columns(records: list[dict]) -> list[dict]:
     return normalized
 
 
-def _is_excluded(record: dict) -> bool:
-    """Rows the analyst removed in the Data Sources Review tab. Needs-review rows still count."""
-    return record.get("approval_status") == "disapproved" or record.get("review_status") == "irrelevant"
-
-
 # ─── Execution orchestration ──────────────────────────────────────────────
 
 

@@ -15,6 +15,8 @@ from typing import Any
 from ...core import store
 from ...core.config import load_settings
 from ...core.llm_provider import build_llm_client
+from ..dataset import repository as dataset_repo
+from ..deliverable import rows as engine_rows
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +111,13 @@ def validate_prerequisites(project_id: int) -> dict:
     rqs = spec.get("research_questions", [])
     rq_ids = [rq.get("id") or rq.get("question_id") for rq in rqs if isinstance(rq, dict)]
 
-    if rq_ids and all_datasets:
+    articles = sum(dataset_repo.channel_counts(project_id).values())   # the Data set page's upload (new flow)
+    if articles:
+        approved_rows = dataset_repo.approved_count(project_id, [q.id for q in engine_rows.approved_rqs(project_id)])
+        prereqs["dataset"] = ({"status": "approved", "message": f"{articles} articles uploaded, {approved_rows} "
+                                                                 "article-RQ rows approved"} if approved_rows else
+                              {"status": "pending", "message": f"{articles} articles uploaded — none approved yet"})
+    elif rq_ids and all_datasets:
         ds_by_rq = {}
         for ds in all_datasets:
             rqid = ds.get("research_question_id")
