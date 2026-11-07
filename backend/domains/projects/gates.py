@@ -75,7 +75,7 @@ def _facts(project_id: int) -> dict:
         return bool(job) and job.get("status") in _RUNNING
 
     return {
-        "jobs": jobs, "data": data,
+        "pid": project_id, "jobs": jobs, "data": data,
         "done": {
             "brief_scope": _approved(store.get_latest_spec(project_id)),
             "background_research": research_done and _approved(store.get_latest_brief(project_id)),
@@ -118,6 +118,9 @@ def _fraction(f: dict, stage: str) -> float:
     if stage == "data_set":
         d = f["data"]
         return d["done"] / d["of"] if d["tagging"] and d["of"] else 0.0
+    if stage == "deliverables" and f["running"]["deliverables"]:
+        from ..deliverable.engine import LIVE_PCT
+        return min(1.0, LIVE_PCT.get(f.get("pid", 0), 0) / 100)
     job = _latest_job(f["jobs"], stage)
     if job and job.get("status") in _RUNNING:
         return max(0.0, min(1.0, (job.get("progress_pct") or 0) / 100))

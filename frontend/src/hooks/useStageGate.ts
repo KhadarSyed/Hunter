@@ -37,7 +37,7 @@ export function gateRedirect(gates: Record<string, GateState>, page: string): { 
 }
 
 const REFRESH_TYPES = new Set(["intel_job_update", "dataset_tagging", "intel_strategy_approved", "project_updated",
-  "intel_spec_approved", "intel_brief_approved", "deliverable_run"]);
+  "intel_spec_approved", "intel_brief_approved", "deliverable_run", "deliverable_completed", "deliverable_failed"]);
 
 export function useStageGate(projectId: number | null) {
   const [data, setData] = useState<{ gates: Record<string, GateState>; progressPct: number; currentStage: string } | null>(null);

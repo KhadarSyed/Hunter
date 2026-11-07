@@ -81,7 +81,12 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
     briefApproved: false, backgroundApproved: false, strategyApproved: false, matchingApproved: false,
     datasetApproved: false,
   });
-  const [stages, setStages] = useState<StageInfo[]>([]);
+  const [rawStages, setStages] = useState<StageInfo[]>([]);
+  // the server's gates are the truth (the analyst's Data set approval, a running deck); local flags fill in until they load
+  const stages: StageInfo[] = gates ? rawStages.map((st, i) => {
+    const g = gates[STAGE_KEYS[i]];
+    return { ...st, status: g === "done" ? "completed" : g === "running" || g === "open" ? "active" : "pending" };
+  }) : rawStages;
   const [activity, setActivity] = useState<ActivityItem[]>([]);
 
   const computeStages = useCallback((s: ProjectStats): StageInfo[] => {

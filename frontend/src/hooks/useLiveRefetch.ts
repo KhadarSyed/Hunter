@@ -2,7 +2,8 @@ import { useEffect, useRef } from "react";
 import { agentSocket } from "../services/ws";
 
 const PROGRESS_TYPES = new Set(["intel_job_update", "dataset_tagging", "intel_strategy_approved", "project_created",
-  "project_deleted", "project_updated", "deliverable_run"]);
+  "project_deleted", "project_updated", "deliverable_run", "deliverable_progress", "deliverable_stage",
+  "deliverable_completed", "deliverable_failed"]);
 
 /** Calls `reload` when pipeline progress arrives on the socket: at once, then at most every `gapMs` while it keeps
  * coming (a trailing call catches the last message), so progress bars stay live without a request per event. */

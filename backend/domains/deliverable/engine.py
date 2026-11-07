@@ -118,6 +118,10 @@ def _stage_span(name: str) -> tuple[float, float]:
     return before, before
 
 
+# project id -> the running deck's overall %, for progress shown outside the Deliverables page
+LIVE_PCT: dict[int, int] = {}
+
+
 class _Run:
     def __init__(self, run_id: int, project_id: int):
         self.run_id, self.project_id, self.stages, self.lines = run_id, project_id, {}, []
@@ -128,6 +132,7 @@ class _Run:
     def progress(self, pct: float, label: str) -> None:
         """Overall % (never goes back) and what is happening right now; kept with the run for page reloads."""
         self.pct = max(self.pct, min(100, int(round(pct))))
+        LIVE_PCT[self.project_id] = self.pct      # the project list's progress reads it (projects/gates.py)
         state = {"pct": self.pct, "stage": self.current, "label": label, "started_at": self.started_at,
                  "typical_seconds": self.typical}
         store.replace_deliverable_section(self.run_id, {"id": "progress", "rq_id": None, "module": "progress",
