@@ -43,7 +43,7 @@ def tagging_state(project_id: int) -> dict:
     done, total = st.get("done", 0), st.get("total", 0)
     left = round((time.time() - st["phase_started"]) / done * (total - done) / 60, 1) if running and done else None
     return {"running": running, "phase": st.get("phase") if running else None, "done": done, "total": total,
-            "minutes_left": left, "counts": repo.tagging_counts(project_id)}
+            "minutes_left": left, "counts": repo.tagging_counts(project_id), "approval": repo.dataset_approval(project_id)}
 
 
 def start_tagging(project_id: int, user: str | None = None, only_rq: str | None = None) -> str:

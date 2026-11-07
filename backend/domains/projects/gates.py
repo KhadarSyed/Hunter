@@ -45,10 +45,11 @@ def _dataset_facts(project_id: int) -> dict:
         counts, st = repo.tagging_counts(project_id), tagging_job.tagging_state(project_id)
         rq_ids = [q.id for q in rows.approved_rqs(project_id)]
         return {"tagging": bool(st.get("running")), "total": counts["total"],
+                "user_approved": bool(repo.dataset_approval(project_id)),
                 "pending": int(counts["tags"].get("pending", 0)), "approved": repo.approved_count(project_id, rq_ids),
                 "done": int(st.get("done") or 0), "of": int(st.get("total") or 0)}
     except Exception:
-        return {"tagging": False, "total": 0, "pending": 0, "approved": 0, "done": 0, "of": 0}
+        return {"tagging": False, "total": 0, "pending": 0, "approved": 0, "done": 0, "of": 0, "user_approved": False}
 
 
 def _autorun(project_id: int) -> dict:
@@ -80,7 +81,9 @@ def _facts(project_id: int) -> dict:
             "background_research": research_done and _approved(store.get_latest_brief(project_id)),
             "search_strategy": _approved(store.get_latest_strategy(project_id)),
             "matching_label": _has_approved_rq(project_id),
-            "data_set": not data["tagging"] and data["total"] > 0 and data["pending"] == 0 and data["approved"] > 0,
+            # tagged, and approved by the analyst (an auto-approved row is not the analyst's sign-off)
+            "data_set": (not data["tagging"] and data["total"] > 0 and data["pending"] == 0 and data["approved"] > 0
+                         and data.get("user_approved", False)),
             "deliverables": bool(run) and run.get("status") == "completed" and bool(run.get("studio_pptx_path")),
         },
         "running": {

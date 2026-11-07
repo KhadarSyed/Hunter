@@ -760,7 +760,8 @@ export const intelApi = {
   taggingState: (projectId: number) =>
     get<{ running: boolean; phase: string | null; done: number; total: number; minutes_left: number | null;
           counts: { total: number; content: Record<string, number>; tags: Record<string, number>;
-                    matched?: number; irrelevant?: number; unmatched?: number } }>(
+                    matched?: number; irrelevant?: number; unmatched?: number };
+          approval?: { at: number; by: string | null } | null }>(
       `/articles/${projectId}/tagging`),
 
   // Data set (uploaded articles, tagging, per-RQ decisions)
@@ -773,6 +774,9 @@ export const intelApi = {
 
   startTagging: (projectId: number) => post<{ job_id: string }>(`/articles/${projectId}/tag`),
   /** Free: each approved question's Boolean query maps the articles; the rest go to Irrelevant (never tagged). */
+  /** The analyst's sign-off on the tagged data set; the server starts the deck run from it. */
+  approveDataset: (projectId: number) =>
+    post<{ approved: boolean; run_id: number | null; note?: string }>(`/articles/${projectId}/approve`, {}),
   matchRqs: (projectId: number) =>
     post<{ per_rq: Record<string, number>; matched: number; irrelevant: number; total: number; copies: number }>(`/articles/${projectId}/match`, {}),
 

@@ -1563,6 +1563,9 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
     # a syndicated copy (same headline, cleaned of its publisher suffix) points at its original: only the original
     # is fetched and sent to GPT, the copy inherits its article tags and research-question tags
     (44, "article syndicated copy", ["ALTER TABLE intel_articles ADD COLUMN copy_of INTEGER"]),
+    # the analyst's explicit "Approve data set": the Data set stage is done only with it; a data change clears it
+    (45, "data set approval", ["ALTER TABLE intel_projects ADD COLUMN dataset_approved_at REAL",
+                               "ALTER TABLE intel_projects ADD COLUMN dataset_approved_by TEXT"]),
 ]
 
 

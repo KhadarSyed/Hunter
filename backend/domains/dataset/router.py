@@ -53,6 +53,7 @@ def _bad_ext(name: str) -> str | None:
 @router.post("/articles/{project_id}/upload")
 def upload(project_id: ProjectId, user: Access, files: list[UploadFile] = File(...)):
     gates.require(project_id, "data_set")
+    repo.set_dataset_approval(project_id, None)
     accepted, refused = [], []
     for f in files:
         name = f.filename or "upload"
@@ -99,6 +100,7 @@ def delete_file(project_id: ProjectId, file_id: FileId, _: Access):
     f = _file_of(project_id, file_id)
     _guard(project_id)
     out = repo.delete_file(project_id, file_id)
+    repo.set_dataset_approval(project_id, None)
     if f.get("s3_key"):
         try:
             from ...core import object_store
@@ -113,12 +115,34 @@ def match(project_id: ProjectId, _: Access):
     """Run each approved research question's Boolean query over the articles (free, no GPT)."""
     gates.require(project_id, "data_set")
     _guard(project_id)
+    repo.set_dataset_approval(project_id, None)
     return service.match_rqs(project_id)
+
+
+@router.post("/articles/{project_id}/approve")
+def approve_dataset(project_id: ProjectId, user: Access):
+    """The analyst's sign-off on the tagged data set; the deck is built from it straight away."""
+    gates.require(project_id, "data_set")
+    _guard(project_id)
+    counts = repo.tagging_counts(project_id)
+    if not counts["total"] or counts["tags"].get("pending", 0):
+        raise HTTPException(409, "Tag the matched articles first")
+    from ..deliverable import rows as deck_rows
+    if not repo.approved_count(project_id, [q.id for q in deck_rows.approved_rqs(project_id)]):
+        raise HTTPException(409, "Approve at least one article for a research question first")
+    repo.set_dataset_approval(project_id, _who(user))
+    from ..deliverable import engine
+    try:
+        run_id = engine.start_run(project_id)
+    except engine.RunBusy as e:
+        return {"approved": True, "run_id": None, "note": str(e)}
+    return {"approved": True, "run_id": run_id}
 
 
 @router.post("/articles/{project_id}/tag")
 def tag(project_id: ProjectId, user: Access):
     gates.require(project_id, "data_set")
+    repo.set_dataset_approval(project_id, None)      # new tags: the analyst approves again
     try:
         return {"job_id": service.start_tagging(project_id, _who(user))}
     except service.TaggingBusy as e:

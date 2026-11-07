@@ -35,7 +35,7 @@ function UploadBanner({ result }: { result: UploadResult }) {
   );
 }
 
-export function DataSet() {
+export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void }) {
   const projectId = useActiveProjectId();
   const [filters, setFilters] = useState<ArticleFilters>(EMPTY);
   const [offset, setOffset] = useState(0);
@@ -54,6 +54,8 @@ export function DataSet() {
   const [tagged, setTagged] = useState(0);
   const [pools, setPools] = useState({ matched: 0, irrelevant: 0, unmatched: 0 });
   const [matching, setMatching] = useState(false);
+  const [approval, setApproval] = useState<{ at: number; by: string | null } | null>(null);
+  const [approving, setApproving] = useState(false);
   const [matchNote, setMatchNote] = useState<string | null>(null);
   const [articleTotal, setArticleTotal] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -103,6 +105,7 @@ export function DataSet() {
     try {
       const t = await intelApi.taggingState(projectId);
       setTagged(t.counts.tags.tagged ?? 0);
+      setApproval(t.approval ?? null);
       setPools({ matched: t.counts.matched ?? 0, irrelevant: t.counts.irrelevant ?? 0, unmatched: t.counts.unmatched ?? 0 });
       setArticleTotal(t.counts.total);
       setProgress(t.running ? { phase: t.phase ?? "", done: t.done, total: t.total, minutesLeft: t.minutes_left } : null);
@@ -163,6 +166,19 @@ export function DataSet() {
       void syncTagging();
     } catch (e) { setError(errMsg(e, "Could not match the research questions")); }
     finally { setMatching(false); }
+  };
+
+  // Step 3: the analyst signs off; Deliverables opens and the deck starts building at once
+  const approveDataset = async () => {
+    if (!projectId) return;
+    setApproving(true);
+    setError(null);
+    try {
+      await intelApi.approveDataset(projectId);
+      await syncTagging();
+      onNavigate?.("deliverables");
+    } catch (e) { setError(errMsg(e, "Could not approve the data set")); }
+    finally { setApproving(false); }
   };
 
   const startTagging = async () => {
@@ -226,6 +242,18 @@ export function DataSet() {
             className="rounded-lg px-5 py-2 text-sm font-medium text-white disabled:opacity-50" style={{ background: V }}>
             {tagged > 0 ? "2 · Re-tag matched" : `2 · Tag ${(pools.matched + pools.unmatched).toLocaleString()} matched`}
           </button>
+          {approval ? (
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700"
+                  title={`Approved by ${approval.by ?? "analyst"} on ${new Date(approval.at * 1000).toLocaleString()}`}>
+              ✓ Data set approved
+            </span>
+          ) : (
+            <button type="button" onClick={() => void approveDataset()} disabled={running || approving || tagged === 0}
+              title="Your sign-off: Deliverables opens and the deck is built from the approved articles"
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
+              {approving ? "Approving…" : "3 · Approve data set & build deck"}
+            </button>
+          )}
           <div>
             <h1 className="text-xl font-bold text-slate-900">Data set</h1>
             <p className="text-sm text-slate-500">Upload article files, match them to the research questions' Boolean queries, tag only the matched ones, then approve or reject per question.</p>

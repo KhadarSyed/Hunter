@@ -219,6 +219,18 @@ def inherit_rq_rows(project_id: int) -> int:
         conn.close()
 
 
+def dataset_approval(project_id: int) -> dict | None:
+    row = _run("SELECT dataset_approved_at AS at, dataset_approved_by AS by FROM intel_projects WHERE id = ?",
+               (project_id,), one=True)
+    return {"at": row["at"], "by": row["by"]} if row and row["at"] else None
+
+
+def set_dataset_approval(project_id: int, by: str | None) -> None:
+    """by=None clears it (the data changed, so the analyst approves again)."""
+    _run("UPDATE intel_projects SET dataset_approved_at = ?, dataset_approved_by = ? WHERE id = ?",
+         (time.time() if by else None, by, project_id))
+
+
 def save_rq_matches(project_id: int, by_rq: dict[str, set[int]]) -> None:
     """The Boolean match, in one transaction: a "needs tagging" row per matched (article, question) pair (a row
     already there is left as it is), and each article flagged matched (1) or Irrelevant (0)."""
