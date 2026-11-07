@@ -21,6 +21,11 @@ export const PAGE_STAGE: Record<string, StageKey> = {
   "data-set": "data_set", deliverables: "deliverables", "research-plan": "deliverables",
 };
 
+/** The page a project opens on: the stage it is at (finished projects open on Deliverables). */
+export function landingPage(currentStage?: string | null): string {
+  return STAGE_SLUG[currentStage as StageKey] ?? "dashboard";
+}
+
 /** Where a locked page should send the user instead, and why; null when the page is open. */
 export function gateRedirect(gates: Record<string, GateState>, page: string): { target: string; message: string } | null {
   const stage = PAGE_STAGE[page];

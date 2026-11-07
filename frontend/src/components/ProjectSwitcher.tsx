@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { landingPage } from "../hooks/useStageGate";
 import { useProject, type ProjectType } from "../context/project-context";
 import { intelApi, type ProjectSummary } from "../services/intel-api";
 import { BrandLogo } from "./BrandLogo";
@@ -49,7 +50,7 @@ export function ProjectSwitcher({ onNavigate }: { onNavigate: (page: string) => 
       project_type: (p.project_type as ProjectType) || "research",
       brand: p.brand,
     });
-    onNavigate("dashboard");
+    onNavigate(landingPage(p.current_stage));
   };
 
   return (

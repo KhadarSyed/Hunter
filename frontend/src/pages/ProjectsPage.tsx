@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { landingPage } from "../hooks/useStageGate";
 import { ProjectProgress } from "../components/ProjectProgress";
 import { useLiveRefetch } from "../hooks/useLiveRefetch";
 import { createPortal } from "react-dom";
@@ -397,7 +398,6 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
     setDeleteError("");
   };
 
-  const openPage = "dashboard";
   const newPage = "new-project";
   const editPage = "edit-project";
 
@@ -509,7 +509,7 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
                   <ProjectCard
                     key={p.id}
                     project={p}
-                    onOpen={() => select(p, openPage)}
+                    onOpen={() => select(p, landingPage(p.current_stage))}
                     onEdit={() => select(p, editPage)}
                     onDelete={() => setPendingDelete([p])}
                     selected={selected.has(p.id)}
@@ -527,7 +527,7 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
             <ProjectCard
               key={p.id}
               project={p}
-              onOpen={() => select(p, openPage)}
+              onOpen={() => select(p, landingPage(p.current_stage))}
               onEdit={() => select(p, editPage)}
               onDelete={() => setPendingDelete([p])}
               selected={selected.has(p.id)}

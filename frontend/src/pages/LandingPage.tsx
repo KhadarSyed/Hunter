@@ -1,4 +1,5 @@
 import { formatDate as formatDateUS } from "../utils/format";
+import { landingPage } from "../hooks/useStageGate";
 import { ProjectProgress } from "../components/ProjectProgress";
 import { useLiveRefetch } from "../hooks/useLiveRefetch";
 import { BrandLogo } from "../components/BrandLogo";
@@ -51,7 +52,7 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
       project_type: pType,
       brand: proj.brand,
     });
-    onNavigate("dashboard");
+    onNavigate(landingPage(proj.current_stage));
   };
 
   const formatDate = (ts: number) => {
