@@ -607,6 +607,8 @@ export const intelApi = {
   deleteOrganization: (orgId: number) => authDelete<{ ok: boolean }>(`/organizations/${orgId}`),
   deleteUser: (userId: number) => authDelete<{ ok: boolean }>(`/users/${userId}`),
   listMyOrganizations: () => authGet<UserOrganizationRow[]>("/me/organizations"),
+  /** Switch the organisation this session works in; null goes back to your own org (Super Admin: all orgs). */
+  setActiveOrg: (orgId: number | null) => authPost<AuthUser>("/me/active-org", { org_id: orgId }),
 
   // Projects
   listProjects: (type?: string) => get<ProjectSummary[]>(type ? `/projects?type=${type}` : "/projects"),
@@ -896,6 +898,18 @@ export const intelApi = {
   addExclusion: (kind: ExclusionKind, value: string) => post<ExclusionRecord>("/exclusions", { kind, value }),
   deleteExclusion: (id: number) => del<{ ok: boolean }>(`/exclusions/${id}`),
 
+  /** An organisation's own chat LLM providers (Settings → LLM Providers); the key is write-only. */
+  listLlmProviders: (orgId?: number) => get<LlmProvidersResponse>(`/llm-providers${orgId ? `?org_id=${orgId}` : ""}`),
+  createLlmProvider: (body: ProviderFields & { org_id?: number; api_key: string; make_default: boolean }) =>
+    post<LlmProvider>("/llm-providers", body),
+  updateLlmProvider: (id: number, body: ProviderFields & { api_key: string }) => put<LlmProvider>(`/llm-providers/${id}`, body),
+  deleteLlmProvider: (id: number) => del<{ ok: boolean }>(`/llm-providers/${id}`),
+  setDefaultLlmProvider: (id: number) => post<LlmProvider>(`/llm-providers/${id}/default`, {}),
+  usePlatformLlm: (orgId?: number) => post<{ ok: boolean }>(`/llm-providers/use-platform${orgId ? `?org_id=${orgId}` : ""}`, {}),
+  testLlmProvider: (id: number) => post<ProviderTestResult>(`/llm-providers/${id}/test`, {}),
+  testLlmProviderDraft: (body: ProviderFields & { org_id?: number; provider_id?: number; api_key: string }) =>
+    post<ProviderTestResult>("/llm-providers/test", body),
+
   listDataSources: () => get<DataSourceRecord[]>("/datasources"),
 
   setDataSourceKey: (source: string, apiKey: string) =>
@@ -926,11 +940,6 @@ export const intelApi = {
           detail?: Record<string, { state: "done" | "running" | "open" | "locked"; pct: number; sub: string }> }>(`/projects/${projectId}/gates`),
   copilotSend: (projectId: number, message: string, confirm?: string) =>
     post<CopilotReply>(`/agent/${projectId}/copilot`, { message, confirm: confirm ?? null }),
-  adminIssues: (status?: string) => get<AgentIssue[]>(`/agent/admin/issues${status ? `?status=${status}` : ""}`),
-  adminFixes: (status?: string) => get<AgentFix[]>(`/agent/admin/fixes${status ? `?status=${status}` : ""}`),
-  adminApplyFix: (id: number) => post<{ status: string; reason: string }>(`/agent/admin/fixes/${id}/apply`, {}),
-  adminRejectFix: (id: number, reason: string) => post<{ ok: boolean }>(`/agent/admin/fixes/${id}/reject`, { reason }),
-  adminProposeFix: (id: number) => post<{ ok: boolean; status: string }>(`/agent/admin/issues/${id}/propose`, {}),
   agentEvents: (projectId: number, limit = 10) => get<AgentEvent[]>(`/agent/${projectId}/events?limit=${limit}`),
   deliverableDownloadUrl: (projectId: number, runId: number, kind: "pptx" | "docx" | "html" | "pdf" | "studio_pptx" | "xlsx") =>
     `${API_BASE}/deliverable/${projectId}/runs/${runId}/download/${kind}`,
@@ -1019,10 +1028,13 @@ export type AgentState ={ autopilot: { status: string; note: string; updated_at:
   status: { project_id: number; name: string; steps: AgentStep[]; next: string | null } };
 export type CopilotReply = { reply: string; actions: { tool: string; ok: boolean; error?: string }[];
   pending: { id: string; tool: string; args: Record<string, unknown>; summary: string } | null };
-export type AgentIssue = { id: number; project_id: number | null; source: string; kind: string; title: string;
-  detail: Record<string, unknown>; status: string; note: string; seen: number; created_at: number };
-export type AgentFix = { id: number; issue_id: number; branch: string; tier: "auto" | "inbox" | "never"; diff: string;
-  tests: Record<string, string>; status: string; note: string; commit_sha: string | null; created_at: number };
+export type ProviderType = "openai_compatible" | "azure_openai" | "anthropic" | "gemini";
+export type ProviderFields = { name: string; provider_type: ProviderType; base_url: string; model: string; api_version: string };
+export type LlmProvider = ProviderFields & { id: number; org_id: number; key_hint: string; is_default: boolean;
+  status: "untested" | "ok" | "failed"; last_error: string; last_tested_at: number | null; last_latency_ms: number | null;
+  updated_at: number };
+export type LlmProvidersResponse = { org_id: number; org_name: string; platform_model: string; providers: LlmProvider[] };
+export type ProviderTestResult = { ok: boolean; latency_ms: number; reply: string; error: string };
 export type AgentEvent = { id: number; actor: string; action: string; detail: Record<string, unknown> | null; at: number; run_id: number | null };
 export interface DeliverableLogLine { ts: number; message: string }
 export interface DeliverableCitation { n: number; outlet: string; title: string; url: string; date: string; domain: string }

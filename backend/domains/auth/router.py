@@ -12,6 +12,7 @@ from ...core.auth import SESSION_COOKIE_NAME, clear_session_cookie, get_current_
 from ...core.config import UPLOAD_DIR
 from . import service
 from .schemas import (
+    ActiveOrgRequest,
     ChangePasswordRequest,
     CreateOrganizationRequest,
     CreateUserRequest,
@@ -183,6 +184,21 @@ def create_user_route(req: CreateUserRequest, user: Annotated[dict, Depends(get_
         store.add_user_to_org(new_id, req.org_id)
     created = store.get_user_by_id(new_id)
     return {**created, "temp_password": temp_password}
+
+
+@router.post("/me/active-org", response_model=MeResponse)
+def set_active_org_route(req: ActiveOrgRequest, user: Annotated[dict, Depends(get_current_user)],
+                         session_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE_NAME)] = None):
+    """Switch the organisation this session works in (profile menu). null: back to the user's own org (a Super
+    Admin: all organisations)."""
+    if req.org_id is not None:
+        org = store.get_organization_by_id(req.org_id)
+        if not org or org.get("archived_at"):
+            raise HTTPException(404, "Organization not found")
+        if user["role"] != "super_admin" and not store.is_member_of_org(user["id"], req.org_id):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "You are not a member of this organization")
+    store.set_session_org(session_token, req.org_id)
+    return _to_response(store.get_session_user(session_token))
 
 
 @router.get("/me/organizations", response_model=list[UserOrganizationRow])

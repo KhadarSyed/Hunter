@@ -24,6 +24,10 @@ class MeResponse(LoginResponse):
     pass
 
 
+class ActiveOrgRequest(ApiModel):
+    org_id: int | None = None
+
+
 class WsTicketResponse(ApiModel):
     ticket: str
 

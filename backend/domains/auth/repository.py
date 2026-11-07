@@ -53,13 +53,39 @@ def create_session(user_id: int) -> tuple[str, float]:
 
 
 def get_session_user(token: str) -> dict | None:
+    """The session's user. An active org picked in the profile menu (still a membership, or any live org for a
+    Super Admin) replaces org_id for this session; primary_org_id keeps the user's own."""
     conn = _conn()
-    row = conn.execute(
-        "SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id "
-        "WHERE s.token = ? AND s.expires_at > ? AND u.archived_at IS NULL",
-        (token, time.time())).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    try:
+        row = conn.execute(
+            "SELECT u.*, s.active_org_id AS session_org_id FROM sessions s JOIN users u ON u.id = s.user_id "
+            "WHERE s.token = ? AND s.expires_at > ? AND u.archived_at IS NULL",
+            (token, time.time())).fetchone()
+        if not row:
+            return None
+        user = dict(row)
+        active = user.pop("session_org_id", None)
+        user["primary_org_id"] = user["org_id"]
+        if active is not None and active != user["org_id"]:
+            ok = conn.execute(
+                "SELECT 1 FROM organizations o WHERE o.id = ? AND o.archived_at IS NULL AND (? = 'super_admin' "
+                "OR EXISTS (SELECT 1 FROM user_organizations uo WHERE uo.user_id = ? AND uo.org_id = o.id))",
+                (active, user["role"], user["id"])).fetchone()
+            if ok:
+                user["org_id"] = active
+        user["active_org_id"] = user["org_id"] if active is not None else None
+        return user
+    finally:
+        conn.close()
+
+
+def set_session_org(token: str, org_id: int | None) -> None:
+    conn = _conn()
+    try:
+        conn.execute("UPDATE sessions SET active_org_id = ? WHERE token = ?", (org_id, token))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def delete_session(token: str) -> None:

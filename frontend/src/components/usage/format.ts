@@ -35,7 +35,8 @@ const SUB_STAGE_LABELS: Record<string, string> = { qc: "QC" };
 export const subStageLabel = (sub: string): string =>
   !sub ? "(unattributed)" : SUB_STAGE_LABELS[sub] ?? sub.charAt(0).toUpperCase() + sub.slice(1);
 
-export const PROVIDER_LABELS: Record<string, string> = { azure_openai: "Azure OpenAI", nvidia: "NVIDIA" };
+export const PROVIDER_LABELS: Record<string, string> = { azure_openai: "Azure OpenAI", nvidia: "NVIDIA",
+  openai_compatible: "OpenAI-compatible", anthropic: "Anthropic", gemini: "Google Gemini" };
 export const providerLabel = (p: string): string => PROVIDER_LABELS[p] ?? p;
 
 /** "$0.00" for zero, 4 decimals below one cent so a fraction of a cent never shows as $0.00, else 2 decimals. */

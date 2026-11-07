@@ -100,8 +100,12 @@ never import a `router.py`. Frontend (`frontend/src/`): `pages/` · `components/
   and every other call site — `domains/plan/service.py`,
   `core/llm_synthesis.py`, the `agents/*.py` modules). All clients live in `core/`. It returns a
   `HybridLLMClient` with no cross-provider fallback on either side:
-  - **Chat:** Azure OpenAI only (`azure_openai_client.py`, `AZURE_OPENAI_*` env vars). `chat()`
-    raises `NoChatProviderError` if unconfigured or unreachable.
+  - **Chat:** the platform's Azure OpenAI (`azure_openai_client.py`, `AZURE_OPENAI_*` env vars), unless the
+    scoped organisation has its own default provider (Settings → LLM Providers, `domains/providers/`,
+    clients in `core/org_chat_clients.py`: OpenAI-compatible, Azure OpenAI, Anthropic, Gemini). The org comes
+    from the usage scope (the project's org, else the session's active org); an org provider's failure raises
+    `OrgProviderError` and never falls back to the platform. Keys are Fernet-encrypted (`core/secret_box.py`,
+    `PROVIDER_SECRET_KEY`). `chat()` raises `NoChatProviderError` if nothing is configured.
   - **Embeddings:** NVIDIA NIM only (`nvidia_embed_client.py`, `NVIDIA_EMBED_*` env vars).
     `embed()`/`embed_batch()` raise `NoEmbedProviderError` if unconfigured or unreachable.
   - Every LLM-dependent feature in the Intelligence Platform still has its own
@@ -163,8 +167,8 @@ URL (e.g. `/{projectId}/research-plan`), but no sidebar or Dashboard link leads 
   `memory.fresh()` (inside the worker thread — contextvars don't cross threads) or it gets the old answer back.
 ## Known Issues
 
-- **Anthropic is unused** — the chat chain is Azure OpenAI only (see LLM chain above);
-  `ANTHROPIC_API_KEY` has no effect. Check `.env`'s `AZURE_OPENAI_*` keys before assuming LLM
+- **`ANTHROPIC_API_KEY` has no effect** — Claude is reachable only as an organisation's own provider
+  (see LLM chain above). Check `.env`'s `AZURE_OPENAI_*` keys before assuming LLM
   synthesis is live; if Azure is unconfigured/unreachable, every LLM-dependent feature falls
   straight to its deterministic/rule-based tier.
 - **JBL vs Jabil entity confusion** — research results can include Jabil Inc. (ticker "JBL") or the

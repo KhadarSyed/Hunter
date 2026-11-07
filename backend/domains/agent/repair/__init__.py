@@ -1,1 +1,1 @@
-"""Self-repair: issue intake, diff tiers, git worktrees, the fixer, apply and rollback."""
+"""Issue intake: failures and user reports recorded as issues (the code-fix agent and its Fixes page are gone)."""

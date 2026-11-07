@@ -26,6 +26,7 @@ from .exclusions.router import router as exclusions
 from .memory.router import router as memory
 from .plan.router import router as plan
 from .projects.router import router as projects
+from .providers.router import router as providers
 from .qc.router import router as qc
 from .research.router import router as research
 from .spec.router import router as spec
@@ -41,7 +42,7 @@ router = APIRouter(
 # matters within a domain router (literal paths before parameterised ones).
 for domain_router in (
     projects, research, brief, spec, strategy, plan, qc,
-    datasources, deliverable, agent_router, exclusions, memory, dataset, usage,
+    datasources, deliverable, agent_router, exclusions, memory, dataset, usage, providers,
 ):
     router.include_router(domain_router)
 

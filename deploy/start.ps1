@@ -64,9 +64,8 @@ if (-not (Test-Path $staticIndex)) {
 
 # 2. Start backend
 Write-Host "Starting backend on http://127.0.0.1:8000 ..."
-# The supervisor restarts the backend when an applied fix (or its rollback) needs a restart.
 Start-Process -FilePath $pythonExe `
-    -ArgumentList "-m", "backend.supervisor", "--host", "127.0.0.1", "--port", "8000" `
+    -ArgumentList "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "8000" `
     -WorkingDirectory $root -WindowStyle Normal
 
 # Wait for backend

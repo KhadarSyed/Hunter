@@ -1566,6 +1566,29 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
     # the analyst's explicit "Approve data set": the Data set stage is done only with it; a data change clears it
     (45, "data set approval", ["ALTER TABLE intel_projects ADD COLUMN dataset_approved_at REAL",
                                "ALTER TABLE intel_projects ADD COLUMN dataset_approved_by TEXT"]),
+    # an organisation's own chat LLM providers (key encrypted, see core/secret_box.py); the default one carries
+    # every chat call of that org's projects. A session's active org is the org picked in the profile menu.
+    (46, "org llm providers and active org", ["""
+        CREATE TABLE IF NOT EXISTS org_llm_providers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            org_id INTEGER NOT NULL REFERENCES organizations(id),
+            name TEXT NOT NULL,
+            provider_type TEXT NOT NULL,
+            base_url TEXT NOT NULL DEFAULT '',
+            model TEXT NOT NULL,
+            api_version TEXT NOT NULL DEFAULT '',
+            api_key_enc TEXT NOT NULL,
+            key_hint TEXT NOT NULL DEFAULT '',
+            is_default INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'untested',
+            last_error TEXT NOT NULL DEFAULT '',
+            last_tested_at REAL,
+            last_latency_ms INTEGER,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            updated_by_user_id INTEGER REFERENCES users(id)
+        )""", "CREATE INDEX IF NOT EXISTS idx_org_llm_providers_org ON org_llm_providers(org_id)",
+        "ALTER TABLE sessions ADD COLUMN active_org_id INTEGER REFERENCES organizations(id)"]),
 ]
 
 

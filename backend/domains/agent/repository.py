@@ -8,7 +8,6 @@ from typing import Optional
 from ...core.db import _conn
 
 OPEN_ISSUE_STATES = ("open", "triage", "fixing", "proposed", "needs_llm")
-_FIX_FIELDS = {"status", "note", "commit_sha", "diff", "tier", "tests"}
 
 
 def _row(r, json_cols: dict[str, str]) -> dict:
@@ -110,75 +109,3 @@ def file_issue_row(fingerprint: str, source: str, kind: str, title: str, detail:
     conn.commit()
     conn.close()
     return issue_id, True
-
-
-def count_running_work() -> int:
-    """Running deliverable runs plus pending/running jobs: what a supervised restart would interrupt.
-    (Reads two other domains' tables; it is the agent's own safety check before restarting the app.)"""
-    conn = _conn()
-    runs = conn.execute("SELECT COUNT(*) FROM intel_deliverable_runs WHERE status = 'running'").fetchone()[0]
-    jobs = conn.execute("SELECT COUNT(*) FROM intel_jobs WHERE status IN ('pending', 'running')").fetchone()[0]
-    conn.close()
-    return runs + jobs
-
-
-def get_issue(issue_id: int) -> Optional[dict]:
-    conn = _conn()
-    row = conn.execute("SELECT * FROM agent_issues WHERE id = ?", (issue_id,)).fetchone()
-    conn.close()
-    return _row(row, {"detail_json": "detail"}) if row else None
-
-
-def list_issues(status: str | None = None) -> list[dict]:
-    conn = _conn()
-    rows = conn.execute("SELECT * FROM agent_issues" + (" WHERE status = ?" if status else "") + " ORDER BY id DESC",
-                        (status,) if status else ()).fetchall()
-    conn.close()
-    return [_row(r, {"detail_json": "detail"}) for r in rows]
-
-
-def set_issue_status(issue_id: int, status: str, note: str = "") -> None:
-    conn = _conn()
-    conn.execute("UPDATE agent_issues SET status = ?, note = ?, updated_at = ? WHERE id = ?",
-                 (status, note, time.time(), issue_id))
-    conn.commit()
-    conn.close()
-
-
-def create_fix(issue_id: int, branch: str, tier: str, diff: str, tests: dict) -> int:
-    conn = _conn()
-    now = time.time()
-    fix_id = conn.execute("INSERT INTO agent_fixes (issue_id, branch, tier, diff, tests_json, status, created_at, "
-                          "updated_at) VALUES (?, ?, ?, ?, ?, 'proposed', ?, ?)",
-                          (issue_id, branch, tier, diff, json.dumps(tests), now, now)).lastrowid
-    conn.commit()
-    conn.close()
-    return fix_id
-
-
-def get_fix(fix_id: int) -> Optional[dict]:
-    conn = _conn()
-    row = conn.execute("SELECT * FROM agent_fixes WHERE id = ?", (fix_id,)).fetchone()
-    conn.close()
-    return _row(row, {"tests_json": "tests"}) if row else None
-
-
-def list_fixes(status: str | None = None) -> list[dict]:
-    conn = _conn()
-    rows = conn.execute("SELECT * FROM agent_fixes" + (" WHERE status = ?" if status else "") + " ORDER BY id DESC",
-                        (status,) if status else ()).fetchall()
-    conn.close()
-    return [_row(r, {"tests_json": "tests"}) for r in rows]
-
-
-def update_fix(fix_id: int, **fields) -> None:
-    unknown = set(fields) - _FIX_FIELDS
-    if unknown:
-        raise ValueError(f"unknown fix fields: {sorted(unknown)}")
-    if "tests" in fields:
-        fields["tests_json"] = json.dumps(fields.pop("tests"))
-    sets = ", ".join(f"{k} = ?" for k in fields)
-    conn = _conn()
-    conn.execute(f"UPDATE agent_fixes SET {sets}, updated_at = ? WHERE id = ?", (*fields.values(), time.time(), fix_id))
-    conn.commit()
-    conn.close()

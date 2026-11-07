@@ -3,11 +3,14 @@
 `extract_brief_text()` is what the upload endpoint uses: NVIDIA Nemotron-Parse first
 (layout-aware Markdown for PDF / Word / PowerPoint / Excel), falling back to native
 extraction when NVIDIA is unavailable or returns nothing. BRIEF_EXTRACTION_MODE=native
-skips NVIDIA entirely. `parse_brief()` is the native path, also used by the
-Brief-to-Deck watcher.
+skips NVIDIA entirely, and so does an organisation with its own LLM provider (Settings → LLM Providers): its
+files are read by Python only, never sent to the platform's NVIDIA model. `parse_brief()` is the native path.
 """
 from __future__ import annotations
 
+import csv
+import io
+import json
 import logging
 import os
 from pathlib import Path
@@ -22,15 +25,19 @@ from ...core.nvidia_parse_client import NvidiaParseError
 logger = logging.getLogger(__name__)
 
 # Native extraction supports these; NVIDIA additionally handles legacy .doc/.ppt/.xls.
-SUPPORTED_SUFFIXES = {".docx", ".txt", ".pptx", ".pdf", ".xlsx"}
+SUPPORTED_SUFFIXES = {".docx", ".txt", ".md", ".pptx", ".pdf", ".xlsx", ".csv", ".json"}
 UPLOAD_SUFFIXES = SUPPORTED_SUFFIXES | {".doc", ".ppt", ".xls"}
 
 
 def parse_brief(path: Path) -> str:
     """Native (offline) text extraction."""
     suffix = path.suffix.lower()
-    if suffix == ".txt":
-        return path.read_text(encoding="utf-8", errors="ignore")
+    if suffix in (".txt", ".md"):
+        return _read_text(path)
+    if suffix == ".csv":
+        return _parse_csv(path)
+    if suffix == ".json":
+        return _parse_json(path)
     if suffix == ".docx":
         return _parse_docx(path)
     if suffix == ".pptx":
@@ -42,14 +49,14 @@ def parse_brief(path: Path) -> str:
     raise ValueError(f"Unsupported brief format: {suffix}")
 
 
-def extract_brief_text(path: Path) -> dict:
+def extract_brief_text(path: Path, native_only: bool = False) -> dict:
     """Extract a brief's text, NVIDIA first. Returns {text, method, model, pages}.
 
     method: "nvidia" (Nemotron-Parse) or "native". Blocking (network + Office
     conversion) — call from a worker thread, not the event loop.
     """
     suffix = path.suffix.lower()
-    use_nvidia = (os.getenv("BRIEF_EXTRACTION_MODE", "nvidia").lower() != "native"
+    use_nvidia = (not native_only and os.getenv("BRIEF_EXTRACTION_MODE", "nvidia").lower() != "native"
                   and suffix in nvidia_parse_client.SUPPORTED_EXTENSIONS
                   and nvidia_parse_client.is_reachable())
     if use_nvidia:
@@ -63,6 +70,45 @@ def extract_brief_text(path: Path) -> dict:
     if suffix not in SUPPORTED_SUFFIXES:
         raise ValueError(f"{suffix} needs NVIDIA parsing (or LibreOffice/MS Office), which is unavailable")
     return {"text": parse_brief(path), "method": "native", "model": None, "pages": None}
+
+
+def _read_text(path: Path) -> str:
+    raw = path.read_bytes()
+    encodings = ("utf-16",) if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else ("utf-8-sig", "cp1252")
+    for enc in encodings:
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("latin-1")
+
+
+def _parse_csv(path: Path) -> str:
+    text = _read_text(path)
+    try:
+        dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t|")
+    except csv.Error:
+        dialect = csv.excel
+    rows = ("  ".join(c.strip() for c in row if c.strip()) for row in csv.reader(io.StringIO(text), dialect))
+    return "\n".join(r for r in rows if r)
+
+
+def _parse_json(path: Path) -> str:
+    """Every string and number in the document, one `key: value` line each (keys give the values context)."""
+    lines: list[str] = []
+
+    def walk(node, key: str = "") -> None:
+        if isinstance(node, dict):
+            for k, v in node.items():
+                walk(v, str(k))
+        elif isinstance(node, list):
+            for v in node:
+                walk(v, key)
+        elif node is not None and str(node).strip():
+            lines.append(f"{key}: {node}" if key else str(node))
+
+    walk(json.loads(_read_text(path)))
+    return "\n".join(lines)
 
 
 def _parse_docx(path: Path) -> str:

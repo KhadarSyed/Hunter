@@ -42,7 +42,7 @@ def list_projects_route(
     user: Annotated[dict, Depends(get_current_user)], type: str | None = None,
 ):
     if user["role"] == "super_admin":
-        return _with_progress(store.list_projects(project_type=type))
+        return _with_progress(store.list_projects(project_type=type, org_id=user.get("active_org_id")))
     if user["org_id"] is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "No organization assigned")
     if user["role"] == "admin":

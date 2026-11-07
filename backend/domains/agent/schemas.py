@@ -11,7 +11,3 @@ class AutopilotStart(BaseModel):
 class CopilotMessage(BaseModel):
     message: str = Field(default="", max_length=4000)
     confirm: str | None = Field(default=None, max_length=64)
-
-
-class RejectBody(BaseModel):
-    reason: str = Field(min_length=1, max_length=1000)

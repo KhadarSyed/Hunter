@@ -4,6 +4,8 @@ import * as am5 from "@amcharts/amcharts5";
 const PROVIDER_LOGO_URLS: Record<string, string> = {
   azure_openai: "https://api.iconify.design/logos/microsoft-azure.svg",
   nvidia: "https://api.iconify.design/logos/nvidia.svg",
+  anthropic: "https://api.iconify.design/simple-icons/anthropic.svg",
+  gemini: "https://api.iconify.design/logos/google-gemini.svg",
 };
 const OPENAI_LOGO_URL = "https://api.iconify.design/simple-icons/openai.svg";
 

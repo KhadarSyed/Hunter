@@ -100,9 +100,40 @@ class HybridLLMClient:
         )
 
     def is_reachable(self) -> bool:
-        """Chat reachability. (Embeddings have their own NVIDIA NIM check —
-        see is_embed_reachable().)"""
-        return self._chat_backend is not None
+        """Chat reachability: the platform model, or the scoped org's own provider. (Embeddings have their own
+        NVIDIA NIM check — see is_embed_reachable().)"""
+        if self._chat_backend is not None:
+            return True
+        try:
+            return self._org_backend() is not None
+        except Exception:
+            return True         # the org has a provider; the call itself reports why it fails
+
+    @staticmethod
+    def _org_backend():
+        from ..domains.providers import service as providers     # lazy: domains import core
+        return providers.backend_for_scope()
+
+    def _backend(self) -> tuple[object, str]:
+        """(chat backend, org provider name or ''): the org's default provider when the scoped org has one (never
+        the platform model as a fallback), else the platform Azure OpenAI model."""
+        org = self._org_backend()
+        if org is not None:
+            return org
+        if self._chat_backend is None:
+            raise NoChatProviderError(
+                "No chat LLM configured — set AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_MODEL")
+        return self._chat_backend, ""
+
+    @staticmethod
+    def _call(org_name: str, fn, *args, **kwargs):
+        if not org_name:
+            return fn(*args, **kwargs)
+        from ..domains.providers.service import OrgProviderError
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            raise OrgProviderError(f"Org provider '{org_name}' failed: {e}") from e
 
     def is_embed_reachable(self) -> bool:
         return self._embed_backend is not None
@@ -113,13 +144,8 @@ class HybridLLMClient:
         on_token: Optional[Callable[[str], None]] = None,
         format_json: bool = False,
     ) -> str:
-        if self._chat_backend is None:
-            raise NoChatProviderError(
-                "No chat LLM configured — set AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT "
-                "and AZURE_OPENAI_MODEL"
-            )
+        backend, org_name = self._backend()
         from ..domains.memory import service as memory     # lazy: memory imports store, which imports core
-        backend = self._chat_backend
         key = memory.llm_key(f"{getattr(backend, 'deployment', '')}:{getattr(backend, 'reasoning_effort', '')}",
                              messages, format_json)
         # the same prompt twice on one client is a retry of an answer the caller rejected: ask GPT again
@@ -127,21 +153,19 @@ class HybridLLMClient:
         self._asked.add(key)
         if cached is not None:
             from ..domains.usage import service as usage_service
-            usage_service.record("azure_openai", getattr(backend, "deployment", "") or "unknown", "chat",
+            usage_service.record(getattr(backend, "provider", "azure_openai"),
+                                 getattr(backend, "deployment", "") or "unknown", "chat",
                                  cache_hit=True, requests=0)
             if on_token:
                 on_token(cached)
             return cached
-        text = backend.chat(messages, on_token=on_token, format_json=format_json)
+        text = self._call(org_name, backend.chat, messages, on_token=on_token, format_json=format_json)
         memory.remember_llm(key, text)
         return text
 
     def chat_tools(self, messages: list[dict], tools: list[dict], tool_choice: str = "auto") -> dict:
-        if self._chat_backend is None:
-            raise NoChatProviderError(
-                "No chat LLM configured — set AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_MODEL"
-            )
-        return self._chat_backend.chat_tools(messages, tools, tool_choice=tool_choice)
+        backend, org_name = self._backend()
+        return self._call(org_name, backend.chat_tools, messages, tools, tool_choice=tool_choice)
 
     def embed(self, text: str) -> np.ndarray:
         if self._embed_backend is None:

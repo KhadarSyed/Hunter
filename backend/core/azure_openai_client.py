@@ -53,11 +53,13 @@ def _rate_limit_wait(r: requests.Response, retry: int) -> float:
     return min(MAX_RATE_WAIT_S, wait) + random.uniform(0, 1.0)
 
 
-def _record(model: str, kind: str, usage: dict | None, started: float, *, error: bool = False, reason: str = "") -> None:
+def _record(model: str, kind: str, usage: dict | None, started: float, *, error: bool = False, reason: str = "",
+            provider: str = "azure_openai") -> None:
+    """One usage row from an OpenAI-shaped `usage` block (Azure, OpenAI and every OpenAI-compatible provider)."""
     from ..domains.usage import service as usage_service      # lazy: domains import core
     u = usage or {}
     usage_service.record(
-        "azure_openai", model, kind, input_tokens=int(u.get("prompt_tokens") or 0),
+        provider, model, kind, input_tokens=int(u.get("prompt_tokens") or 0),
         cached_input_tokens=int((u.get("prompt_tokens_details") or {}).get("cached_tokens") or 0),
         output_tokens=int(u.get("completion_tokens") or 0),
         latency_ms=int((time.time() - started) * 1000), error=error, reason=reason)
@@ -80,7 +82,7 @@ def _url_model(url: str) -> str:
 
 
 def _post(url: str, headers: dict, payload: dict, timeout: int = 180, stream: bool = False,
-          kind: str = "chat") -> requests.Response:
+          kind: str = "chat", provider: str = "azure_openai", model: str = "") -> requests.Response:
     """A request that survives a dropped connection (a proxy's TLS reset), a rate limit or a server hiccup: a
     long run makes hundreds of calls, and one transient failure must not fail it. With stream=True the caller
     reads (and closes) the body; a response given up on here is closed before the retry."""
@@ -90,26 +92,26 @@ def _post(url: str, headers: dict, payload: dict, timeout: int = 180, stream: bo
         try:
             r = requests.post(url, headers=headers, json=payload, timeout=timeout, stream=stream)
         except (requests.ConnectionError, requests.Timeout) as e:
-            _record(_url_model(url), kind, None, started, error=True,
+            _record(model or _url_model(url), kind, None, started, error=True, provider=provider,
                     reason=f"{type(e).__name__}" + ("" if dropped == len(CONNECTION_BACKOFF_S) else " (retried)"))
             if dropped == len(CONNECTION_BACKOFF_S):
                 raise
-            logger.warning("Azure OpenAI call retried after %s", type(e).__name__)
+            logger.warning("%s call retried after %s", provider, type(e).__name__)
             time.sleep(CONNECTION_BACKOFF_S[dropped])
             dropped += 1
             continue
         if r.status_code == 429 and rate_limited < RATE_LIMIT_ATTEMPTS - 1:
-            _record(_url_model(url), kind, None, started, error=True, reason="HTTP 429 rate limited (retried)")
+            _record(model or _url_model(url), kind, None, started, error=True, provider=provider, reason="HTTP 429 rate limited (retried)")
             wait = _rate_limit_wait(r, rate_limited)
-            logger.warning("Azure OpenAI rate limited; retrying in %.1fs (%d)", wait, rate_limited + 1)
+            logger.warning("%s rate limited; retrying in %.1fs (%d)", provider, wait, rate_limited + 1)
             r.close()
             time.sleep(wait)
             rate_limited += 1
             continue
         if r.status_code not in _RETRY_STATUS or failures == ATTEMPTS - 1:
             return r
-        logger.warning("Azure OpenAI call retried after HTTP %s", r.status_code)
-        _record(_url_model(url), kind, None, started, error=True, reason=f"{_http_reason(r)} (retried)")
+        logger.warning("%s call retried after HTTP %s", provider, r.status_code)
+        _record(model or _url_model(url), kind, None, started, error=True, provider=provider, reason=f"{_http_reason(r)} (retried)")
         r.close()
         time.sleep(BACKOFF_S[failures])
         failures += 1

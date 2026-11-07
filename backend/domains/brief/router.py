@@ -20,6 +20,7 @@ from ...core.config import UPLOAD_DIR
 from ...core.events import broadcast as _broadcast
 from ..research.renderer import render_brief_docx as do_render
 from ..research.service import compose_brief
+from ..providers import service as providers
 from . import parser as brief_parser
 from .schemas import (
     AnalystBriefResponse,
@@ -44,7 +45,7 @@ MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # client briefs are small; reject accidenta
 
 
 @router.post("/brief/parse-file", response_model=ParsedBriefFileResponse)
-async def parse_brief_file(file: UploadFile = File(...)):
+async def parse_brief_file(user: Annotated[dict, Depends(get_current_user)], file: UploadFile = File(...)):
     """Upload a client brief (PDF, DOCX/DOC, PPTX/PPT, XLSX/XLS, TXT) and extract its text.
 
     NVIDIA Nemotron-Parse extracts layout-aware text (Office files are converted to PDF
@@ -65,7 +66,9 @@ async def parse_brief_file(file: UploadFile = File(...)):
     dest.write_bytes(content)
     try:
         # Blocking (NVIDIA calls, Office conversion) — keep it off the event loop.
-        result = await run_in_threadpool(brief_parser.extract_brief_text, dest)
+        # an org on its own LLM provider: its files are read by Python, never sent to the platform's NVIDIA model
+        native_only = providers.org_has_own_provider(user.get("org_id"))
+        result = await run_in_threadpool(brief_parser.extract_brief_text, dest, native_only)
     except Exception as e:
         logger.error("Brief file parse error for %s: %s", file.filename, e)
         raise HTTPException(400, f"Could not parse file: {e}") from e

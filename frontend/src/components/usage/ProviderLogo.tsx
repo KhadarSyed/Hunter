@@ -1,14 +1,15 @@
 import { Icon } from "@iconify/react";
 import { providerLabel } from "./format";
 
-const PROVIDER_ICONS: Record<string, string> = { azure_openai: "logos:microsoft-azure", nvidia: "logos:nvidia" };
+export const PROVIDER_ICONS: Record<string, string> = { azure_openai: "logos:microsoft-azure", nvidia: "logos:nvidia",
+  openai_compatible: "simple-icons:openai", anthropic: "simple-icons:anthropic", gemini: "logos:google-gemini" };
 
 /** The provider's logo (plus the OpenAI mark for GPT models) beside the full model name. Logos are decorative:
  * the provider is named in the title and the model name is always visible. `nameless` shows the logos only. */
 export function ProviderLogo({ provider, model, size = 16, nameless = false }:
   { provider: string; model: string; size?: number; nameless?: boolean }) {
   const icon = PROVIDER_ICONS[provider] ?? "lucide:cpu";
-  const isGpt = /^gpt|^o\d/i.test(model);
+  const isGpt = provider !== "openai_compatible" && /^gpt|^o\d/i.test(model);
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5" title={`${providerLabel(provider)} · ${model}`}>
       <Icon icon={icon} width={size} height={size} aria-hidden className="shrink-0" />

@@ -311,7 +311,7 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
               dragOver ? "border-violet-400 bg-violet-50/50" : "border-slate-200 hover:border-violet-300 hover:bg-violet-50/30"
             }`}
           >
-            <input ref={fileInputRef} type="file" accept=".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.txt" className="hidden"
+            <input ref={fileInputRef} type="file" accept=".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.csv,.json,.txt,.md" className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) selectFile(file);
