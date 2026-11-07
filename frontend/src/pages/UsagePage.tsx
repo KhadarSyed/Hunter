@@ -113,7 +113,10 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
   const initial = useMemo(filtersFromUrl, []);
   const [filters, setFilters] = useState<UsageFilterState>(initial.filters);
   const [logModel, setLogModel] = useState(initial.logModel);   // the summary-table row that narrows the call log only
-  const [logSubStage, setLogSubStage] = useState<string | null>(initial.logSubStage);   // narrows the call log; "" = unattributed
+  const [logSubStage, setLogSubStage] = useState<string | null>(initial.logSubStage);
+  // the call log's own dates (inside the page's range); empty = the page's range
+  const [logFrom, setLogFrom] = useState("");
+  const [logTo, setLogTo] = useState("");   // narrows the call log; "" = unattributed
   const [openStage, setOpenStage] = useState<string | null>(null);   // the stage whose drill-down is open
   const callLogHeading = useRef<HTMLHeadingElement>(null);
   // a project's Top stage chip: the stage to open once that project's summary has landed (never range-wide data)
@@ -149,10 +152,12 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
 
   const query = useMemo(() => toQuery(filters, isSuper), [filters, isSuper]);
   const queryKey = JSON.stringify(query);
-  const callQuery = useMemo(() => ({ ...query, model: logModel || query.model, sub_stage: logSubStage }), [query, logModel, logSubStage]);
+  const callQuery = useMemo(() => ({ ...query, model: logModel || query.model, sub_stage: logSubStage,
+    date_from: logFrom || query.date_from, date_to: logTo || query.date_to }), [query, logModel, logSubStage, logFrom, logTo]);
   const callKey = JSON.stringify(callQuery);
 
   const updateFilters = (next: UsageFilterState) => {
+    if (next.from !== filters.from || next.to !== filters.to) { setLogFrom(""); setLogTo(""); }
     // a new Org drops a Project filter that is not one of that org's projects
     const orphan = next.org !== filters.org && next.org !== null && next.project !== null && projects.length > 0
       && !projects.some((p) => p.id === next.project && p.org_id === next.org);
@@ -410,6 +415,22 @@ export function UsagePage(_props: { onNavigate: (page: string) => void }) {
               <h2 id="call-log-heading" ref={callLogHeading} tabIndex={-1} className="scroll-mt-4 outline-none flex items-center gap-2 text-lg font-semibold text-slate-900">
                 <Icon icon="lucide:list" width={18} aria-hidden className="text-[#5B2C9D]" /> Call log
               </h2>
+              <span className="ml-auto inline-flex items-center gap-2 text-xs text-slate-600">
+                <Icon icon="lucide:calendar" width={14} aria-hidden className="text-slate-400" />
+                <label className="sr-only" htmlFor="log-from">Call log from</label>
+                <input id="log-from" type="date" value={logFrom || filters.from} min={filters.from} max={logTo || filters.to}
+                  onChange={(e) => { setLogFrom(e.target.value === filters.from ? "" : e.target.value); setCallOffset(0); }}
+                  className="rounded-lg border border-slate-200 px-2 py-1 tabular-nums" />
+                <span>to</span>
+                <label className="sr-only" htmlFor="log-to">Call log to</label>
+                <input id="log-to" type="date" value={logTo || filters.to} min={logFrom || filters.from} max={filters.to}
+                  onChange={(e) => { setLogTo(e.target.value === filters.to ? "" : e.target.value); setCallOffset(0); }}
+                  className="rounded-lg border border-slate-200 px-2 py-1 tabular-nums" />
+                {(logFrom || logTo) && (
+                  <button type="button" onClick={() => { setLogFrom(""); setLogTo(""); setCallOffset(0); }}
+                    className="rounded-full px-2 py-0.5 font-semibold text-[#5B2C9D] hover:bg-[#5B2C9D]/10">Reset</button>
+                )}
+              </span>
               {logModel && (
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-[#5B2C9D]/10 py-1 pl-3 pr-1.5 text-xs font-semibold text-[#5B2C9D]">
                   Model: {logModel}
