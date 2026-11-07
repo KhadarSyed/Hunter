@@ -1,4 +1,5 @@
 import { formatDate as formatDateUS } from "../utils/format";
+import { PipelineDrillDown } from "../components/PipelineDrillDown";
 import { landingPage } from "../hooks/useStageGate";
 import { ProjectProgress } from "../components/ProjectProgress";
 import { useLiveRefetch } from "../hooks/useLiveRefetch";
@@ -20,6 +21,7 @@ interface RecentProject {
 export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void }) {
   const { setActiveProject } = useProject();
   const [recent, setRecent] = useState<RecentProject[]>([]);
+  const [openPipeline, setOpenPipeline] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [counts, setCounts] = useState({ research: 0, qc: 0 });
 
@@ -307,13 +309,11 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
                 {recent.map((proj, i) => {
                   const isQC = proj.project_type === "monitoring_qc";
                   return (
+                    <div key={proj.id} style={{ borderTop: i > 0 ? "1px solid rgba(30,24,51,0.05)" : "none" }}>
+                    <div className="flex items-center">
                     <button
-                      key={proj.id}
                       onClick={() => handleSelectRecent(proj)}
-                      className="group w-full flex items-center gap-4 px-5 py-4 text-left transition-all duration-200 focus:outline-none"
-                      style={{
-                        borderTop: i > 0 ? "1px solid rgba(30,24,51,0.05)" : "none",
-                      }}
+                      className="group min-w-0 flex-1 flex items-center gap-4 px-5 py-4 text-left transition-all duration-200 focus:outline-none"
                       onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "rgba(91,44,157,0.03)"; }}
                       onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
                     >
@@ -355,6 +355,16 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
                         <polyline points="9 18 15 12 9 6" />
                       </svg>
                     </button>
+                    {!isQC && (
+                      <button type="button" onClick={() => setOpenPipeline((o) => (o === proj.id ? null : proj.id))}
+                        aria-expanded={openPipeline === proj.id} aria-label={`Show the pipeline of ${proj.project_name}`}
+                        className="mr-3 shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold text-[#5B2C9D] hover:bg-[#5B2C9D]/10">
+                        Pipeline {openPipeline === proj.id ? "▴" : "▾"}
+                      </button>
+                    )}
+                    </div>
+                    {openPipeline === proj.id && <PipelineDrillDown projectId={proj.id} className="mx-5 mb-4 rounded-xl bg-slate-50 p-3" />}
+                    </div>
                   );
                 })}
               </div>

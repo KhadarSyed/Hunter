@@ -100,6 +100,7 @@ class GatesResponse(ApiModel):
     gates: dict[str, str]
     progress_pct: float
     current_stage: str
+    detail: dict[str, dict] = {}     # per stage: state, pct, sub (what it is doing now)
 
 
 class JobResponse(ApiModel):

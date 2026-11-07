@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { PipelineDrillDown } from "../components/PipelineDrillDown";
 import { landingPage } from "../hooks/useStageGate";
 import { ProjectProgress } from "../components/ProjectProgress";
 import { useLiveRefetch } from "../hooks/useLiveRefetch";
@@ -142,6 +143,7 @@ function UsageButton({ project, onUsage }: { project: ProjectSummary; onUsage: (
 
 function ProjectCard({ project, onOpen, onEdit, onDelete, selected, onToggleSelect, onUsage }: ProjectCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showPipeline, setShowPipeline] = useState(false);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const brand = project.brand?.trim() ?? "";
@@ -254,7 +256,14 @@ function ProjectCard({ project, onOpen, onEdit, onDelete, selected, onToggleSele
         <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-slate-600">
           {project.description || <span className="text-slate-400">No brief added yet.</span>}
         </p>
-        <ProjectProgress pct={project.progress_pct} stage={project.current_stage} className="mt-3" />
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <ProjectProgress pct={project.progress_pct} stage={project.current_stage} />
+          <button type="button" onClick={(e) => { e.stopPropagation(); setShowPipeline((v) => !v); }} aria-expanded={showPipeline}
+            className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold text-[#5B2C9D] hover:bg-[#5B2C9D]/10">
+            Pipeline <Icon icon={showPipeline ? "lucide:chevron-up" : "lucide:chevron-down"} width={14} aria-hidden />
+          </button>
+        </div>
+        {showPipeline && <PipelineDrillDown projectId={project.id} className="mt-2 rounded-xl bg-slate-50 p-3" />}
         <div className="mt-auto flex items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs text-slate-500">
           <span>{editedAgo(project.updated_at)}</span>
           <CountryFlag country={project.geography} size={16} showLabel className="truncate" />

@@ -922,7 +922,8 @@ export const intelApi = {
   autorunStart: (projectId: number) => post<Autorun>(`/agent/${projectId}/autorun`, {}),
   /** Stage gates: a stage opens only when every stage before it is done. */
   projectGates: (projectId: number) =>
-    get<{ gates: Record<string, "done" | "running" | "open" | "locked">; progress_pct: number; current_stage: string }>(`/projects/${projectId}/gates`),
+    get<{ gates: Record<string, "done" | "running" | "open" | "locked">; progress_pct: number; current_stage: string;
+          detail?: Record<string, { state: "done" | "running" | "open" | "locked"; pct: number; sub: string }> }>(`/projects/${projectId}/gates`),
   copilotSend: (projectId: number, message: string, confirm?: string) =>
     post<CopilotReply>(`/agent/${projectId}/copilot`, { message, confirm: confirm ?? null }),
   adminIssues: (status?: string) => get<AgentIssue[]>(`/agent/admin/issues${status ? `?status=${status}` : ""}`),
