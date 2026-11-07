@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { Donut } from "../Donut";
 import { Icon } from "@iconify/react";
 import type { UsageStageRow } from "../../types/usage";
 import { ProviderLogo } from "./ProviderLogo";
@@ -118,10 +119,9 @@ export function StageDrillDown({ stage, scope, onClose, onShowCalls }:
                 <tr key={s.sub_stage || "(none)"} className="border-b border-slate-100 tabular-nums">
                   <td className={`whitespace-nowrap px-2 py-2 font-semibold ${s.sub_stage ? "text-slate-800" : "italic text-slate-500"}`}>{subStageLabel(s.sub_stage)}</td>
                   <td className="w-40 px-2 py-2" title={`${share(s.total_tokens).toFixed(1)}% of ${label} tokens`}>
-                    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100" aria-hidden>
-                      <div className="h-full rounded-full bg-[#5B2C9D]" style={{ width: `${Math.min(100, share(s.total_tokens))}%` }} />
-                    </div>
-                    <span className="text-[11px] text-slate-500">{share(s.total_tokens).toFixed(1)}%</span>
+                    <Donut value={share(s.total_tokens)} size={34} title={`${share(s.total_tokens).toFixed(1)}% of ${label} tokens`}>
+                      {`${Math.round(share(s.total_tokens))}%`}
+                    </Donut>
                   </td>
                   <td className="px-2 py-2 text-right">{num(s.calls)}</td>
                   <td className="px-2 py-2 text-right">{num(s.input_tokens)}</td>

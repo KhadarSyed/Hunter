@@ -3,6 +3,7 @@ import { Icon } from "@iconify/react";
 import type { UsageProjectRow } from "../../types/usage";
 import { ProviderLogo } from "./ProviderLogo";
 import { BrandLogo } from "../BrandLogo";
+import { Donut } from "../Donut";
 import { money, num, pct, stageLabel } from "./format";
 
 const RANKED_PREVIEW = 10;
@@ -24,12 +25,9 @@ function ProjectMark({ p, size }: { p: UsageProjectRow; size: number }) {
   );
 }
 
-function ShareBar({ share }: { share: number }) {
-  return (
-    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100" aria-hidden>
-      <div className="h-full rounded-full bg-[#5B2C9D]" style={{ width: `${Math.min(100, Math.max(0, share))}%` }} />
-    </div>
-  );
+/** The project's share of all tokens in range, as a donut with the % inside. */
+function ShareDonut({ share, size }: { share: number; size: number }) {
+  return <Donut value={share} size={size} title={`${pct(share)} of all tokens`}>{`${Math.round(share)}%`}</Donut>;
 }
 
 function TopCard({ p, onPick, onStage }:
@@ -59,11 +57,13 @@ function TopCard({ p, onPick, onStage }:
       </div>
 
       <div className="mt-4">
-        <div className="flex items-baseline justify-between gap-2 text-sm">
-          <span className="font-semibold tabular-nums text-slate-900">{num(p.total_tokens)} tokens</span>
-          <span className="font-semibold text-[#5B2C9D]">{pct(p.share_pct)} of all tokens</span>
+        <div className="flex items-center gap-3 text-sm">
+          <ShareDonut share={p.share_pct} size={56} />
+          <span className="leading-tight">
+            <span className="block font-semibold tabular-nums text-slate-900">{num(p.total_tokens)} tokens</span>
+            <span className="block font-semibold text-[#5B2C9D]">{pct(p.share_pct)} of all tokens</span>
+          </span>
         </div>
-        <div className="mt-1.5"><ShareBar share={p.share_pct} /></div>
         <p className="mt-1.5 text-xs tabular-nums text-slate-500">
           {num(p.input_tokens)} input · {num(p.cached_input_tokens)} cached · {num(p.output_tokens)} output
           <span className="mx-2 text-slate-300">|</span>Top stage:{" "}
@@ -135,9 +135,9 @@ export function TopProjects({ projects, onPick, onStage }:
                           <span className="block truncate text-xs text-slate-500">Top stage: {stageLabel(p.top_stage)}</span>
                         </span>
                       </span>
-                      <span className="min-w-0" title={`${num(p.total_tokens)} tokens`}>
-                        <ShareBar share={p.share_pct} />
-                        <span className="mt-0.5 block text-xs tabular-nums text-slate-500">{num(p.total_tokens)} · {pct(p.share_pct)}</span>
+                      <span className="flex min-w-0 items-center gap-2" title={`${num(p.total_tokens)} tokens`}>
+                        <ShareDonut share={p.share_pct} size={38} />
+                        <span className="text-xs tabular-nums text-slate-500">{num(p.total_tokens)} tokens</span>
                       </span>
                       <span className="flex items-center gap-1">
                         {p.models.map((m) => <ProviderLogo key={`${m.provider}/${m.model}`} provider={m.provider} model={m.model} nameless />)}

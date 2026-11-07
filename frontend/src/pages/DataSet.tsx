@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Donut } from "../components/Donut";
 import { UploadedFiles } from "../components/dataset/UploadedFiles";
 import { RqPanel } from "../components/dataset/RqPanel";
 import type { UploadedFile } from "../types/dataset";
@@ -245,12 +246,12 @@ export function DataSet() {
       {error && <div role="alert" className="rounded-lg border border-red-100 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div>}
 
       {progress && (
-        <div role="status" aria-label="Tagging progress" className="rounded-lg border border-violet-100 bg-violet-50 px-4 py-2">
-          <div className="flex justify-between text-xs font-medium text-violet-900">
+        <div role="status" aria-label="Tagging progress" className="flex items-center gap-3 rounded-lg border border-violet-100 bg-violet-50 px-4 py-2">
+          <Donut value={pct} size={40} track="#EDE9FE" title={`Tagging ${pct}%`} />
+          <div className="flex flex-1 flex-wrap justify-between gap-2 text-xs font-medium text-violet-900">
             <span>Tagging: {progress.phase} — {progress.done.toLocaleString()} of {progress.total.toLocaleString()}</span>
             <span>{progress.minutesLeft != null ? `about ${progress.minutesLeft} min left` : "estimating time…"}</span>
           </div>
-          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-violet-100"><div className="h-full rounded-full" style={{ width: `${pct}%`, background: V }} /></div>
         </div>
       )}
 

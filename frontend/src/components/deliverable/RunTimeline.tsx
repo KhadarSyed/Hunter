@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Donut } from "../Donut";
 import { createPortal } from "react-dom";
 
 const STAGES = ["gate", "ingest", "routing", "plan", "classify", "compute", "insights", "template", "render", "qc",
@@ -118,13 +119,16 @@ export function RunTimeline({ stages, details }: { stages: Record<string, string
         {STAGES.map((s) => {
           const st = stages[s];
           const cls = st === "done" ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-            : st === "running" ? "bg-violet-50 text-violet-700 border-violet-200 animate-pulse"
+            : st === "running" ? "bg-violet-50 text-violet-700 border-violet-200"
             : st === "failed" ? "bg-red-50 text-red-700 border-red-200" : "bg-white text-slate-500 border-slate-200";
           return (
             <li key={s} tabIndex={0} aria-describedby={anchor?.stage === s ? "stage-guide" : undefined}
                 onMouseEnter={(e) => show(s, e.currentTarget)} onMouseLeave={hide}
                 onFocus={(e) => show(s, e.currentTarget)} onBlur={hide}
-                className={`shrink-0 cursor-help whitespace-nowrap rounded-md border px-2 py-1 text-[11px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-[#5B2C9D]/40 ${cls}`}>
+                className={`inline-flex shrink-0 cursor-help items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-1 text-[11px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-[#5B2C9D]/40 ${cls}`}>
+              {/* each stage's own circle: full green when done, a turning arc while it runs, red when it failed */}
+              <Donut size={14} value={st === "done" || st === "failed" ? 100 : st === "running" ? 30 : 0} spin={st === "running"}
+                     color={st === "failed" ? "#EF4444" : st === "done" ? "#10B981" : "#5B2C9D"} track="#E2E8F0" title={STATUS_TEXT[st] ?? "Waiting"} />
               {LABELS[s]}
             </li>
           );

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Donut } from "../components/Donut";
 import { useDemoState } from "../context/demo-state";
 import { useProject } from "../context/project-context";
 import { PexelsHeaderBanner } from "../components/PexelsHeaderBanner";
@@ -16,15 +17,12 @@ function Card({ title, children, className = "" }: { title: string; children: Re
 
 function ScoreBar({ label, value, invert }: { label: string; value: number; invert?: boolean }) {
   const color = invert
-    ? value <= 10 ? "bg-emerald-500" : value <= 25 ? "bg-amber-500" : "bg-red-500"
-    : value >= 75 ? "bg-emerald-500" : value >= 50 ? "bg-amber-500" : "bg-red-500";
+    ? value <= 10 ? "#10B981" : value <= 25 ? "#F59E0B" : "#EF4444"
+    : value >= 75 ? "#10B981" : value >= 50 ? "#F59E0B" : "#EF4444";
   return (
     <div className="flex items-center gap-3">
       <span className="text-xs text-slate-500 w-40 shrink-0">{label}</span>
-      <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.min(value, 100)}%` }} />
-      </div>
-      <span className="text-xs font-semibold text-slate-700 tabular-nums w-10 text-right">{value}%</span>
+      <Donut value={value} size={34} color={color} title={`${label}: ${value}%`} />
     </div>
   );
 }

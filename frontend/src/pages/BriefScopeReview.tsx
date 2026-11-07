@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { Donut } from "../components/Donut";
 import type { ReactNode } from "react";
 import { Icon } from "@iconify/react";
 import { useProject, useActiveProjectId, type ProjectType } from "../context/project-context";
@@ -139,19 +140,13 @@ function JobProgressCard({ job, log }: { job: JobStatus; log: JobProgressEntry[]
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="flex items-center gap-3">
-        <svg className="animate-spin h-5 w-5 text-[#5B2C9D] shrink-0" viewBox="0 0 24 24" fill="none">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
+        <Donut value={pct} size={48} title={`Brief & Scope ${pct}%`} />
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold text-slate-900">
             {job.progress_message || "Generating your specification..."}
           </div>
           <div className="text-xs text-slate-400 mt-0.5">{pct}% complete</div>
         </div>
-      </div>
-      <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-        <div className="h-full rounded-full transition-all duration-500 ease-out" style={{ width: `${pct}%`, backgroundColor: "#5B2C9D" }} />
       </div>
       {log.length > 0 && (
         <div className="mt-5 border-t border-slate-100 pt-4 space-y-2 max-h-56 overflow-y-auto">

@@ -1,4 +1,5 @@
 import { formatDate } from "../utils/format";
+import { Donut } from "../components/Donut";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { intelApi, type BriefResult, type BriefSection, type JobStatus, type SourceRef } from "../services/intel-api";
@@ -105,19 +106,13 @@ function ProgressBar({
       )}
       <div className="flex items-center justify-between text-sm">
         <div className="flex items-center gap-2.5">
-          <div className="relative w-5 h-5 shrink-0">
-            <div className="absolute inset-0 rounded-full border-2 border-[#5B2C9D]/20" />
-            <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[#5B2C9D] animate-spin" />
-          </div>
+          <Donut value={pct} size={44} title={`Background research ${pct}%`} />
           <span className="text-slate-700 font-medium">{message || "Processing..."}</span>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-slate-400 tabular-nums">{timeStr}</span>
           <span className="text-slate-500 font-semibold tabular-nums">{pct}%</span>
         </div>
-      </div>
-      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-        <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: "linear-gradient(90deg, #5B2C9D, #7C4DFF)" }} />
       </div>
       {log.length > 0 && (
         <div className="pt-1 border-t border-slate-100">

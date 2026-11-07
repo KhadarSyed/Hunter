@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { Donut } from "../components/Donut";
 import * as XLSX from "xlsx";
 import { intelApi, type StrategyResult, type JobStatus } from "../services/intel-api";
 import { useActiveProjectId, useProject } from "../context/project-context";
@@ -147,10 +148,8 @@ function ScoreGauge({ score, max = 10, label }: { score: number; max?: number; l
   return (
     <div className="flex items-center gap-3">
       <span className="text-xs text-slate-500 w-32 shrink-0">{label}</span>
-      <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: color }} />
-      </div>
-      <span className="text-xs font-bold tabular-nums w-8 text-right" style={{ color }}>{score}/{max}</span>
+      <Donut value={pct} size={34} color={color} title={`${label}: ${score}/${max}`}>{score}</Donut>
+      <span className="text-xs font-bold tabular-nums" style={{ color }}>{score}/{max}</span>
     </div>
   );
 }
@@ -170,17 +169,11 @@ function ProgressBar({ pct, message, log }: { pct: number; message: string; log:
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-3">
       <div className="flex items-center gap-3">
-        <svg className="animate-spin h-5 w-5 shrink-0" style={{ color: V }} viewBox="0 0 24 24" fill="none">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
+        <Donut value={pct} size={48} title={`Search strategy ${pct}%`} />
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold text-slate-900 truncate">{message || "Generating search strategy..."}</div>
           <div className="text-xs text-slate-400 mt-0.5">{pct}% complete</div>
         </div>
-      </div>
-      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-        <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: V }} />
       </div>
       {log.length > 0 && (
         <div className="border-t border-slate-100 pt-3 space-y-2 max-h-56 overflow-y-auto">

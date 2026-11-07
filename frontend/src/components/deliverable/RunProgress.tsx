@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Donut } from "../Donut";
 import type { DeliverableProgress } from "../../services/intel-api";
 
 const STAGES = ["gate", "ingest", "routing", "plan", "classify", "compute", "insights", "template", "render", "qc",
@@ -36,27 +37,24 @@ export function RunProgress({ progress, isLive, failed }: { progress: Deliverabl
   // Recent runs' typical length keeps an early, fast stage from promising a too-short wait
   const typical = progress.typical_seconds && progress.pct < 100 ? Math.max(0, progress.typical_seconds - elapsed) : null;
   const remaining = linear === null ? typical : typical === null ? linear : Math.max(linear, typical);
-  const bar = failed ? "bg-red-500" : progress.pct >= 100 ? "bg-emerald-500" : "bg-[#5B2C9D]";
+  const ring = failed ? "#EF4444" : progress.pct >= 100 ? "#10B981" : "#5B2C9D";
 
   return (
     <div className="rounded-xl border border-violet-100 bg-white p-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
+      <div className="flex items-center justify-between gap-4">
+        <Donut value={progress.pct} size={64} color={ring} title={`Deck run ${progress.pct}%`} />
+        <div className="min-w-0 flex-1">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[#5B2C9D]">
             {step > 0 ? `Step ${step} of ${STAGES.length} · ${NAMES[progress.stage] ?? progress.stage}` : "Starting"}
           </p>
           <p className="mt-1 truncate text-sm font-medium text-slate-800">{progress.label}</p>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-2xl font-bold text-[#5B2C9D]">{progress.pct}%</p>
           <p className="text-[11px] text-slate-500">
             {isLive ? `${duration(elapsed)} elapsed` : null}
             {isLive && remaining !== null ? ` · ~${duration(remaining)} left` : null}
           </p>
         </div>
-      </div>
-      <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
-        <div className={`h-full rounded-full transition-all duration-500 ${bar}`} style={{ width: `${progress.pct}%` }} />
       </div>
     </div>
   );
