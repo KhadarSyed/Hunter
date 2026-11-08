@@ -138,9 +138,14 @@ class AzureOpenAIClient:
         self.reasoning_effort = os.getenv("AZURE_OPENAI_REASONING_EFFORT", "").strip().lower()
 
     def _payload(self, messages: list[dict]) -> dict:
-        payload: dict = {"messages": messages, "max_completion_tokens": MAX_OUTPUT_TOKENS}
-        if self.reasoning_effort:       # unset: the model's own default
-            payload["reasoning_effort"] = self.reasoning_effort
+        from . import llm_effort
+        task = llm_effort.current()            # a mechanical task asks for less thinking and a shorter reply
+        payload: dict = {"messages": messages, "max_completion_tokens": task.get("max_tokens") or MAX_OUTPUT_TOKENS}
+        effort = task.get("effort") or self.reasoning_effort
+        if effort:                      # unset: the model's own default
+            payload["reasoning_effort"] = effort
+        if task.get("verbosity"):
+            payload["verbosity"] = task["verbosity"]
         return payload
 
     def is_reachable(self) -> bool:

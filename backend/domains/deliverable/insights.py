@@ -201,6 +201,33 @@ def _channel_ask(segments: list[str]) -> str:
             '{"insights":[{"headline":"<channel name>","text":"<45-70 words>","citations":[ids]}]}')
 
 
+
+def _guardrail_words(valid: list, rejected: list) -> tuple[list, list]:
+    """Insights using a word the organization's guardrails prohibit (or a form of it) are rejected with that reason,
+    so the existing repair round rewrites them: junk vocabulary is fixed while drafting, not flagged after the deck."""
+    try:
+        from ..exclusions.service import org_of_project
+        from ..guardrails import check
+        from ..usage import service as usage
+        org = org_of_project(usage.current().get("project_id") or 0)
+        terms = check.prohibited_terms(org) if org else []
+    except Exception as e:
+        logger.warning("guardrail word check skipped: %s", type(e).__name__)
+        return valid, rejected
+    if not terms:
+        return valid, rejected
+    pats = [(t, check._pattern(t)) for t in terms]
+    kept = []
+    for item in valid:
+        text = f"{item[0]} {item[1]}"
+        hit = next((m.group(0) for _t, pat in pats for m in [pat.search(text)] if m), None)
+        if hit:
+            rejected = rejected + [(item[1], f"uses the prohibited word '{hit}' (organization guardrail); "
+                                              "rewrite the sentence naturally without it or any form of it")]
+        else:
+            kept.append(item)
+    return kept, rejected
+
 _DRAFT_SYSTEM = ("You write insights for a media-research deck, the way a senior media analyst "
     "does. The chart beside each insight already shows the shares and counts, so an insight never restates the "
     "headline figure; it explains WHY the pattern exists -- its drivers. Name the specific outlets, brands, products, people, "
@@ -306,6 +333,7 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
         reply = llm.chat(messages, format_json=True)
         valid, rejected = _screen(section, json.loads(reply), allowed, pairs, local, entities or [], headline_figs,
                                   owners=owners, related=related_segments)
+        valid, rejected = _guardrail_words(valid, rejected)
     except (json.JSONDecodeError, RuntimeError) as e:
         logger.warning("insight drafting for %s failed (%s); using fallback", section, e)
         from . import runlog

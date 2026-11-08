@@ -11,6 +11,7 @@ from ..core.llm_provider import extract_json_object
 from . import question_dimensions
 from .article_tagging import _conf, _text, tag_with_retry
 from .question_tag_schema import TagSchema, clean_article_tags
+from ..core import llm_effort
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,7 @@ def _result(rq, schema: TagSchema | None, article: dict, raw: dict) -> dict:
             "tags": tags, "evidence": evidence, "keywords": keyword_hits(rq.query, text)}
 
 
+@llm_effort.light_call(None)
 def _call(llm, rq, schema, batch: list[dict]) -> dict[int, dict]:
     user = (f"Research question: {rq.question}\nBoolean query: {rq.query}\nTag definitions: {_schema_text(schema)}\n\n"
             f"Articles to judge:\n{json.dumps([_payload(rq, a) for a in batch], ensure_ascii=False)}")

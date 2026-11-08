@@ -6,6 +6,7 @@ import logging
 import re
 
 from ...core.llm_provider import extract_json_object
+from ...core import llm_effort
 
 logger = logging.getLogger(__name__)
 _NUMBER = re.compile(r"\d+(?:\.\d+)?")
@@ -56,6 +57,7 @@ def _allowed(cats: list[str], values: list[float], percent: bool) -> set[str]:
             | {str(round(s)) for s in share.values()} | {str(i) for i in range(1, len(cats) + 1)})
 
 
+@llm_effort.light_call(2000)
 def readings(llm, question: str, title: str, cats: list[str], values: list[float], percent: bool,
              missing: list[str]) -> dict[str, str]:
     """{category: card text} for each of `missing`: GPT's reading where every number it uses is the chart's,

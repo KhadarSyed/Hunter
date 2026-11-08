@@ -10,6 +10,7 @@ import logging
 
 from ...core import store
 from .engine_types import EngineRow
+from ...core import llm_effort
 
 logger = logging.getLogger(__name__)
 BATCH = 8
@@ -56,6 +57,7 @@ def _clean(item: dict, schema: dict) -> dict | None:
     return out
 
 
+@llm_effort.light_call(4000)
 def _classify_batch(llm, batch: list[EngineRow], kind: str, example: str) -> dict:
     arts = [{"id": i, "title": r.article.title, "text": r.article.text[:MAX_TEXT]} for i, r in enumerate(batch)]
     messages = [

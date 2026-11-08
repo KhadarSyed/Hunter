@@ -8,6 +8,7 @@ import math
 
 from ..core.azure_openai_client import AzureOpenAIError
 from ..core.llm_provider import extract_json_object
+from ..core import llm_effort
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +115,7 @@ def _payload(article: dict) -> dict:
             "outlet": article.get("outlet"), "content": _body(article)}
 
 
+@llm_effort.light_call(None)
 def _call(llm, batch: list[dict], brand: str, competitors: list[str]) -> dict[int, dict]:
     user = (f"Brand of interest: {brand or '(not specified)'}\n"
             f"Known competitors: {', '.join(competitors) if competitors else '(none specified)'}\n\n"

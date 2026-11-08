@@ -6,6 +6,7 @@ import logging
 from io import BytesIO
 
 from PIL import Image, ImageOps
+from ...core import llm_effort
 
 logger = logging.getLogger(__name__)
 THUMB_PX = 512
@@ -54,6 +55,7 @@ def _slide_crop(data: bytes) -> str:
 UNAVAILABLE = "unavailable"
 
 
+@llm_effort.light_call(1000)
 def matches(llm, image_bytes: bytes, s, slide_label: str, exact: bool = False, own_brand: str = ""):
     """`exact`: the photo must show the subjects' first product itself (the cover's product box), not merely fit.
     `own_brand`: the photo must be recognisably that brand's (the deck's opening and closing slides)."""
@@ -89,6 +91,7 @@ _LOGO_SOURCE = (" The image was taken from the website {domain}: use what you kn
                 "namesake's site means NO even when the wordmark spells the name).")
 
 
+@llm_effort.light_call(1000)
 def is_logo_of(llm, image_bytes: bytes, brand: str, category: str = "", domain: str = "") -> bool | None:
     """Whether a candidate logo is the brand's own (Brandfetch records can carry a sister brand's wordmark).
     None = could not judge."""

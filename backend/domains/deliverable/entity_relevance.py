@@ -14,6 +14,7 @@ from dataclasses import replace
 from ...core import store
 from .engine_types import Section
 from .labels import canon
+from ...core import llm_effort
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ def _judged(category: str) -> dict[str, bool]:
     return next((r["value"] for r in rows if r["key"] == canon(category)), {}) or {}
 
 
+@llm_effort.light_call(3000)
 def _ask(llm, names: list[str], category: str, question: str) -> dict[str, bool]:
     prompt = ("A media-research deck about the category below charts names that articles mention. Some were pulled in "
               "by a keyword used in another sense (a video game, a software tool, a sports team where the category is "
