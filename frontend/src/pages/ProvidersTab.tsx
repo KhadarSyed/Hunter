@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Icon } from "@iconify/react";
 import { useAuth } from "../context/auth-context";
 import {
-  intelApi, type AuthOrganizationRow, type LlmProvider, type LlmProvidersResponse, type ProviderFields,
+  intelApi, type AuthOrganizationRow, type LlmOutage, type LlmProvider, type LlmProvidersResponse, type ProviderFields,
   type ProviderTestResult, type ProviderType,
 } from "../services/intel-api";
 import { PROVIDER_ICONS } from "../components/usage/ProviderLogo";
@@ -139,6 +139,24 @@ function ProviderForm({ orgId, editing, onDone, onCancel }:
   );
 }
 
+/** The live outage (org_llm_state): which model is failing, what work runs on now, or that AI steps are paused. */
+function OutageBanner({ outage, providers }: { outage: LlmOutage; providers: LlmProvider[] }) {
+  const acting = providers.find((p) => p.id === outage.acting_provider_id);
+  const since = new Date(outage.down_since * 1000).toLocaleString(undefined, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  const paused = Boolean(outage.paused);
+  return (
+    <div role="status" className={`rounded-xl border px-4 py-3 text-sm ${paused ? "border-red-200 bg-red-50 text-red-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+      <div className="font-semibold">
+        {paused ? `Every model is failing (since ${since}). AI steps are paused and retried every 5 minutes.`
+          : acting ? `Your default model is failing (since ${since}). Work is running on ${acting.name} for now.`
+          : `A model is failing (since ${since}).`}
+      </div>
+      {outage.last_error && <div className="mt-0.5 text-xs break-words opacity-90">Last error: {outage.last_error}</div>}
+      <div className="mt-0.5 text-xs opacity-80">{outage.failed_calls} failed call{outage.failed_calls === 1 ? "" : "s"}. This clears by itself when the default model answers again.</div>
+    </div>
+  );
+}
+
 /** Settings → LLM Providers: an organization's own chat model (OpenAI, Azure OpenAI, Claude, Gemini or any
  * OpenAI-compatible server). The default provider carries every chat call of the org's projects, with no fallback
  * to the platform model; with none, the org uses the platform model. Embeddings stay on the platform. */
@@ -226,6 +244,8 @@ export function ProvidersTab() {
               </button>
             )}
           </div>
+
+          {data.outage && <OutageBanner outage={data.outage} providers={data.providers} />}
 
           {data.providers.map((p) => (
             <div key={p.id} className={`rounded-xl border p-4 ${p.is_default ? "border-[#5B2C9D]/40" : "border-slate-200"}`}>

@@ -76,6 +76,7 @@ class ProvidersResponse(ApiModel):
     platform_model: str
     platform_llm: bool                  # the org may run on the platform model (InfoVision)
     providers: list[ProviderRecord]
+    outage: dict | None = None          # live outage: acting_provider_id, down_since, paused, last_error, failed_calls
 
 
 class TestResult(ApiModel):

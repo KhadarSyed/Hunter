@@ -1102,8 +1102,10 @@ export type ProviderFields = { name: string; provider_type: ProviderType; base_u
 export type LlmProvider = ProviderFields & { id: number; org_id: number; key_hint: string; is_default: boolean;
   status: "untested" | "ok" | "failed"; last_error: string; last_tested_at: number | null; last_latency_ms: number | null;
   updated_at: number };
+export type LlmOutage = { acting_provider_id: number | null; down_since: number; paused: number; last_error: string;
+  failed_calls: number };
 export type LlmProvidersResponse = { org_id: number; org_name: string; platform_model: string; platform_llm: boolean;
-  providers: LlmProvider[] };
+  providers: LlmProvider[]; outage: LlmOutage | null };
 export type ProviderTestResult = { ok: boolean; latency_ms: number; reply: string; error: string };
 export type AgentEvent = { id: number; actor: string; action: string; detail: Record<string, unknown> | null; at: number; run_id: number | null };
 export interface DeliverableLogLine { ts: number; message: string }

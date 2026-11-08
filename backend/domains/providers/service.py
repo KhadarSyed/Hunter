@@ -112,7 +112,7 @@ def route(org_id: int | None) -> list[dict] | None:
 
 def classify(e: BaseException) -> str | None:
     """'outage' (the provider is down: 5xx, 429, timeouts, dropped connections, an error inside a stream), 'config'
-    (a rejected key or unknown model: 401/403/404) or None (not the provider's fault: a cut-off reply, a bad request,
+    (a rejected key, no credits or unknown model: 401/402/403/404) or None (not the provider's fault: a cut-off reply, a bad request,
     bad JSON; the caller handles it)."""
     import requests
     if isinstance(e, ReplyCutOff):
@@ -125,7 +125,8 @@ def classify(e: BaseException) -> str | None:
     code = re.search(r"\b(?:HTTP |failed: )(\d{3})\b", msg)
     if code:
         n = int(code.group(1))
-        return "outage" if n >= 500 or n == 429 else "config" if n in (401, 403, 404) else None
+        # 402: the account's credits or billing ran out — the Admin must act, like a rejected key
+        return "outage" if n >= 500 or n == 429 else "config" if n in (401, 402, 403, 404) else None
     if re.search(r"not valid JSON|cut off", msg, re.I):
         return None
     if re.search(r"access|permission|api key|unauthori[sz]ed|forbidden", msg, re.I):

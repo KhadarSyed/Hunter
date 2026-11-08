@@ -34,6 +34,13 @@ def _put(org_id: int, st: dict | None) -> None:
         repo.save_outage(org_id, st)
 
 
+def snapshot(org_id: int) -> dict | None:
+    """The org's outage as the LLM Providers page shows it, or None when healthy."""
+    st = _get(org_id)
+    return None if st is None else {k: st.get(k) for k in ("acting_provider_id", "down_since", "paused", "last_error",
+                                                             "failed_calls")}
+
+
 def is_paused(org_id: int | None) -> bool:
     return bool(org_id) and bool((_get(org_id) or {}).get("paused"))
 

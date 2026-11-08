@@ -9,6 +9,7 @@ from __future__ import annotations
 import calendar
 import datetime as dt
 import logging
+import math
 import threading
 import time
 import uuid
@@ -230,7 +231,7 @@ def sweep(now: float | None = None) -> None:
         if due is not None:
             repo.update_subscription(s["id"], reminders=",".join(sorted(sent | {str(d) for d in REMINDER_DAYS
                                                                              if d >= due})))
-            _notify_org(s["org_id"], "reminder", s, days_left=max(1, int(days)))
+            _notify_org(s["org_id"], "reminder", s, days_left=max(1, math.ceil(days)))
 
 
 def _has_successor(sub: dict) -> bool:

@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from ...core import secret_box, store
 from ...core.auth import get_current_user
+from . import outage
 from . import repository as repo
 from . import service
 from .schemas import (ProviderCreate, ProviderRecord, ProvidersResponse, ProviderTestRequest, ProviderUpdate,
@@ -62,7 +63,8 @@ def list_providers(user: UserDep, org_id: int | None = None):
     return {"org_id": org, "org_name": store.get_organization_by_id(org)["name"],
             "platform_model": os.getenv("AZURE_OPENAI_MODEL", "") or "not configured",
             "platform_llm": store.org_uses_platform_llm(org),
-            "providers": [ProviderRecord.from_row(r) for r in repo.list_for_org(org)]}
+            "providers": [ProviderRecord.from_row(r) for r in repo.list_for_org(org)],
+            "outage": outage.snapshot(org)}
 
 
 @router.get("/llm-providers/status")

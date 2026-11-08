@@ -89,6 +89,9 @@ changed and why. Open the code only for the files a note or the map points to.
   Azure GPT-5). Only Khadar is a seeded Super Admin. Both orgs: Enterprise plan to 2027-11-08 (backfill).
   InfoVision has the "Instructions/Guardrail Prompt" guardrail (11,003 chars). Sweta Shah still has the
   first-login password-change flag (all her API calls 403 until she changes it).
+- Test orgs from the 3-org browser test (log #06): 9 Acme Retail, 10 Globex Media, 11 Initech Finance (all "Test
+  11081934"), accounts `khadar.syed+<org>-admin/-analystN@infovision.com`; harness `tests/e2e_3org/run.py`.
+- Working test model: BazaarLink `qwen3.7-flash` only; FreeModel 503, CodeCraft/RadoxAI 402, Puter unusable.
 - Project 1 "Casino Gaming" (InfoVision): Brief → Matching label done, Data set open, Deliverables locked.
 - Testing Org outage state: acting model NVIDIA (VyceAI in maintenance); a real "recovered" email goes out when
   VyceAI answers.
