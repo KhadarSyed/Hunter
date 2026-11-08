@@ -684,7 +684,7 @@ export const intelApi = {
   guardrailsCheck: (projectId: number, runId: number) =>
     get<GuardrailsCheck>(`/deliverable/${projectId}/runs/${runId}/guardrails`),
   guardrailsAiReview: (projectId: number, runId: number) =>
-    post<{ issues: GuardrailIssue[] }>(`/deliverable/${projectId}/runs/${runId}/guardrails/ai`, {}),
+    post<{ issues: GuardrailIssue[]; error?: string | null }>(`/deliverable/${projectId}/runs/${runId}/guardrails/ai`, {}),
   getContentPolicy: () => get<{ allow_editorial_images: boolean }>("/guardrails/policy"),
   setContentPolicy: (allow: boolean) => put<{ allow_editorial_images: boolean }>("/guardrails/policy", { allow_editorial_images: allow }),
   archiveOrganization: (orgId: number) => authPost<{ ok: boolean }>(`/organizations/${orgId}/archive`),

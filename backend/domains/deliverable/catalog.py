@@ -92,6 +92,8 @@ def plan_rq(llm, rq: RQ, rows: list[EngineRow]) -> tuple[dict, str]:
         plan = validate_plan(json.loads(llm.chat(messages, format_json=True)), rq.id)
     except (json.JSONDecodeError, TypeError, RuntimeError) as e:
         logger.warning("plan for %s failed (%s); using default plan", rq.id, e)
+        from . import runlog
+        runlog.note(f"{rq.id}: default analysis plan (AI plan unavailable)")
         plan = None
     if plan is None:
         return default_plan(rq, rows), "default"

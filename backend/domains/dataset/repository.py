@@ -119,7 +119,10 @@ def channel_counts(project_id: int) -> dict[str, int]:
 
 def articles_needing(project_id: int, phase: str, limit: int) -> list[dict]:
     # social rows go through the content phase too: content.fetch keeps the post's own text, with no network call
-    cond = {"content": "content_status = 'pending' AND rq_matched IS DISTINCT FROM 0 AND copy_of IS NULL",
+    # content: matched rows, and unmatched rows with too little text to match on yet (headline-only uploads), so a
+    # term only in the body can still bring the article in on the second match
+    cond = {"content": "content_status = 'pending' AND copy_of IS NULL AND (rq_matched IS DISTINCT FROM 0 OR "
+                       "LENGTH(COALESCE(summary, '')) + LENGTH(COALESCE(content, '')) < 400)",
             "tags": "tag_status IN ('pending', 'failed') AND content_status <> 'pending' AND rq_matched IS DISTINCT FROM 0 "
                     "AND copy_of IS NULL"}[phase]
     return _dicts(_run(f"SELECT id, norm_url, url, channel, title, summary, outlet, published, content, content_status, "

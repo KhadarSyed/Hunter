@@ -478,6 +478,9 @@ def _accept(data: bytes, role: str, title: str, subjects: Subjects | None, judge
     if subjects is None:
         return True, "no subject check", hd
     verdict = judge(data) if judge else None
+    if verdict == "unavailable":        # vision.UNAVAILABLE: no model could look — the text gate decides
+        ok = text_relevant(title, subjects)
+        return ok, "text (vision unavailable): " + ("names the subject" if ok else "does not name the subject"), hd
     if verdict is not None:
         return verdict, "vision: " + ("matches" if verdict else "off-topic"), hd
     if judge is not None:

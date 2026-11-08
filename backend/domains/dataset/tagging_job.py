@@ -98,16 +98,26 @@ def _workers() -> int:
 
 
 def _parallel(fn, items: list, workers: int, on_result, on_error=None) -> None:
-    """fn(item) on a pool; on_result(item, value) runs here as each lands. One failure is logged, not raised."""
+    """fn(item) on a pool; on_result(item, value) runs here as each lands. One failure is logged, not raised —
+    except "no model" (none configured, or the user's token allowance is used up): every batch would fail the same
+    way, so the phase stops and the job reports it."""
+    from ...core.llm_provider import NoChatProviderError
+    fatal = None
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(contextvars.copy_context().run, fn, it): it for it in items}
         for f in as_completed(futures):
             try:
                 on_result(futures[f], f.result())
+            except NoChatProviderError as e:
+                fatal = fatal or e
+                if on_error:
+                    on_error(futures[f])
             except Exception as e:
                 logger.warning("tagging step failed: %s", e)
                 if on_error:
                     on_error(futures[f])
+    if fatal:
+        raise fatal
 
 
 def _fresh(fn):
@@ -283,16 +293,24 @@ def _run_job(project_id: int, job_id: str, llm=None, only_rq: str | None = None)
         def rq_tags(only=None):
             _rq_phase(project_id, llm, prog, only)
             repo.inherit_rq_rows(project_id)            # ...and their original's research-question results
-        steps = (("match", match), ("content", lambda: _content_phase(project_id, prog)), ("article tags", tags),
+        # match again after the content phase: an article whose upload had no body text is matched on its full text
+        steps = (("match", match), ("content", lambda: _content_phase(project_id, prog)), ("match full text", match),
+                 ("article tags", tags),
                  ("themes", themes), ("RQ tags", rq_tags),
                  ("relations", lambda: _relations_phase(project_id, llm, prog)))
         if only_rq:
             steps = (("RQ tags", lambda: rq_tags(only_rq)),)
+        failed: list[str] = []
         for name, step in steps:
             try:
                 step()
-            except Exception:
+            except Exception as e:
                 logger.exception("Tagging phase %s failed for project %s", name, project_id)
+                failed.append(f"{name}: {e}"[:200])
+        if failed:          # never "completed" with articles left untagged: the analyst sees why
+            store.update_job(job_id, status="failed", progress_pct=100, result=repo.tagging_counts(project_id),
+                             error="Tagging stopped — " + "; ".join(failed)[:480])
+            return
         store.update_job(job_id, status="completed", progress_pct=100, result=repo.tagging_counts(project_id))
         if not only_rq:         # a full run: the owner reviews and approves the data set next
             from ..deliverable import notify

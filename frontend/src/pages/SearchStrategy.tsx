@@ -556,6 +556,10 @@ export function SearchStrategy({ onNavigate }: Props) {
               <p className="text-sm text-white/80 mt-0.5" style={{ textShadow: "0 1px 3px rgba(0,0,0,0.6)" }}>
                 Meltwater Boolean queries for <span className="font-medium text-white">{activeProject?.name ?? "Research Project"}</span>
               </p>
+              {strat._strategy_source === "deterministic" && (
+                <span title="The AI model was unavailable, so these queries were built from rules. Regenerate when the model is back for a sharper strategy."
+                  className="mt-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800">Rule-based (AI unavailable)</span>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">

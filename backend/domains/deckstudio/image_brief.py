@@ -2,8 +2,11 @@
 subject with analysis jargon removed. Queries go from most specific (brand + product) to most general (category)."""
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, replace
+
+logger = logging.getLogger(__name__)
 
 MAX_QUERIES = 4
 _WORD = re.compile(r"[A-Za-z][A-Za-z'&-]+")
@@ -71,7 +74,10 @@ def scenes(llm, slides, brands: list[str], products: list[str], category: str) -
         import json
         reply = json.loads(llm.chat([{"role": "system", "content": _SCENE_PROMPT},
                                      {"role": "user", "content": f"{context}\n{listing}"}], format_json=True) or "{}")
-    except Exception:       # the deterministic topic is used instead
+    except Exception as e:       # the deterministic topic is used instead
+        logger.warning("slide image scenes unavailable (%s); using the slide topics", type(e).__name__)
+        from ..deliverable import runlog
+        runlog.note("photo searches use the slide topics (scene writer unavailable)")
         return {}
     subject = Subjects(brands=brands, products=products, category=category, scene="")
     return {sid: " ".join(str(text).split()[:SCENE_WORDS]) for sid, text in reply.items()

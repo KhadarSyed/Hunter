@@ -74,8 +74,9 @@ def purge_expired() -> int:
 
 # ─── long_term: exact GPT answer recall ──────────────────────────────────────
 
-def llm_key(model: str, messages: list[dict], format_json: bool) -> str:
-    raw = json.dumps([model, format_json, messages], sort_keys=True, default=str)
+def llm_key(model: str, messages: list[dict], format_json: bool, org=None) -> str:
+    """The prompt cache key. The org is part of it: one organization never gets another's cached answer."""
+    raw = json.dumps([org, model, format_json, messages], sort_keys=True, default=str)
     return hashlib.sha256(raw.encode()).hexdigest()
 
 

@@ -63,6 +63,8 @@ def _ask(llm, question: str, labels: list[dict]) -> list[dict]:
         reply = json.loads(llm.chat([{"role": "user", "content": prompt}], format_json=True))
     except Exception as e:      # the tagger's own labels stand: unconsolidated beats a wrong merge
         logger.warning("theme consolidation unavailable: %s", type(e).__name__)
+        from . import runlog
+        runlog.note("themes kept as tagged (consolidation unavailable)")
         return []
     return (reply.get("themes") or []) if isinstance(reply, dict) else []
 

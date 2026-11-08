@@ -50,11 +50,15 @@ def _slide_crop(data: bytes) -> str:
     return base64.b64encode(out.getvalue()).decode("ascii")
 
 
-def matches(llm, image_bytes: bytes, s, slide_label: str, exact: bool = False, own_brand: str = "") -> bool | None:
+# vision could not look at all (no model, or the call failed): the caller falls back to the text gate
+UNAVAILABLE = "unavailable"
+
+
+def matches(llm, image_bytes: bytes, s, slide_label: str, exact: bool = False, own_brand: str = ""):
     """`exact`: the photo must show the subjects' first product itself (the cover's product box), not merely fit.
     `own_brand`: the photo must be recognisably that brand's (the deck's opening and closing slides)."""
     if llm is None or not getattr(llm, "is_reachable", lambda: False)():
-        return None
+        return UNAVAILABLE
     if own_brand:
         text = _OWN_BRAND_PROMPT.format(brand=own_brand)
     elif exact and s.products:
@@ -70,7 +74,7 @@ def matches(llm, image_bytes: bytes, s, slide_label: str, exact: bool = False, o
             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{_slide_crop(image_bytes)}"}}]}])
     except Exception as e:      # the text gate still applies when vision is unavailable
         logger.warning("vision check skipped: %s", type(e).__name__)
-        return None
+        return UNAVAILABLE
     head = (reply or "").strip().upper()
     return True if head.startswith("YES") else False if head.startswith("NO") else None
 

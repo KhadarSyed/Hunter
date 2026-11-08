@@ -123,10 +123,19 @@ def list_deliverable_sections(run_id: int) -> list[dict]:
     return [json.loads(r["payload_json"]) for r in rows]
 
 
-def get_cached_classification(norm_url: str, field: str) -> Optional[list]:
+CLASSIFICATION_MAX_AGE_S = 30 * 86400
+
+
+def get_cached_classification(norm_url: str, field: str, model: str | None = None) -> Optional[list]:
+    """A saved classification, reused only while it is under 30 days old and (when given) made by the same model:
+    a better model, or an article that changed, gets classified again."""
     conn = _conn()
-    row = conn.execute("SELECT value_json FROM intel_article_classifications WHERE norm_url = ? AND field = ?",
-                       (norm_url, field)).fetchone()
+    sql = "SELECT value_json FROM intel_article_classifications WHERE norm_url = ? AND field = ? AND created_at > ?"
+    params: list = [norm_url, field, time.time() - CLASSIFICATION_MAX_AGE_S]
+    if model:
+        sql += " AND model = ?"
+        params.append(model)
+    row = conn.execute(sql, tuple(params)).fetchone()
     conn.close()
     return json.loads(row["value_json"]) if row else None
 

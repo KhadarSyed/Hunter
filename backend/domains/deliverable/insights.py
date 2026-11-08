@@ -308,6 +308,8 @@ def draft_section(section: str, facts: list[str], candidates: list[Article], reg
                                   owners=owners, related=related_segments)
     except (json.JSONDecodeError, RuntimeError) as e:
         logger.warning("insight drafting for %s failed (%s); using fallback", section, e)
+        from . import runlog
+        runlog.note(f"{section}: rule-based fact cards instead of AI insights")
         return _fallback(facts, candidates, registry)
     if rejected and len(valid) < n_insights:
         # one repair round: show the model exactly why each insight failed and ask for replacements

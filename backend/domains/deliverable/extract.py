@@ -98,8 +98,9 @@ def extract(llm, rows: list[EngineRow], kind: str, progress=None) -> dict[str, l
     schema = FIELDS[kind]
     out: dict[str, list[dict]] = {}
     todo = []
+    model = getattr(llm, "model", "") or getattr(llm, "model_name", "") or "azure-openai"
     for row in rows:
-        cached = store.get_cached_classification(row.article.norm_url, kind)
+        cached = store.get_cached_classification(row.article.norm_url, kind, model)
         if cached is None:
             todo.append(row)
         else:
@@ -111,7 +112,6 @@ def extract(llm, rows: list[EngineRow], kind: str, progress=None) -> dict[str, l
         return out
     if llm is None or not getattr(llm, "is_reachable", lambda: False)():
         raise ExtractionUnavailable("Azure OpenAI is not reachable")
-    model = getattr(llm, "model_name", "") or "azure-openai"
     example = json.dumps({k: (v[0] if v else "") for k, v in schema.items()})
     batches = [todo[start:start + BATCH] for start in range(0, len(todo), BATCH)]
     with ThreadPoolExecutor(max_workers=EXTRACT_WORKERS) as pool:

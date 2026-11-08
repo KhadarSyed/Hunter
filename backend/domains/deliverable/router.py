@@ -135,8 +135,11 @@ def guardrails_ai_review(project_id: ProjectId, run_id: RunId, _: Access):
         raise HTTPException(404, "The deck file is not available yet")
     org = org_of_project(project_id)
     with usage.scope(project_id=project_id, org_id=org, stage="deck_engine", sub_stage="guardrails_review"):
-        issues = check.ai_review(org, check.deck_slides(path), get_llm_client()) if org else []
-    return {"issues": issues}
+        try:
+            issues = check.ai_review(org, check.deck_slides(path), get_llm_client()) if org else []
+        except check.ReviewFailed as e:
+            return {"issues": [], "error": str(e)}
+    return {"issues": issues, "error": None}
 
 
 @router.get("/deliverable/{project_id}/runs/{run_id}/download/{kind}", response_class=FileResponse)

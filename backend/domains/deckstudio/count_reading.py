@@ -73,6 +73,8 @@ def readings(llm, question: str, title: str, cats: list[str], values: list[float
         cards = extract_json_object(reply or "").get("cards") or {}
     except Exception as e:          # the plain reading stands
         logger.warning("count reading failed: %s", e)
+        from ..deliverable import runlog
+        runlog.note("a chart keeps its plain count reading (AI unavailable)")
         return out
     allowed = _allowed(cats, values, percent)
     for g in missing:

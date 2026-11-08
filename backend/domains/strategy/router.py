@@ -641,7 +641,9 @@ def generate_search_strategy(req: GenerateStrategyRequest, user: Annotated[dict,
 
             strategy_result = _no_geographic_exclusions(
                 _only_brief_questions(_brand_wide_queries(_quoted_phrases(strategy_result), spec), spec))
-            logger.info("[strategy:%s] LLM strategy generation succeeded — validating Boolean syntax", job_id)
+            source = (strategy_result or {}).get("_strategy_source", "llm") if isinstance(strategy_result, dict) else "llm"
+            logger.info("[strategy:%s] %s strategy ready — validating Boolean syntax", job_id,
+                        "Rule-based (deterministic)" if source == "deterministic" else "LLM")
             store.update_job(job_id, progress_pct=80,
                              progress_message="Validating Boolean syntax")
 

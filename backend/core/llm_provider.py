@@ -26,6 +26,20 @@ from .config import Settings
 logger = logging.getLogger(__name__)
 
 
+def _parses(text: str) -> bool:
+    """True when a JSON reply is usable: plain JSON (object or array) or an object inside fences/preamble."""
+    try:
+        json.loads(text)
+        return True
+    except (ValueError, TypeError):
+        pass
+    try:
+        extract_json_object(text or "")
+        return True
+    except ValueError:
+        return False
+
+
 def extract_json_object(text: str) -> dict:
     """The first JSON object in chat output, tolerating markdown fences, preamble and trailing commentary.
     Raises ValueError (json.JSONDecodeError included) when there is none."""
@@ -149,7 +163,8 @@ class HybridLLMClient:
         model = (f"{getattr(backend, 'deployment', '')}:{getattr(backend, 'reasoning_effort', '')}" if backend
                  else f"{rows[0]['model']}:")
         from ..domains.memory import service as memory     # lazy: memory imports store, which imports core
-        key = memory.llm_key(model, messages, format_json)
+        from ..domains.usage import service as usage
+        key = memory.llm_key(model, messages, format_json, org=org if org is not None else usage.current().get("org_id"))
         # the same prompt twice on one client is a retry of an answer the caller rejected: ask GPT again
         cached = memory.recall_llm(key) if key not in self._asked else None
         self._asked.add(key)
@@ -165,8 +180,21 @@ class HybridLLMClient:
         from ..domains.billing import service as billing
         billing.check_tokens()
         text = self._invoke(org, rows, lambda b: b.chat(messages, on_token=on_token, format_json=format_json))
-        memory.remember_llm(key, text)
+        if not format_json or _parses(text):     # a broken JSON reply is never reused from the cache
+            memory.remember_llm(key, text)
         return text
+
+    @property
+    def model(self) -> str:
+        """The model that answers now (the platform deployment or the org's first model) — for records like a
+        spec's llm_model; 'unknown' when no model is configured."""
+        try:
+            org, rows = self._route()
+            if rows:
+                return rows[0]["model"] or "unknown"
+            return getattr(self._chat_backend, "deployment", "") or "unknown"
+        except Exception:
+            return "unknown"
 
     def chat_tools(self, messages: list[dict], tools: list[dict], tool_choice: str = "auto") -> dict:
         org, rows = self._route()

@@ -106,6 +106,10 @@ def scan(slides: list[dict], terms: list[str]) -> list[dict]:
     return issues
 
 
+class ReviewFailed(RuntimeError):
+    """The AI review did not run: reported as an error, never as "no issues"."""
+
+
 def ai_review(org_id: int, slides: list[dict], llm) -> list[dict]:
     """One call: the org's model judges the deck against the full guardrail text (meaning-level rules only — the
     word list is checked in Python). Returns [{slide, rule, excerpt, suggestion}]; [] on any failure."""
@@ -131,7 +135,7 @@ def ai_review(org_id: int, slides: list[dict], llm) -> list[dict]:
                 for i in data.get("issues") or [] if isinstance(i, dict) and i.get("excerpt")]
     except Exception as e:
         logger.warning("guardrails AI review failed: %s", type(e).__name__)
-        return []
+        raise ReviewFailed(f"The AI review could not run ({type(e).__name__}); the word check above still applies") from e
 
 
 def check_deck(org_id: int, pptx_path: str | Path) -> dict:

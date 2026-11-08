@@ -11,6 +11,7 @@ export function GuardrailsCheck({ projectId, runId }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [open, setOpen] = useState(false);
+  const [aiError, setAiError] = useState("");
 
   useEffect(() => {
     setResult(null); setAi(null); setError("");
@@ -20,7 +21,11 @@ export function GuardrailsCheck({ projectId, runId }: Props) {
 
   const review = async () => {
     setBusy(true); setError("");
-    try { setAi((await intelApi.guardrailsAiReview(projectId, runId)).issues); setOpen(true); }
+    setAiError("");
+    try {
+      const r = await intelApi.guardrailsAiReview(projectId, runId);
+      if (r.error) setAiError(r.error); else { setAi(r.issues); setOpen(true); }
+    }
     catch (e) { setError(e instanceof Error ? e.message.replace(/^\d+:\s*/, "") : "AI review failed"); }
     finally { setBusy(false); }
   };
@@ -57,6 +62,7 @@ export function GuardrailsCheck({ projectId, runId }: Props) {
           </button>
         </div>
       </div>
+      {aiError && <p role="alert" className="mt-2 text-xs text-red-700">{aiError}</p>}
       {open && all.length > 0 && (
         <div className="mt-3 max-h-80 overflow-auto rounded-lg border border-slate-200 bg-white">
           <table className="w-full text-xs">

@@ -17,6 +17,7 @@ from pptx import Presentation
 
 from ...core import config, store, writing_locale
 from ...core.events import broadcast
+from . import runlog
 from . import (analytics, brand_kit, catalog, engine_insights, extract, factcheck, generic_deck, templates_index,
                visuals, word_brief)
 from . import brand_analytics, chart_choice, entity_relevance, evidence, latest24h, notify, repair_context, tag_insights
@@ -248,6 +249,7 @@ def _theme_subtitle(brand: str, project: dict, llm) -> str:
             brand=brand, objective=str(objective)[:400], brief=brief[:1500])}])
     except Exception as e:        # the cover still opens on the project-name subtitle
         logger.warning("cover subtitle from the brief failed (%s); using the project name", type(e).__name__)
+        runlog.note("cover subtitle is the project name (AI unavailable)")
         return fallback
     text = " ".join(str(reply or "").strip().strip('"').split())
     words = text.split()
@@ -401,6 +403,7 @@ def _makers(llm, names: list[str], brands: list[str]) -> dict[str, str]:
         reply = json.loads(llm.chat([{"role": "user", "content": prompt}], format_json=True))
     except Exception as e:      # no mapping: the labels keep their letter badges
         logger.warning("product makers not resolved: %s", type(e).__name__)
+        runlog.note("product labels keep letter badges (maker check unavailable)")
         return {}
     makers = (reply or {}).get("makers") or {}
     return {n: makers[n] for n in names if makers.get(n) in brands}
@@ -665,7 +668,9 @@ def _brands(project: dict, rqs) -> list:
 
 def run_engine(run_id: int, project_id: int, llm) -> None:
     from ..usage.service import scope as usage_scope
-    with usage_scope(project_id=project_id, stage="deck_engine"):
+    from ..memory import service as memory
+    # every deck run is a user-asked (re)generation: no cached AI answer is replayed (new answers are still saved)
+    with usage_scope(project_id=project_id, stage="deck_engine"), memory.fresh():
         _run_engine(run_id, project_id, llm)
 
 
@@ -673,6 +678,7 @@ def _run_engine(run_id: int, project_id: int, llm) -> None:
     current, run = "gate", None
     try:        # a setup read failing here must still mark the run failed, or it stays 'running' (409) for good
         run = _Run(run_id, project_id)
+        runlog.bind(run.log)            # fallbacks anywhere in this run show in its log
         # every drafting call writes in the project's country/region language (Global: US English)
         llm = writing_locale.with_locale(llm, writing_locale.project_geography(store.get_project(project_id)))
         run.stage("gate", "running")

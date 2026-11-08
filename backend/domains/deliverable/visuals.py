@@ -14,6 +14,7 @@ import requests
 from PIL import Image, UnidentifiedImageError
 
 from ..assets import service as assets
+from . import runlog
 from . import style
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,7 @@ def palette_from_logo(path: Path | None) -> list[str]:
     return out
 
 
+MAX_LOGO_CHECKS = 40           # vision logo checks per deck run (about 6-7 brands at LOGO_TRIES each)
 LOGO_TRIES = 6           # candidate images tried per brand before falling back to a letter badge
 _CDN = "https://cdn.brandfetch.io"
 
@@ -117,7 +119,10 @@ def logos(names: list[str], folder: Path, judge=None, hint: str = "") -> dict[st
             tried.add(url)
             k += 1
             path = _fetch_logo(url, folder / f"{stem}_{k}.png")
-            ok = path and (judge is None or judge(path.read_bytes(), name, domain) is not False)
+            # the vision logo check is capped per deck run (MAX_LOGO_CHECKS); past the cap a fetched logo is kept as
+            # the brand's own (Brandfetch / its site), as when no vision model is configured
+            look = judge is not None and runlog.take("logo_vision", MAX_LOGO_CHECKS)
+            ok = path and (not look or judge(path.read_bytes(), name, domain) is not False)
             if ok:
                 chosen.update(url=url, domain=domain)
             return path if ok else None

@@ -40,6 +40,8 @@ def _ask(llm, names: list[str], category: str, question: str) -> dict[str, bool]
         reply = json.loads(llm.chat([{"role": "user", "content": prompt}], format_json=True))
     except Exception as e:      # an unjudged name is kept: no verdict is better than a wrong one
         logger.warning("entity relevance check unavailable: %s", type(e).__name__)
+        from . import runlog
+        runlog.note("every brand name kept (relevance check unavailable)")
         return {}
     keep = {canon(n) for n in reply.get("relevant") or []}
     drop = {canon(n) for n in reply.get("not_relevant") or []}
