@@ -86,7 +86,9 @@ changed and why. Open the code only for the files a note or the map points to.
 ## Current state (2026-11-08)
 
 - Orgs: InfoVision (org 5; admins Sweta Shah, Harish), Testing Org (org 6; VyceAI agnes default, NVIDIA Nemotron,
-  Azure GPT-5). Only Khadar is a seeded Super Admin. Both orgs: Enterprise plan to 2027-11-08 (backfill).
+  Azure GPT-5). Super Admin (global) = Harish Thulasiram (seeded in `core/auth.SEED_SUPER_ADMIN_EMAIL` since
+  2026-11-08). Khadar is now an Admin of InfoVision (org 5) alongside Sweta Shah (local DB; prod keeps Khadar as
+  Super Admin until changed there — the seed only promotes, never demotes). Both orgs: Enterprise plan to 2027-11-08 (backfill).
   InfoVision has the "Instructions/Guardrail Prompt" guardrail (11,003 chars). Sweta Shah still has the
   first-login password-change flag (all her API calls 403 until she changes it).
 - Test orgs from the 3-org browser test (log #06): 9 Acme Retail, 10 Globex Media, 11 Initech Finance (all "Test

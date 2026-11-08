@@ -24,14 +24,14 @@ from fastapi import Cookie, Depends, HTTPException, Path, Request, Response, sta
 logger = logging.getLogger(__name__)
 
 SESSION_COOKIE_NAME = "session_token"
-SEED_SUPER_ADMIN_EMAIL = "khadar.syed@infovision.com"
+SEED_SUPER_ADMIN_EMAIL = "harish.thulasiram@infovision.com"
 # While must_change_password is set, a user may only reach these (everything else answers 403).
 MUST_CHANGE_ALLOWED_PATHS = frozenset({"/api/auth/change-password", "/api/auth/me", "/api/auth/logout"})
 
 
 SEED_ORGANIZATION = "InfoVision"
 SEED_SUPER_ADMINS = (
-    (SEED_SUPER_ADMIN_EMAIL, "Khadar Syed"),
+    (SEED_SUPER_ADMIN_EMAIL, "Harish Thulasiram"),
 )
 
 
