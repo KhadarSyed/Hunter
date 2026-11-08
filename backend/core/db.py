@@ -1608,9 +1608,12 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
         )""",
         "CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id)",
         "CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token_hash)"]),
-    # one organization per name, ignoring case and surrounding spaces (the routes check first; this is the backstop)
+    # one organization per name, ignoring case and surrounding spaces (the routes check first; this is the backstop).
+    # A database that already holds a duplicate name skips the index rather than failing startup; the routes still
+    # refuse any new duplicate.
     (48, "unique organization names", [
-        "CREATE UNIQUE INDEX IF NOT EXISTS ux_organizations_name ON organizations (lower(trim(name)))"]),
+        "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM organizations GROUP BY lower(trim(name)) HAVING COUNT(*) > 1) THEN "
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_organizations_name ON organizations (lower(trim(name))); END IF; END $$"]),
 ]
 
 
