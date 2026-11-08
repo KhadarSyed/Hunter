@@ -87,7 +87,7 @@ export interface UploadedFile { id: number; file_name: string; s3_key: string | 
 export interface UploadResult { files: UploadFileResult[]; added: number; duplicates: number; traditional: number; social: number }
 
 /** The research-question panel on the Data set page (GET /articles/{id}/rqs and the per-RQ routes). */
-export interface TagSchemaField { name: string; type: string; values: string[] }
+export interface TagSchemaField { name: string; type: string; definition?: string; values: string[] }
 export interface RqCounts { matched: number; tagged: number; approved: number; needs_tagging: number; query_changed: number }
 export interface RqSummary { rq_id: string; question: string; query: string; status: string; counts: RqCounts; schema: { fields: TagSchemaField[] } }
 export interface RqArticleRef { id: number; title: string }

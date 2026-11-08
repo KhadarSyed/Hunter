@@ -285,7 +285,7 @@ def _guard(project_id: int) -> None:
 
 
 def _schema_view(schema) -> dict:
-    return {"fields": [{"name": t.tag_name, "type": t.tag_type, "values": list(t.allowed_values)}
+    return {"fields": [{"name": t.tag_name, "type": t.tag_type, "definition": t.definition, "values": list(t.allowed_values)}
                        for t in (schema.tags if schema else [])]}
 
 

@@ -230,6 +230,10 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-4 px-6 py-8">
+      <button type="button" onClick={() => onNavigate?.("matching-label")}
+        className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">
+        ← Back to Matching label
+      </button>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-4">
           <button type="button" onClick={() => void matchRqs()} disabled={running || matching || allArticles === 0}
