@@ -65,6 +65,20 @@ def list_providers(user: UserDep, org_id: int | None = None):
             "providers": [ProviderRecord.from_row(r) for r in repo.list_for_org(org)]}
 
 
+@router.get("/llm-providers/status")
+def provider_status(user: UserDep):
+    """Any member: does the active org have a model? (New Project warns before the first AI step would fail.)"""
+    org = user.get("org_id")
+    if not org:
+        return {"ready": True, "source": "platform", "model": os.getenv("AZURE_OPENAI_MODEL", "")}
+    row = repo.default_for_org(org)
+    if row:
+        return {"ready": True, "source": "org", "model": row["model"], "name": row["name"]}
+    if store.org_uses_platform_llm(org):
+        return {"ready": True, "source": "platform", "model": os.getenv("AZURE_OPENAI_MODEL", "")}
+    return {"ready": False, "source": "none", "model": "", "can_manage": user["role"] in ("admin", "super_admin")}
+
+
 @router.post("/llm-providers", response_model=ProviderRecord)
 def create_provider(body: ProviderCreate, user: UserDep):
     org = _org(user, body.org_id)

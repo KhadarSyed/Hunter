@@ -42,6 +42,8 @@ interface Props {
  * is clicked — "Save Draft" is browser-only.
  */
 export function NewProject({ onNavigate, projectType = "research", mode = "new" }: Props) {
+  const [llm, setLlm] = useState<{ ready: boolean; can_manage?: boolean } | null>(null);
+  useEffect(() => { intelApi.llmProviderStatus().then(setLlm).catch(() => setLlm(null)); }, []);
   const { activeProject, setActiveProject } = useProject();
   const editingId = mode === "edit" ? activeProject?.id ?? null : null;
   const draft = editingId ? null : loadDraft();
@@ -241,6 +243,15 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
         </p>
         {draft && <span className="text-xs text-slate-400">Draft from {formatDate(draft.savedAt)}</span>}
       </div>
+
+      {llm && !llm.ready && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="alert">
+          <b>Your organization has no AI model yet.</b>{" "}
+          {llm.can_manage
+            ? <>Add one in <button type="button" onClick={() => onNavigate("settings")} className="font-semibold underline">Settings → LLM Providers</button> before analysing a brief.</>
+            : "Ask your organization admin to add one in Settings → LLM Providers before analysing a brief."}
+        </div>
+      )}
 
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-5">
         <div className="grid grid-cols-2 gap-5">

@@ -906,6 +906,9 @@ export const intelApi = {
   addExclusion: (kind: ExclusionKind, value: string) => post<ExclusionRecord>("/exclusions", { kind, value }),
   deleteExclusion: (id: number) => del<{ ok: boolean }>(`/exclusions/${id}`),
 
+  /** Whether the active org has a model (its own provider, or the platform model for InfoVision). */
+  llmProviderStatus: () => get<{ ready: boolean; source: "org" | "platform" | "none"; model: string; name?: string;
+    can_manage?: boolean }>("/llm-providers/status"),
   /** An organisation's own chat LLM providers (Settings → LLM Providers); the key is write-only. */
   listLlmProviders: (orgId?: number) => get<LlmProvidersResponse>(`/llm-providers${orgId ? `?org_id=${orgId}` : ""}`),
   createLlmProvider: (body: ProviderFields & { org_id?: number; api_key: string }) =>

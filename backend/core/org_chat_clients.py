@@ -15,7 +15,7 @@ import json
 import time
 from typing import Callable, Optional
 
-from .azure_openai_client import MAX_OUTPUT_TOKENS, AzureOpenAIClient, _http_reason, _post, _record
+from .azure_openai_client import MAX_OUTPUT_TOKENS, AzureOpenAIClient, ReplyCutOff, _http_reason, _post, _record
 
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
 ANTHROPIC_BASE_URL = "https://api.anthropic.com"
@@ -132,7 +132,7 @@ class OpenAICompatClient:
                 raise
             text, _, finish = self._stream({"messages": messages}, "chat", on_token)   # no JSON mode: the prompt asks
         if finish == "length":     # raised, not returned: a cut-off reply is never cached
-            raise ProviderCallError("Reply cut off at the provider's output limit")
+            raise ReplyCutOff("Reply cut off at the provider's output limit")
         return text
 
     def chat_tools(self, messages: list[dict], tools: list[dict], tool_choice: str = "auto") -> dict:
@@ -235,7 +235,7 @@ class AnthropicClient:
              format_json: bool = False) -> str:
         body = self._send(messages, "chat", format_json=format_json)
         if body.get("stop_reason") == "max_tokens":
-            raise ProviderCallError(f"Reply cut off at max_tokens={MAX_OUTPUT_TOKENS}")
+            raise ReplyCutOff(f"Reply cut off at max_tokens={MAX_OUTPUT_TOKENS}")
         text = "".join(b.get("text", "") for b in body.get("content") or [] if b.get("type") == "text")
         if on_token and text:
             on_token(text)

@@ -130,8 +130,11 @@ class HybridLLMClient:
         if not org_name:
             return fn(*args, **kwargs)
         from ..domains.providers.service import OrgProviderError
+        from .azure_openai_client import ReplyCutOff
         try:
             return fn(*args, **kwargs)
+        except ReplyCutOff:
+            raise           # a reply problem the caller handles (re-pack smaller), not a provider failure
         except Exception as e:
             raise OrgProviderError(f"Org provider '{org_name}' failed: {e}") from e
 

@@ -24,6 +24,11 @@ class AzureOpenAIError(RuntimeError):
     pass
 
 
+class ReplyCutOff(AzureOpenAIError):
+    """The model stopped at its output limit: a reply problem, not a provider failure. Callers that batch (the
+    tagging agents) catch AzureOpenAIError and re-pack smaller; an org provider raises it too, unwrapped."""
+
+
 ATTEMPTS = 3
 BACKOFF_S = (2, 6)                   # waits before the 2nd and 3rd attempt
 # a dropped network (DNS gone for a minute, run 128) is waited out ~2 min, counted apart from server errors
@@ -172,7 +177,7 @@ class AzureOpenAIClient:
             _record(body.get("model") or self.deployment, "chat", body.get("usage"), started)
             choice = body["choices"][0]
             if choice.get("finish_reason") == "length":     # raised, not returned: a cut-off reply is never cached
-                raise AzureOpenAIError(f"Azure OpenAI reply cut off at max_completion_tokens={MAX_OUTPUT_TOKENS}")
+                raise ReplyCutOff(f"Azure OpenAI reply cut off at max_completion_tokens={MAX_OUTPUT_TOKENS}")
             return choice["message"]["content"]
 
         payload["stream"] = True
@@ -209,7 +214,7 @@ class AzureOpenAIClient:
         _record(model or self.deployment, "chat", usage, started, error=usage is None and not done,
                 reason="Stream ended before [DONE]")
         if cut_off:
-            raise AzureOpenAIError(f"Azure OpenAI reply cut off at max_completion_tokens={MAX_OUTPUT_TOKENS}")
+            raise ReplyCutOff(f"Azure OpenAI reply cut off at max_completion_tokens={MAX_OUTPUT_TOKENS}")
         if not done:        # partial text is raised, not returned, so it is never cached as the answer
             raise AzureOpenAIError("Azure OpenAI stream ended before [DONE]")
         return "".join(full)
