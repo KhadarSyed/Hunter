@@ -1190,9 +1190,10 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
       )}
 
       {!isApproved && (
-        <div className="flex items-center justify-between pt-2">
-          <button onClick={() => onNavigate("projects")} className="text-sm text-slate-400 hover:text-slate-600 transition-colors">
-            Back to Projects
+        <div className="sticky bottom-0 z-20 -mx-8 -mb-8 px-8 py-3 flex items-center justify-between gap-4 border-t border-slate-200 bg-white/95 backdrop-blur">
+          <button onClick={() => onNavigate("projects")}
+            className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
+            ← Back to Projects
           </button>
           <div className="flex items-center gap-3">
             <button
@@ -1216,16 +1217,17 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
       )}
 
       {isApproved && (
-        <div className="flex items-center justify-between pt-2">
-          <button onClick={() => onNavigate("projects")} className="text-sm text-slate-400 hover:text-slate-600 transition-colors">
-            Back to Projects
+        <div className="sticky bottom-0 z-20 -mx-8 -mb-8 px-8 py-3 flex items-center justify-between gap-4 border-t border-slate-200 bg-white/95 backdrop-blur">
+          <button onClick={() => onNavigate("projects")}
+            className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
+            ← Back to Projects
           </button>
           <button
             onClick={() => onNavigate("background-research")}
             className="px-5 py-2.5 text-sm font-medium text-white rounded-lg transition-all shadow-sm"
             style={{ backgroundColor: "#5B2C9D" }}
           >
-            Proceed to Background Research
+            Proceed to Background Research →
           </button>
         </div>
       )}
