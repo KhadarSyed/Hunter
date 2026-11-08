@@ -16,7 +16,7 @@ from io import BytesIO
 from pathlib import Path
 
 import requests
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from PIL import Image, ImageOps
 
 from ...core import serp_keys
@@ -54,8 +54,74 @@ class Photo:
     why: str = ""
 
 
-def _pexels(query: str) -> list[dict]:
-    key = os.environ.get("PEXEL_API_KEY", "")
+# ─── licence policy (Instructions/image-licensing-legal-note.md) ──────────────────────────────────────────────────
+# Client decks use licence-safe photos only, unless the organization turned on "editorial images" (Settings >
+# Guardrails); IMAGE_SOURCE=legacy restores the earlier behaviour (article + web images allowed) as a rollback.
+LICENSED = ("licensed", "brand")
+OPENVERSE_URL = "https://api.openverse.org/v1/images/"
+PIXABAY_URL = "https://pixabay.com/api/"
+BREAKER_FAILS, BREAKER_PAUSE_S, SEARCH_CACHE_S = 3, 600, 24 * 3600
+_breaker: dict[str, tuple[int, float]] = {}
+_search_cache: dict[tuple[str, str], tuple[float, list[dict]]] = {}
+
+
+def legacy_mode() -> bool:
+    return os.environ.get("IMAGE_SOURCE", "multi_provider").strip().lower() == "legacy"
+
+
+def editorial_allowed() -> bool:
+    """Article / web-search images: only for an org that opted in (or in legacy mode). Read from the deck run's scope."""
+    if legacy_mode():
+        return True
+    try:
+        from ...core.db import _conn
+        from ..exclusions.service import org_of_project
+        from ..usage import service as usage
+        org = org_of_project(usage.current().get("project_id") or 0)
+        if not org:
+            return False
+        conn = _conn()
+        try:
+            row = conn.execute("SELECT allow_editorial_images FROM organizations WHERE id = ?", (org,)).fetchone()
+        finally:
+            conn.close()
+        return bool(row and row[0])
+    except Exception as e:
+        logger.warning("editorial image setting unreadable (%s): licensed photos only", type(e).__name__)
+        return False
+
+
+def _guarded(name: str, search, query: str) -> list[dict]:
+    """One provider search behind a 24 h (provider, query) cache and a circuit breaker: after BREAKER_FAILS failures
+    in a row the provider is skipped for BREAKER_PAUSE_S. An adapter returns None on an error."""
+    import time as _time
+    now = _time.time()
+    fails, until = _breaker.get(name, (0, 0.0))
+    if until > now:
+        return []
+    hit = _search_cache.get((name, query))
+    if hit and now - hit[0] < SEARCH_CACHE_S:
+        return hit[1]
+    try:
+        found = search(query)
+    except Exception as e:             # an adapter bug never stops the deck: the next source is tried
+        logger.warning("%s image search raised: %s", name, type(e).__name__)
+        found = None
+    if found is None:
+        fails += 1
+        _breaker[name] = (fails, now + BREAKER_PAUSE_S if fails >= BREAKER_FAILS else 0.0)
+        return []
+    _breaker[name] = (0, 0.0)
+    _search_cache[(name, query)] = (now, found)
+    return found
+
+
+def _stock_credit(title: str, author: str, licence: str, page: str) -> dict:
+    return {"use": "credit", "name": licence, "author": author or "Unknown", "page": page, "title": title}
+
+
+def _pexels(query: str) -> list[dict] | None:
+    key = os.environ.get("PEXEL_API_KEY", "") or os.environ.get("PEXELS_API_KEY", "")
     if not key:
         return []
     try:
@@ -64,10 +130,84 @@ def _pexels(query: str) -> list[dict]:
         r.raise_for_status()
         photos = r.json().get("photos") or []
         return [{"url": p["src"].get("original") or p["src"].get("large2x"), "width": p.get("width", 0),
-                 "height": p.get("height", 0), "title": p.get("alt") or ""} for p in photos]
+                 "height": p.get("height", 0), "title": p.get("alt") or "",
+                 "credit": _stock_credit(p.get("alt") or "Photo", f"{p.get('photographer') or ''} (Pexels)",
+                                         "Pexels License", p.get("url") or "https://www.pexels.com")} for p in photos]
     except (requests.RequestException, ValueError, KeyError, AttributeError, TypeError) as e:
         logger.warning("pexels search failed: %s", type(e).__name__)
+        return None
+
+
+def _openverse(query: str) -> list[dict] | None:
+    """Openverse (WordPress Foundation): CC-licensed and public-domain images from Wikimedia, Flickr and museums,
+    filtered to licences that allow commercial use. No key needed. Each result carries its creator and licence."""
+    try:
+        r = requests.get(OPENVERSE_URL, params={"q": query, "license_type": "commercial", "page_size": 20,
+                                                 "mature": "false", "aspect_ratio": "wide"},
+                         headers={"User-Agent": "AlphaMetricx-decks/1.0"}, timeout=TIMEOUT_S)
+        r.raise_for_status()
+        out = []
+        for i in r.json().get("results") or []:
+            code = str(i.get("license") or "").lower()
+            lic = {"cc0": "CC0", "pdm": "Public domain"}.get(code) or f"CC {code.upper()} {i.get('license_version') or ''}".strip()
+            out.append({"url": i.get("url"), "width": i.get("width") or 0, "height": i.get("height") or 0,
+                        "title": i.get("title") or "",
+                        "credit": _stock_credit(i.get("title") or "Photo", i.get("creator") or "Unknown", lic,
+                                                i.get("foreign_landing_url") or i.get("url") or "")})
+        return out
+    except (requests.RequestException, ValueError, KeyError, AttributeError, TypeError) as e:
+        logger.warning("openverse search failed: %s", type(e).__name__)
+        return None
+
+
+def _pixabay(query: str) -> list[dict] | None:
+    """Pixabay (PIXABAY_API_KEY): free for commercial use under the Pixabay Content License; images must be
+    downloaded (not hot-linked), which the deck does anyway."""
+    key = os.environ.get("PIXABAY_API_KEY", "")
+    if not key:
         return []
+    try:
+        r = requests.get(PIXABAY_URL, params={"key": key, "q": query[:100], "image_type": "photo",
+                                              "orientation": "horizontal", "safesearch": "true", "per_page": 20},
+                         timeout=TIMEOUT_S)
+        r.raise_for_status()
+        return [{"url": h.get("largeImageURL"), "width": h.get("imageWidth") or 0, "height": h.get("imageHeight") or 0,
+                 "title": h.get("tags") or "",
+                 "credit": _stock_credit(h.get("tags") or "Photo", f"{h.get('user') or ''} (Pixabay)",
+                                         "Pixabay Content License", h.get("pageURL") or "https://pixabay.com")}
+                for h in r.json().get("hits") or []]
+    except (requests.RequestException, ValueError, KeyError, AttributeError, TypeError) as e:
+        logger.warning("pixabay search failed: %s", type(e).__name__)
+        return None
+
+
+def _tavily_images(query: str) -> list[dict] | None:
+    """Tavily search with include_images (editorial only: web images of unknown licence)."""
+    key = os.environ.get("TAVILY_API_KEY", "")
+    if not key:
+        return []
+    try:
+        r = requests.post("https://api.tavily.com/search", json={"api_key": key, "query": query, "max_results": 5,
+                                                                 "include_images": True,
+                                                                 "include_image_descriptions": True},
+                          timeout=TIMEOUT_S)
+        r.raise_for_status()
+        out = []
+        for img in r.json().get("images") or []:
+            url, desc = (img, "") if isinstance(img, str) else (img.get("url"), img.get("description") or "")
+            if url:
+                out.append({"url": url, "width": 0, "height": 0, "title": desc})
+        return out
+    except (requests.RequestException, ValueError, KeyError, AttributeError, TypeError) as e:
+        logger.warning("tavily image search failed: %s", type(e).__name__)
+        return None
+
+
+def licensed_sources() -> list[tuple[str, object]]:
+    """Licence-safe providers in order (IMAGE_LICENSED_PROVIDERS can reorder or drop them)."""
+    table = {"openverse": _openverse, "pexels": _pexels, "unsplash": _unsplash, "pixabay": _pixabay}
+    wanted = os.environ.get("IMAGE_LICENSED_PROVIDERS", "openverse,pexels,unsplash,pixabay").split(",")
+    return [(p.strip(), table[p.strip()]) for p in wanted if p.strip() in table]
 
 
 def _unsplash(query: str) -> list[dict]:
@@ -84,9 +224,13 @@ def _unsplash(query: str) -> list[dict]:
         for p in r.json().get("results") or []:
             w, h = p.get("width") or 0, p.get("height") or 0
             scale = min(1.0, UNSPLASH_WIDTH / w) if w else 1.0
+            user = p.get("user") or {}
+            title = p.get("alt_description") or p.get("description") or ""
             out.append({"url": f"{p['urls']['raw']}&w={UNSPLASH_WIDTH}&fm=jpg&q=85", "width": int(w * scale),
-                        "height": int(h * scale), "title": p.get("alt_description") or p.get("description") or "",
-                        "track": (p.get("links") or {}).get("download_location") or ""})
+                        "height": int(h * scale), "title": title,
+                        "track": (p.get("links") or {}).get("download_location") or "",
+                        "credit": _stock_credit(title or "Photo", f"Photo by {user.get('name') or 'Unknown'} on Unsplash",
+                                                "Unsplash License", (p.get("links") or {}).get("html") or "https://unsplash.com")})
         return out
     except (requests.RequestException, ValueError, KeyError, AttributeError, TypeError) as e:
         logger.warning("unsplash search failed: %s", type(e).__name__)
@@ -401,6 +545,8 @@ def _photo_from_saved(key: str, saved: dict, folder: Path, used: set[str]) -> Ph
     meta = saved["meta"]
     if meta.get("source_url") in used or is_duplicate(saved["content"], used):   # never one picture twice in a deck
         return None
+    if meta.get("licence") in ("article", "web") and not editorial_allowed():
+        return None             # an earlier run's web image is not reused in a licence-safe deck
     try:
         name = f"cached-{hashlib.sha1(key.encode()).hexdigest()[:16]}"
         src = asset_store.write_file(folder / f"{name}.src", saved["content"])
@@ -458,9 +604,23 @@ def _keep(data: bytes, url: str, licence: str, why: str, role: str, folder: Path
     if cand:
         _track_use(cand)
     out = crop_to(raw, role, folder / f"{name}.jpg")
-    lic = commons.licence(url) if commons.is_wikimedia(url) else {}
-    _write_credit(out, lic if lic.get("use") == "credit" else None)
+    _write_credit(out, _credit_for(url, licence, cand))
     return Photo(out, url, licence, why)
+
+
+def _credit_for(url: str, licence: str, cand: dict | None) -> dict | None:
+    """Every deck photo is credited: the provider's photographer and licence (Pexels, Unsplash, Openverse, Pixabay),
+    a Wikimedia file's author and licence, or for an editorial (article / web) image its source site."""
+    if cand and cand.get("credit"):
+        return cand["credit"]
+    if commons.is_wikimedia(url):
+        lic = commons.licence(url)
+        return lic if lic.get("use") in ("credit", "free") else None
+    if licence in ("article", "web"):
+        host = (urlparse(cand.get("page") if cand and cand.get("page") else url).hostname or "").removeprefix("www.")
+        return {"use": "credit", "name": "Editorial use — © the rights holder", "author": f"Image: {host}",
+                "page": (cand or {}).get("page") or url, "title": (cand or {}).get("title") or host}
+    return None
 
 
 def _licence_ok(url: str) -> bool:
@@ -494,13 +654,27 @@ def _plan(query: str, subjects: Subjects | None, article_urls) -> Iterator[tuple
     SerpAPI, which has a paid quota) and licensed stock -- web first when the slide names a brand (generic stock
     would spend its vision checks first), stock first otherwise. Lazy: each search runs only when find_photo
     reaches it, so a photo accepted early skips the searches it would never have used."""
-    leads = [u for u in (article_image(a) for a in list(article_urls)[:MAX_ARTICLES]) if u]
-    yield "article", [{"url": u, "width": 10 ** 6, "title": ""} for u in leads]
-    for q in (brief_queries(subjects) if subjects else [query]):
-        web = (("web", search) for search in (_searxng_images, _ddg_images, _serpapi))
-        stock = (("licensed", search) for search in (_pexels, _unsplash))
-        for licence, search in ((*web, *stock) if subjects and subjects.brands else (*stock, *web)):
-            yield licence, search(q)
+    queries = brief_queries(subjects) if subjects else [query]
+    if legacy_mode():                                      # IMAGE_SOURCE=legacy: the behaviour before the licence policy
+        leads = [u for u in (article_image(a) for a in list(article_urls)[:MAX_ARTICLES]) if u]
+        yield "article", [{"url": u, "width": 10 ** 6, "title": "", "page": a} for u, a in zip(leads, article_urls)]
+        for q in queries:
+            web = (("web", search) for search in (_searxng_images, _ddg_images, _serpapi))
+            stock = (("licensed", search) for search in (_pexels, _unsplash))
+            for licence, search in ((*web, *stock) if subjects and subjects.brands else (*stock, *web)):
+                yield licence, search(q) or []
+        return
+    editorial = editorial_allowed()
+    if editorial:                                          # the org opted in: its own cited articles first (on-topic)
+        pairs = [(a, article_image(a)) for a in list(article_urls)[:MAX_ARTICLES]]
+        yield "article", [{"url": u, "width": 10 ** 6, "title": "", "page": a} for a, u in pairs if u]
+    for q in queries:
+        stock = [("licensed", name, search) for name, search in licensed_sources()]
+        web = [("web", name, search) for name, search in (("serpapi", _serpapi), ("tavily", _tavily_images),
+                                                          ("searxng", _searxng_images), ("duckduckgo", _ddg_images))]
+        order = stock + web if editorial else stock       # licensed-only by default
+        for licence, name, search in order:
+            yield licence, _guarded(name, search, q)
 
 
 def find_photo(query: str, role: str, folder: Path, used: set[str], brand_image: Path | None = None, *,
@@ -583,10 +757,16 @@ def _fallback(query: str, role: str, folder: Path, used: set[str], subjects: Sub
     match fills `backup` when it is still empty."""
     loose = Subjects([], [], subjects.category, subjects.scene) if subjects else None
     terms = [f"{subjects.category} {subjects.scene}".strip(), subjects.category] if subjects else [query]
-    searches = ((q, search) for q in dict.fromkeys(t for t in terms if t) for search in (_serpapi, _searxng_images))
-    for q, search in searches:      # lazy: SearXNG runs only when SerpAPI's results for this term all failed
-        for cand in [c for c in search(q) if _maybe_usable(c, role)][:FALLBACK_TRIES]:
-            for url in (cand["url"], "page"):
+    if legacy_mode() or editorial_allowed():
+        engines = [("web", _serpapi), ("web", _searxng_images)]
+    else:                           # licence-safe: the wider search stays on licensed stock
+        engines = [("licensed", search) for _name, search in licensed_sources()]
+    searches = ((q, lic, search) for q in dict.fromkeys(t for t in terms if t) for lic, search in engines)
+    for q, lic, search in searches:      # lazy: the next engine runs only when this one's results all failed
+        for cand in [c for c in (search(q) or []) if _maybe_usable(c, role)][:FALLBACK_TRIES]:
+            for url in (cand["url"], "page" if lic == "web" else None):
+                if url is None:
+                    continue
                 if url == "page":
                     url = article_image(cand["page"]) if cand.get("page") else None
                 if not url or url in used or not _licence_ok(url):
@@ -601,7 +781,7 @@ def _fallback(query: str, role: str, folder: Path, used: set[str], subjects: Sub
                     continue
                 if not hd:
                     if not backup:
-                        backup.update(data=data, url=url, licence="web", why=f"wider search: {why}", cand=None)
+                        backup.update(data=data, url=url, licence=lic, why=f"wider search: {why}", cand=cand)
                     continue
-                return _keep(data, url, "web", f"wider search: {why}", role, folder, slug, used)
+                return _keep(data, url, lic, f"wider search: {why}", role, folder, slug, used, cand)
     return None

@@ -34,6 +34,42 @@ def _own(gid: int, user: dict) -> dict:
     return row
 
 
+class ContentPolicy(ApiModel):
+    allow_editorial_images: bool
+
+
+def _policy_org(user: dict) -> int:
+    org = user.get("org_id")
+    if not org:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No organization")
+    return org
+
+
+@router.get("/policy")
+def get_policy(user: User):
+    """The org's deck image policy: licence-safe photos only (default) or editorial article / web images too."""
+    from ...core.db import _conn
+    conn = _conn()
+    try:
+        row = conn.execute("SELECT allow_editorial_images FROM organizations WHERE id = ?", (_policy_org(user),)).fetchone()
+    finally:
+        conn.close()
+    return {"allow_editorial_images": bool(row and row[0])}
+
+
+@router.put("/policy")
+def set_policy(req: ContentPolicy, user: User):
+    org = _admin_org(user)
+    from ...core.db import _conn
+    conn = _conn()
+    try:
+        conn.execute("UPDATE organizations SET allow_editorial_images = ? WHERE id = ?", (int(req.allow_editorial_images), org))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"allow_editorial_images": req.allow_editorial_images}
+
+
 @router.get("")
 def list_route(user: User, org_id: int | None = None):
     if user["role"] == "super_admin":

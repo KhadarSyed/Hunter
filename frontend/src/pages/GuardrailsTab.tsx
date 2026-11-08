@@ -15,8 +15,17 @@ export function GuardrailsTab() {
   const [open, setOpen] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [editorial, setEditorial] = useState<boolean | null>(null);
   const load = () => intelApi.listGuardrails().then(setRows).catch(() => setError("Could not load guardrails"));
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    intelApi.getContentPolicy().then((p) => setEditorial(p.allow_editorial_images)).catch(() => setEditorial(false));
+  }, []);
+  const toggleEditorial = async (on: boolean) => {
+    if (on && !window.confirm("Allow images from cited articles and web search in decks? These are usually copyrighted "
+      + "(often news-agency photos). They will be credited to their source site, but your organization takes the legal risk.")) return;
+    try { setEditorial((await intelApi.setContentPolicy(on)).allow_editorial_images); } catch { setError("Could not save the image policy"); }
+  };
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,6 +48,20 @@ export function GuardrailsTab() {
         {canEdit && !edit && <button className={primaryBtn} onClick={() => setEdit({ g: EMPTY })}>Add guardrail</button>}
       </div>
       {error && <div role="alert" className="text-sm text-red-600">{error}</div>}
+
+      {editorial !== null && (
+        <div className="rounded-xl border border-slate-200 p-4">
+          <div className="text-sm font-semibold text-slate-900">Deck images</div>
+          <p className="mt-0.5 text-xs text-slate-500">
+            By default decks use only licensed photos (Openverse public domain / Creative Commons for commercial use,
+            Pexels, Unsplash, Pixabay), each credited on the Photo credits page.
+          </p>
+          <label className="mt-2 flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" checked={editorial} disabled={!canEdit} onChange={(e) => void toggleEditorial(e.target.checked)} />
+            Also allow editorial images from cited articles and web search (credited to the source site; copyright risk)
+          </label>
+        </div>
+      )}
 
       {edit && (
         <form onSubmit={save} className="space-y-3 rounded-xl border border-slate-200 p-4">

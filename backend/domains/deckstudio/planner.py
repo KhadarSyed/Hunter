@@ -100,8 +100,8 @@ CREDITS_ID = "photo-credits"
 def photo_credits_slides(credits: list[dict]) -> list[SlideSpec]:
     """The photos whose licence asks for a credit (CC BY / BY-SA / BY-ND), each linked to its file page, in the
     Sources' table style: one page per CITES_PER_SLIDE photos."""
-    rows = [[unquote(c["page"].rsplit("File:", 1)[-1]).rsplit(".", 1)[0].replace("_", " "), c["author"], c["name"]]
-            for c in credits]
+    rows = [[(c.get("title") or unquote(c["page"].rsplit("File:", 1)[-1]).rsplit(".", 1)[0].replace("_", " "))[:80],
+             c["author"], c["name"]] for c in credits]
     pages = range(0, len(credits), CITES_PER_SLIDE)
     return [SlideSpec(id=f"{CREDITS_ID}-{p // CITES_PER_SLIDE + 1}", type="citations", treatment="plain",
                       title="Photo credits",

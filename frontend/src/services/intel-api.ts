@@ -679,6 +679,8 @@ export const intelApi = {
   listGuardrails: (orgId?: number) => get<Guardrail[]>(`/guardrails${orgId ? `?org_id=${orgId}` : ""}`),
   saveGuardrail: (g: GuardrailInput, id?: number) => (id ? put<Guardrail>(`/guardrails/${id}`, g) : post<Guardrail>("/guardrails", g)),
   deleteGuardrail: (id: number) => del<{ ok: boolean }>(`/guardrails/${id}`),
+  getContentPolicy: () => get<{ allow_editorial_images: boolean }>("/guardrails/policy"),
+  setContentPolicy: (allow: boolean) => put<{ allow_editorial_images: boolean }>("/guardrails/policy", { allow_editorial_images: allow }),
   archiveOrganization: (orgId: number) => authPost<{ ok: boolean }>(`/organizations/${orgId}/archive`),
   deleteOrganization: (orgId: number) => authDelete<{ ok: boolean }>(`/organizations/${orgId}`),
   deleteUser: (userId: number) => authDelete<{ ok: boolean }>(`/users/${userId}`),
