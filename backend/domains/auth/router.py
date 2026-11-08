@@ -231,6 +231,14 @@ def create_user_route(req: CreateUserRequest, user: Annotated[dict, Depends(get_
         if target_org_id is None or store.is_member_of_org(existing["id"], target_org_id):
             raise HTTPException(status.HTTP_409_CONFLICT,
                                  f"{existing['email']} is already a member of this organization")
+        if user["role"] != "super_admin":     # an org's Admin never pulls in another client's user
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                 f"{existing['email']} already has an account in another organization. "
+                                 "Ask the platform administrator to share it with yours.")
+        try:
+            billing.require_seat(target_org_id)
+        except billing.LimitError as e:
+            raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, str(e)) from e
         store.add_user_to_org(existing["id"], target_org_id)
         return {**existing, "temp_password": None}
 

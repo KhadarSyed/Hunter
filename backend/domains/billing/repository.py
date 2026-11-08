@@ -96,8 +96,9 @@ def subscriptions_with_status(*statuses: str) -> list[dict]:
 # ─── counts and spend ───────────────────────────────────────────────────────────────────────────────────────
 
 def org_user_count(org_id: int) -> int:
-    row = _one("SELECT COUNT(*) AS n FROM users WHERE org_id = ? AND archived_at IS NULL AND role <> 'super_admin'",
-               (org_id,))
+    """Seats in use: the org's own users plus users shared into it (Super Admins never count)."""
+    row = _one("SELECT COUNT(*) AS n FROM users WHERE archived_at IS NULL AND role <> 'super_admin' AND (org_id = ? "
+               "OR id IN (SELECT user_id FROM user_organizations WHERE org_id = ?))", (org_id, org_id))
     return int(row["n"]) if row else 0
 
 
