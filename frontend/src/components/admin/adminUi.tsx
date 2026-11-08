@@ -7,11 +7,6 @@ export const fmtDate = (ts: number | null | undefined) =>
 export const fmtTokens = (n: number) =>
   n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${(n / 1_000).toFixed(1)}k` : String(n);
 
-export const STAGE_LABELS: Record<string, string> = {
-  brief_scope: "Brief & Scope", background_research: "Background Research", search_strategy: "Search Strategy",
-  matching_label: "Matching label", data_set: "Data set", dataset: "Data set", deliverables: "Deliverables",
-};
-
 /** Country name with its circular flag (ISO alpha-2 code). */
 export function CountryFlag({ code }: { code: string | null }) {
   if (!code) return <span className="text-slate-400">—</span>;

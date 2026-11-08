@@ -620,9 +620,9 @@ export interface AdminOverview {
 }
 export interface OrgDetail {
   org: OrgProfile; subscription: SubscriptionSummary;
-  projects: { id: number; project_name: string; brand: string | null; updated_at: number; owner_name: string | null;
-    owner_email: string | null; current_stage: string | null; tokens: number }[];
-  users: { id: number; email: string; display_name: string; role: string; archived_at: number | null;
+  projects: { id: number; project_name: string; brand: string | null; created_at: number; updated_at: number; owner_name: string | null;
+    owner_email: string | null; current_stage: string | null; progress_pct: number; tokens: number }[];
+  users: { id: number; email: string; display_name: string; role: string; archived_at: number | null; created_at: number;
     last_login: number | null; tokens_month: number; monthly_tokens: number | null }[];
 }
 export interface GuardrailInput { title: string; body: string; active: boolean }

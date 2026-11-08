@@ -370,10 +370,11 @@ def org_detail(org_id: int) -> dict | None:
     projects = []
     for p in repo.org_projects(org_id):
         try:
-            stage = gates.summary(p["id"]).get("current_stage")
+            g = gates.summary(p["id"])
         except Exception:
-            stage = None
-        projects.append({**p, "current_stage": stage, "tokens": ptokens.get(p["id"], 0)})
+            g = {}
+        projects.append({**p, "current_stage": g.get("current_stage"), "progress_pct": g.get("progress_pct") or 0,
+                         "tokens": ptokens.get(p["id"], 0)})
     return {"org": prof, "subscription": summary(org_id), "projects": projects,
             "users": [{**u, "tokens_month": repo.user_tokens_since(u["id"], since),
                        "monthly_tokens": (limits.get(u["id"]) or {}).get("monthly_tokens")} for u in users]}
