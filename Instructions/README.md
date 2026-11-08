@@ -94,6 +94,11 @@ changed and why. Open the code only for the files a note or the map points to.
 - Test orgs from the 3-org browser test (log #06): 9 Acme Retail, 10 Globex Media, 11 Initech Finance (all "Test
   11081934"), accounts `khadar.syed+<org>-admin/-analystN@infovision.com`; harness `tests/e2e_3org/run.py`.
 - Working test model: BazaarLink `qwen3.7-flash` only; FreeModel 503, CodeCraft/RadoxAI 402, Puter unusable.
+- Deck images are licence-safe by default (`deckstudio/assets.py`, legal note `Instructions/image-licensing-legal-note.md`);
+  org opt-in for editorial images in Settings > Guardrails; `IMAGE_SOURCE=legacy` = old behaviour.
+- Firecrawl research source needs the org's key in Settings > Data Sources (none saved yet); all data-source keys are
+  Fernet-encrypted (migration 53). Deliverables shows a Guardrails check above the downloads.
+- Data set: exclusion list blocks articles at Match (Irrelevant, "Blocked"); "Mark relevant" + comment → org memory.
 - Project 1 "Casino Gaming" (InfoVision): Brief → Matching label done, Data set open, Deliverables locked.
 - Testing Org outage state: acting model NVIDIA (VyceAI in maintenance); a real "recovered" email goes out when
   VyceAI answers.
