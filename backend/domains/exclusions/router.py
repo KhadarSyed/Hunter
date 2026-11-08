@@ -4,17 +4,17 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Path, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, UploadFile, status
 
 from ...core import store
 from ...core.api import OkResponse
 from ...core.auth import get_current_user
 from . import service
-from .schemas import AddExclusionRequest, ExclusionRecord
+from .schemas import AddExclusionRequest, BulkExclusionRequest, ExclusionRecord, ImportResult
 
 router = APIRouter()
 User = Annotated[dict, Depends(get_current_user)]
-MAX_RULES = 500
+MAX_RULES = 5000
 ROLES = ("super_admin", "admin", "analyser")
 
 
@@ -42,6 +42,44 @@ def add_exclusion(req: AddExclusionRequest, user: User):
     if len(existing) >= MAX_RULES:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"At most {MAX_RULES} exclusions per organization")
     return store.add_exclusion(user["org_id"], req.kind, value, user["id"])
+
+
+def _import(user: dict, kind: str, raw: list[str]) -> dict:
+    existing = store.list_exclusions(user["org_id"])
+    plan = service.prepare(kind, raw, existing)
+    if not plan["add"] and not plan["duplicates"]:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "No websites found. Use domains such as example.com, separated by commas or new lines"
+                            if kind == "domain" else "No keywords found")
+    room = MAX_RULES - len(existing)
+    if len(plan["add"]) > room:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            f"This adds {len(plan['add'])} but only {max(room, 0)} more fit (at most {MAX_RULES} "
+                            "exclusions per organization)")
+    added = store.add_exclusions(user["org_id"], kind, plan["add"], user["id"])
+    total = sum(1 for r in existing if r["kind"] == kind) + added
+    return {"added": added, "duplicates": plan["duplicates"], "invalid": plan["invalid"][:20],
+            "invalid_count": len(plan["invalid"]), "total": total}
+
+
+@router.post("/exclusions/bulk", response_model=ImportResult)
+def bulk_exclusions(req: BulkExclusionRequest, user: User):
+    """Paste: many websites (or keywords) separated by commas, semicolons, spaces or new lines."""
+    return _import(_member(user), req.kind, service.split_values(req.text, req.kind))
+
+
+@router.post("/exclusions/import", response_model=ImportResult)
+async def import_exclusions(user: User, file: UploadFile = File(...), kind: str = Form("domain")):
+    """Upload an .xlsx, .csv, .txt or .json list (every cell / string is read; headers like "Domain" are skipped)."""
+    _member(user)
+    if kind not in ("domain", "keyword"):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "kind must be domain or keyword")
+    data = await file.read(service.MAX_IMPORT_BYTES + 1)
+    try:
+        raw = service.values_from_file(file.filename or "", data, kind)
+    except service.ImportError_ as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    return _import(user, kind, raw)
 
 
 @router.delete("/exclusions/{exclusion_id}", response_model=OkResponse)

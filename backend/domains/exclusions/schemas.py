@@ -18,3 +18,16 @@ class ExclusionRecord(ApiModel):
 class AddExclusionRequest(ApiModel):
     kind: Literal["domain", "keyword"]
     value: str = Field(min_length=1, max_length=200)
+
+
+class BulkExclusionRequest(ApiModel):
+    kind: Literal["domain", "keyword"] = "domain"
+    text: str = Field(min_length=1, max_length=500_000)     # separated by commas, semicolons, spaces or new lines
+
+
+class ImportResult(ApiModel):
+    added: int
+    duplicates: int
+    invalid: list[str]          # first ones only
+    invalid_count: int
+    total: int                  # rules of this kind after the import

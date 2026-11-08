@@ -31,6 +31,22 @@ def add_exclusion(org_id: int | None, kind: str, value: str, user_id: int) -> di
     return dict(row)
 
 
+def add_exclusions(org_id: int | None, kind: str, values: list[str], user_id: int) -> int:
+    """Many rules in one transaction (bulk import); returns how many were added."""
+    if not values:
+        return 0
+    now = time.time()
+    conn = _conn()
+    try:
+        for v in values:
+            conn.execute("INSERT INTO intel_exclusions (org_id, kind, value, created_by, created_at) "
+                         "VALUES (?, ?, ?, ?, ?)", (org_id, kind, v, user_id, now))
+        conn.commit()
+    finally:
+        conn.close()
+    return len(values)
+
+
 def get_exclusion(exclusion_id: int) -> dict | None:
     conn = _conn()
     try:

@@ -157,6 +157,10 @@ function authPatch<T>(path: string, body?: unknown): Promise<T> {
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+export interface ExclusionImportResult {
+  added: number; duplicates: number; invalid: string[]; invalid_count: number; total: number;
+}
+
 export interface DataSourceRecord {
   source: string;
   display_name: string;
@@ -964,6 +968,16 @@ export const intelApi = {
   listExclusions: () => get<ExclusionRecord[]>("/exclusions"),
   addExclusion: (kind: ExclusionKind, value: string) => post<ExclusionRecord>("/exclusions", { kind, value }),
   deleteExclusion: (id: number) => del<{ ok: boolean }>(`/exclusions/${id}`),
+  /** Many at once: separated by commas, semicolons, spaces or new lines. */
+  bulkExclusions: (kind: ExclusionKind, text: string) => post<ExclusionImportResult>("/exclusions/bulk", { kind, text }),
+  /** An .xlsx, .csv, .txt or .json list. */
+  importExclusions: (kind: ExclusionKind, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("kind", kind);
+    return fetch(`${API_BASE}/exclusions/import`, { method: "POST", credentials: CREDENTIALS, body: form })
+      .then((r) => json<ExclusionImportResult>(r));
+  },
 
   /** Whether the active org has a model (its own provider, or the platform model for InfoVision). */
   llmProviderStatus: () => get<{ ready: boolean; source: "org" | "platform" | "none"; model: string; name?: string;

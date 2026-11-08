@@ -36,6 +36,89 @@ def normalize_keyword(value: str) -> str:
     return " ".join((value or "").split())
 
 
+# ─── bulk import: pasted text or an uploaded .xlsx / .csv / .txt / .json list ─────────────────────────────────────
+
+MAX_IMPORT_BYTES = 2 * 1024 * 1024
+_SPLIT = re.compile(r"[,;\t\r\n ]+")
+_SPLIT_KEYWORDS = re.compile(r"[,;\t\r\n]+")          # keywords may contain spaces
+_JSON_KEYS = ("domain", "website", "site", "url", "host", "value", "keyword")
+_HEADER_WORDS = {"domain", "domains", "website", "websites", "site", "sites", "url", "urls", "host", "hosts", "value",
+                 "values", "keyword", "keywords", "term", "terms", "blocked", "exclude", "exclusions", "name"}
+
+
+class ImportError_(ValueError):
+    """The upload cannot be read; the message is shown to the user."""
+
+
+def split_values(text: str, kind: str = "domain") -> list[str]:
+    return [v for v in (_SPLIT if kind == "domain" else _SPLIT_KEYWORDS).split(text or "") if v.strip()]
+
+
+def _json_values(node) -> list[str]:
+    if isinstance(node, str):
+        return [node]
+    if isinstance(node, list):
+        return [v for item in node for v in _json_values(item)]
+    if isinstance(node, dict):
+        hits = [node[k] for k in node if str(k).lower() in _JSON_KEYS]
+        if hits:
+            return [v for h in hits for v in _json_values(h)]
+        lists = [v for v in node.values() if isinstance(v, list)]      # {"domains": [...]}, {"blocked": [...]}
+        return [v for item in lists for v in _json_values(item)]
+    return []
+
+
+def values_from_file(filename: str, data: bytes, kind: str = "domain") -> list[str]:
+    """Every value in an uploaded list. Cells and strings may themselves hold several values (comma separated)."""
+    import json
+    name = (filename or "").lower()
+    if len(data) > MAX_IMPORT_BYTES:
+        raise ImportError_("The file is larger than 2 MB")
+    if name.endswith((".xlsx", ".xlsm")):
+        import io
+        from openpyxl import load_workbook
+        try:
+            wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+        except Exception as e:
+            raise ImportError_("This Excel file could not be read") from e
+        cells = [str(c) for ws in wb.worksheets for row in ws.iter_rows(values_only=True) for c in row if c is not None]
+    elif name.endswith(".json"):
+        try:
+            cells = _json_values(json.loads(data.decode("utf-8-sig")))
+        except (UnicodeDecodeError, json.JSONDecodeError) as e:
+            raise ImportError_("This JSON file could not be read") from e
+    elif name.endswith((".csv", ".txt")):
+        import csv
+        import io
+        try:
+            text = data.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = data.decode("latin-1")
+        cells = [c for row in csv.reader(io.StringIO(text)) for c in row]
+    else:
+        raise ImportError_("Upload an .xlsx, .csv, .txt or .json file")
+    return [v for cell in cells for v in split_values(str(cell), kind)]
+
+
+def prepare(kind: str, raw: list[str], existing: list[dict]) -> dict:
+    """{'add': [...], 'duplicates': n, 'invalid': [...]}: normalised, de-duplicated against the list and the batch."""
+    norm = normalize_domain if kind == "domain" else normalize_keyword
+    seen = {r["value"].lower() for r in existing if r["kind"] == kind}
+    add, invalid, dupes = [], [], 0
+    for v in raw:
+        if v.strip().lower() in _HEADER_WORDS:          # a spreadsheet's column heading, not a value
+            continue
+        value = norm(v)
+        if not value:
+            invalid.append(v.strip()[:80])
+        elif value.lower() in seen:
+            dupes += 1
+        else:
+            seen.add(value.lower())
+            add.append(value)
+    return {"add": add, "duplicates": dupes, "invalid": invalid}
+
+
 def org_of_project(project_id: int) -> int | None:
     """A project's organization, else its owner's (projects created before organizations have none)."""
     project = store.get_project(project_id) or {}
