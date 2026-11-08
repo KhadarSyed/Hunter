@@ -1,3 +1,4 @@
+import { GuardrailsCheck } from "../components/deliverable/GuardrailsCheck";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@iconify/react";
 import { intelApi } from "../services/intel-api";
@@ -301,6 +302,7 @@ export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) =>
                   {running ? "The presentation appears here when the run reaches the deck." : "No presentation for this run."}
                 </p>
               )}
+              {run.status === "completed" && <GuardrailsCheck projectId={projectId} runId={run.id} />}
               {run.status === "completed" && (
                 <div className="flex flex-wrap gap-3">
                   <a href={intelApi.deliverableDownloadUrl(projectId, run.id, "pptx")}

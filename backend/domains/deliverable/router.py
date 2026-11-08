@@ -106,6 +106,39 @@ def get_run(project_id: ProjectId, run_id: RunId, _: Access):
     return _payload(run_id)
 
 
+@router.get("/deliverable/{project_id}/runs/{run_id}/guardrails")
+def guardrails_check(project_id: ProjectId, run_id: RunId, _: Access):
+    """The Guardrails check stage: the finished deck's text against the organization's guardrails (Python: prohibited
+    words and their word family, repeated titles and sentences). Free and instant."""
+    from ..exclusions.service import org_of_project
+    from ..guardrails import check
+    run = _on_disk(_owned_run(project_id, run_id))
+    path = run.get("pptx_path")
+    if not path or not Path(path).exists():
+        raise HTTPException(404, "The deck file is not available yet")
+    org = org_of_project(project_id)
+    if not org:
+        return {"slides": 0, "terms_checked": 0, "issues": [], "passed": True}
+    return check.check_deck(org, path)
+
+
+@router.post("/deliverable/{project_id}/runs/{run_id}/guardrails/ai")
+def guardrails_ai_review(project_id: ProjectId, run_id: RunId, _: Access):
+    """Optional AI review of the meaning-level rules (one call to the organization's model)."""
+    from ...core.llm_provider import get_llm_client
+    from ..exclusions.service import org_of_project
+    from ..guardrails import check
+    from ..usage import service as usage
+    run = _on_disk(_owned_run(project_id, run_id))
+    path = run.get("pptx_path")
+    if not path or not Path(path).exists():
+        raise HTTPException(404, "The deck file is not available yet")
+    org = org_of_project(project_id)
+    with usage.scope(project_id=project_id, org_id=org, stage="deck_engine", sub_stage="guardrails_review"):
+        issues = check.ai_review(org, check.deck_slides(path), get_llm_client()) if org else []
+    return {"issues": issues}
+
+
 @router.get("/deliverable/{project_id}/runs/{run_id}/download/{kind}", response_class=FileResponse)
 def download(project_id: ProjectId, run_id: RunId, kind: str, _: Access):
     run = _on_disk(_owned_run(project_id, run_id))

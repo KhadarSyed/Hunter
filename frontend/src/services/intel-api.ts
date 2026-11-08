@@ -626,6 +626,8 @@ export interface OrgDetail {
     last_login: number | null; tokens_month: number; monthly_tokens: number | null }[];
 }
 export interface GuardrailInput { title: string; body: string; active: boolean }
+export interface GuardrailIssue { slide: number; rule: string; term?: string; excerpt: string; suggestion?: string }
+export interface GuardrailsCheck { slides: number; terms_checked: number; issues: GuardrailIssue[]; passed: boolean }
 export interface Guardrail extends Omit<GuardrailInput, "active"> {
   id: number; org_id: number; active: number; updated_at: number;
 }
@@ -679,6 +681,10 @@ export const intelApi = {
   listGuardrails: (orgId?: number) => get<Guardrail[]>(`/guardrails${orgId ? `?org_id=${orgId}` : ""}`),
   saveGuardrail: (g: GuardrailInput, id?: number) => (id ? put<Guardrail>(`/guardrails/${id}`, g) : post<Guardrail>("/guardrails", g)),
   deleteGuardrail: (id: number) => del<{ ok: boolean }>(`/guardrails/${id}`),
+  guardrailsCheck: (projectId: number, runId: number) =>
+    get<GuardrailsCheck>(`/deliverable/${projectId}/runs/${runId}/guardrails`),
+  guardrailsAiReview: (projectId: number, runId: number) =>
+    post<{ issues: GuardrailIssue[] }>(`/deliverable/${projectId}/runs/${runId}/guardrails/ai`, {}),
   getContentPolicy: () => get<{ allow_editorial_images: boolean }>("/guardrails/policy"),
   setContentPolicy: (allow: boolean) => put<{ allow_editorial_images: boolean }>("/guardrails/policy", { allow_editorial_images: allow }),
   archiveOrganization: (orgId: number) => authPost<{ ok: boolean }>(`/organizations/${orgId}/archive`),
