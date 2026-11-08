@@ -66,8 +66,8 @@ async def parse_brief_file(user: Annotated[dict, Depends(get_current_user)], fil
     dest.write_bytes(content)
     try:
         # Blocking (NVIDIA calls, Office conversion) — keep it off the event loop.
-        # an org on its own LLM provider: its files are read by Python, never sent to the platform's NVIDIA model
-        native_only = providers.org_has_own_provider(user.get("org_id"))
+        # every org but the platform-model one: its files are read by Python, never sent to the platform's NVIDIA
+        native_only = providers.reads_files_natively(user.get("org_id"))
         result = await run_in_threadpool(brief_parser.extract_brief_text, dest, native_only)
     except Exception as e:
         logger.error("Brief file parse error for %s: %s", file.filename, e)

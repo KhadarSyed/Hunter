@@ -71,6 +71,20 @@ export function ManageUsersTab() {
     }
   };
 
+  const [mailedId, setMailedId] = useState<number | null>(null);
+  const handleSendReset = async (u: AuthUserRow) => {
+    setResettingId(u.id);
+    setError(null);
+    try {
+      await intelApi.sendResetEmail(u.id);
+      setMailedId(u.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send the reset email");
+    } finally {
+      setResettingId(null);
+    }
+  };
+
   const handleResetPassword = async (u: AuthUserRow) => {
     setResettingId(u.id);
     setError(null);
@@ -182,6 +196,12 @@ export function ManageUsersTab() {
                       <button onClick={() => handleResetPassword(u)} disabled={resettingId === u.id}
                               className="text-xs font-medium text-[#5B2C9D] hover:underline disabled:opacity-40">
                         {resettingId === u.id ? "Resetting..." : "Reset Password"}
+                      </button>
+                    )}
+                    {!u.archived_at && (isSuperAdmin || u.role === "analyser") && (
+                      <button onClick={() => handleSendReset(u)} disabled={resettingId === u.id}
+                              className="text-xs font-medium text-[#5B2C9D] hover:underline disabled:opacity-40">
+                        {mailedId === u.id ? "Reset email sent ✓" : "Send reset email"}
                       </button>
                     )}
                     {!u.archived_at && u.role !== "admin" && (isSuperAdmin || u.role === "analyser") && (

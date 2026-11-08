@@ -17,7 +17,13 @@ def _rows(sql: str, params: tuple) -> list[dict]:
 
 
 def list_for_org(org_id: int) -> list[dict]:
-    return _rows("SELECT * FROM org_llm_providers WHERE org_id = ? ORDER BY is_default DESC, id", (org_id,))
+    """The default first, then newest first."""
+    return _rows("SELECT * FROM org_llm_providers WHERE org_id = ? ORDER BY is_default DESC, id DESC", (org_id,))
+
+
+def newest_for_org(org_id: int) -> dict | None:
+    rows = _rows("SELECT * FROM org_llm_providers WHERE org_id = ? ORDER BY id DESC LIMIT 1", (org_id,))
+    return rows[0] if rows else None
 
 
 def get(provider_id: int) -> dict | None:

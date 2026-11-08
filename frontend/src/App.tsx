@@ -8,6 +8,7 @@ import { intelApi } from "./services/intel-api";
 import { PAGE_STAGE, gateRedirect } from "./hooks/useStageGate";
 import { LoginPage } from "./pages/LoginPage";
 import { ChangePasswordPage } from "./pages/ChangePasswordPage";
+import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { LandingPage } from "./pages/LandingPage";
 import { Dashboard } from "./pages/Dashboard";
@@ -230,6 +231,7 @@ function AppShell() {
 
 function AuthGate() {
   const { user, loading } = useAuth();
+  if (window.location.pathname === "/reset-password") return <ResetPasswordPage />;   // the emailed link, signed in or out
   if (loading) return <div className="flex items-center justify-center min-h-screen text-slate-700">Loading…</div>;
   if (!user) return <LoginPage />;
   if (user.must_change_password) return <ChangePasswordPage />;

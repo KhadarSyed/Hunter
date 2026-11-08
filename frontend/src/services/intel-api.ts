@@ -595,6 +595,14 @@ export const intelApi = {
     authPost<AuthUserRow & { temp_password: string | null }>("/users", { email, display_name, role, org_id }),
   resetUserPassword: (userId: number) =>
     authPost<{ ok: boolean; temp_password: string }>(`/users/${userId}/reset-password`),
+  /** Admin/Super Admin emails the user a one-time reset link. */
+  sendResetEmail: (userId: number) => authPost<{ ok: boolean }>(`/users/${userId}/send-reset`),
+  /** Forgot password: email → 6-digit code → a reset link is emailed → resetPassword with the link's token. */
+  forgotPassword: (email: string) => authPost<{ ok: boolean; message: string }>("/forgot-password", { email }),
+  verifyResetCode: (email: string, code: string) =>
+    authPost<{ ok: boolean; message: string }>("/forgot-password/verify", { email, code }),
+  resetPassword: (token: string, new_password: string) =>
+    authPost<{ ok: boolean }>("/reset-password", { token, new_password }),
   listUsers: (orgId?: number) =>
     authGet<AuthUserRow[]>(orgId ? `/users?org_id=${orgId}` : "/users"),
   archiveUser: (userId: number) => authPost<{ ok: boolean }>(`/users/${userId}/archive`),
@@ -900,7 +908,7 @@ export const intelApi = {
 
   /** An organisation's own chat LLM providers (Settings → LLM Providers); the key is write-only. */
   listLlmProviders: (orgId?: number) => get<LlmProvidersResponse>(`/llm-providers${orgId ? `?org_id=${orgId}` : ""}`),
-  createLlmProvider: (body: ProviderFields & { org_id?: number; api_key: string; make_default: boolean }) =>
+  createLlmProvider: (body: ProviderFields & { org_id?: number; api_key: string }) =>
     post<LlmProvider>("/llm-providers", body),
   updateLlmProvider: (id: number, body: ProviderFields & { api_key: string }) => put<LlmProvider>(`/llm-providers/${id}`, body),
   deleteLlmProvider: (id: number) => del<{ ok: boolean }>(`/llm-providers/${id}`),
@@ -1033,7 +1041,8 @@ export type ProviderFields = { name: string; provider_type: ProviderType; base_u
 export type LlmProvider = ProviderFields & { id: number; org_id: number; key_hint: string; is_default: boolean;
   status: "untested" | "ok" | "failed"; last_error: string; last_tested_at: number | null; last_latency_ms: number | null;
   updated_at: number };
-export type LlmProvidersResponse = { org_id: number; org_name: string; platform_model: string; providers: LlmProvider[] };
+export type LlmProvidersResponse = { org_id: number; org_name: string; platform_model: string; platform_llm: boolean;
+  providers: LlmProvider[] };
 export type ProviderTestResult = { ok: boolean; latency_ms: number; reply: string; error: string };
 export type AgentEvent = { id: number; actor: string; action: string; detail: Record<string, unknown> | null; at: number; run_id: number | null };
 export interface DeliverableLogLine { ts: number; message: string }

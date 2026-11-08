@@ -37,7 +37,6 @@ class ProviderFields(BaseModel):
 class ProviderCreate(ProviderFields):
     org_id: int | None = None           # Super Admin picks the org; an Admin always manages their own
     api_key: str = Field(min_length=1, max_length=500)
-    make_default: bool = True
 
 
 class ProviderUpdate(ProviderFields):
@@ -75,6 +74,7 @@ class ProvidersResponse(ApiModel):
     org_id: int
     org_name: str
     platform_model: str
+    platform_llm: bool                  # the org may run on the platform model (InfoVision)
     providers: list[ProviderRecord]
 
 

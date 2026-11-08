@@ -1,6 +1,8 @@
 """Pydantic request/response models for the auth domain."""
 from __future__ import annotations
 
+from pydantic import Field
+
 from ...core.api import ApiModel
 
 
@@ -26,6 +28,20 @@ class MeResponse(LoginResponse):
 
 class ActiveOrgRequest(ApiModel):
     org_id: int | None = None
+
+
+class ForgotPasswordRequest(ApiModel):
+    email: str = Field(min_length=3, max_length=320)
+
+
+class VerifyCodeRequest(ApiModel):
+    email: str = Field(min_length=3, max_length=320)
+    code: str = Field(pattern=r"^\s*\d{6}\s*$")
+
+
+class ResetPasswordRequest(ApiModel):
+    token: str = Field(min_length=20, max_length=200)
+    new_password: str = Field(min_length=1, max_length=200)
 
 
 class WsTicketResponse(ApiModel):

@@ -372,3 +372,105 @@ def list_user_organizations(user_id: int) -> list[dict]:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# ─── Password resets (forgot password, admin-sent links) and the platform-model org flag ─────────────────────
+
+def create_password_reset(user_id: int, *, otp_hash: str | None = None, otp_expires: float | None = None,
+                          token_hash: str | None = None, token_expires: float | None = None) -> int:
+    """A new reset; any earlier open one of the user's is closed, so only the newest code or link works."""
+    now = time.time()
+    conn = _conn()
+    try:
+        conn.execute("UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL", (now, user_id))
+        row = conn.execute(
+            "INSERT INTO password_resets (user_id, otp_hash, otp_expires, token_hash, token_expires, created_at, "
+            "verified_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (user_id, otp_hash, otp_expires, token_hash, token_expires, now,
+             now if token_hash else None)).fetchone()
+        conn.commit()
+        return int(row["id"])
+    finally:
+        conn.close()
+
+
+def recent_reset_count(user_id: int, since: float) -> int:
+    conn = _conn()
+    try:
+        return int(conn.execute("SELECT COUNT(*) FROM password_resets WHERE user_id = ? AND created_at >= ?",
+                                (user_id, since)).fetchone()[0])
+    finally:
+        conn.close()
+
+
+def open_otp_reset(user_id: int) -> dict | None:
+    """The user's newest reset still waiting for its emailed code."""
+    conn = _conn()
+    try:
+        row = conn.execute(
+            "SELECT * FROM password_resets WHERE user_id = ? AND used_at IS NULL AND verified_at IS NULL "
+            "AND otp_hash IS NOT NULL ORDER BY id DESC LIMIT 1", (user_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def bump_reset_attempts(reset_id: int) -> None:
+    conn = _conn()
+    try:
+        conn.execute("UPDATE password_resets SET attempts = attempts + 1 WHERE id = ?", (reset_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def verify_reset(reset_id: int, token_hash: str, token_expires: float) -> None:
+    conn = _conn()
+    try:
+        conn.execute("UPDATE password_resets SET verified_at = ?, token_hash = ?, token_expires = ? WHERE id = ?",
+                     (time.time(), token_hash, token_expires, reset_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def reset_by_token(token_hash: str) -> dict | None:
+    conn = _conn()
+    try:
+        row = conn.execute("SELECT * FROM password_resets WHERE token_hash = ? AND used_at IS NULL",
+                           (token_hash,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def complete_reset(reset_id: int, user_id: int, password_hash: str) -> None:
+    """New password, lockout cleared, the reset closed and every session of the user signed out: one transaction."""
+    now = time.time()
+    conn = _conn()
+    try:
+        conn.execute("UPDATE users SET password_hash = ?, must_change_password = 0, failed_login_count = 0, "
+                     "locked_until = NULL WHERE id = ?", (password_hash, user_id))
+        conn.execute("UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL", (now, user_id))
+        conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_platform_llm(org_id: int, on: bool) -> None:
+    conn = _conn()
+    try:
+        conn.execute("UPDATE organizations SET platform_llm = ? WHERE id = ?", (1 if on else 0, org_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def org_uses_platform_llm(org_id: int) -> bool:
+    conn = _conn()
+    try:
+        row = conn.execute("SELECT platform_llm FROM organizations WHERE id = ?", (org_id,)).fetchone()
+        return bool(row and row["platform_llm"])
+    finally:
+        conn.close()

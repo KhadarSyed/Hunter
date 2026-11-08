@@ -1,9 +1,11 @@
 """Which chat backend an organisation's calls use, and the Test connection call.
 
 Every chat call reads the request's or job's usage scope (domains/usage/service.SCOPE): the project's org when a
-project is in scope, else the user's active org. An org with a default provider sends every chat call there and
-never falls back to the platform model (a failure raises OrgProviderError naming the provider). An org without
-one, or no org at all, keeps the platform Azure OpenAI model. Embeddings always stay on the platform.
+project is in scope, else the user's active org. An org with a default provider (the newest one added, unless an
+admin picked another) sends every chat call there and never falls back to the platform model (a failure raises
+OrgProviderError naming the provider). The platform Azure OpenAI model serves only a platform-model org
+(InfoVision, organizations.platform_llm) without a provider of its own, and calls with no org in scope. Any other
+org without a provider gets OrgProviderError telling its admin to add one. Embeddings always stay on the platform.
 """
 from __future__ import annotations
 
@@ -11,7 +13,7 @@ import logging
 import threading
 import time
 
-from ...core import org_chat_clients, secret_box
+from ...core import org_chat_clients, secret_box, store
 from ..usage import service as usage_service
 from . import repository as repo
 
@@ -21,6 +23,9 @@ TEST_PROMPT = [{"role": "user", "content": "Reply with the single word OK."}]
 _lock = threading.Lock()
 _backends: dict[int, tuple[float, object | None, str]] = {}
 _project_orgs: dict[int, tuple[float, int | None]] = {}
+
+
+_NO_MODEL = object()      # cached: the org is not on the platform model and has no provider
 
 
 class OrgProviderError(RuntimeError):
@@ -67,7 +72,7 @@ def backend_for_org(org_id: int | None) -> tuple[object, str] | None:
     if not hit or now - hit[0] >= _TTL_S:
         row = repo.default_for_org(org_id)
         if row is None:
-            hit = (now, None, "")
+            hit = (now, None, "") if store.org_uses_platform_llm(org_id) else (now, _NO_MODEL, "")
         else:
             try:
                 hit = (now, client_for(row), row["name"])
@@ -75,6 +80,10 @@ def backend_for_org(org_id: int | None) -> tuple[object, str] | None:
                 raise OrgProviderError(f"Org provider '{row['name']}': {e}") from e
         with _lock:
             _backends[org_id] = hit
+    if hit[1] is _NO_MODEL:
+        org = store.get_organization_by_id(org_id) or {}
+        raise OrgProviderError(f"{org.get('name') or 'This organization'} has no LLM model yet: an admin adds one in "
+                               "Settings → LLM Providers")
     return (hit[1], hit[2]) if hit[1] is not None else None
 
 
@@ -82,8 +91,9 @@ def backend_for_scope() -> tuple[object, str] | None:
     return backend_for_org(scope_org())
 
 
-def org_has_own_provider(org_id: int | None) -> bool:
-    return org_id is not None and repo.default_for_org(org_id) is not None
+def reads_files_natively(org_id: int | None) -> bool:
+    """Every org but a platform-model one (InfoVision) has its files read by Python, never the platform's NVIDIA."""
+    return org_id is not None and not store.org_uses_platform_llm(org_id)
 
 
 def test_connection(fields: dict, api_key: str) -> dict:

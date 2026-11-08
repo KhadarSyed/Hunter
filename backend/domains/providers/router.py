@@ -1,7 +1,8 @@
 """An organisation's own chat LLM providers: list, add, edit (replace the key), remove, set default, test.
 
 An Admin manages their (active) org; a Super Admin any org (org_id query/body, else their active org). Keys are
-encrypted at rest and never returned. Changing the default applies to the org's next chat call.
+encrypted at rest and never returned. A new provider becomes the default; removing the default promotes the newest
+one left. Changing the default applies to the org's next chat call.
 """
 from __future__ import annotations
 
@@ -60,6 +61,7 @@ def list_providers(user: UserDep, org_id: int | None = None):
     org = _org(user, org_id)
     return {"org_id": org, "org_name": store.get_organization_by_id(org)["name"],
             "platform_model": os.getenv("AZURE_OPENAI_MODEL", "") or "not configured",
+            "platform_llm": store.org_uses_platform_llm(org),
             "providers": [ProviderRecord.from_row(r) for r in repo.list_for_org(org)]}
 
 
@@ -70,8 +72,7 @@ def create_provider(body: ProviderCreate, user: UserDep):
     if not key:
         raise HTTPException(422, "API key is required")
     pid = repo.create(org, _fields(body), secret_box.encrypt(key), secret_box.hint(key), user["id"])
-    if body.make_default:
-        repo.set_default(org, pid)
+    repo.set_default(org, pid)          # the newest provider takes over: first priority
     service.invalidate(org)
     return ProviderRecord.from_row(repo.get(pid))
 
@@ -90,6 +91,10 @@ def update_provider(provider_id: int, body: ProviderUpdate, user: UserDep):
 def delete_provider(provider_id: int, user: UserDep):
     row = _owned(user, provider_id)
     repo.delete(provider_id)
+    if row["is_default"]:               # the newest provider left takes over (none left: no model)
+        nxt = repo.newest_for_org(row["org_id"])
+        if nxt:
+            repo.set_default(row["org_id"], nxt["id"])
     service.invalidate(row["org_id"])
     return {"ok": True}
 
@@ -98,6 +103,8 @@ def delete_provider(provider_id: int, user: UserDep):
 def use_platform(user: UserDep, org_id: int | None = None):
     """No default provider: the org's chat calls go back to the platform model."""
     org = _org(user, org_id)
+    if not store.org_uses_platform_llm(org):
+        raise HTTPException(400, "This organization runs on its own models: add or pick one instead")
     repo.set_default(org, None)
     service.invalidate(org)
     return {"ok": True}

@@ -21,10 +21,10 @@ const TYPE_LABEL: Record<ProviderType, string> = {
   openai_compatible: "OpenAI-compatible", azure_openai: "Azure OpenAI", anthropic: "Anthropic", gemini: "Google Gemini",
 };
 
-type Draft = ProviderFields & { api_key: string; make_default: boolean };
+type Draft = ProviderFields & { api_key: string };
 const emptyDraft = (p: Preset): Draft => ({
   name: p.id === "custom" ? "" : p.label, provider_type: p.type, base_url: p.baseUrl, model: p.model,
-  api_version: p.apiVersion, api_key: "", make_default: true,
+  api_version: p.apiVersion, api_key: "",
 });
 const errText = (e: unknown, fallback: string) => (e instanceof Error ? e.message : fallback);
 
@@ -49,7 +49,7 @@ function ProviderForm({ orgId, editing, onDone, onCancel }:
   const [presetId, setPresetId] = useState(editing ? "" : "openai");
   const [draft, setDraft] = useState<Draft>(editing
     ? { name: editing.name, provider_type: editing.provider_type, base_url: editing.base_url, model: editing.model,
-        api_version: editing.api_version, api_key: "", make_default: editing.is_default }
+        api_version: editing.api_version, api_key: "" }
     : emptyDraft(PRESETS[0]));
   const [busy, setBusy] = useState<"" | "test" | "save">("");
   const [result, setResult] = useState<ProviderTestResult | null>(null);
@@ -73,9 +73,8 @@ function ProviderForm({ orgId, editing, onDone, onCancel }:
     try {
       if (editing) {
         await intelApi.updateLlmProvider(editing.id, { ...fields, api_key: draft.api_key });
-        if (draft.make_default && !editing.is_default) await intelApi.setDefaultLlmProvider(editing.id);
       } else {
-        await intelApi.createLlmProvider({ ...fields, org_id: orgId, api_key: draft.api_key, make_default: draft.make_default });
+        await intelApi.createLlmProvider({ ...fields, org_id: orgId, api_key: draft.api_key });
       }
       onDone();
     } catch (e) { setError(errText(e, "Could not save the provider")); } finally { setBusy(""); }
@@ -121,11 +120,7 @@ function ProviderForm({ orgId, editing, onDone, onCancel }:
                  placeholder={editing ? `Saved key ${editing.key_hint}: leave blank to keep it` : "Paste the key"} />
         </label>
       </div>
-      <label className="flex items-center gap-2 text-xs text-slate-600">
-        <input type="checkbox" checked={draft.make_default} onChange={(e) => set({ make_default: e.target.checked })}
-               disabled={!!editing?.is_default} className="accent-[#5B2C9D]" />
-        Use it for every chat call of this organization (replaces the current default)
-      </label>
+      {!editing && <p className="text-xs text-slate-500">Saved, it becomes this organization's model straight away: the newest provider always comes first.</p>}
       <TestLine r={result} />
       {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>}
       <div className="flex flex-wrap items-center gap-2">
@@ -208,15 +203,23 @@ export function ProvidersTab() {
       {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       {!data ? <p className="text-sm text-slate-400">Loading…</p> : (
         <>
-          <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
-            <Icon icon={current ? PROVIDER_ICONS[current.provider_type] ?? "lucide:cpu" : "logos:microsoft-azure"} width={22} aria-hidden />
+          <div className={`flex items-center gap-3 rounded-xl border px-4 py-3 ${
+            !current && !data.platform_llm ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-slate-50/60"}`}>
+            <Icon icon={current ? PROVIDER_ICONS[current.provider_type] ?? "lucide:cpu" : data.platform_llm ? "logos:microsoft-azure" : "lucide:triangle-alert"}
+                  width={22} aria-hidden className={!current && !data.platform_llm ? "text-amber-600" : ""} />
             <div className="min-w-0 flex-1 text-sm">
               <div className="font-semibold text-slate-900">
-                {data.org_name} uses {current ? `${current.name} (${current.model})` : `the platform model (${data.platform_model})`}
+                {current ? `${data.org_name} uses ${current.name} (${current.model})`
+                  : data.platform_llm ? `${data.org_name} uses the platform model (${data.platform_model})`
+                  : `${data.org_name} has no model yet`}
               </div>
-              <div className="text-xs text-slate-500">{current ? `${TYPE_LABEL[current.provider_type]} · own key ${current.key_hint}` : "Azure OpenAI · billed to the platform"}</div>
+              <div className="text-xs text-slate-600">
+                {current ? `${TYPE_LABEL[current.provider_type]} · own key ${current.key_hint}`
+                  : data.platform_llm ? "Azure OpenAI · billed to the platform"
+                  : "Add a provider below. Until then every AI step of this organization's projects stops with this message."}
+              </div>
             </div>
-            {current && (
+            {current && data.platform_llm && (
               <button type="button" onClick={() => act(current.id, () => intelApi.usePlatformLlm(data.org_id))}
                       className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">
                 Use platform model

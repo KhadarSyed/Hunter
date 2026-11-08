@@ -33,7 +33,6 @@ SEED_ORGANIZATION = "InfoVision"
 SEED_SUPER_ADMINS = (
     (SEED_SUPER_ADMIN_EMAIL, "Khadar Syed"),
     ("sweta.shah@infovision.com", "Sweta Shah"),
-    ("harish.thulasiram@infovision.com", "Harish Thulasiram"),
 )
 
 
@@ -48,6 +47,7 @@ def seed_super_admin_if_missing() -> None:
     org_id = org["id"] if org else store.create_bare_organization(SEED_ORGANIZATION)
     if org and org.get("archived_at"):
         store.reactivate_organization(org_id)
+    store.set_platform_llm(org_id, True)        # InfoVision's chat runs on the platform model (GPT-5)
     for email, name in SEED_SUPER_ADMINS:
         user = store.get_user_by_email(email)
         if user is None:

@@ -1589,6 +1589,25 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             updated_by_user_id INTEGER REFERENCES users(id)
         )""", "CREATE INDEX IF NOT EXISTS idx_org_llm_providers_org ON org_llm_providers(org_id)",
         "ALTER TABLE sessions ADD COLUMN active_org_id INTEGER REFERENCES organizations(id)"]),
+    # platform_llm: the org's chat runs on the platform model (InfoVision); every other org adds its own provider.
+    # password_resets: forgot-password (emailed code, then an emailed one-time link) and admin-sent reset links;
+    # only hashes of the code and the link token are stored.
+    (47, "platform-model orgs and password resets", [
+        "ALTER TABLE organizations ADD COLUMN platform_llm INTEGER NOT NULL DEFAULT 0",
+        """CREATE TABLE IF NOT EXISTS password_resets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            otp_hash TEXT,
+            otp_expires REAL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            verified_at REAL,
+            token_hash TEXT,
+            token_expires REAL,
+            used_at REAL,
+            created_at REAL NOT NULL
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token_hash)"]),
 ]
 
 

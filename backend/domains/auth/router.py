@@ -10,10 +10,13 @@ from ...core import store
 from ...core import ws_tickets
 from ...core.auth import SESSION_COOKIE_NAME, clear_session_cookie, get_current_user, set_session_cookie
 from ...core.config import UPLOAD_DIR
-from . import service
+from . import recovery, service
 from .schemas import (
     ActiveOrgRequest,
     ChangePasswordRequest,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
+    VerifyCodeRequest,
     CreateOrganizationRequest,
     CreateUserRequest,
     LoginRequest,
@@ -88,12 +91,48 @@ def change_password_route(
 ):
     if not service.verify_password(req.current_password, user["password_hash"]):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Current password is incorrect")
-    if len(req.new_password) < service.MIN_PASSWORD_LENGTH:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            f"Password must be at least {service.MIN_PASSWORD_LENGTH} characters")
+    try:
+        service.check_password(req.new_password, user["email"])
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+    if service.verify_password(req.new_password, user["password_hash"]):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose a password different from the current one")
     store.update_user_password(user["id"], service.hash_password(req.new_password))
     return {"ok": True}
+
+
+# ─── Forgot password: email → 6-digit code → emailed one-time link → new password (see recovery.py) ──────────
+
+@router.post("/forgot-password")
+def forgot_password_route(req: ForgotPasswordRequest):
+    """Always the same answer, registered email or not."""
+    recovery.request_code(req.email)
+    return {"ok": True, "message": "If that email is registered, a 6-digit code is on its way."}
+
+
+@router.post("/forgot-password/verify")
+def verify_code_route(req: VerifyCodeRequest):
+    try:
+        recovery.verify_code(req.email, req.code)
+    except recovery.InvalidCode as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+    return {"ok": True, "message": "Code confirmed. We emailed you a link to reset your password (valid 30 minutes)."}
+
+
+@router.post("/reset-password")
+def reset_password_route(req: ResetPasswordRequest):
+    try:
+        recovery.reset_password(req.token, req.new_password)
+    except recovery.InvalidLink as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    return {"ok": True}
+
+
+def _org_name(org_id: int | None) -> str:
+    org = store.get_organization_by_id(org_id) if org_id else None
+    return org["name"] if org else recovery.BRAND
 
 
 def _require_role(user: dict, *roles: str) -> None:
@@ -116,8 +155,10 @@ def create_organization_route(
     org = store.create_organization(
         req.name, req.admin_email, req.admin_display_name,
         service.hash_password(temp_password))
+    admin = store.get_user_by_email(req.admin_email)
+    sent = bool(admin) and recovery.send_welcome(admin, req.name, temp_password)
     return {**org, "admin_name": req.admin_display_name, "admin_email": req.admin_email,
-            "temp_password": temp_password}
+            "temp_password": temp_password, "email_sent": sent}
 
 
 @router.get("/organizations", response_model=list[OrganizationResponse])
@@ -183,7 +224,8 @@ def create_user_route(req: CreateUserRequest, user: Annotated[dict, Depends(get_
     if req.role == "super_admin" and req.org_id is not None:     # org-less by design, but listed under that org
         store.add_user_to_org(new_id, req.org_id)
     created = store.get_user_by_id(new_id)
-    return {**created, "temp_password": temp_password}
+    sent = recovery.send_welcome(created, _org_name(target_org_id or req.org_id), temp_password)
+    return {**created, "temp_password": temp_password, "email_sent": sent}
 
 
 @router.post("/me/active-org", response_model=MeResponse)
@@ -244,6 +286,19 @@ def reset_user_password_route(user_id: int, user: Annotated[dict, Depends(get_cu
     temp_password = service.temp_password()
     store.reset_user_password(user_id, service.hash_password(temp_password))
     return ResetPasswordResponse(temp_password=temp_password)
+
+
+@router.post("/users/{user_id}/send-reset")
+def send_reset_email_route(user_id: int, user: Annotated[dict, Depends(get_current_user)]):
+    """Admin/Super Admin emails a user a one-time reset link (same scope rules as reset-password)."""
+    _require_role(user, "admin", "super_admin")
+    _require_same_org_analyser(user, user_id)
+    target = store.get_user_by_id(user_id)
+    if not target or target.get("archived_at"):
+        raise HTTPException(404, "User not found")
+    if not recovery.send_reset_link(target):
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "The reset email could not be sent; check the mail settings")
+    return {"ok": True}
 
 
 @router.get("/users", response_model=list[UserResponse])
