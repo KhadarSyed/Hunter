@@ -13,3 +13,13 @@ missing for both project, user - show user status active or inactive".
 - Backend: `billing/service.org_detail` now also returns each project's `progress_pct` (from `gates.summary`).
   Until the server restarts the ring shows 0% (restart deferred: comparison run in progress, #19).
 - Removed the now-unused `STAGE_LABELS` from `components/admin/adminUi.tsx`.
+
+## Follow-up: pipeline in a popup
+User: "show the list in pop up window, same in dashboard pipeline status missing for project".
+- `components/PipelineDrillDown.tsx` → new `PipelineModal` (house `admin/adminUi` Modal, portalled to `<body>` because a
+  card's hover transform traps `fixed`; stops click bubbling so the card does not navigate; Esc closes).
+- Project cards (`ProjectsPage.tsx`) and the landing list (`LandingPage.tsx`): "Pipeline" now opens the popup instead
+  of expanding the card.
+- Org dashboard: the Status ring is a button that opens the same popup (Org Admin only — a Super Admin cannot open
+  projects, the gates route returns 403, so there it stays display-only).
+- Checked in the browser (shots/pipeline-card.png, shots/pipeline-dashboard.png): opens, stays on the page, closes.

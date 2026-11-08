@@ -1,5 +1,5 @@
 import { formatDate as formatDateUS } from "../utils/format";
-import { PipelineDrillDown } from "../components/PipelineDrillDown";
+import { PipelineModal } from "../components/PipelineDrillDown";
 import { landingPage } from "../hooks/useStageGate";
 import { ProjectProgress } from "../components/ProjectProgress";
 import { useLiveRefetch } from "../hooks/useLiveRefetch";
@@ -356,14 +356,14 @@ export function LandingPage({ onNavigate }: { onNavigate: (page: string) => void
                       </svg>
                     </button>
                     {!isQC && (
-                      <button type="button" onClick={() => setOpenPipeline((o) => (o === proj.id ? null : proj.id))}
-                        aria-expanded={openPipeline === proj.id} aria-label={`Show the pipeline of ${proj.project_name}`}
+                      <button type="button" onClick={() => setOpenPipeline(proj.id)}
+                        aria-haspopup="dialog" aria-label={`Show the pipeline of ${proj.project_name}`}
                         className="mr-3 shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold text-[#5B2C9D] hover:bg-[#5B2C9D]/10">
-                        Pipeline {openPipeline === proj.id ? "▴" : "▾"}
+                        Pipeline ↗
                       </button>
                     )}
                     </div>
-                    {openPipeline === proj.id && <PipelineDrillDown projectId={proj.id} className="mx-5 mb-4 rounded-xl bg-slate-50 p-3" />}
+                    {openPipeline === proj.id && <PipelineModal projectId={proj.id} title={proj.project_name} onClose={() => setOpenPipeline(null)} />}
                     </div>
                   );
                 })}

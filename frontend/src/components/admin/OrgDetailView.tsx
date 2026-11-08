@@ -2,6 +2,7 @@ import { useState } from "react";
 import { intelApi, type OrgDetail } from "../../services/intel-api";
 import { BrandLogo } from "../BrandLogo";
 import { ProjectProgress } from "../ProjectProgress";
+import { PipelineModal } from "../PipelineDrillDown";
 import { TabPanel, Tabs } from "../deliverable/Tabs";
 import { CountryFlag, Meter, OrgLogo, Tile, fmtDate, fmtTokens, inputCls } from "./adminUi";
 
@@ -16,6 +17,7 @@ export function OrgDetailView({ detail, canEditTokens, onChanged }: Props) {
   const { org, subscription: s } = detail;
   const cur = s.current;
   const [tab, setTab] = useState<"projects" | "users">("projects");
+  const [pipelineOf, setPipelineOf] = useState<{ id: number; name: string } | null>(null);
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -64,7 +66,14 @@ export function OrgDetailView({ detail, canEditTokens, onChanged }: Props) {
                     </div>
                   </td>
                   <td className="px-4 py-2.5 text-slate-600">{p.owner_name ?? "—"}</td>
-                  <td className="px-4 py-2.5"><ProjectProgress pct={p.progress_pct} stage={p.current_stage ?? undefined} size={30} /></td>
+                  <td className="px-4 py-2.5">
+                    {canEditTokens ? (   // the Org Admin's view; a Super Admin reviews but cannot open projects (403)
+                      <button type="button" onClick={() => setPipelineOf({ id: p.id, name: p.project_name })} aria-haspopup="dialog"
+                        title="Show the pipeline" className="-m-1 rounded-lg p-1 text-left hover:bg-violet-50">
+                        <ProjectProgress pct={p.progress_pct} stage={p.current_stage ?? undefined} size={30} />
+                      </button>
+                    ) : <ProjectProgress pct={p.progress_pct} stage={p.current_stage ?? undefined} size={30} />}
+                  </td>
                   <td className="px-4 py-2.5 text-slate-600">{fmtDate(p.created_at)}</td>
                   <td className="px-4 py-2.5 text-slate-600">{fmtDate(p.updated_at)}</td>
                   <td className="px-4 py-2.5 text-right tabular-nums text-slate-600">{fmtTokens(p.tokens)}</td>
@@ -75,6 +84,7 @@ export function OrgDetailView({ detail, canEditTokens, onChanged }: Props) {
           </table>
         </div>
       </TabPanel>}
+      {pipelineOf && <PipelineModal projectId={pipelineOf.id} title={pipelineOf.name} onClose={() => setPipelineOf(null)} />}
 
       {tab === "users" && <TabPanel id="users">
         <div className="overflow-x-auto rounded-xl border border-slate-200">

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { intelApi } from "../services/intel-api";
 import { STAGE_KEYS, STAGE_LABEL } from "../hooks/useStageGate";
 import { useLiveRefetch } from "../hooks/useLiveRefetch";
 import { Donut } from "./Donut";
+import { Modal } from "./admin/adminUi";
 
 type Detail = Record<string, { state: "done" | "running" | "open" | "locked"; pct: number; sub: string }>;
 
@@ -44,5 +46,18 @@ export function PipelineDrillDown({ projectId, className = "" }: { projectId: nu
         );
       })}
     </ol>
+  );
+}
+
+/** The pipeline in a popup, portalled to <body> so a card's transform cannot trap it. Clicks inside never reach
+ * the card or row it was opened from (React bubbles through portals, so a card's onClick would navigate away). */
+export function PipelineModal({ projectId, title, onClose }: { projectId: number; title: string; onClose: () => void }) {
+  return createPortal(
+    <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
+      <Modal title={`Pipeline · ${title}`} onClose={onClose}>
+        <PipelineDrillDown projectId={projectId} />
+      </Modal>
+    </div>,
+    document.body,
   );
 }
