@@ -160,11 +160,11 @@ export function ManageUsersTab() {
                 className="rounded-lg bg-[#5B2C9D] text-white font-semibold px-4 py-2 text-sm disabled:opacity-40 disabled:cursor-not-allowed">
           {creating ? "Adding..." : isSuperAdmin ? `Add ${role === "super_admin" ? "Super Admin" : role === "admin" ? "Admin" : "Analyser"}` : "Add Analyser"}
         </button>
-        <span className="text-xs text-slate-400 pb-2.5">New users get a one-time password, shown here once; they must change it at first sign-in.</span>
+        <span className="text-xs text-slate-400 pb-2.5">New users are emailed their organization, a one-time password and how to change it (also shown here once); they set their own at first sign-in.</span>
       </form>
       {error && <div className="text-sm text-red-600">{error}</div>}
 
-      <div className="rounded-xl border border-slate-200 overflow-hidden">
+      <div className="rounded-xl border border-slate-200 overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr className="text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
@@ -173,7 +173,7 @@ export function ManageUsersTab() {
               <th className="px-4 py-2.5">Role</th>
               <th className="px-4 py-2.5">Created</th>
               <th className="px-4 py-2.5">Status</th>
-              <th className="px-4 py-2.5"></th>
+              <th className="px-4 py-2.5"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -190,8 +190,8 @@ export function ManageUsersTab() {
                     {u.archived_at ? "Archived" : "Active"}
                   </span>
                 </td>
-                <td className="px-4 py-2.5 whitespace-nowrap">
-                  <div className="flex items-center gap-3">
+                <td className="px-4 py-2.5 min-w-[11rem]">
+                  <div className="flex flex-col items-start gap-1">
                     {!u.archived_at && (isSuperAdmin || u.role === "analyser") && (
                       <button onClick={() => handleResetPassword(u)} disabled={resettingId === u.id}
                               className="text-xs font-medium text-[#5B2C9D] hover:underline disabled:opacity-40">
