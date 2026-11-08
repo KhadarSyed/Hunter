@@ -111,6 +111,7 @@ export interface AuthUser {
   role: "super_admin" | "admin" | "analyser";
   org_id: number | null;
   org_name: string | null;
+  org_logo_url?: string | null;
   avatar_url: string | null;
   must_change_password: boolean;
 }

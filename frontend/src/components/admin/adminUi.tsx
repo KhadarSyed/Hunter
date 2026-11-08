@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Icon } from "@iconify/react";
 
 export const fmtDate = (ts: number | null | undefined) =>
@@ -24,11 +24,69 @@ export function CountryFlag({ code }: { code: string | null }) {
   );
 }
 
-export function OrgLogo({ name, logo }: { name: string; logo: string | null }) {
-  if (logo) return <img src={logo} alt="" className="h-8 w-8 rounded-lg object-contain border border-slate-100 bg-white" />;
+const luminance = (r: number, g: number, b: number) => (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+
+const NEAR_WHITE = 0.85;
+
+/** True when a logo is transparent and mostly near-white (white marks made for dark headers), so it needs a dark
+ * backing to stay visible. A logo with its own opaque background (all four corners filled) is shown as it is. The
+ * logo is rendered on a canvas, so default colours (e.g. unfilled SVG text = black) count too. */
+function needsDarkBacking(src: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const S = 64;
+        const c = document.createElement("canvas");
+        c.width = S; c.height = S;
+        const ctx = c.getContext("2d");
+        if (!ctx) return resolve(false);
+        ctx.drawImage(img, 0, 0, S, S);
+        const d = ctx.getImageData(0, 0, S, S).data;
+        const alpha = (x: number, y: number) => d[(y * S + x) * 4 + 3];
+        if ([alpha(0, 0), alpha(S - 1, 0), alpha(0, S - 1), alpha(S - 1, S - 1)].every((a) => a > 200)) return resolve(false);
+        let light = 0, n = 0;
+        for (let i = 0; i < d.length; i += 4) {
+          if (d[i + 3] > 32) { n++; if (luminance(d[i], d[i + 1], d[i + 2]) > NEAR_WHITE) light++; }
+        }
+        resolve(n > 0 && light / n >= 0.5);
+      } catch { resolve(false); }
+    };
+    img.onerror = () => resolve(false);
+    img.src = src;
+  });
+}
+
+function useNeedsDarkBacking(logo: string | null | undefined): boolean {
+  const [dark, setDark] = useState(false);
+  useEffect(() => {
+    let live = true;
+    if (!logo) { setDark(false); return; }
+    needsDarkBacking(logo).then((v) => { if (live) setDark(v); });
+    return () => { live = false; };
+  }, [logo]);
+  return dark;
+}
+
+const LOGO_BOX = { square: "h-8 w-8 p-0.5", badge: "h-8 w-12", wide: "h-10 w-32" } as const;
+
+/** An organization's logo: `square` for table rows, `badge` for the 64 px navigation rail, `wide` where there is room
+ * for a wordmark (profile card, dashboard header). Transparent light logos get a dark backing. */
+export function OrgLogo({ name, logo, variant = "square" }: { name: string; logo: string | null | undefined; variant?: keyof typeof LOGO_BOX }) {
+  const dark = useNeedsDarkBacking(logo);
+  if (!logo) {
+    return (
+      <span className={`${LOGO_BOX[variant]} rounded-lg bg-[#5B2C9D10] text-[#5B2C9D] text-sm font-bold flex items-center justify-center`}
+            title={name}>
+        {name.slice(0, 1).toUpperCase()}
+      </span>
+    );
+  }
+  const backing = dark ? "bg-slate-900 border-slate-900 p-1" : "bg-white border-slate-200";
+  const box = LOGO_BOX[variant];
   return (
-    <span className="h-8 w-8 rounded-lg bg-[#5B2C9D10] text-[#5B2C9D] text-sm font-bold flex items-center justify-center">
-      {name.slice(0, 1).toUpperCase()}
+    <span className={`${box} ${backing} rounded-lg border flex items-center justify-center shrink-0 overflow-hidden`} title={name}>
+      <img src={logo} alt={`${name} logo`} className="max-h-full max-w-full object-contain" />
     </span>
   );
 }

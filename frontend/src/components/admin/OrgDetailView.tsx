@@ -11,8 +11,8 @@ export function OrgDetailView({ detail, canEditTokens, onChanged }: Props) {
   const cur = s.current;
   return (
     <div className="space-y-6">
-      <div className="flex items-start gap-3">
-        <OrgLogo name={org.name} logo={org.logo_url} />
+      <div className="flex items-center gap-3">
+        <OrgLogo name={org.name} logo={org.logo_url} variant="wide" />
         <div className="min-w-0">
           <div className="text-lg font-semibold text-slate-900">{org.name}</div>
           <div className="text-xs text-slate-500 flex flex-wrap gap-x-3 gap-y-1">

@@ -41,10 +41,11 @@ MAX_AVATAR_BYTES = 5 * 1024 * 1024
 
 
 def _to_response(user: dict) -> dict:
-    org = store.get_organization_by_id(user["org_id"]) if user["org_id"] else None
+    org = billing_repo.org_profile(user["org_id"]) if user["org_id"] else None
     return {
         "id": user["id"], "email": user["email"], "display_name": user["display_name"],
         "role": user["role"], "org_id": user["org_id"], "org_name": org["name"] if org else None,
+        "org_logo_url": org.get("logo_url") if org else None,
         "avatar_url": user["avatar_url"], "must_change_password": bool(user["must_change_password"]),
     }
 

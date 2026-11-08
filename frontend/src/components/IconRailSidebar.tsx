@@ -2,11 +2,14 @@ import type { Page } from "../App";
 import { ProfileMenu } from "./ProfileMenu";
 import { NotificationBell } from "./NotificationBell";
 import { HelpVideoButton } from "./HelpVideoButton";
+import { OrgLogo } from "./admin/adminUi";
+import { useAuth } from "../context/auth-context";
 
 /** Minimal icon-only sidebar for the landing/projects-list view (full
  * pipeline navigation only appears once a project is open — see
  * Sidebar.tsx). */
 export function IconRailSidebar({ currentPage, onNavigate }: { currentPage: Page; onNavigate: (page: string) => void }) {
+  const { user } = useAuth();
   const items: { page: Page; label: string; icon: JSX.Element }[] = [
     {
       page: "landing",
@@ -42,7 +45,12 @@ export function IconRailSidebar({ currentPage, onNavigate }: { currentPage: Page
 
   return (
     <aside className="w-16 border-r border-slate-200 bg-white flex flex-col items-center shrink-0 py-4">
-      <img src="/alphametricx-mark.png" alt="Alphametricx" className="h-8 w-8 object-contain mb-6" />
+      <img src="/alphametricx-mark.png" alt="Alphametricx" className={`h-8 w-8 object-contain ${user?.org_name ? "mb-3" : "mb-6"}`} />
+      {user?.org_name && (
+        <div className="mb-5 flex flex-col items-center" title={`Workspace: ${user.org_name}`}>
+          <OrgLogo name={user.org_name} logo={user.org_logo_url} variant="badge" />
+        </div>
+      )}
       <nav className="flex-1 flex flex-col items-center gap-1.5">
         {items.map((item) => {
           const isActive =

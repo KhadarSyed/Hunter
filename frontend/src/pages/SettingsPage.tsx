@@ -8,6 +8,7 @@ import { ExclusionsTab } from "./ExclusionsTab";
 import { ProvidersTab } from "./ProvidersTab";
 import { SubscriptionTab } from "./SubscriptionTab";
 import { GuardrailsTab } from "./GuardrailsTab";
+import { OrgLogo } from "../components/admin/adminUi";
 
 type SettingsTab = "profile" | "users" | "organizations" | "datasources" | "exclusions" | "providers" | "subscription"
   | "guardrails";
@@ -46,6 +47,7 @@ export function SettingsPage() {
       <div className="flex gap-6 items-start">
         <aside className="w-56 shrink-0 rounded-xl border border-slate-200 bg-white p-2">
           <div className="px-3 py-3 mb-1 border-b border-slate-100">
+            {user.org_name && <div className="mb-2.5"><OrgLogo name={user.org_name} logo={user.org_logo_url} variant="wide" /></div>}
             <div className="text-sm font-semibold text-slate-900 truncate">{user.display_name}</div>
             <div className="text-xs text-slate-500 truncate">{user.email}</div>
             <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">

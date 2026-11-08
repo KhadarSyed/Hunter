@@ -18,6 +18,7 @@ class LoginResponse(ApiModel):
     role: str
     org_id: int | None = None
     org_name: str | None = None
+    org_logo_url: str | None = None     # the organization's own logo (data: URI), shown as the workspace badge
     avatar_url: str | None = None
     must_change_password: bool
 
