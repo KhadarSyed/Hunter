@@ -32,7 +32,6 @@ MUST_CHANGE_ALLOWED_PATHS = frozenset({"/api/auth/change-password", "/api/auth/m
 SEED_ORGANIZATION = "InfoVision"
 SEED_SUPER_ADMINS = (
     (SEED_SUPER_ADMIN_EMAIL, "Khadar Syed"),
-    ("sweta.shah@infovision.com", "Sweta Shah"),
 )
 
 
