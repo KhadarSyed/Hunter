@@ -9,7 +9,7 @@ changed and why. Open the code only for the files a note or the map points to.
 1. Read this README (map + rules + current state).
 2. Read the newest notes in `log/` (newest first) for recent changes in the area you are touching.
 3. Only then open the specific files named there.
-4. After every response, add a note to `log/` (`YYYY-MM-DD-NN-topic.md`) and update "Current state" below if it changed.
+4. After every response, add a note to `log/` (`YYYY-MM-DD-NN-topic.md`), update "Current state" below if it changed, and commit it with that response's work.
 
 ## Standing rules
 
