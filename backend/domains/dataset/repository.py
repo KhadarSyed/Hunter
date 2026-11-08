@@ -11,7 +11,8 @@ from ...core.db import _conn
 
 _LIST_COLS = ("a.id, a.project_id, a.norm_url, a.url, a.channel, a.title, a.summary, a.outlet, a.published, "
               "a.country, a.reach, a.author_name, a.author_id, a.post_id, a.file_id, a.content_status, a.tags_json, "
-              "a.tag_status, a.tag_error, a.sentiment, a.sentiment_confidence, a.syndicated_json, a.similar_json")
+              "a.tag_status, a.tag_error, a.sentiment, a.sentiment_confidence, a.syndicated_json, a.similar_json, "
+              "a.excluded_reason, a.keep_by, a.keep_at, a.keep_comment")
 _RQ_COLS = ("id, article_id, rq_id, signature, matched, match_confidence, keywords_json, tags_json, evidence_json, "
             "summary, reason, status, decided_by, decided_at, decision_reason, tagged_at, query_changed")
 # A row counts toward an article's status when the RQ matched it or an analyst decided it.
@@ -300,8 +301,51 @@ def rq_counts(project_id: int, rq_id: str, signature: str) -> dict:
 
 def match_texts(project_id: int) -> list[dict]:
     """Every article's id, title and the text a Boolean query is matched on (title, summary, content)."""
-    return _dicts(_run("SELECT id, title, CONCAT_WS(CHR(10), title, summary, content) AS text FROM intel_articles "
-                       "WHERE project_id = ? ORDER BY id", (project_id,)))
+    return _dicts(_run("SELECT id, title, url, keep_at, CONCAT_WS(CHR(10), title, summary, content) AS text "
+                       "FROM intel_articles WHERE project_id = ? ORDER BY id", (project_id,)))
+
+
+BLOCK_PREFIX = "Blocked by the organization's exclusion list"
+
+
+def save_blocked(project_id: int, reasons: dict[int, str]) -> None:
+    """The exclusion list over the Data set, in one transaction, before the match is saved: rows the list moved to
+    Irrelevant whose article is no longer blocked (rule removed, or kept relevant) are cleared so the match brings them
+    back; each blocked article's reason is set (others cleared) and its undecided, unapproved question rows move to
+    Irrelevant with that reason. An analyst's decision is final: decided rows are never touched."""
+    conn = _conn()
+    try:
+        conn.execute("DELETE FROM intel_article_rq WHERE project_id = ? AND decided_by IS NULL AND reason LIKE ? "
+                     "AND NOT (article_id = ANY(?))", (project_id, BLOCK_PREFIX + "%", list(reasons)))
+        conn.execute("UPDATE intel_articles SET excluded_reason = NULL WHERE project_id = ? AND excluded_reason IS NOT NULL",
+                     (project_id,))
+        for aid, why in reasons.items():
+            conn.execute("UPDATE intel_articles SET excluded_reason = ? WHERE id = ? AND project_id = ?", (why, aid, project_id))
+            conn.execute("UPDATE intel_article_rq SET matched = 0, status = 'irrelevant', reason = ? WHERE project_id = ? "
+                         "AND article_id = ? AND decided_by IS NULL AND status <> 'approved'", (why, project_id, aid))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def keep_relevant(project_id: int, article_id: int, by: str, comment: str) -> dict | None:
+    """An analyst keeps a blocked article: the override (who, when, why) and the block reason it overrode."""
+    row = _run("SELECT id, url, title, excluded_reason FROM intel_articles WHERE id = ? AND project_id = ?",
+               (article_id, project_id), one=True)
+    if not row:
+        return None
+    _run("UPDATE intel_articles SET keep_by = ?, keep_at = ?, keep_comment = ?, excluded_reason = NULL "
+         "WHERE id = ? AND project_id = ?", (by, time.time(), comment, article_id, project_id))
+    return dict(row)
+
+
+def kept_urls(project_id: int) -> set[str]:
+    """Normalised URLs of the articles an analyst kept relevant despite the exclusion list."""
+    return {r[0] for r in _run("SELECT norm_url FROM intel_articles WHERE project_id = ? AND keep_at IS NOT NULL",
+                               (project_id,))}
 
 
 def matched_ids(project_id: int, rq_id: str) -> list[int]:

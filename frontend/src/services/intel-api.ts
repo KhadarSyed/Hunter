@@ -7,7 +7,10 @@ import type { UsageCallsPage, UsagePriceRequest, UsagePrices, UsageQuery, UsageS
 // Render) — see also ws.ts, which derives the WebSocket origin from the same variable.
 const API_ORIGIN = import.meta.env.VITE_API_BASE_URL ?? "";
 export type ExclusionKind = "domain" | "keyword";
-export interface ExclusionRecord { id: number; kind: ExclusionKind; value: string; created_at: number }
+export interface ExclusionRecord {
+  id: number; kind: ExclusionKind; value: string; created_at: number;
+  kept_relevant?: number; last_comment?: string | null;     // org memory of analysts keeping blocked articles
+}
 
 export const API_BASE = `${API_ORIGIN}/api/intel`;
 
@@ -846,6 +849,9 @@ export const intelApi = {
   },
 
   startTagging: (projectId: number) => post<{ job_id: string }>(`/articles/${projectId}/tag`),
+  /** Keep an article the exclusion list blocked; the comment is required (the organization learns from it). */
+  keepArticle: (projectId: number, articleId: number, comment: string) =>
+    post<{ matched: number; irrelevant: number; blocked: number }>(`/articles/${projectId}/${articleId}/keep`, { comment }),
   /** Free: each approved question's Boolean query maps the articles; the rest go to Irrelevant (never tagged). */
   /** The analyst's sign-off on the tagged data set; the server starts the deck run from it. */
   approveDataset: (projectId: number) =>

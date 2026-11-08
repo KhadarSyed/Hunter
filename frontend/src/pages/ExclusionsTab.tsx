@@ -127,6 +127,10 @@ export function ExclusionsTab() {
                       {list.map((r) => (
                         <li key={r.id} className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 py-1 pl-3 pr-1.5 text-sm text-slate-700">
                           {r.value}
+                          {(r.kept_relevant ?? 0) > 0 && (
+                            <span title={`Analysts kept ${r.kept_relevant} blocked article(s) from this as relevant${r.last_comment ? `: "${r.last_comment}"` : ""}. Consider refining the list.`}
+                              className="rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-800">kept {r.kept_relevant}×</span>
+                          )}
                           <button onClick={() => remove(r.id)} aria-label={`Remove ${r.value}`}
                             className="flex h-5 w-5 items-center justify-center rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-700">
                             ×

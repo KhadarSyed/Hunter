@@ -17,7 +17,7 @@ from ..projects import gates
 from ..deliverable import rows as engine_rows
 from ..deliverable.labels import theme_key
 from . import repository as repo, service
-from .schemas import ArticleEdit, DecisionRequest, RQQuery, UndoRequest
+from .schemas import ArticleEdit, DecisionRequest, KeepRequest, RQQuery, UndoRequest
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -235,6 +235,19 @@ def _remember(project_id: int, snapshot: list[dict]) -> str:
             del _UNDO[k]
         _UNDO[token] = (now + UNDO_SECONDS, project_id, snapshot)
     return token
+
+
+@router.post("/articles/{project_id}/{article_id:int}/keep")      # :int so /decisions/undo never lands here
+def keep_relevant(project_id: ProjectId, article_id: Annotated[int, PathParam(ge=1)], req: KeepRequest, user: Access):
+    """An analyst keeps an article the organization's exclusion list blocked: their comment is stored, the org
+    remembers it, and the free Boolean match runs again so the article can be tagged like any other."""
+    gates.require(project_id, "data_set")
+    _guard(project_id)
+    result = service.keep_relevant(project_id, article_id, _who(user), req.comment.strip())
+    if result is None:
+        raise HTTPException(404, "Article not found")
+    repo.set_dataset_approval(project_id, None)      # the data set changed: the analyst approves again
+    return result
 
 
 @router.post("/articles/{project_id}/decisions")

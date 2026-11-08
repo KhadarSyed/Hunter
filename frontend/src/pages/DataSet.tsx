@@ -11,7 +11,7 @@ import { ArticlesTable, PAGE_SIZE } from "../components/dataset/ArticlesTable";
 import { BulkBar } from "../components/dataset/BulkBar";
 import { ColumnPicker, loadHidden, saveHidden, type GroupId } from "../components/dataset/ColumnPicker";
 import { FilterBar } from "../components/dataset/FilterBar";
-import type { ArticleFacets, ArticleFilters, ArticlePage, Channel, RqStatus, UploadResult } from "../types/dataset";
+import type { ArticleFacets, ArticleFilters, ArticlePage, ArticleRow, Channel, RqStatus, UploadResult } from "../types/dataset";
 
 const V = "#5B2C9D";
 const UNDO_MS = 10_000;
@@ -190,6 +190,21 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
     } catch (e) { setError(errMsg(e, "Could not start tagging")); }
   };
 
+  const [keeping, setKeeping] = useState<ArticleRow | null>(null);
+  const [keepNote, setKeepNote] = useState("");
+  const keep = async () => {
+    if (!projectId || !keeping) return;
+    setBusy(true);
+    try {
+      await intelApi.keepArticle(projectId, keeping.id, keepNote.trim());
+      setKeeping(null);
+      window.clearTimeout(toastTimer.current);
+      setToast({ token: "", text: "Kept as relevant. It joins the matched articles when a research question matches it; tag to include it." });
+      reloadData();
+      void syncTagging();
+    } catch (e) { setError(errMsg(e, "Could not keep the article")); } finally { setBusy(false); }
+  };
+
   const decide = async (ids: number[], rqId: string | null, status: RqStatus, reason?: string) => {
     if (!projectId || ids.length === 0) return;
     setBusy(true);
@@ -304,7 +319,7 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
         <FilterBar filters={filters} rqs={page.rqs} facets={facets} onChange={changeFilters} />
       ) : (
         <p role="status" className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500">
-          {filters.pool === "irrelevant" ? "No research question's Boolean query matches these articles, so they are not tagged. Edit a question's query above to bring some in."
+          {filters.pool === "irrelevant" ? "No research question's Boolean query matches these articles, or your organization's exclusion list blocks them (marked Blocked), so they are not tagged. Edit a question's query above, or mark a blocked article relevant, to bring it in."
             : running ? "Tagging is running. Review, filters and approval open when it finishes."
             : "Match the research questions, then tag the matched articles to review, filter and approve them."}
         </p>
@@ -322,13 +337,36 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
           total={page.total} offset={offset} loading={loading} hidden={hidden} selected={selected}
           selectionComplete={page.total > 0 && selected.size === page.total}
           onToggle={toggleRow} onToggleAll={() => void toggleAll()} onPage={setOffset}
-          onDecide={(id, status) => void decide([id], filters.rq || null, status)} onEdited={reloadData} canDecide={reviewable} />
+          onDecide={(id, status) => void decide([id], filters.rq || null, status)} onEdited={reloadData} canDecide={reviewable}
+          onKeep={running ? undefined : (row) => { setKeeping(row); setKeepNote(""); }} />
+      )}
+
+      {keeping && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-6" role="dialog" aria-modal="true" aria-label="Mark relevant">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl space-y-3">
+            <h2 className="text-base font-semibold text-slate-900">Mark relevant</h2>
+            <p className="text-sm text-slate-600 line-clamp-2">{keeping.title || keeping.url}</p>
+            <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">{keeping.excluded_reason}</p>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Why is it relevant? <span className="text-red-500">*</span>
+              <textarea value={keepNote} onChange={(e) => setKeepNote(e.target.value)} rows={3} maxLength={1000} autoFocus
+                placeholder="e.g. Independent review, not a coupon page"
+                className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-normal normal-case tracking-normal text-slate-800" />
+            </label>
+            <p className="text-xs text-slate-500">The site stays on your organization's exclusion list. Your comment is kept: other projects see how often analysts kept this site, and the AI steps get it as context.</p>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setKeeping(null)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700">Cancel</button>
+              <button type="button" disabled={busy || keepNote.trim().length < 3} onClick={() => void keep()}
+                className="rounded-lg bg-[#5B2C9D] px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">Keep as relevant</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {toast && (
         <div role="status" className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-4 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white shadow-xl">
           {toast.text}
-          <button type="button" onClick={undo} className="font-semibold text-violet-300 hover:underline">Undo</button>
+          {toast.token && <button type="button" onClick={undo} className="font-semibold text-violet-300 hover:underline">Undo</button>}
         </div>
       )}
     </div>

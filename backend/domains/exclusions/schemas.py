@@ -13,6 +13,8 @@ class ExclusionRecord(ApiModel):
     kind: Literal["domain", "keyword"]
     value: str
     created_at: float
+    kept_relevant: int = 0              # how often analysts kept a blocked article for this rule (org memory)
+    last_comment: str | None = None     # their latest reason
 
 
 class AddExclusionRequest(ApiModel):

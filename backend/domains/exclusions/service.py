@@ -162,6 +162,65 @@ def excluded(rules: Rules, url: str = "", *texts: str) -> str | None:
     return None
 
 
+# ─── analyst overrides: the organization's memory of blocked articles kept relevant ─────────────────────────────
+
+_RULE = re.compile(r'(domain) (\S+)|(keyword) "(.+)"')
+OVERRIDE_TYPE = "exclusion_override"
+
+
+def _rule_of(reason: str) -> tuple[str, str] | None:
+    """('domain', 'x.com') / ('keyword', 'promo') from an excluded() reason, also inside a longer sentence."""
+    m = _RULE.search(reason or "")
+    if not m:
+        return None
+    return ("domain", m.group(2).rstrip(")")) if m.group(1) else ("keyword", m.group(4))
+
+
+def remember_override(project_id: int, reason: str, comment: str, by: str, url: str = "") -> None:
+    """Org memory: per rule, how often analysts kept a blocked article and their latest comments. Never raises."""
+    try:
+        org = org_of_project(project_id)
+        rule = _rule_of(reason)
+        if not org or not rule:
+            return
+        key = f"{rule[0]}:{rule[1].lower()}"
+        old = store.get_memory_item("org", str(org), OVERRIDE_TYPE, key)
+        v = old["value"] if old else {"kind": rule[0], "value": rule[1], "count": 0, "notes": []}
+        v["count"] = int(v.get("count", 0)) + 1
+        v["notes"] = ([{"comment": comment[:300], "by": by, "url": url[:300], "project_id": project_id}]
+                      + list(v.get("notes") or []))[:5]
+        store.put_memory_item("org", str(org), OVERRIDE_TYPE, key, v)
+        from ..guardrails import service as guardrails
+        guardrails.changed(org)          # the agents' context picks it up at once
+    except Exception as e:
+        logger.warning("exclusion override not remembered: %s", type(e).__name__)
+
+
+def overrides(org_id: int | None) -> dict[str, dict]:
+    """{'domain:x.com': {kind, value, count, notes}} for the organization."""
+    if not org_id:
+        return {}
+    try:
+        return {i["key"]: i["value"] for i in store.list_memory_items("org", str(org_id), OVERRIDE_TYPE, limit=200)}
+    except Exception:
+        return {}
+
+
+def override_context(org_id: int | None, limit: int = 10) -> str:
+    """The analysts' overrides as a prompt section for the org's AI agents (empty when there are none)."""
+    items = sorted(overrides(org_id).values(), key=lambda v: -int(v.get("count", 0)))[:limit]
+    if not items:
+        return ""
+    lines = []
+    for v in items:
+        note = (v.get("notes") or [{}])[0].get("comment", "")
+        what = f"site {v['value']}" if v["kind"] == "domain" else f'keyword "{v["value"]}"'
+        lines.append(f"- {what}: blocked by the organization, but analysts kept {v['count']} article(s) as relevant"
+                     + (f' — "{note}"' if note else ""))
+    return ("ANALYST DECISIONS ON BLOCKED CONTENT (the block list still applies; use these only to understand the "
+            "analysts' judgement):\n" + "\n".join(lines))
+
+
 RESEARCH_LISTS = ("news_items", "background_context", "social_items", "traditional_items", "sources")
 
 

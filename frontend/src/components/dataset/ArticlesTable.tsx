@@ -34,6 +34,8 @@ type Props = {
   onToggleAll: () => void;
   onPage: (offset: number) => void;
   onDecide: (id: number, status: "approved" | "irrelevant") => void;
+  /** keep an article the exclusion list blocked (asks for a comment); absent while tagging runs */
+  onKeep?: (row: ArticleRow) => void;
   /** false until tagging has run: no row decisions or selection yet */
   canDecide?: boolean;
   onEdited: () => void;
@@ -94,6 +96,17 @@ export function ArticlesTable(p: Props) {
                         className="w-5 h-5 rounded text-red-700 hover:bg-red-50 text-xs">✕</button>
                     </span>}
                   </div>
+                  {r.excluded_reason && (
+                    <div className="mt-1 space-y-1">
+                      <span title={r.excluded_reason} className="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-800 text-white">Blocked</span>
+                      {p.onKeep && <button type="button" onClick={() => p.onKeep?.(r)} title="Keep this article: it is relevant despite the exclusion list"
+                        className="block text-[11px] font-medium text-[#5B2C9D] hover:underline">Mark relevant</button>}
+                    </div>
+                  )}
+                  {r.keep_at && (
+                    <span title={`Kept relevant by ${r.keep_by ?? "an analyst"}: ${r.keep_comment ?? ""}`}
+                      className="mt-1 inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">Kept · {r.keep_by ?? "analyst"}</span>
+                  )}
                 </td>
                 <td {...pinned(PIN.title, "px-3 py-2.5 border-b border-slate-100 border-r")}>
                   <button type="button" onClick={() => setDrawer(r)} className="text-left text-xs font-medium text-[#5B2C9D] hover:underline line-clamp-3 max-w-[260px]">

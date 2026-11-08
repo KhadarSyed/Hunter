@@ -55,6 +55,12 @@ export interface ArticleRow {
   rq: Record<string, RqRow>;
   matched_rqs: string[];
   status: "Approved" | "Review" | "Irrelevant" | "No RQ match";
+  /** set when the organization's exclusion list blocked it (Settings > Exclusions) */
+  excluded_reason?: string | null;
+  /** an analyst kept it relevant despite the exclusion list */
+  keep_by?: string | null;
+  keep_at?: number | null;
+  keep_comment?: string | null;
 }
 
 export interface RqColumn {

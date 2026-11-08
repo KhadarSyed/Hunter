@@ -26,7 +26,14 @@ def _member(user: dict) -> dict:
 
 @router.get("/exclusions", response_model=list[ExclusionRecord])
 def list_exclusions(user: User):
-    return store.list_exclusions(_member(user)["org_id"])
+    org = _member(user)["org_id"]
+    learned = service.overrides(org)
+    out = []
+    for r in store.list_exclusions(org):
+        m = learned.get(f"{r['kind']}:{r['value'].lower()}") or {}
+        out.append({**r, "kept_relevant": int(m.get("count", 0)),
+                    "last_comment": ((m.get("notes") or [{}])[0].get("comment")) or None})
+    return out
 
 
 @router.post("/exclusions", response_model=ExclusionRecord, status_code=status.HTTP_201_CREATED)

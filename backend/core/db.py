@@ -1687,6 +1687,13 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL
         )""", "CREATE INDEX IF NOT EXISTS idx_org_guardrails_org ON org_guardrails(org_id)"]),
+    # the org's exclusion list applied to the Data set: why an article was blocked, and an analyst's "keep it
+    # relevant" override (who, when, comment) that the match honours from then on
+    (52, "data set exclusion reason and relevant override", [
+        "ALTER TABLE intel_articles ADD COLUMN excluded_reason TEXT",
+        "ALTER TABLE intel_articles ADD COLUMN keep_by TEXT",
+        "ALTER TABLE intel_articles ADD COLUMN keep_at REAL",
+        "ALTER TABLE intel_articles ADD COLUMN keep_comment TEXT"]),
 ]
 
 

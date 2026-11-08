@@ -34,6 +34,10 @@ def text_for(org_id: int | None) -> str:
         logger.warning("guardrails not loaded: %s", type(e).__name__)
         return hit[1] if hit else ""
     text = "\n\n".join(f"## {r['title']}\n{r['body']}" for r in rows)
+    from ..exclusions import service as exclusions
+    learned = exclusions.override_context(org_id)       # the org's memory of blocked articles analysts kept
+    if learned:
+        text = f"{text}\n\n{learned}" if text else learned
     _cache[org_id] = (now, text)
     return text
 

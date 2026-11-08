@@ -165,15 +165,45 @@ def match_rqs(project_id: int) -> dict:
     groups = _syndication_groups(arts)
     repo.save_copies(project_id, {c: g[0] for g in groups for c in g[1:]})
     group_of = {i: g for g in groups for i in g}
+    blocked = blocked_reasons(project_id, arts)
     by_rq = {}
     for q in rows.approved_rqs(project_id):
         hits = _matching(q.query, arts) if match_terms(q.query) else {a["id"] for a in arts}
-        by_rq[q.id] = {m for i in hits for m in group_of.get(i, (i,))}    # a group matches as one story
+        by_rq[q.id] = {m for i in hits for m in group_of.get(i, (i,))} - blocked.keys()   # a group matches as one story
+    repo.save_blocked(project_id, blocked)          # first: frees rows of articles no longer blocked
     repo.save_rq_matches(project_id, by_rq)
     matched = set().union(*by_rq.values()) if by_rq else set()
     return {"per_rq": {k: len(v) for k, v in by_rq.items()}, "matched": len(matched),
-            "irrelevant": len(arts) - len(matched), "total": len(arts),
+            "irrelevant": len(arts) - len(matched), "blocked": len(blocked), "total": len(arts),
             "copies": sum(len(g) - 1 for g in groups)}
+
+
+def blocked_reasons(project_id: int, arts: list[dict]) -> dict[int, str]:
+    """{article id: why} for articles the organization's exclusion list blocks (Settings > Exclusions). An article an
+    analyst kept relevant is never blocked again. Blocked articles go to Irrelevant and are never tagged."""
+    from ..exclusions import service as exclusions
+    rules = exclusions.rules_for_project(project_id)
+    if not rules:
+        return {}
+    out = {}
+    for a in arts:
+        if a.get("keep_at"):
+            continue
+        why = exclusions.excluded(rules, a.get("url") or "", a.get("text") or "")
+        if why:
+            out[a["id"]] = f"{repo.BLOCK_PREFIX} ({why})"
+    return out
+
+
+def keep_relevant(project_id: int, article_id: int, by: str, comment: str) -> dict | None:
+    """An analyst keeps a blocked article relevant: the override is stored on the article, the organization remembers
+    it (Settings > Exclusions shows it; its AI agents get it as context) and the Boolean match runs again (free)."""
+    from ..exclusions import service as exclusions
+    art = repo.keep_relevant(project_id, article_id, by, comment)
+    if art is None:
+        return None
+    exclusions.remember_override(project_id, art.get("excluded_reason") or "", comment, by, art.get("url") or "")
+    return match_rqs(project_id)
 
 
 def _syndication_groups(arts: list[dict]) -> list[list[int]]:

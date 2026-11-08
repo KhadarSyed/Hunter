@@ -13,6 +13,11 @@ class DecisionRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=1000)
 
 
+class KeepRequest(BaseModel):
+    """Why a blocked article is relevant after all (required: the organization learns from it)."""
+    comment: str = Field(min_length=3, max_length=1000, pattern=r"\S")
+
+
 class UndoRequest(BaseModel):
     undo_token: str
 

@@ -193,11 +193,15 @@ def load_rows(project_id: int, rqs: list[RQ]) -> list[EngineRow]:
 
 def _without_excluded(project_id: int, rows: list[EngineRow]) -> list[EngineRow]:
     """Rows from the organization's excluded websites, or naming an excluded keyword, never reach a chart, an
-    insight, a verbatim or a slide (Settings > Exclusions)."""
+    insight, a verbatim or a slide (Settings > Exclusions) — unless an analyst kept the article relevant on the Data
+    set page (with a comment)."""
     rules = rules_for_project(project_id)
     if not rules:
         return rows
-    kept = [r for r in rows if not excluded_by(rules, r.article.url, r.article.title, r.article.text)]
+    from ..dataset import repository as dataset_repo
+    analyst_kept = dataset_repo.kept_urls(project_id)
+    kept = [r for r in rows if r.article.norm_url in analyst_kept
+            or not excluded_by(rules, r.article.url, r.article.title, r.article.text)]
     if len(kept) < len(rows):
         logger.info("project %s: exclusion list removed %d of %d articles", project_id, len(rows) - len(kept), len(rows))
     return kept
