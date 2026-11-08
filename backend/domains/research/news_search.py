@@ -77,7 +77,7 @@ RSS_DECODE_ATTEMPTS = 2  # a decode that fails once (timeout, Google hiccup) get
 # Only a hung source ever hits this: every request has its own timeout, and sources are given the time
 # they need (every Google News link decoded, every SearXNG page vetted) rather than cut off early.
 FETCH_CEILING_S = 600
-EXTRA_SOURCES = {"youtube", "bluesky", "searxng"}  # opt-in per call, see fetch_and_normalize
+EXTRA_SOURCES = {"youtube", "bluesky", "searxng", "firecrawl"}  # opt-in per call, see fetch_and_normalize
 
 
 class SocialMediaItem(TypedDict):
@@ -668,13 +668,21 @@ def fetch_and_normalize(
 
     if unknown := set(extra_sources) - EXTRA_SOURCES:
         logger.error("Ignoring unknown extra sources %s", sorted(unknown))
-    # an unconfigured source is skipped, not reported as failed on every run
-    extra_sources = tuple(s for s in extra_sources if s in EXTRA_SOURCES and extra_sources_module.is_configured(s))
+    # an unconfigured source is skipped, not reported as failed on every run. Firecrawl is configured per
+    # organization: it runs only when the caller passes the org's key and options (api_keys["firecrawl"], a dict)
+    firecrawl_opts = (api_keys or {}).get("firecrawl")
+    extra_sources = tuple(s for s in extra_sources if s in EXTRA_SOURCES and (
+        bool(firecrawl_opts and firecrawl_opts.get("key") and extra_sources_module.firecrawl_enabled())
+        if s == "firecrawl" else extra_sources_module.is_configured(s)))
     natural_query = tavily_query or query
+    on_firecrawl = ((lambda ok, error, _status: on_source_result("firecrawl", ok, error))
+                    if on_source_result else None)
     extra_calls = {
         "youtube": lambda: extra_sources_module.search_youtube(natural_query, country, date_range, max_results),
         "bluesky": lambda: extra_sources_module.search_bluesky(natural_query, date_range, max_results),
         "searxng": lambda: extra_sources_module.search_searxng(query, country, date_range, max_results),
+        "firecrawl": lambda: extra_sources_module.search_firecrawl(natural_query, country, date_range,
+                                                                   firecrawl_opts or {}, on_firecrawl),
     }
 
     pool = ThreadPoolExecutor(max_workers=3 + len(extra_sources))
@@ -728,7 +736,8 @@ def fetch_and_normalize(
         normalized += results_by_source[name]
 
     buckets: dict[str, list[dict]] = {"social_media": [], "traditional_media": []}
-    seen_keys: set[str] = set()
+    placed: dict[str, dict] = {}        # dedupe key -> the item kept for it
+    duplicates = 0
 
     for norm in normalized:
         url = canonical_url(norm["published_url"])
@@ -736,13 +745,22 @@ def fetch_and_normalize(
             logger.debug("Dropping %s result with no URL: %r", norm["_source"], norm.get("title"))
             continue
         key = dedupe_key(url)
-        if key in seen_keys:
+        if key in placed:
+            # the same page from another source: keep the richer text (e.g. Firecrawl's full page over a snippet)
+            # and remember every source that found it
+            kept = placed[key]
+            duplicates += 1
+            kept.setdefault("_providers", [kept["_source"]]).append(norm["_source"])
+            if len(norm.get("content") or "") > len(kept.get("content") or ""):
+                kept["content"] = norm["content"]
             continue
         if date_range is not None and not _within_range(norm["date"], date_range):
             continue
-        seen_keys.add(key)
         bucket, item = _bucket_item({**norm, "published_url": url})
+        placed[key] = item
         buckets[bucket].append(item)
+    if duplicates:
+        logger.info("research fetch: %d cross-source duplicates merged", duplicates)
 
     failed_sources = []
     if not serpapi_raw:

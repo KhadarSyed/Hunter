@@ -170,10 +170,12 @@ export interface DataSourceRecord {
   renew_url: string;
   configured: boolean;
   masked_key: string | null;
-  status: "not_configured" | "ok" | "expired";
+  status: "not_configured" | "ok" | "expired" | "unverified" | "quota";
   expired_at: number | null;
   last_error: string | null;
   updated_at: number | null;
+  /** Firecrawl only: research options */
+  settings?: { enabled: boolean; max_results: number; full_content: boolean } | null;
 }
 
 export interface JobStatus {
@@ -1004,6 +1006,9 @@ export const intelApi = {
 
   setDataSourceKey: (source: string, apiKey: string) =>
     put<DataSourceRecord>(`/datasources/${source}`, { api_key: apiKey }),
+  setDataSourceSettings: (source: string, settings: { enabled: boolean; max_results: number; full_content: boolean }) =>
+    patch<DataSourceRecord>(`/datasources/${source}/settings`, settings),
+  removeDataSource: (source: string) => del<DataSourceRecord>(`/datasources/${source}`),
 
   validateDataSource: (source: string) =>
     post<{ source: string; status: string; error: string | null }>(`/datasources/${source}/validate`),

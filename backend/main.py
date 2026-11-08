@@ -53,6 +53,9 @@ async def lifespan(app: FastAPI):
     memory.purge_expired()
     from .domains.guardrails import service as guardrails
     guardrails.seed()
+    from .domains.datasources import repository as datasources
+    if n := datasources.encrypt_legacy_keys():
+        logger.info("encrypted %d data source key(s) stored before encryption", n)
     from .domains.billing import service as billing
     billing.start_sweeper()
     ensure_dirs(load_settings())

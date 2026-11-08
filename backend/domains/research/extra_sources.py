@@ -273,6 +273,104 @@ def _vet(items: list[dict], country: str) -> list[dict]:
     return kept
 
 
+# ─── Firecrawl (an organization's own key, Settings > Data Sources) ─────────────────────────────────────────────
+
+FIRECRAWL_API = "https://api.firecrawl.dev/v2"
+FIRECRAWL_SEARCH_TIMEOUT_S = 15
+FIRECRAWL_SCRAPE_TIMEOUT_S = 30
+FIRECRAWL_CACHE_S = 24 * 3600
+_firecrawl_cache: dict[tuple, tuple[float, list[dict]]] = {}
+_firecrawl_lock = threading.Lock()
+
+
+def firecrawl_enabled() -> bool:
+    """The platform kill switch over every org's own toggle (FIRECRAWL_SEARCH_ENABLED, on by default)."""
+    return os.environ.get("FIRECRAWL_SEARCH_ENABLED", "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def _firecrawl_tbs(date_range: tuple | None) -> str | None:
+    bucket = _searxng_time_range(date_range)
+    return {"day": "qdr:d", "week": "qdr:w", "month": "qdr:m", "year": "qdr:y"}.get(bucket or "")
+
+
+def search_firecrawl(query: str, country: str, date_range: tuple | None, options: dict, on_result=None) -> list[dict]:
+    """Firecrawl /v2/search for one query, with the org's key and options {key, max_results, full_content}. With
+    full_content the result pages come back as markdown (main content only) in the same call, so the summary step
+    reads the article itself. Cached 24 h per (query, filters). Never raises; reports ok / rejected / out of
+    credits through on_result(ok, error, status). 5xx: retried twice with backoff."""
+    key = (options or {}).get("key")
+    if not key or not firecrawl_enabled():
+        return []
+    limit = int(options.get("max_results") or 5)
+    full = bool(options.get("full_content", True))
+    tbs = _firecrawl_tbs(date_range)
+    cache_key = (query, country, tbs, limit, full)
+    with _firecrawl_lock:
+        hit = _firecrawl_cache.get(cache_key)
+    if hit and time.time() - hit[0] < FIRECRAWL_CACHE_S:
+        return hit[1]
+    body: dict = {"query": query, "limit": limit, "sources": ["web", "news"]}
+    if tbs:
+        body["tbs"] = tbs
+    if country:
+        body["country"] = country.upper()
+    if full:
+        body["scrapeOptions"] = {"formats": ["markdown"], "onlyMainContent": True}
+    timeout = FIRECRAWL_SCRAPE_TIMEOUT_S if full else FIRECRAWL_SEARCH_TIMEOUT_S
+    started = time.monotonic()
+    r = None
+    for attempt in range(3):
+        try:
+            r = requests.post(f"{FIRECRAWL_API}/search", json=body, timeout=timeout,
+                              headers={"Authorization": f"Bearer {key}"})
+        except requests.RequestException as e:
+            logger.warning("Firecrawl search failed: %s", type(e).__name__)
+            return []
+        if r.status_code < 500:
+            break
+        time.sleep(2 ** attempt)
+    if r is None or r.status_code >= 500:
+        logger.warning("Firecrawl unavailable (%s)", getattr(r, "status_code", "?"))
+        return []
+    if r.status_code in (401, 403):
+        if on_result:
+            on_result(False, "Firecrawl rejected the organization's key", "expired")
+        return []
+    if r.status_code in (402, 429):
+        if on_result:
+            on_result(False, "Firecrawl: no credits left or rate-limited; skipped this run", "quota")
+        return []
+    try:
+        payload = r.json()
+    except ValueError:
+        return []
+    data = payload.get("data") or {}
+    rows = (data.get("web") or []) + (data.get("news") or []) if isinstance(data, dict) else list(data)
+    items = []
+    for res in rows:
+        url = res.get("url") or ""
+        if not url:
+            continue
+        meta = res.get("metadata") or {}
+        items.append({
+            "publisher_name": meta.get("ogSiteName") or meta.get("og:site_name") or (urlparse(url).hostname or "").removeprefix("www."),
+            "published_url": url,
+            "title": res.get("title") or meta.get("title") or "",
+            "content": (res.get("markdown") or res.get("description") or res.get("snippet") or "")[:20000],
+            "author": meta.get("author") or "",
+            "date": res.get("date") or meta.get("publishedTime") or meta.get("article:published_time") or "",
+            "thumbnail": res.get("imageUrl") or meta.get("ogImage") or meta.get("og:image") or "",
+            "_source": "firecrawl",
+        })
+    logger.info("Firecrawl: %d results for %r in %.1fs (credits used: %s)", len(items), query[:60],
+                time.monotonic() - started, payload.get("creditsUsed"))
+    if on_result:
+        on_result(True, None, "ok")
+    with _firecrawl_lock:
+        _firecrawl_cache[cache_key] = (time.time(), items)
+    return items
+
+
 def _searxng_time_range(date_range: tuple | None) -> str | None:
     """SearXNG only knows coarse buckets; the exact window is applied by the caller's date filter."""
     bounds = _bounds(date_range)

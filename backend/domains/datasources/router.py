@@ -13,7 +13,7 @@ from ...core.auth import get_current_user
 from ...core.db import _conn
 from . import repository as ds_repo
 from . import service
-from .schemas import DataSourceRecord, UpsertKeyRequest, ValidateResult
+from .schemas import FIRECRAWL_DEFAULTS, DataSourceRecord, SourceSettings, UpsertKeyRequest, ValidateResult
 
 router = APIRouter()
 
@@ -45,23 +45,51 @@ def list_datasources(user: Annotated[dict, Depends(get_current_user)]):
     return [DataSourceRecord.from_row(s, rows.get(s)) for s in ds_repo.SOURCES]
 
 
+Source = Annotated[str, Path(pattern="^(tavily|serpapi|firecrawl)$")]
+
+
 @router.put("/datasources/{source}", response_model=DataSourceRecord)
-def set_datasource_key(
-    source: Annotated[str, Path(pattern="^(tavily|serpapi)$")],
-    req: UpsertKeyRequest,
-    user: Annotated[dict, Depends(get_current_user)],
-):
+def set_datasource_key(source: Source, req: UpsertKeyRequest, user: Annotated[dict, Depends(get_current_user)]):
+    """Save (encrypted). Firecrawl's key is checked first: rejected (401) is refused, unreachable is saved as
+    'unverified' and checked on first use, out of credits is saved as 'quota'."""
     _require_admin(user)
-    if not req.api_key.strip():
+    key = req.api_key.strip()
+    if not key:
         raise HTTPException(422, "API key is required")
     org_id = _effective_org_id(user)
-    row = ds_repo.upsert_key(org_id, source, req.api_key.strip(), user["id"])
+    if source == "firecrawl":
+        settings = {**FIRECRAWL_DEFAULTS, **SourceSettings(**(req.settings or {})).model_dump()}
+        state, msg = service.check_firecrawl(key)
+        if state == "expired":
+            raise HTTPException(422, msg)
+        row = ds_repo.upsert_key(org_id, source, key, user["id"], status=state, error=msg, settings=settings)
+    else:
+        row = ds_repo.upsert_key(org_id, source, key, user["id"])
     return DataSourceRecord.from_row(source, row)
+
+
+@router.patch("/datasources/{source}/settings", response_model=DataSourceRecord)
+def set_datasource_settings(source: Source, req: SourceSettings, user: Annotated[dict, Depends(get_current_user)]):
+    _require_admin(user)
+    if source != "firecrawl":
+        raise HTTPException(422, f"{source} has no settings")
+    row = ds_repo.update_settings(_effective_org_id(user), source, req.model_dump())
+    if not row:
+        raise HTTPException(404, "Save the key first")
+    return DataSourceRecord.from_row(source, row)
+
+
+@router.delete("/datasources/{source}", response_model=DataSourceRecord)
+def remove_datasource_key(source: Source, user: Annotated[dict, Depends(get_current_user)]):
+    """Remove the org's key: the source is no longer used (Tavily/SerpAPI fall back to the shared keys)."""
+    _require_admin(user)
+    ds_repo.delete_key(_effective_org_id(user), source)
+    return DataSourceRecord.from_row(source, None)
 
 
 @router.post("/datasources/{source}/validate", response_model=ValidateResult)
 def validate_datasource_key(
-    source: Annotated[str, Path(pattern="^(tavily|serpapi)$")],
+    source: Source,
     user: Annotated[dict, Depends(get_current_user)],
 ):
     _require_admin(user)

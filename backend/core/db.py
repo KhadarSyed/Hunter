@@ -1694,6 +1694,17 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
         "ALTER TABLE intel_articles ADD COLUMN keep_by TEXT",
         "ALTER TABLE intel_articles ADD COLUMN keep_at REAL",
         "ALTER TABLE intel_articles ADD COLUMN keep_comment TEXT"]),
+    # Firecrawl as an org data source (its own options), statuses for unconfirmed / out-of-quota keys, and the org's
+    # opt-in to editorial (unlicensed web / article) images in decks — off by default (Instructions/image-licensing…)
+    (53, "firecrawl data source, source settings, editorial images", [
+        "ALTER TABLE org_data_sources DROP CONSTRAINT IF EXISTS org_data_sources_source_check",
+        "ALTER TABLE org_data_sources ADD CONSTRAINT org_data_sources_source_check "
+        "CHECK (source IN ('tavily', 'serpapi', 'firecrawl'))",
+        "ALTER TABLE org_data_sources DROP CONSTRAINT IF EXISTS org_data_sources_status_check",
+        "ALTER TABLE org_data_sources ADD CONSTRAINT org_data_sources_status_check "
+        "CHECK (status IN ('ok', 'expired', 'unverified', 'quota'))",
+        "ALTER TABLE org_data_sources ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}'",
+        "ALTER TABLE organizations ADD COLUMN allow_editorial_images INTEGER NOT NULL DEFAULT 0"]),
 ]
 
 

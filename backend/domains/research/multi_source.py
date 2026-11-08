@@ -252,7 +252,7 @@ MAX_RESULTS_PER_SOURCE = 40  # per source, per fetch call (general or social-bia
                               # 15; Tavily/SerpAPI both support well beyond this per call
 # Each extra source runs on one of the two calls only: YouTube's search costs 100 of 10,000 free daily
 # units, so running it on both would halve the topics a day's quota covers. Each runs only when configured.
-GENERAL_EXTRA_SOURCES = ("searxng",)
+GENERAL_EXTRA_SOURCES = ("searxng", "firecrawl")    # firecrawl: only with the org's own key (Settings > Data Sources)
 SOCIAL_EXTRA_SOURCES = ("youtube", "bluesky")
 
 

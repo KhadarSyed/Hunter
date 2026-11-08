@@ -69,6 +69,20 @@ LLM_ENRICHMENT_TIMEOUT = 120
 router = APIRouter()
 
 
+def _firecrawl_options(org_id: int | None) -> dict | None:
+    """The org's Firecrawl key + options when it is saved, switched on and not rejected; None otherwise, and then
+    research runs exactly as without Firecrawl."""
+    if not org_id:
+        return None
+    row = ds_repo.get_source(org_id, "firecrawl")
+    if not row or not row.get("api_key") or row.get("status") == "expired":
+        return None
+    opts = {"enabled": True, "max_results": 5, "full_content": True, **(row.get("settings") or {})}
+    if not opts["enabled"]:
+        return None
+    return {"key": row["api_key"], "max_results": opts["max_results"], "full_content": opts["full_content"]}
+
+
 @router.post("/research/start", response_model=ResearchJobStarted)
 def start_background_research(req: StartResearchRequest, user: Annotated[dict, Depends(get_current_user)]):
     """Start a live background research job."""
@@ -155,9 +169,13 @@ def start_background_research(req: StartResearchRequest, user: Annotated[dict, D
             project_for_org = store.get_project(project_id)
             org_id = project_for_org.get("org_id") if project_for_org else None
             api_keys = {"tavily": ds_repo.get_key(org_id, "tavily") if org_id else None,
-                        "serpapi": ds_repo.get_key(org_id, "serpapi") if org_id else None}
+                        "serpapi": ds_repo.get_key(org_id, "serpapi") if org_id else None,
+                        "firecrawl": _firecrawl_options(org_id)}
 
             def on_source_result(source: str, ok: bool, error: str | None) -> None:
+                if source == "firecrawl" and not ok and error and "credits" in error:
+                    ds_repo.mark_status(org_id, source, "quota", error)     # out of credits: not a bad key
+                    return
                 ds_service.record_result(org_id, source, ok, error)
 
             # The brand-intelligence LLM step reads only the specification (web_adapter=None), so it starts now and
