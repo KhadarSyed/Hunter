@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, status
 from ...core import store
 from ...core.auth import get_current_user, require_job_access, require_project_access
 from ...core.events import broadcast as _broadcast
+from ..billing import service as billing
 from .schemas import (
     CreateProjectRequest,
     DeleteProjectResponse,
@@ -60,6 +61,10 @@ def project_gates_route(project_id: Annotated[int, Path(ge=1)],
 def create_project_route(
     req: CreateProjectRequest, user: Annotated[dict, Depends(get_current_user)],
 ):
+    try:
+        billing.require_project_slot(user["org_id"])
+    except billing.LimitError as e:
+        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, str(e)) from e
     if store.project_name_taken(user["org_id"], req.project_name):
         raise HTTPException(status.HTTP_409_CONFLICT,
                             f"A project named '{req.project_name.strip()}' already exists in this organization")

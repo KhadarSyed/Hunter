@@ -24,6 +24,8 @@ import { MatchingLabel } from "./pages/MatchingLabel";
 import { ResearchPlan } from "./pages/ResearchPlan";
 import { DeliverablesPage } from "./pages/DeliverablesPage";
 import { UsagePage } from "./pages/UsagePage";
+import { AdminDashboard } from "./pages/AdminDashboard";
+import { OrgDashboard } from "./pages/OrgDashboard";
 
 type PageProps = { onNavigate: (page: string) => void };
 
@@ -45,6 +47,8 @@ const PAGES = {
   deliverables: DeliverablesPage,
   settings: SettingsPage,
   usage: UsagePage,
+  admin: AdminDashboard,
+  "org-dashboard": OrgDashboard,
 } satisfies Record<string, ComponentType<PageProps>>;
 
 export type Page = keyof typeof PAGES;
@@ -57,8 +61,13 @@ const isPage = (p: string): p is Page => p in PAGES;
 const BROWSING_PAGES = new Set<Page>([
   "landing", "projects",
   "new-project", "edit-project",
-  "settings", "usage",
+  "settings", "usage", "admin", "org-dashboard",
 ]);
+
+/** Each role's home: a Super Admin lands on the platform dashboard, an Org Admin on the org dashboard. */
+function homeFor(role: string | undefined): Page {
+  return role === "super_admin" ? "admin" : role === "admin" ? "org-dashboard" : "landing";
+}
 
 /** URL shape: `/{projectId}/{pageSlug}` once a project is active, else `/{pageSlug}` —
  * the page slug is the same id used internally (PAGES keys / onNavigate strings), so
@@ -85,6 +94,8 @@ function buildUrl(projectId: number | null, page: Page): string {
 function AppShell() {
   const { activeProject, setActiveProject, projectVersion } = useProject();
   const { resetDemoState } = useDemoState();
+  const { user } = useAuth();
+  const home = homeFor(user?.role);
   const prevVersion = useRef(projectVersion);
   const activeProjectRef = useRef(activeProject);
   activeProjectRef.current = activeProject;
@@ -96,7 +107,10 @@ function AppShell() {
     }
   }, [projectVersion, resetDemoState]);
 
-  const [page, setPageState] = useState<Page>(() => parseUrl(window.location.pathname).page ?? "landing");
+  const [page, setPageState] = useState<Page>(() => {
+    const p = parseUrl(window.location.pathname).page;
+    return !p || p === "landing" ? home : p;
+  });
   const [hydrated, setHydrated] = useState(false);
   // The project named in the URL while it is being fetched: until it lands no page renders and the URL is not
   // rewritten, or the previously active project's data would show (and load) under the requested URL.
@@ -124,8 +138,8 @@ function AppShell() {
   // Hydrate once on mount: a deep-linked/refreshed URL wins over the persisted project.
   useEffect(() => {
     const parsed = parseUrl(window.location.pathname);
-    if (parsed.page) setPageState(parsed.page);
-    if (parsed.projectId) hydrateProjectFromUrl(parsed.projectId);
+    if (parsed.page) setPageState(parsed.page === "landing" ? home : parsed.page);
+    if (parsed.projectId && user?.role !== "super_admin") hydrateProjectFromUrl(parsed.projectId);
     setHydrated(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -134,7 +148,7 @@ function AppShell() {
   useEffect(() => {
     const onPopState = () => {
       const parsed = parseUrl(window.location.pathname);
-      setPageState(parsed.page ?? "landing");
+      setPageState(!parsed.page || parsed.page === "landing" ? home : parsed.page);
       if (parsed.projectId) hydrateProjectFromUrl(parsed.projectId);
     };
     window.addEventListener("popstate", onPopState);
@@ -163,7 +177,7 @@ function AppShell() {
   const navigate = (p: string) => {
     if (!isPage(p)) { console.warn(`Unknown page "${p}"`); return; }
     pushNext.current = true;
-    setPageState(p);
+    setPageState(p === "landing" ? home : p);
   };
 
   // Stage gating: a later stage never opens (by link, sidebar or a typed URL) until the stage before it is done.

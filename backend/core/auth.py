@@ -111,9 +111,10 @@ def get_current_user(request: Request,
 
 
 def can_access_project(project: dict, user: dict) -> bool:
-    """The one project-access rule, shared by the REST dependencies and the /ws event filter."""
+    """The one project-access rule, shared by the REST dependencies and the /ws event filter. A Super Admin reviews
+    projects on the admin dashboard (domains/billing) but cannot open them."""
     if user["role"] == "super_admin":
-        return True
+        return False
     if user["org_id"] is None or project.get("org_id") != user["org_id"]:
         return False
     return not (user["role"] == "analyser" and project.get("owner_user_id") != user["id"])

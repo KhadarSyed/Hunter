@@ -1627,6 +1627,66 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             last_error TEXT NOT NULL DEFAULT '',
             updated_at REAL NOT NULL
         )"""]),
+    # subscriptions (domains/billing): plans limit users and projects only (orgs buy their own models); a renewal
+    # paid before expiry is queued until the current plan ends. Existing orgs get Enterprise for 12 months.
+    (50, "org profile, plans, subscriptions, token limits", [
+        "ALTER TABLE organizations ADD COLUMN logo_url TEXT",
+        "ALTER TABLE organizations ADD COLUMN procurement_name TEXT",
+        "ALTER TABLE organizations ADD COLUMN procurement_email TEXT",
+        "ALTER TABLE organizations ADD COLUMN procurement_phone TEXT",
+        "ALTER TABLE organizations ADD COLUMN address TEXT",
+        "ALTER TABLE organizations ADD COLUMN country TEXT",
+        "ALTER TABLE organizations ADD COLUMN pin_code TEXT",
+        """CREATE TABLE IF NOT EXISTS subscription_plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            max_users INTEGER NOT NULL,
+            max_projects INTEGER NOT NULL,
+            duration_months INTEGER NOT NULL DEFAULT 12,
+            price REAL NOT NULL DEFAULT 0,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            active INTEGER NOT NULL DEFAULT 1,
+            created_at REAL NOT NULL
+        )""",
+        """CREATE TABLE IF NOT EXISTS org_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            org_id INTEGER NOT NULL REFERENCES organizations(id),
+            plan_id INTEGER NOT NULL REFERENCES subscription_plans(id),
+            status TEXT NOT NULL,
+            starts_at REAL,
+            ends_at REAL,
+            payment_ref TEXT,
+            reminders TEXT NOT NULL DEFAULT '',
+            created_by INTEGER,
+            created_at REAL NOT NULL
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_org_subscriptions_org ON org_subscriptions(org_id)",
+        """CREATE TABLE IF NOT EXISTS user_token_limits (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id),
+            monthly_tokens INTEGER,
+            notified_period TEXT NOT NULL DEFAULT '',
+            updated_at REAL NOT NULL
+        )""",
+        "INSERT INTO subscription_plans (name, max_users, max_projects, duration_months, price, currency, created_at) "
+        "SELECT v.name, v.u, v.p, 12, v.price, 'USD', EXTRACT(EPOCH FROM now()) FROM (VALUES "
+        "('Starter', 5, 10, 1200.0), ('Growth', 20, 50, 4000.0), ('Enterprise', 100, 250, 15000.0)) "
+        "AS v(name, u, p, price) WHERE NOT EXISTS (SELECT 1 FROM subscription_plans)",
+        "INSERT INTO org_subscriptions (org_id, plan_id, status, starts_at, ends_at, payment_ref, created_at) "
+        "SELECT o.id, (SELECT id FROM subscription_plans WHERE name = 'Enterprise' ORDER BY id LIMIT 1), 'active', "
+        "EXTRACT(EPOCH FROM now()), EXTRACT(EPOCH FROM now()) + 365 * 86400, 'backfill', EXTRACT(EPOCH FROM now()) "
+        "FROM organizations o WHERE NOT EXISTS (SELECT 1 FROM org_subscriptions s WHERE s.org_id = o.id)"]),
+    # an organization's guardrails (domains/guardrails): added to every LLM call made for that org, verbatim
+    (51, "org guardrails", ["""
+        CREATE TABLE IF NOT EXISTS org_guardrails (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            org_id INTEGER NOT NULL REFERENCES organizations(id),
+            title TEXT NOT NULL,
+            body TEXT NOT NULL,
+            active INTEGER NOT NULL DEFAULT 1,
+            updated_by INTEGER,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        )""", "CREATE INDEX IF NOT EXISTS idx_org_guardrails_org ON org_guardrails(org_id)"]),
 ]
 
 

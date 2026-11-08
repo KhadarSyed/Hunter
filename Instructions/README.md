@@ -45,6 +45,9 @@ changed and why. Open the code only for the files a note or the map points to.
 | Deliverables | `/{id}/deliverables` | `pages/DeliverablesPage.tsx` | `domains/deliverable/`, `domains/deckstudio/` |
 | Settings (tabs via `?tab=`) | `/settings?tab=providers` | `pages/SettingsPage.tsx` | `domains/auth/`, `domains/providers/` |
 | Usage & cost | `/usage` | `pages/UsagePage.tsx` | `domains/usage/` |
+| Platform dashboard (Super Admin home) | `/admin` | `pages/AdminDashboard.tsx`, `components/admin/` | `domains/billing/` |
+| Org dashboard (Org Admin home) | `/org-dashboard` | `pages/OrgDashboard.tsx` | `domains/billing/` |
+| Settings → Subscription / Guardrails | `/settings?tab=subscription` | `SubscriptionTab.tsx`, `GuardrailsTab.tsx` | `domains/billing/`, `domains/guardrails/` |
 
 - Routing is hand-rolled in `frontend/src/App.tsx` (`PAGES`, `parseUrl`, `buildUrl`); stage gating redirects a locked
   stage to the open one (`gateRedirect`, `domains/projects/gates.py`).
@@ -63,11 +66,29 @@ changed and why. Open the code only for the files a note or the map points to.
   `domains/deliverable/notify.py`, account emails in `domains/auth/recovery.py`, outage emails in `providers/outage.py`.
   Button links use `APP_URL`, else Render's `RENDER_EXTERNAL_URL`, else `http://localhost:5173` (`core/config.py`).
 - **Auth:** forgot password = 6-digit code → reset link; 12-character policy (`domains/auth/service.py`).
+- **Roles / homes:** `App.tsx homeFor()` — Super Admin → `/admin`, Org Admin → `/org-dashboard`, Analyser → landing.
+  A Super Admin can NOT open projects (`core/auth.can_access_project` returns False); they review them on `/admin`.
+  Only a Super Admin creates orgs (form: name, logo data-URI ≤1 MB, procurement name/email/phone, address, country,
+  PIN, first plan); the procurement email becomes the org's Admin.
+- **Subscriptions:** `domains/billing/` (migration 50). Plans limit users + projects only (orgs buy their own models).
+  `service.current()` is computed from dates; renewal paid before expiry is queued to start at the current end, after
+  expiry starts now. Test gateway only (`TestGateway`; swap behind `PaymentGateway`). Limits → HTTP 402 on user/project
+  create. Sweeper thread every 6 h: queued→active, active→expired, 30/7-day reminders. Emails to Org Admins +
+  procurement contact (activated / renewed / reminder / expired).
+- **Token allowance:** `user_token_limits` (Org Admin sets per user on `/org-dashboard`). Spend = `llm_usage` this
+  month (user's calls + projects they own). Over → `TokenLimitReached` (a `NoChatProviderError`, so stages fall to
+  rule-based) + one email per month to the user and Admins. Checked in `HybridLLMClient.chat/chat_tools`.
+- **Guardrails:** `domains/guardrails/` (migration 51), Org Admin CRUD in Settings. Added verbatim at the START of
+  the system message (provider prompt cache makes repeats cheap) only for stages brief_scope, background_research,
+  search_strategy, matching_label, dataset_tagging, deck_engine, deck_studio (`GUARDED_STAGES`). DB read cached 30 s.
+  InfoVision's guardrail is seeded once from `guardrails/seed_infovision.md` (user's text, unchanged).
 
 ## Current state (2026-11-08)
 
 - Orgs: InfoVision (org 5; admins Sweta Shah, Harish), Testing Org (org 6; VyceAI agnes default, NVIDIA Nemotron,
-  Azure GPT-5). Only Khadar is a seeded Super Admin.
+  Azure GPT-5). Only Khadar is a seeded Super Admin. Both orgs: Enterprise plan to 2027-11-08 (backfill).
+  InfoVision has the "Instructions/Guardrail Prompt" guardrail (11,003 chars). Sweta Shah still has the
+  first-login password-change flag (all her API calls 403 until she changes it).
 - Project 1 "Casino Gaming" (InfoVision): Brief → Matching label done, Data set open, Deliverables locked.
 - Testing Org outage state: acting model NVIDIA (VyceAI in maintenance); a real "recovered" email goes out when
   VyceAI answers.

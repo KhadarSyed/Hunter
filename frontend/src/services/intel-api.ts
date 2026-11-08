@@ -577,6 +577,49 @@ export interface ProjectSummary {
   archived_at?: number | null;
 }
 
+export interface OrgProfileInput {
+  logo_url?: string | null; procurement_phone?: string; address?: string; country?: string; pin_code?: string;
+  plan_id?: number;
+}
+export interface PlanInput {
+  name: string; max_users: number; max_projects: number; duration_months: number; price: number; currency: string;
+  active: boolean;
+}
+export interface Plan extends Omit<PlanInput, "active"> { id: number; active: number }
+export interface Subscription {
+  id: number; org_id: number; plan_id: number; plan_name: string; status: string; starts_at: number | null;
+  ends_at: number | null; max_users: number; max_projects: number; duration_months: number; price: number;
+  currency: string;
+}
+export interface SubscriptionSummary {
+  current: Subscription | null; queued: Subscription[]; history: Subscription[]; users: number; projects: number;
+  days_left: number;
+}
+export interface OrgProfile {
+  id: number; name: string; archived_at: number | null; created_at: number; logo_url: string | null;
+  procurement_name: string | null; procurement_email: string | null; procurement_phone: string | null;
+  address: string | null; country: string | null; pin_code: string | null;
+}
+export interface AdminOrgRow extends OrgProfile {
+  plan: string | null; ends_at: number | null; days_left: number; max_users: number; max_projects: number;
+  users: number; projects: number; renewal_queued: boolean; tokens_month: number;
+}
+export interface AdminOverview {
+  counts: { orgs: number; users: number; projects: number; active_subscriptions: number; expiring_30d: number };
+  orgs: AdminOrgRow[];
+}
+export interface OrgDetail {
+  org: OrgProfile; subscription: SubscriptionSummary;
+  projects: { id: number; project_name: string; brand: string | null; updated_at: number; owner_name: string | null;
+    owner_email: string | null; current_stage: string | null; tokens: number }[];
+  users: { id: number; email: string; display_name: string; role: string; archived_at: number | null;
+    last_login: number | null; tokens_month: number; monthly_tokens: number | null }[];
+}
+export interface GuardrailInput { title: string; body: string; active: boolean }
+export interface Guardrail extends Omit<GuardrailInput, "active"> {
+  id: number; org_id: number; active: number; updated_at: number;
+}
+
 export const intelApi = {
   // Auth
   login: (email: string, password: string) => authPost<AuthUser>("/login", { email, password }),
@@ -606,11 +649,26 @@ export const intelApi = {
   listUsers: (orgId?: number) =>
     authGet<AuthUserRow[]>(orgId ? `/users?org_id=${orgId}` : "/users"),
   archiveUser: (userId: number) => authPost<{ ok: boolean }>(`/users/${userId}/archive`),
-  createOrganization: (name: string, adminEmail: string, adminDisplayName: string) =>
+  createOrganization: (name: string, adminEmail: string, adminDisplayName: string, profile: OrgProfileInput = {}) =>
     authPost<AuthOrganizationRow>("/organizations", {
-      name, admin_email: adminEmail, admin_display_name: adminDisplayName,
+      name, admin_email: adminEmail, admin_display_name: adminDisplayName, ...profile,
     }),
   listOrganizations: () => authGet<AuthOrganizationRow[]>("/organizations"),
+  // Subscriptions, dashboards, token allowances (domains/billing)
+  listPlans: (all = false) => get<Plan[]>(`/billing/plans${all ? "?all=true" : ""}`),
+  savePlan: (plan: PlanInput, id?: number) => (id ? put<Plan>(`/billing/plans/${id}`, plan) : post<Plan>("/billing/plans", plan)),
+  subscription: (orgId?: number) => get<SubscriptionSummary>(`/billing/subscription${orgId ? `?org_id=${orgId}` : ""}`),
+  startCheckout: (planId: number) => post<{ subscription_id: number; gateway: string }>("/billing/checkout", { plan_id: planId }),
+  getCheckout: (subId: number) => get<Subscription & { org_name: string; gateway: string }>(`/billing/checkout/${subId}`),
+  payCheckout: (subId: number, success: boolean) => post<Subscription>(`/billing/checkout/${subId}/pay`, { success }),
+  adminOverview: () => get<AdminOverview>("/billing/overview"),
+  orgDetail: (orgId: number) => get<OrgDetail>(`/billing/orgs/${orgId}`),
+  setTokenLimit: (userId: number, monthlyTokens: number | null) =>
+    put<{ ok: boolean }>(`/billing/token-limits/${userId}`, { monthly_tokens: monthlyTokens }),
+  // Organization guardrails (sent with the org's LLM calls)
+  listGuardrails: (orgId?: number) => get<Guardrail[]>(`/guardrails${orgId ? `?org_id=${orgId}` : ""}`),
+  saveGuardrail: (g: GuardrailInput, id?: number) => (id ? put<Guardrail>(`/guardrails/${id}`, g) : post<Guardrail>("/guardrails", g)),
+  deleteGuardrail: (id: number) => del<{ ok: boolean }>(`/guardrails/${id}`),
   archiveOrganization: (orgId: number) => authPost<{ ok: boolean }>(`/organizations/${orgId}/archive`),
   deleteOrganization: (orgId: number) => authDelete<{ ok: boolean }>(`/organizations/${orgId}`),
   deleteUser: (userId: number) => authDelete<{ ok: boolean }>(`/users/${userId}`),

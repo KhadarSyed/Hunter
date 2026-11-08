@@ -47,6 +47,7 @@ export function IconRailSidebar({ currentPage, onNavigate }: { currentPage: Page
         {items.map((item) => {
           const isActive =
             item.page === currentPage ||
+            (item.page === "landing" && (currentPage === "admin" || currentPage === "org-dashboard")) ||
             (item.page === "projects" && (currentPage === "new-project" || currentPage === "edit-project"));
           return (
             <button

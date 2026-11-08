@@ -64,6 +64,11 @@ class NoChatProviderError(RuntimeError):
     """Raised by chat() when no chat LLM is configured or reachable."""
 
 
+class TokenLimitReached(NoChatProviderError):
+    """The scoped user has used this month's token allowance (domains/billing). A NoChatProviderError, so every
+    caller falls to its rule-based tier exactly as when no model is configured."""
+
+
 class NoEmbedProviderError(RuntimeError):
     """Raised by embed()/embed_batch() when no embedding provider is configured or reachable."""
 
@@ -139,6 +144,7 @@ class HybridLLMClient:
         format_json: bool = False,
     ) -> str:
         org, rows = self._route()
+        messages = self._guard(org, messages)
         backend = self._platform() if rows is None else None
         model = (f"{getattr(backend, 'deployment', '')}:{getattr(backend, 'reasoning_effort', '')}" if backend
                  else f"{rows[0]['model']}:")
@@ -156,13 +162,28 @@ class HybridLLMClient:
             if on_token:
                 on_token(cached)
             return cached
+        from ..domains.billing import service as billing
+        billing.check_tokens()
         text = self._invoke(org, rows, lambda b: b.chat(messages, on_token=on_token, format_json=format_json))
         memory.remember_llm(key, text)
         return text
 
     def chat_tools(self, messages: list[dict], tools: list[dict], tool_choice: str = "auto") -> dict:
         org, rows = self._route()
+        messages = self._guard(org, messages)
+        from ..domains.billing import service as billing
+        billing.check_tokens()
         return self._invoke(org, rows, lambda b: b.chat_tools(messages, tools, tool_choice=tool_choice))
+
+    @staticmethod
+    def _guard(org: int | None, messages: list[dict]) -> list[dict]:
+        """The scoped org's guardrails added to the system message (before the memory key, so an edit is fresh)."""
+        from ..domains.guardrails import service as guardrails
+        from ..domains.usage import service as usage
+        scope = usage.current()
+        if not guardrails.wanted(scope.get("stage")):
+            return messages
+        return guardrails.apply(org if org is not None else scope.get("org_id"), messages)
 
     def embed(self, text: str) -> np.ndarray:
         if self._embed_backend is None:

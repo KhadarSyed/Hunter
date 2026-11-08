@@ -18,7 +18,9 @@ from fastapi import APIRouter, Depends
 
 from ..core.auth import get_current_user
 from .agent.router import router as agent_router
+from .billing.router import router as billing
 from .brief.router import router as brief
+from .guardrails.router import router as guardrails
 from .dataset.router import router as dataset
 from .datasources.router import router as datasources
 from .deliverable.router import router as deliverable
@@ -42,7 +44,7 @@ router = APIRouter(
 # matters within a domain router (literal paths before parameterised ones).
 for domain_router in (
     projects, research, brief, spec, strategy, plan, qc,
-    datasources, deliverable, agent_router, exclusions, memory, dataset, usage, providers,
+    datasources, deliverable, agent_router, exclusions, memory, dataset, usage, providers, billing, guardrails,
 ):
     router.include_router(domain_router)
 

@@ -51,6 +51,10 @@ async def lifespan(app: FastAPI):
     store.fail_interrupted_latest24h_refreshes()
     from .domains.memory import service as memory
     memory.purge_expired()
+    from .domains.guardrails import service as guardrails
+    guardrails.seed()
+    from .domains.billing import service as billing
+    billing.start_sweeper()
     ensure_dirs(load_settings())
     events.bind_loop(asyncio.get_running_loop())
     from .domains.agent import autopilot

@@ -55,8 +55,14 @@ class ChangePasswordRequest(ApiModel):
 
 class CreateOrganizationRequest(ApiModel):
     name: str
-    admin_email: str
+    admin_email: str            # the procurement manager's email: becomes the org's Admin
     admin_display_name: str
+    logo_url: str | None = Field(default=None, max_length=1_500_000)   # data: URI from the form's upload
+    procurement_phone: str | None = Field(default=None, max_length=40)
+    address: str | None = Field(default=None, max_length=500)
+    country: str | None = Field(default=None, max_length=2)            # ISO 3166-1 alpha-2
+    pin_code: str | None = Field(default=None, max_length=20)
+    plan_id: int | None = None   # first subscription (default: the cheapest active plan)
 
 
 class OrganizationResponse(ApiModel):

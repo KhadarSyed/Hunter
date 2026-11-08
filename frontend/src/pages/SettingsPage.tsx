@@ -6,8 +6,11 @@ import { ManageOrganizationTab } from "./ManageOrganizationTab";
 import { DataSourcesTab } from "./DataSourcesTab";
 import { ExclusionsTab } from "./ExclusionsTab";
 import { ProvidersTab } from "./ProvidersTab";
+import { SubscriptionTab } from "./SubscriptionTab";
+import { GuardrailsTab } from "./GuardrailsTab";
 
-type SettingsTab = "profile" | "users" | "organizations" | "datasources" | "exclusions" | "providers";
+type SettingsTab = "profile" | "users" | "organizations" | "datasources" | "exclusions" | "providers" | "subscription"
+  | "guardrails";
 
 const ROLE_LABELS: Record<string, string> = {
   super_admin: "Super Admin",
@@ -30,6 +33,9 @@ export function SettingsPage() {
       ? [{ id: "users" as const, label: "Organization Users" },
          { id: "datasources" as const, label: "Data Sources" },
          { id: "providers" as const, label: "LLM Providers" }] : []),
+    ...(user.role === "admin" || user.role === "analyser"
+      ? [{ id: "guardrails" as const, label: "Guardrails" }] : []),
+    ...(user.role === "admin" ? [{ id: "subscription" as const, label: "Subscription" }] : []),
     ...(user.role === "super_admin"
       ? [{ id: "organizations" as const, label: "Manage Organization" }] : []),
   ];
@@ -70,6 +76,8 @@ export function SettingsPage() {
           {tab === "exclusions" && <ExclusionsTab />}
           {tab === "organizations" && <ManageOrganizationTab />}
           {tab === "providers" && <ProvidersTab />}
+          {tab === "subscription" && <SubscriptionTab />}
+          {tab === "guardrails" && <GuardrailsTab />}
         </div>
       </div>
     </div>

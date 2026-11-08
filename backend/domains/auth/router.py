@@ -10,6 +10,8 @@ from ...core import store
 from ...core import ws_tickets
 from ...core.auth import SESSION_COOKIE_NAME, clear_session_cookie, get_current_user, set_session_cookie
 from ...core.config import UPLOAD_DIR
+from ..billing import repository as billing_repo
+from ..billing import service as billing
 from . import recovery, service
 from .schemas import (
     ActiveOrgRequest,
@@ -147,16 +149,28 @@ def create_organization_route(
     _require_role(user, "super_admin")
     if store.org_name_taken(req.name):
         raise HTTPException(status.HTTP_409_CONFLICT, f"An organization named '{req.name.strip()}' already exists")
+    if req.logo_url and not req.logo_url.startswith("data:image/"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The logo must be an uploaded image")
+    plans = billing_repo.list_plans()
+    plan_id = req.plan_id or (plans[0]["id"] if plans else None)
+    if plan_id is None or not billing_repo.get_plan(plan_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose a subscription plan")
     existing = store.get_user_by_email(req.admin_email)
-    if existing and existing["role"] == "super_admin":     # linked to the new org; account and role unchanged
-        org = store.create_organization_for_member(req.name, existing["id"])
-        return {**org, "admin_name": existing.get("display_name"), "admin_email": existing["email"]}
-    if existing:
+    if existing and existing["role"] != "super_admin":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Email already in use")
-    temp_password = service.temp_password()
-    org = store.create_organization(
-        req.name, req.admin_email, req.admin_display_name,
-        service.hash_password(temp_password))
+    if existing:     # a Super Admin: linked to the new org; account and role unchanged
+        org = store.create_organization_for_member(req.name, existing["id"])
+    else:
+        temp_password = service.temp_password()
+        org = store.create_organization(req.name, req.admin_email, req.admin_display_name,
+                                        service.hash_password(temp_password))
+    billing_repo.update_org_profile(org["id"], {
+        "logo_url": req.logo_url, "procurement_name": req.admin_display_name.strip(),
+        "procurement_email": req.admin_email.strip().lower(), "procurement_phone": req.procurement_phone,
+        "address": req.address, "country": (req.country or "").lower() or None, "pin_code": req.pin_code})
+    billing.grant(org["id"], plan_id, user["id"])
+    if existing:
+        return {**org, "admin_name": existing.get("display_name"), "admin_email": existing["email"]}
     admin = store.get_user_by_email(req.admin_email)
     sent = bool(admin) and recovery.send_welcome(admin, req.name, temp_password)
     return {**org, "admin_name": req.admin_display_name, "admin_email": req.admin_email,
@@ -220,6 +234,11 @@ def create_user_route(req: CreateUserRequest, user: Annotated[dict, Depends(get_
         store.add_user_to_org(existing["id"], target_org_id)
         return {**existing, "temp_password": None}
 
+    if req.role != "super_admin":
+        try:
+            billing.require_seat(target_org_id)
+        except billing.LimitError as e:
+            raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, str(e)) from e
     temp_password = service.temp_password()
     new_id =store.create_user(target_org_id, req.email, service.hash_password(temp_password),
                                 req.display_name, req.role)
