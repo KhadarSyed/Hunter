@@ -1614,6 +1614,19 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
     (48, "unique organization names", [
         "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM organizations GROUP BY lower(trim(name)) HAVING COUNT(*) > 1) THEN "
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_organizations_name ON organizations (lower(trim(name))); END IF; END $$"]),
+    # an organization's model outage (providers/outage.py): one row while it lasts, so its admins are emailed once per
+    # event (switched, paused, recovered) even across a restart
+    (49, "org model outage state", ["""
+        CREATE TABLE IF NOT EXISTS org_llm_state (
+            org_id INTEGER PRIMARY KEY REFERENCES organizations(id),
+            acting_provider_id INTEGER,
+            down_since REAL NOT NULL,
+            failed_calls INTEGER NOT NULL DEFAULT 0,
+            notified TEXT NOT NULL DEFAULT '',
+            paused INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT NOT NULL DEFAULT '',
+            updated_at REAL NOT NULL
+        )"""]),
 ]
 
 

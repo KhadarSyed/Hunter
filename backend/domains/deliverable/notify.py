@@ -1,35 +1,18 @@
-"""Email the project's owner when a deliverable run finishes: once per run, in the background, never failing the run."""
+"""Project emails to the project's owner, in the one AlphaMetricx layout (core/email_layout.py): Matching label ready,
+data set tagged, a stage that stopped, and the deliverable ready. Sent in the background, never failing the work."""
 from __future__ import annotations
 
-import base64
-import io
 import logging
-import re
 import threading
 import time
 from pathlib import Path
 
-import requests
-from PIL import Image
-
-from jinja2 import Environment, FileSystemLoader, select_autoescape
-
-from ...core import config, mailer, store
+from ...core import config, email_layout as layout, mailer, store
 from ..deckstudio import data_tables
-from ..research import logo_files
-from ..research.web_research import _COUNTRY_ISO_CODES
-from . import visuals
 
 logger = logging.getLogger(__name__)
 
 SECTION_ID = "email"
-LOGO_CID = "brandlogo"
-FLAG_DIR = config.DATA_DIR / "flags"
-LOGO_PX = 64                # logos are stored at 2x the tallest display size (client logo, 32px chip logos)
-FLAG_PX = 36                # flags show at 18px
-FLAG_FALLBACK = "https://flagcdn.com/w40/{code}.png"     # rectangular, used only when the circle flag cannot render
-_ENV = Environment(loader=FileSystemLoader(config.BACKEND_DIR / "core" / "templates"),
-                   autoescape=select_autoescape(["html", "j2"]))
 
 
 def recipients(project: dict) -> list[dict]:
@@ -49,10 +32,21 @@ def _files(run: dict) -> list[str]:
 
 
 def _link(project_id: int, page: str) -> str:
-    return f"{config.get_app_settings().app_url.rstrip('/')}/{project_id}/{page}"
+    return layout.app_link(f"{project_id}/{page}")
+
+
+def _name(project: dict) -> str:
+    return project.get("project_name") or f"Project {project['id']}"
+
+
+def _hello(project: dict) -> str:
+    owner = recipients(project)
+    first = ((owner[0].get("display_name") or "").split() or [""])[0] if owner else ""
+    return f"Hello {first}," if first else "Hello,"
 
 
 def build_context(project: dict, run: dict, sections: list[dict]) -> dict:
+    """The deliverable's facts: slide counts, checks, brief coverage, articles, files."""
     by_id = {s.get("id"): s for s in sections}
     studio, qc = by_id.get("studio") or {}, (by_id.get("qc") or {}).get("report") or {}
     stats = []
@@ -70,156 +64,108 @@ def build_context(project: dict, run: dict, sections: list[dict]) -> dict:
     articles = ((by_id.get("data-collection") or {}).get("data") or {}).get("unique_urls")
     if articles:
         stats.append(("Articles analysed", f"{articles:,}"))
-    return {**_project_context(project), "stats": stats, "files": _files(run),
-            "link": _link(project["id"], "deliverables")}
-
-
-def _project_context(project: dict) -> dict:
-    """Name, client, brief summary, scope and questions: the part every email to the owner shows."""
-    spec = project.get("spec") or {}
-    scope = spec.get("included_scope") or {}
-    client = (project.get("brand") or spec.get("client") or "").strip()
-    brands = [str(b) for b in scope.get("brands") or [] if b] or         [b for b in [(spec.get("commissioning_brand") or {}).get("name") or client] if b]
-    # a brief that rules out benchmarking leaves the scope's list empty; its named rivals are still the competitors
-    competitors = scope.get("competitors") or [e["name"] for e in spec.get("validated_entities") or []
-                                               if isinstance(e, dict) and e.get("type") == "competitor" and e.get("name")]
-    audience = (scope.get("primary_audience") or {}).get("name") if isinstance(scope.get("primary_audience"), dict) else ""
-    listed = lambda key: ", ".join(map(str, scope.get(key) or []))
-    scope_rows = [("Brand", ", ".join(brands)),
-                  ("Competitors", ", ".join(map(str, competitors))),
-                  ("Audience", audience or ""),
-                  ("Geography", spec.get("geography") or scope.get("geography") or ""),
-                  ("Time period", spec.get("time_period") or scope.get("time_period") or ""),
-                  ("Method", spec.get("research_type") or ""),
-                  ("Platforms", listed("platforms")),
-                  ("Languages", listed("languages"))]
-    geography = spec.get("geography") or scope.get("geography") or ""
-    return {
-        "brands": brands,
-        "competitors": [str(c) for c in competitors],
-        "countries": [c for c in re.split(r"\s*(?:[,;/&]|\band\b)\s*", geography) if c.strip()]
-                     if isinstance(geography, str) else [],
-        "project_id": project["id"],
-        "project_name": project.get("project_name") or f"Project {project['id']}",
-        "client": client,
-        "summary": spec.get("executive_interpretation") or spec.get("research_objective") or "",
-        "questions": [q.get("question") for q in spec.get("research_questions") or []
-                      if isinstance(q, dict) and q.get("question")],
-        "scope": [r for r in scope_rows if isinstance(r[1], str) and r[1].strip()],
-    }
-
-
-def _png(data: bytes, height: int) -> tuple[str, int, int]:
-    """(base64 PNG, width, height): transparent margins cropped, scaled to `height` px tall (at most 3x as wide)."""
-    img = Image.open(io.BytesIO(data)).convert("RGBA")
-    img = img.crop(img.getchannel("A").getbbox() or (0, 0, *img.size))
-    img.thumbnail((height * 3, height), Image.LANCZOS)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG", optimize=True)
-    return base64.b64encode(buf.getvalue()).decode("ascii"), img.width, img.height
-
-
-def _logo(name: str) -> dict | None:
-    """{b64, w, h, light} for a brand's cached logo, else None (the email then shows the name only)."""
-    if not name:
-        return None
-    try:
-        found = logo_files.logo_file(name)
-        if not found:
-            return None
-        b64, w, h = _png(found[0].read_bytes(), LOGO_PX)
-        return {"b64": b64, "w": w, "h": h, "light": found[1]}
-    except Exception as e:      # a logo is decoration: never stops the email
-        logger.info("No logo for %s in the ready email: %s", name, type(e).__name__)
-        return None
-
-
-def _theme_logo(project_id: int | None) -> dict | None:
-    """A photo of the brief's theme when the client has no usable logo: a category such as "Baby Skincare"."""
-    project = store.get_project(project_id) if project_id else None
-    if not project:
-        return None
-    try:
-        from ..projects.logo import theme_image        # lazy: the projects domain imports deliverable services
-        _theme, url = theme_image(project)
-        if not url or not url.startswith("http"):
-            return None
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        b64, w, h = _png(r.content, LOGO_PX)
-        return {"b64": b64, "w": w, "h": h, "light": False}
-    except Exception as e:      # a logo is decoration: never stops the email
-        logger.info("No theme image for project %s in the email: %s", project_id, type(e).__name__)
-        return None
-
-
-def _flag(country: str) -> dict | None:
-    """{b64, w, h} circle flag (Iconify circle-flags, rendered to PNG once and cached), else None."""
-    code = _COUNTRY_ISO_CODES.get(country.strip().lower(), "").lower()
-    if not code:
-        return None
-    try:
-        path = visuals.icon_png(f"circle-flags:{code}", FLAG_DIR)
-        if path:
-            data = path.read_bytes()
-        else:
-            r = requests.get(FLAG_FALLBACK.format(code=code), timeout=10)
-            r.raise_for_status()
-            data = r.content
-        b64, w, h = _png(data, FLAG_PX)
-        return {"b64": b64, "w": w, "h": h}
-    except Exception as e:      # a flag is decoration: never stops the email
-        logger.info("No flag for %s in the ready email: %s", country, type(e).__name__)
-        return None
-
-
-READY_COPY = {"heading": "Your deliverable is ready", "button": "Open deliverables",
-              "preheader": "your deck, brief and data tables are ready.", "stats_title": "Deliverable summary",
-              "footer": "Sent by Hunter because a deliverable you own finished building."}
-
-
-def _text(ctx: dict) -> str:
-    lines = [f"Hunter: {ctx['heading']}", "", ctx["project_name"]]
-    if ctx["client"]:
-        lines.append(f"Client: {ctx['client']}")
-    lines += ["", f"{ctx['button']}: {ctx['link']}", ""]
-    if ctx["stats"]:
-        lines += [ctx["stats_title"].upper()] + [f"- {k}: {v}" for k, v in ctx["stats"]]
-    if ctx["files"]:
-        lines.append(f"- Files available: {', '.join(ctx['files'])}")
-    lines += ["", "BRIEF & SCOPE"]
-    if ctx["summary"]:
-        lines += [ctx["summary"], ""]
-    lines += [f"{k}: {v}" for k, v in ctx["scope"]]
-    if ctx["questions"]:
-        lines += ["", "Research questions:"] + [f"{i}. {q}" for i, q in enumerate(ctx["questions"], 1)]
-    return "\n".join(lines) + "\n"
+    files = _files(run)
+    if files:
+        stats.append(("Files", " · ".join(files)))
+    return {"stats": stats, "link": _link(project["id"], "deliverables")}
 
 
 def render(project: dict, run: dict, sections: list[dict], *, inline_logo: bool = True) -> dict:
-    """{subject, html, text, inline_images}. inline_logo=False puts the images in as data URIs (browser preview)."""
-    ctx = {**build_context(project, run, sections), **READY_COPY}
-    return _compose(ctx, f"Your Hunter deliverable is ready — {ctx['project_name']}", inline_logo)
+    """The deliverable-ready email: {subject, html, text, inline_images}."""
+    ctx = build_context(project, run, sections)
+    name = _name(project)
+    row = layout.project_row(project, "Deliverables · deck ready", "Ready", layout.STATE_GOOD)
+    client = f" ({row['client']})" if row["client"] else ""
+    return layout.render(f"Your deliverable is ready: {name}", {
+        "org": layout.org_panel(project.get("org_id")),
+        "pill": {"text": "Deliverable ready", **layout.PILL_GREEN}, "heading": "Your deliverable is ready",
+        "preheader": f"{name}: your deck, brief and data tables are ready.",
+        "intro": [_hello(project), layout.rich("<b>{}</b>{} finished building.", name, client)],
+        "facts": ctx["stats"], "projects_title": "Project", "projects": [row],
+        "button": {"text": "Open deliverables", "href": ctx["link"]},
+        "footer": "Sent because a deliverable you own finished building."}, inline=inline_logo)
 
 
-def _compose(ctx: dict, subject: str, inline_logo: bool = True) -> dict:
-    images: list[dict] = []
+def owner_email(project: dict, name: str, page: str, action: str, *, error: str = "",
+                inline_logo: bool = True) -> dict:
+    """'<stage> stopped' with the problem and a button to the stage (error), or '<stage> is ready for you'."""
+    pname = _name(project)
+    if error:
+        row = layout.project_row(project, f"{name} · stopped", "Stopped", layout.STATE_BAD)
+        return layout.render(f"Action needed: {name} stopped on {pname}", {
+            "org": layout.org_panel(project.get("org_id")),
+            "pill": {"text": "Needs your attention", **layout.PILL_RED}, "heading": f"{name} stopped",
+            "preheader": f"{name} stopped on {pname}. {action}.",
+            "intro": [_hello(project), layout.rich("<b>{}</b> on <b>{}</b> stopped before it finished, so the "
+                                                   "pipeline is waiting.", name, pname)],
+            "callout": {"title": "What went wrong", "lines": [error[:300]], **layout.CALLOUT_RED},
+            "facts": [("Stage", name), ("Next step", action)], "projects_title": "Project", "projects": [row],
+            "button": {"text": f"Open {name}", "href": _link(project["id"], page)},
+            "footer": "Sent because a stage stopped on a project you own."}, inline=inline_logo)
+    row = layout.project_row(project, name, name, layout.STATE_TURN)
+    return layout.render(f"Your turn: {name} on {pname}", {
+        "org": layout.org_panel(project.get("org_id")),
+        "pill": {"text": f"Your turn · {name}", **layout.PILL_VIOLET}, "heading": f"{name} is ready for you",
+        "preheader": f"{action}.", "intro": [_hello(project), layout.rich("<b>{}</b> is waiting for you on <b>{}</b>.",
+                                                                          pname, name)],
+        "callout": {"title": "What to do", "lines": [action], **layout.CALLOUT_VIOLET},
+        "projects_title": "Project", "projects": [row],
+        "button": {"text": f"Open {name}", "href": _link(project["id"], page)},
+        "footer": "Sent because a project you own is waiting for you."}, inline=inline_logo)
 
-    def embed(cid: str, img: dict | None) -> dict | None:
-        """The image with its `src` (cid: when sending, data URI in preview); Outlook needs real width/height."""
-        if not img:
-            return None
-        if inline_logo:
-            images.append({"cid": cid, "mime_type": "image/png", "content": img["b64"]})
-        return {**img, "src": f"cid:{cid}" if inline_logo else f"data:image/png;base64,{img['b64']}"}
 
-    client_logo = embed(LOGO_CID, _logo(ctx["client"]) or _theme_logo(ctx.get("project_id")))
-    chips = {label: [{"name": n, "logo": embed(f"{cid}{i}", _logo(n))} for i, n in enumerate(ctx[key], 1)]
-             for label, key, cid in (("Brand", "brands", "brand"), ("Competitors", "competitors", "logo"))}
-    countries = [{"name": c, "flag": embed(f"flag{i}", _flag(c))} for i, c in enumerate(ctx["countries"], 1)]
-    html = _ENV.get_template("deliverable_ready.html.j2").render(
-        **{**ctx, "chips": chips, "countries": countries}, subject=subject, logo=client_logo)
-    return {"subject": subject, "html": html, "text": _text(ctx), "inline_images": images}
+def _rq_count(project_id: int) -> int:
+    strategy = store.get_latest_strategy(project_id) or {}
+    return len((strategy.get("strategy") or {}).get("research_question_queries") or [])
+
+
+def matching_label_email(project: dict, *, inline_logo: bool = True) -> dict:
+    """Background Research and Search Strategy are done: approve the research questions on Matching label."""
+    pname, n = _name(project), _rq_count(project["id"])
+    row = layout.project_row(project, f"Matching label · {n} research questions", "Matching label", layout.STATE_TURN)
+    return layout.render(f"{pname} is ready for Matching label", {
+        "org": layout.org_panel(project.get("org_id")),
+        "pill": {"text": "Your turn · Matching label", **layout.PILL_VIOLET},
+        "heading": "Approve the research questions",
+        "preheader": "Background Research and Search Strategy are done. Approve the research questions to open the "
+                     "Data set.",
+        "intro": [_hello(project), layout.rich(
+            "<b>{}</b> finished Background Research and Search Strategy. Its research questions and their Boolean "
+            "queries are ready for you on <b>Matching label</b>.", pname)],
+        "callout": {"title": "What to do", "lines": [
+            "1. Open Matching label and read each research question with its query.",
+            "2. Approve the ones you want (at least one). Approving opens the Data set stage, where you upload your "
+            "articles."], **layout.CALLOUT_VIOLET},
+        "facts": [("Research questions", f"{n} ready to review"), ("Search strategy", "Approved automatically"),
+                  ("Next stage", "Data set: upload and tag your articles")],
+        "projects_title": "Project", "projects": [row],
+        "button": {"text": "Open Matching label", "href": _link(project["id"], "matching-label")},
+        "footer": "Sent because a project you own is waiting for you."}, inline=inline_logo)
+
+
+def dataset_tagged_email(project: dict, counts: dict, cost_usd: float, *, inline_logo: bool = True) -> dict:
+    """Tagging finished: the counts, then review and approve the data set (approving starts the deck)."""
+    pname = _name(project)
+    matched, irrelevant = counts.get("matched", 0), counts.get("irrelevant", 0)
+    tagged = int((counts.get("tags") or {}).get("tagged", 0))
+    uploaded = matched + irrelevant + counts.get("unmatched", 0)
+    row = layout.project_row(project, f"Data set · {tagged} tagged, waiting for approval", "Data set",
+                             layout.STATE_TURN)
+    return layout.render(f"{pname}: data set tagged, review and approve", {
+        "org": layout.org_panel(project.get("org_id")),
+        "pill": {"text": "Your turn · Data set", **layout.PILL_VIOLET}, "heading": "Your data set is tagged",
+        "preheader": f"{uploaded} articles: {matched} matched and tagged, {irrelevant} irrelevant. Review and approve "
+                     f"to build the deck.",
+        "intro": [_hello(project), layout.rich("Tagging finished for <b>{}</b>. Review the tagged articles on "
+                                               "<b>Data set</b> and approve it: approving starts the deck.", pname)],
+        "facts": [("Articles uploaded", f"{uploaded:,}"), ("Matched a research question", f"{matched:,} ({tagged:,} tagged)"),
+                  ("Irrelevant", f"{irrelevant:,} (not tagged)"), ("Tagging cost", f"${cost_usd:,.2f}")],
+        "callout": {"title": "What to do", "lines": [layout.rich(
+            "Open Data set, check the tags per research question, then click <b>Approve data set</b>. Deliverables "
+            "starts straight away.")], **layout.CALLOUT_VIOLET},
+        "projects_title": "Project", "projects": [row],
+        "button": {"text": "Review the data set", "href": _link(project["id"], "data-set")},
+        "footer": "Sent because tagging finished on a project you own."}, inline=inline_logo)
 
 
 def send_ready_email(project_id: int, run_id: int) -> bool:
@@ -247,8 +193,7 @@ def _send(project: dict, mail: dict, tag: str) -> int:
     settings = config.get_app_settings()
     if settings.is_production and "localhost" in settings.app_url:
         logger.warning("[%s] APP_URL is %s in production: the email's link will not open", tag, settings.app_url)
-    return sum(mailer.send_email(u["email"], u.get("display_name") or "", mail["subject"], mail["html"],
-                                 mail["text"], mail["inline_images"]) for u in to)
+    return sum(layout.send(u, mail) for u in to)
 
 
 def notify_ready(project_id: int, run_id: int) -> None:
@@ -256,11 +201,11 @@ def notify_ready(project_id: int, run_id: int) -> None:
 
 
 # job type -> (stage name, page the button opens, what the owner does there). A failed job of these types emails the
-# owner; a completed one emails only where a person acts next (`waits`). Brief & Scope sends nothing: the user is on
-# the page, and research and strategy approve themselves (agent/autorun.py). The deliverable has its own email above.
+# owner. Brief & Scope sends nothing: the user is on the page; research and strategy approve themselves
+# (agent/autorun.py), which then sends the Matching label email.
 STAGE_GATES = {
-    "background_research": ("Background research", "background-research", "Open it and run it again"),
-    "search_strategy": ("Search strategy", "search-strategy", "Open it and run it again"),
+    "background_research": ("Background Research", "background-research", "Open it and run it again"),
+    "search_strategy": ("Search Strategy", "search-strategy", "Open it and run it again"),
 }
 _SENT: set[tuple] = set()     # shortcut: per process, so a restart mid-stage can send one repeat; fine on one server
 _SENT_LOCK = threading.Lock()
@@ -269,19 +214,6 @@ _SENT_LOCK = threading.Lock()
 def _stage_key(job: dict) -> tuple | None:
     """What one email covers: a failed job, once. A completed job sends nothing (no stage waits on a person here)."""
     return (job["id"], "failed") if job["status"] == "failed" else None
-
-
-def owner_email(project: dict, name: str, page: str, action: str, *, error: str = "",
-                inline_logo: bool = True) -> dict:
-    """'<name> is ready for you' with a button to its page, or, with an error, '<name> needs your attention'."""
-    ctx = {**_project_context(project), "files": [], "link": _link(project["id"], page),
-           "stats": [("Stage", name)] + ([("Problem", error[:300])] if error else []) + [("Next step", action)],
-           "heading": f"{name} needs your attention" if error else f"{name} is ready for you",
-           "button": f"Open {name}", "stats_title": "Needs your attention" if error else "Waiting for you",
-           "preheader": f"{name} stopped: {action.lower()}." if error else f"{action}.",
-           "footer": f"Sent by Hunter because a project you own {'stopped at a stage' if error else 'is waiting for you'}."}
-    subject = f"{'Action needed' if error else 'Your turn'}: {name} — {ctx['project_name']}"
-    return _compose(ctx, subject, inline_logo)
 
 
 def stage_email(project: dict, job: dict, *, inline_logo: bool = True) -> dict:
@@ -328,3 +260,25 @@ def notify_owner(project_id: int, name: str, page: str, action: str, *, error: s
         if project:
             _send(project, owner_email(project, name, page, action, error=error), f"owner:{project_id}")
     _background(f"owner:{project_id}", send)
+
+
+def notify_matching_label(project_id: int) -> None:
+    """Autorun finished research and strategy: the owner approves the research questions next."""
+    def send() -> None:
+        project = store.get_project(project_id)
+        if project:
+            _send(project, matching_label_email(project), f"matching-label:{project_id}")
+    _background(f"matching-label:{project_id}", send)
+
+
+def notify_dataset_tagged(project_id: int, since: float) -> None:
+    """A full tagging job finished: counts and the tagging cost since it started."""
+    def send() -> None:
+        from ..dataset import repository as dataset_repo     # lazy: dataset imports this module
+        from ..usage import repository as usage_repo
+        project = store.get_project(project_id)
+        if project:
+            mail = dataset_tagged_email(project, dataset_repo.tagging_counts(project_id),
+                                        usage_repo.stage_cost_since(project_id, "dataset_tagging", since))
+            _send(project, mail, f"dataset-tagged:{project_id}")
+    _background(f"dataset-tagged:{project_id}", send)

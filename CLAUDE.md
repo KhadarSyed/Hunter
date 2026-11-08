@@ -103,14 +103,17 @@ never import a `router.py`. Frontend (`frontend/src/`): `pages/` · `components/
   - **Chat:** the platform's Azure OpenAI (`azure_openai_client.py`, `AZURE_OPENAI_*` env vars), unless the
     scoped organisation has its own default provider (Settings → LLM Providers, `domains/providers/`,
     clients in `core/org_chat_clients.py`: OpenAI-compatible, Azure OpenAI, Anthropic, Gemini). The org comes
-    from the usage scope (the project's org, else the session's active org); an org provider's failure raises
-    `OrgProviderError` and never falls back to the platform. Keys are Fernet-encrypted (`core/secret_box.py`,
+    from the usage scope (the project's org, else the session's active org); an org's models fail over in order
+    (saved default, then newest first; `providers/service.call`), wait and resume when all are down
+    (`providers/outage.py` emails the org's admins) and never fall back to the platform. Keys are Fernet-encrypted (`core/secret_box.py`,
     `PROVIDER_SECRET_KEY`). `chat()` raises `NoChatProviderError` if nothing is configured.
   - **Embeddings:** NVIDIA NIM only (`nvidia_embed_client.py`, `NVIDIA_EMBED_*` env vars).
     `embed()`/`embed_batch()` raise `NoEmbedProviderError` if unconfigured or unreachable.
   - Every LLM-dependent feature in the Intelligence Platform still has its own
     deterministic/rule-based tier beneath this — the deterministic tier is not a stub, it
     produces real content.
+- **Emails:** one layout for every email (`core/email_layout.py`, `core/templates/email.html.j2`); project
+  emails in `deliverable/notify.py`, account emails in `auth/recovery.py`, outage emails in `providers/outage.py`.
 - **Communication:** REST (`/api/intel/*`, `/api/auth/*`) + a single shared WebSocket (`/ws`) broadcasting job/run progress to all clients.
 - **Brand colors:** Violet `#5B2C9D` (primary), QC teal `#0F7B6C`.
 

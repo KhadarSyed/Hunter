@@ -174,3 +174,10 @@ def project_total(project_id: int) -> dict:
 def list_prices() -> list[dict]:
     return _rows("SELECT provider, model, deployment_type, input_per_m, cached_per_m, output_per_m, effective_from, "
                  "source FROM llm_prices ORDER BY provider, model, deployment_type, effective_from DESC", [])
+
+
+def stage_cost_since(project_id: int, stage: str, since: float) -> float:
+    """What one stage of a project cost since a moment (a tagging job's start), in USD."""
+    r = _rows("SELECT COALESCE(SUM(cost_usd), 0) AS c FROM llm_usage WHERE project_id = ? AND stage = ? AND ts >= ?",
+              [project_id, stage, since])[0]
+    return float(r["c"])

@@ -202,12 +202,24 @@ def _stage_pct(f: dict, stage: str, state: str) -> int:
     return round(_fraction(f, stage) * 100) if state == "running" else 0
 
 
+def _org_paused(project_id: int) -> bool:
+    try:
+        from ..providers import outage
+        return outage.is_paused((store.get_project(project_id) or {}).get("org_id"))
+    except Exception:
+        return False
+
+
 def _summary(project_id: int) -> dict:
     try:
         f = _facts(project_id)
         g = _gates_from(f)
         pct, current = _progress_from(f, g)
         detail = {s: {"state": g[s], "pct": _stage_pct(f, s, g[s]), "sub": _sub(f, s, g[s])} for s in STAGES}
+        if any(d["state"] == "running" for d in detail.values()) and _org_paused(project_id):
+            for d in detail.values():
+                if d["state"] == "running":
+                    d["sub"] = "Paused · waiting for a model"
         return {"gates": g, "progress_pct": pct, "current_stage": current, "detail": detail}
     except Exception:
         return {"gates": {s: "open" for s in STAGES}, "progress_pct": 0.0, "current_stage": "brief_scope"}

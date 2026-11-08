@@ -17,7 +17,9 @@ const ROLE_LABELS: Record<string, string> = {
 
 export function SettingsPage() {
   const { user } = useAuth();
-  const [tab, setTab] = useState<SettingsTab>("profile");
+  // An emailed link can open a tab directly: /settings?tab=providers.
+  const [tab, setTab] = useState<SettingsTab>(
+    () => (new URLSearchParams(window.location.search).get("tab") as SettingsTab | null) ?? "profile");
   if (!user) return null;
 
   const tabs: { id: SettingsTab; label: string }[] = [

@@ -100,43 +100,34 @@ class HybridLLMClient:
         )
 
     def is_reachable(self) -> bool:
-        """Chat reachability: the platform model, or the scoped org's own provider. (Embeddings have their own
+        """Chat reachability: the platform model, or the scoped org's own models. (Embeddings have their own
         NVIDIA NIM check — see is_embed_reachable().)"""
         if self._chat_backend is not None:
             return True
         try:
-            return self._org_backend() is not None
+            return bool(self._route()[1])
         except Exception:
-            return True         # the org has a provider; the call itself reports why it fails
+            return True         # the org has no model: the call itself says so
 
     @staticmethod
-    def _org_backend():
+    def _route() -> tuple[int | None, list[dict] | None]:
+        """(org, its models in failover order), or (org, None) for the platform model."""
         from ..domains.providers import service as providers     # lazy: domains import core
-        return providers.backend_for_scope()
+        org = providers.scope_org()
+        return org, providers.route(org)
 
-    def _backend(self) -> tuple[object, str]:
-        """(chat backend, org provider name or ''): the org's default provider when the scoped org has one (never
-        the platform model as a fallback), else the platform Azure OpenAI model."""
-        org = self._org_backend()
-        if org is not None:
-            return org
+    def _platform(self):
         if self._chat_backend is None:
             raise NoChatProviderError(
                 "No chat LLM configured — set AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_MODEL")
-        return self._chat_backend, ""
+        return self._chat_backend
 
-    @staticmethod
-    def _call(org_name: str, fn, *args, **kwargs):
-        if not org_name:
-            return fn(*args, **kwargs)
-        from ..domains.providers.service import OrgProviderError
-        from .azure_openai_client import ReplyCutOff
-        try:
-            return fn(*args, **kwargs)
-        except ReplyCutOff:
-            raise           # a reply problem the caller handles (re-pack smaller), not a provider failure
-        except Exception as e:
-            raise OrgProviderError(f"Org provider '{org_name}' failed: {e}") from e
+    def _invoke(self, org, rows, fn):
+        """fn(backend) on the platform model, or on the org's first working model (failover, never the platform)."""
+        if rows is None:
+            return fn(self._platform())
+        from ..domains.providers import service as providers
+        return providers.call(org, rows, fn)
 
     def is_embed_reachable(self) -> bool:
         return self._embed_backend is not None
@@ -147,28 +138,31 @@ class HybridLLMClient:
         on_token: Optional[Callable[[str], None]] = None,
         format_json: bool = False,
     ) -> str:
-        backend, org_name = self._backend()
+        org, rows = self._route()
+        backend = self._platform() if rows is None else None
+        model = (f"{getattr(backend, 'deployment', '')}:{getattr(backend, 'reasoning_effort', '')}" if backend
+                 else f"{rows[0]['model']}:")
         from ..domains.memory import service as memory     # lazy: memory imports store, which imports core
-        key = memory.llm_key(f"{getattr(backend, 'deployment', '')}:{getattr(backend, 'reasoning_effort', '')}",
-                             messages, format_json)
+        key = memory.llm_key(model, messages, format_json)
         # the same prompt twice on one client is a retry of an answer the caller rejected: ask GPT again
         cached = memory.recall_llm(key) if key not in self._asked else None
         self._asked.add(key)
         if cached is not None:
             from ..domains.usage import service as usage_service
-            usage_service.record(getattr(backend, "provider", "azure_openai"),
-                                 getattr(backend, "deployment", "") or "unknown", "chat",
+            usage_service.record(getattr(backend, "provider", "azure_openai") if backend else rows[0]["provider_type"],
+                                 (getattr(backend, "deployment", "") if backend else rows[0]["model"]) or "unknown",
+                                 "chat",
                                  cache_hit=True, requests=0)
             if on_token:
                 on_token(cached)
             return cached
-        text = self._call(org_name, backend.chat, messages, on_token=on_token, format_json=format_json)
+        text = self._invoke(org, rows, lambda b: b.chat(messages, on_token=on_token, format_json=format_json))
         memory.remember_llm(key, text)
         return text
 
     def chat_tools(self, messages: list[dict], tools: list[dict], tool_choice: str = "auto") -> dict:
-        backend, org_name = self._backend()
-        return self._call(org_name, backend.chat_tools, messages, tools, tool_choice=tool_choice)
+        org, rows = self._route()
+        return self._invoke(org, rows, lambda b: b.chat_tools(messages, tools, tool_choice=tool_choice))
 
     def embed(self, text: str) -> np.ndarray:
         if self._embed_backend is None:

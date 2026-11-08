@@ -257,6 +257,7 @@ def run_job(project_id: int, job_id: str, llm=None, only_rq: str | None = None) 
 def _run_job(project_id: int, job_id: str, llm=None, only_rq: str | None = None) -> None:
     """The job body. A failed phase is logged and the next one still runs; the running flag is always cleared."""
     prog = _Progress(project_id, job_id)
+    started = time.time()
     with _LOCK:
         _RUNNING.add(project_id)
     try:
@@ -293,6 +294,9 @@ def _run_job(project_id: int, job_id: str, llm=None, only_rq: str | None = None)
             except Exception:
                 logger.exception("Tagging phase %s failed for project %s", name, project_id)
         store.update_job(job_id, status="completed", progress_pct=100, result=repo.tagging_counts(project_id))
+        if not only_rq:         # a full run: the owner reviews and approves the data set next
+            from ..deliverable import notify
+            notify.notify_dataset_tagged(project_id, started)
     except Exception as e:
         logger.exception("Tagging job failed for project %s", project_id)
         store.update_job(job_id, status="failed", error=str(e)[:500])

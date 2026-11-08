@@ -103,3 +103,35 @@ def record_test(provider_id: int, ok: bool, error: str, latency_ms: int) -> None
 def project_org(project_id: int) -> int | None:
     rows = _rows("SELECT org_id FROM intel_projects WHERE id = ?", (project_id,))
     return rows[0]["org_id"] if rows else None
+
+
+_OUTAGE = ("acting_provider_id", "down_since", "failed_calls", "notified", "paused", "last_error")
+
+
+def get_outage(org_id: int) -> dict | None:
+    rows = _rows("SELECT * FROM org_llm_state WHERE org_id = ?", (org_id,))
+    return {k: rows[0][k] for k in _OUTAGE} if rows else None
+
+
+def save_outage(org_id: int, st: dict) -> None:
+    conn = _conn()
+    try:
+        conn.execute(
+            "INSERT INTO org_llm_state (org_id, acting_provider_id, down_since, failed_calls, notified, paused, "
+            "last_error, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (org_id) DO UPDATE SET "
+            "acting_provider_id = EXCLUDED.acting_provider_id, down_since = EXCLUDED.down_since, "
+            "failed_calls = EXCLUDED.failed_calls, notified = EXCLUDED.notified, paused = EXCLUDED.paused, "
+            "last_error = EXCLUDED.last_error, updated_at = EXCLUDED.updated_at",
+            (org_id, *(st[k] for k in _OUTAGE), time.time()))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def clear_outage(org_id: int) -> None:
+    conn = _conn()
+    try:
+        conn.execute("DELETE FROM org_llm_state WHERE org_id = ?", (org_id,))
+        conn.commit()
+    finally:
+        conn.close()

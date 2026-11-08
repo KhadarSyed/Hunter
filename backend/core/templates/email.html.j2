@@ -1,0 +1,144 @@
+{#- The one AlphaMetricx email layout (core/email_layout.py fills it). Email-client-safe: nested tables with
+    width/align/bgcolor attributes, inline styles, padding only on <td>, explicit image sizes, a VML button and an
+    MSO-only 600px wrapper for Outlook; border-radius and gradients are progressive enhancement. -#}
+{%- set F = "Arial,Helvetica,sans-serif" -%}
+{%- macro logo_img(i, alt, max_w) -%}
+<img src="{{ i.src }}" width="{{ i.w }}" height="{{ i.h }}" alt="{{ alt }}" border="0"
+     style="display:block;border:0;outline:none;height:{{ i.h }}px;width:{{ i.w }}px;max-width:{{ max_w }}px;">
+{%- endmacro -%}
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="x-apple-disable-message-reformatting">
+<title>{{ subject }}</title>
+<!--[if mso]>
+<noscript><xml><o:OfficeDocumentSettings><o:AllowPNG/><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
+<style>td,th,div,p,a,span{font-family:Arial,Helvetica,sans-serif !important;}</style>
+<![endif]-->
+<style>@media only screen and (max-width:620px){.container{width:100% !important}.pad{padding-left:20px !important;padding-right:20px !important}}</style>
+</head>
+<body style="margin:0;padding:0;background-color:#F3F1F7;" bgcolor="#F3F1F7">
+<div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">{{ preheader }}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#F3F1F7"><tr><td align="center" style="padding:28px 12px;">
+<!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td width="600"><![endif]-->
+<table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="#FFFFFF"
+       style="width:600px;max-width:600px;background-color:#FFFFFF;border-radius:12px;border:1px solid #E7E2F0;">
+  <tr><td class="pad" style="padding:24px 36px 18px 36px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+      <td valign="middle">{% if wordmark %}{{ logo_img(wordmark, "AlphaMetricx", 240) }}{% else %}<span style="font-family:{{ F }};font-size:20px;font-weight:bold;color:#1F1B2D;">AlphaMetricx</span>{% endif %}</td>
+      <td valign="middle" align="right" style="font-family:{{ F }};font-size:12px;color:#8A84A0;">{{ org.name }}</td>
+    </tr></table>
+  </td></tr>
+  <tr><td bgcolor="#5B2C9D" style="height:4px;line-height:4px;font-size:0;background-color:#5B2C9D;background-image:linear-gradient(90deg,#5B2C9D,#8B5CF6,#5B2C9D);">&nbsp;</td></tr>
+
+  <tr><td class="pad" style="padding:28px 36px 6px 36px;font-family:{{ F }};">
+    {% if pill %}<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="{{ pill.bg }}" style="background-color:{{ pill.bg }};border-radius:999px;padding:4px 12px;font-family:{{ F }};font-size:11px;line-height:16px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;color:{{ pill.fg }};">{{ pill.text }}</td></tr></table>{% endif %}
+    <div style="padding-top:12px;font-family:{{ F }};font-size:24px;line-height:31px;font-weight:bold;color:#1F1B2D;">{{ heading }}</div>
+    {% for p in intro %}<p style="margin:12px 0 0 0;font-family:{{ F }};font-size:15px;line-height:23px;color:#3D3850;">{{ p }}</p>{% endfor %}
+  </td></tr>
+
+  {% if callout %}
+  <tr><td class="pad" style="padding:18px 36px 0 36px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{{ callout.bg }}" style="background-color:{{ callout.bg }};border-left:4px solid {{ callout.bar }};border-radius:8px;">
+      <tr><td style="padding:14px 18px;font-family:{{ F }};">
+        <div style="font-size:14px;line-height:20px;font-weight:bold;color:{{ callout.fg }};">{{ callout.title }}</div>
+        {% for line in callout.lines %}<div style="padding-top:4px;font-size:13px;line-height:20px;color:#3D3850;">{{ line }}</div>{% endfor %}
+      </td></tr>
+    </table>
+  </td></tr>
+  {% endif %}
+
+  {% if code %}
+  <tr><td class="pad" align="center" style="padding:22px 36px 4px 36px;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" bgcolor="#F6F3FB" style="background-color:#F6F3FB;border:1px dashed #C9B8E8;border-radius:10px;">
+      <tr><td style="padding:16px 34px;font-family:'Courier New',Courier,monospace;font-size:34px;line-height:40px;letter-spacing:10px;font-weight:bold;color:#5B2C9D;">{{ code }}</td></tr>
+    </table>
+    {% if code_note %}<div style="padding-top:8px;font-family:{{ F }};font-size:12px;line-height:18px;color:#8A84A0;">{{ code_note }}</div>{% endif %}
+  </td></tr>
+  {% endif %}
+
+  {% if models %}
+  <tr><td class="pad" style="padding:22px 36px 0 36px;">
+    <div style="padding-bottom:10px;font-family:{{ F }};font-size:12px;line-height:16px;letter-spacing:1.5px;text-transform:uppercase;color:#5B2C9D;font-weight:bold;">{{ models_title }}</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #ECE8F3;border-radius:8px;">
+      {% for m in models %}<tr>
+        <td width="44" valign="middle" style="width:44px;padding:12px 0 12px 14px;{{ 'border-top:1px solid #ECE8F3;' if not loop.first }}">{% if m.logo %}{{ logo_img(m.logo, m.provider, 30) }}{% endif %}</td>
+        <td valign="middle" style="padding:12px 10px;{{ 'border-top:1px solid #ECE8F3;' if not loop.first }}font-family:{{ F }};">
+          <div style="font-size:14px;line-height:19px;font-weight:bold;color:#1F1B2D;">{{ m.name }}</div>
+          <div style="font-size:12px;line-height:17px;color:#6B6480;">{{ m.provider }}{% if m.detail %} · {{ m.detail }}{% endif %}</div>
+        </td>
+        <td valign="middle" align="right" style="padding:12px 14px;{{ 'border-top:1px solid #ECE8F3;' if not loop.first }}white-space:nowrap;">
+          <span style="display:inline-block;background-color:{{ m.bg }};color:{{ m.fg }};border-radius:999px;padding:3px 10px;font-family:{{ F }};font-size:11px;line-height:16px;font-weight:bold;">{{ m.state }}</span>
+        </td>
+      </tr>{% endfor %}
+    </table>
+  </td></tr>
+  {% endif %}
+
+  {% if facts %}
+  <tr><td class="pad" style="padding:20px 36px 0 36px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #ECE8F3;border-radius:8px;">
+      {% for k, v in facts %}<tr>
+        <td width="170" valign="top" style="width:170px;padding:10px 14px;{{ 'border-top:1px solid #ECE8F3;' if not loop.first }}font-family:{{ F }};font-size:13px;line-height:19px;color:#6B6480;">{{ k }}</td>
+        <td valign="top" style="padding:10px 14px;{{ 'border-top:1px solid #ECE8F3;' if not loop.first }}font-family:{{ F }};font-size:14px;line-height:19px;color:#1F1B2D;font-weight:bold;">{{ v }}</td>
+      </tr>{% endfor %}
+    </table>
+  </td></tr>
+  {% endif %}
+
+  {% if button %}
+  <tr><td class="pad" align="center" style="padding:24px 36px 4px 36px;">
+    <div>
+    <!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ button.href }}" style="height:46px;v-text-anchor:middle;width:260px;" arcsize="14%" stroke="f" fillcolor="#5B2C9D"><w:anchorlock/><center style="color:#FFFFFF;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:bold;">{{ button.text }}</center></v:roundrect><![endif]-->
+    <!--[if !mso]><!-- --><a href="{{ button.href }}" target="_blank" style="background-color:#5B2C9D;border-radius:8px;color:#FFFFFF;display:inline-block;font-family:{{ F }};font-size:15px;font-weight:bold;line-height:46px;text-align:center;text-decoration:none;width:260px;-webkit-text-size-adjust:none;">{{ button.text }}</a><!--<![endif]-->
+    </div>
+    {% if button.note %}<div style="padding-top:8px;font-family:{{ F }};font-size:12px;line-height:18px;color:#8A84A0;">{{ button.note }}</div>{% endif %}
+  </td></tr>
+  {% endif %}
+
+  {% if projects %}
+  <tr><td class="pad" style="padding:26px 36px 0 36px;">
+    <div style="padding-bottom:10px;font-family:{{ F }};font-size:12px;line-height:16px;letter-spacing:1.5px;text-transform:uppercase;color:#5B2C9D;font-weight:bold;">{{ projects_title }}</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #ECE8F3;border-radius:8px;">
+      {% for p in projects %}<tr>
+        <td width="58" valign="middle" style="width:58px;padding:12px 0 12px 14px;{{ 'border-top:1px solid #ECE8F3;' if not loop.first }}">
+          {% if p.logo %}<table role="presentation" cellpadding="4" cellspacing="0" border="0" bgcolor="{{ '#5B2C9D' if p.logo.light else '#FFFFFF' }}" style="background-color:{{ '#5B2C9D' if p.logo.light else '#FFFFFF' }};border-radius:6px;"><tr><td>{{ logo_img(p.logo, p.client or p.name, 40) }}</td></tr></table>
+          {% else %}<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="#EDE7F8" align="center" width="34" height="34" style="width:34px;height:34px;border-radius:8px;font-family:{{ F }};font-size:15px;font-weight:bold;color:#5B2C9D;">{{ (p.client or p.name)[:1] }}</td></tr></table>{% endif %}
+        </td>
+        <td valign="middle" style="padding:12px 10px;{{ 'border-top:1px solid #ECE8F3;' if not loop.first }}font-family:{{ F }};">
+          <div style="font-size:14px;line-height:19px;font-weight:bold;color:#1F1B2D;">{{ p.name }}</div>
+          <div style="font-size:12px;line-height:17px;color:#6B6480;">{% if p.client %}{{ p.client }} · {% endif %}{{ p.stage }}</div>
+        </td>
+        <td valign="middle" align="right" style="padding:12px 14px;{{ 'border-top:1px solid #ECE8F3;' if not loop.first }}font-family:{{ F }};font-size:12px;line-height:17px;font-weight:bold;color:{{ p.state_color }};white-space:nowrap;">{{ p.state }}</td>
+      </tr>{% endfor %}
+    </table>
+  </td></tr>
+  {% endif %}
+
+  {% if org.rows %}
+  <tr><td class="pad" style="padding:26px 36px 0 36px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#FAF9FC" style="background-color:#FAF9FC;border:1px solid #ECE8F3;border-radius:8px;">
+      <tr><td colspan="2" style="padding:12px 16px 4px 16px;font-family:{{ F }};font-size:11px;line-height:16px;letter-spacing:1.5px;text-transform:uppercase;color:#8A84A0;font-weight:bold;">Organization</td></tr>
+      {% for k, v in org.rows %}<tr>
+        <td width="110" valign="top" style="width:110px;padding:4px 16px;font-family:{{ F }};font-size:13px;line-height:19px;color:#6B6480;">{{ k }}</td>
+        <td valign="top" style="padding:4px 16px;font-family:{{ F }};font-size:13px;line-height:19px;color:#1F1B2D;">{{ v }}</td>
+      </tr>{% endfor %}
+      <tr><td colspan="2" style="height:10px;line-height:10px;font-size:0;">&nbsp;</td></tr>
+    </table>
+  </td></tr>
+  {% endif %}
+
+  <tr><td class="pad" style="padding:22px 36px 26px 36px;font-family:{{ F }};font-size:12px;line-height:18px;color:#8A84A0;">
+    {% if button %}If the button does not work, paste this link into your browser:<br><a href="{{ button.href }}" target="_blank" style="color:#5B2C9D;word-break:break-all;">{{ button.href }}</a><br><br>{% endif %}
+    {{ footer }}
+  </td></tr>
+  <tr><td class="pad" bgcolor="#1F1B2D" style="background-color:#1F1B2D;padding:16px 36px;border-radius:0 0 12px 12px;font-family:{{ F }};font-size:12px;line-height:18px;color:#B9B3CC;">
+    Questions? <a href="mailto:{{ support }}" style="color:#FFFFFF;font-weight:bold;text-decoration:none;">{{ support }}</a><br>
+    AlphaMetricx © {{ year }} · Never share your password or codes.
+  </td></tr>
+</table>
+<!--[if mso]></td></tr></table><![endif]-->
+</td></tr></table>
+</body>
+</html>

@@ -10,14 +10,11 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import html
 import logging
-import re
 import secrets
 import time
 
-from ...core import mailer, store
-from ...core.config import get_app_settings
+from ...core import email_layout as layout, store
 from . import service
 
 logger = logging.getLogger(__name__)
@@ -25,7 +22,7 @@ OTP_TTL_S = 10 * 60
 OTP_ATTEMPTS = 5
 LINK_TTL_S = 30 * 60
 REQUESTS_PER_WINDOW, WINDOW_S = 3, 15 * 60
-BRAND = "Alphametricx"
+BRAND = "AlphaMetricx"
 POLICY_TEXT = "at least 12 characters, with an upper-case letter, a lower-case letter, a digit and a symbol"
 _BAD_CODE = "That code is wrong or has expired. Request a new one."
 _BAD_LINK = "This reset link is invalid or has expired. Request a new one."
@@ -43,41 +40,43 @@ def _hash(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def _app_url(path: str) -> str:
-    return f"{get_app_settings().app_url.rstrip('/')}{path}"
+def _first_name(user: dict) -> str:
+    return ((user.get("display_name") or "").split() or [""])[0]
 
 
-def _name(user: dict) -> str:
-    return html.escape(user.get("display_name") or user["email"])
+def _hello(user: dict) -> str:
+    name = _first_name(user)
+    return f"Hello {name}," if name else "Hello,"
 
 
-def _send(user: dict, subject: str, lines: list[str], action: tuple[str, str] | None = None) -> bool:
-    """A short branded email: HTML paragraphs (user data escaped by the caller) and an optional button."""
-    body = "".join(f'<p style="margin:0 0 14px">{line}</p>' for line in lines)
-    button = (f'<p style="margin:22px 0"><a href="{html.escape(action[1])}" style="background:#5B2C9D;color:#fff;'
-              f'padding:11px 18px;border-radius:8px;text-decoration:none;font-weight:600">{action[0]}</a></p>'
-              if action else "")
-    page = (f'<div style="font-family:Segoe UI,Arial,sans-serif;font-size:15px;color:#0f172a;max-width:560px">'
-            f'<p style="margin:0 0 18px;font-size:18px;font-weight:700;color:#5B2C9D">{BRAND}</p>{body}{button}'
-            f'<p style="margin:24px 0 0;font-size:12px;color:#64748b">If you did not expect this email, you can '
-            f'ignore it.</p></div>')
-    text = "\n\n".join(html.unescape(re.sub(r"<[^>]+>", "", line)) for line in lines)
-    if action:
-        text += f"\n\n{action[0]}: {action[1]}"
-    return mailer.send_email(user["email"], user.get("display_name") or "", subject, page, text)
+def _org_of(user: dict, org_name: str = "") -> int | None:
+    if user.get("org_id"):
+        return user["org_id"]
+    org = store.find_organization_by_name(org_name) if org_name else None
+    return org["id"] if org else None
+
+
+def _mail(user: dict, subject: str, ctx: dict) -> bool:
+    return layout.send(user, layout.render(subject, ctx))
 
 
 def send_welcome(user: dict, org_name: str, temp_password: str) -> bool:
     """A new account: the organisation, the email to sign in with, the temporary password, how to change it."""
-    return _send(user, f"Your {BRAND} account for {org_name}", [
-        f"Hello {_name(user)},",
-        f"An account has been created for you in <b>{html.escape(org_name)}</b>.",
-        f"Email: <b>{html.escape(user['email'])}</b><br>Temporary password: "
-        f'<code style="font-size:15px">{html.escape(temp_password)}</code>',
-        "Sign in with it and you will be asked to choose your own password straight away. "
-        f"Your new password needs {POLICY_TEXT}.",
-        "The temporary password works for this first sign-in only. Never share it.",
-    ], ("Sign in", _app_url("/")))
+    return _mail(user, f"Your {BRAND} account for {org_name}", {
+        "org": layout.org_panel(_org_of(user, org_name)),
+        "pill": {"text": "Welcome", **layout.PILL_VIOLET}, "heading": "Your account is ready",
+        "preheader": f"Your {BRAND} account for {org_name}: sign in with your temporary password.",
+        "intro": [_hello(user), layout.rich("An account has been created for you in <b>{}</b> on AlphaMetricx.",
+                                            org_name)],
+        "facts": [("Email", user["email"]),
+                  ("Temporary password", layout.rich('<code style="font-size:15px;letter-spacing:1px;">{}</code>',
+                                                     temp_password)),
+                  ("Role", (user.get("role") or "").replace("_", " ").title())],
+        "callout": {"title": "What happens next", "lines": [
+            "1. Sign in with the temporary password (it works for your first sign-in only).",
+            f"2. Choose your own password: {POLICY_TEXT}."], **layout.CALLOUT_GREEN},
+        "button": {"text": "Sign in", "href": layout.app_link("/")},
+        "footer": "You received this because an administrator created an account for you."})
 
 
 def _issue_link(user: dict, reset_id: int | None = None) -> bool:
@@ -87,11 +86,16 @@ def _issue_link(user: dict, reset_id: int | None = None) -> bool:
         store.create_password_reset(user["id"], token_hash=_hash(token), token_expires=expires)
     else:
         store.verify_reset(reset_id, _hash(token), expires)
-    return _send(user, f"Reset your {BRAND} password", [
-        f"Hello {_name(user)},",
-        "Use the button below to choose a new password. The link works once and expires in 30 minutes.",
-        f"Your new password needs {POLICY_TEXT}.",
-    ], ("Reset password", _app_url(f"/reset-password?token={token}")))
+    return _mail(user, f"Reset your {BRAND} password", {
+        "org": layout.org_panel(_org_of(user)),
+        "pill": {"text": "Password reset", **layout.PILL_VIOLET}, "heading": "Choose a new password",
+        "preheader": "Use the link to choose a new password. It works once and expires in 30 minutes.",
+        "intro": [_hello(user), "Use the button below to choose a new password."],
+        "facts": [("Link valid for", "30 minutes, one use"),
+                  ("Password needs", "12+ characters · upper & lower case · a digit · a symbol")],
+        "button": {"text": "Reset password", "href": layout.app_link(f"/reset-password?token={token}"),
+                   "note": "Every other signed-in session is signed out after the reset."},
+        "footer": "Sent because a password reset was requested for your account."})
 
 
 def _active_user(email: str) -> dict | None:
@@ -110,11 +114,16 @@ def request_code(email: str) -> None:
     code = f"{secrets.randbelow(10 ** 6):06d}"
     store.create_password_reset(user["id"], otp_hash=_hash(f"{user['id']}:{code}"),
                                 otp_expires=time.time() + OTP_TTL_S)
-    _send(user, f"Your {BRAND} verification code", [
-        f"Hello {_name(user)},",
-        f'Your verification code is <b style="font-size:22px;letter-spacing:4px">{code}</b>',
-        "Enter it on the sign-in page within 10 minutes. We will then email you a link to reset your password.",
-    ])
+    _mail(user, f"Your {BRAND} verification code", {
+        "org": layout.org_panel(_org_of(user)),
+        "pill": {"text": "Password reset", **layout.PILL_VIOLET}, "heading": "Your verification code",
+        "preheader": f"Your code is {code[:3]} {code[3:]}. It expires in 10 minutes.",
+        "intro": [_hello(user), layout.rich("Someone asked to reset the password for <b>{}</b>. Enter this code on "
+                                            "the sign-in page:", user["email"])],
+        "code": code, "code_note": "Expires in 10 minutes · 5 tries",
+        "callout": {"title": "Didn't ask for this?", "lines": [
+            "Ignore this email: your password stays as it is. Never share this code."], **layout.CALLOUT_AMBER},
+        "footer": "Sent because a password reset was requested on the AlphaMetricx sign-in page."})
 
 
 def verify_code(email: str, code: str) -> None:
