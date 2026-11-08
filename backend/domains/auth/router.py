@@ -145,6 +145,8 @@ def create_organization_route(
     req: CreateOrganizationRequest, user: Annotated[dict, Depends(get_current_user)],
 ):
     _require_role(user, "super_admin")
+    if store.org_name_taken(req.name):
+        raise HTTPException(status.HTTP_409_CONFLICT, f"An organization named '{req.name.strip()}' already exists")
     existing = store.get_user_by_email(req.admin_email)
     if existing and existing["role"] == "super_admin":     # linked to the new org; account and role unchanged
         org = store.create_organization_for_member(req.name, existing["id"])
@@ -213,8 +215,8 @@ def create_user_route(req: CreateUserRequest, user: Annotated[dict, Depends(get_
         # A user can belong to multiple orgs — adding an existing email to a *different*
         # org links them to it instead of rejecting; the same org is still a duplicate.
         if target_org_id is None or store.is_member_of_org(existing["id"], target_org_id):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST,
-                                 "This user is already a member of this organization")
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                 f"{existing['email']} is already a member of this organization")
         store.add_user_to_org(existing["id"], target_org_id)
         return {**existing, "temp_password": None}
 

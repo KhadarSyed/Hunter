@@ -359,3 +359,20 @@ def _remove_files(paths: list[Path], root: Path) -> int:
             target.unlink(missing_ok=True)
         n += 1
     return n
+
+
+def project_name_taken(org_id: int | None, name: str, exclude_id: int | None = None) -> bool:
+    """Project names are unique within an organization, ignoring case and surrounding spaces (archived included).
+    shortcut: checked, not indexed (a project gets its org right after the insert); a same-second race could slip by."""
+    org_sql = "org_id IS NULL" if org_id is None else "org_id = ?"
+    params: list = [] if org_id is None else [org_id]
+    sql = f"SELECT 1 FROM intel_projects WHERE {org_sql} AND lower(trim(project_name)) = lower(trim(?))"
+    params.append(name)
+    if exclude_id is not None:
+        sql += " AND id <> ?"
+        params.append(exclude_id)
+    conn = _conn()
+    try:
+        return conn.execute(sql + " LIMIT 1", tuple(params)).fetchone() is not None
+    finally:
+        conn.close()

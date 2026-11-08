@@ -1608,6 +1608,9 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
         )""",
         "CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id)",
         "CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token_hash)"]),
+    # one organization per name, ignoring case and surrounding spaces (the routes check first; this is the backstop)
+    (48, "unique organization names", [
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_organizations_name ON organizations (lower(trim(name)))"]),
 ]
 
 

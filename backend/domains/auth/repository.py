@@ -474,3 +474,8 @@ def org_uses_platform_llm(org_id: int) -> bool:
         return bool(row and row["platform_llm"])
     finally:
         conn.close()
+
+
+def org_name_taken(name: str) -> bool:
+    """Organization names are unique, ignoring case and surrounding spaces (archived ones included)."""
+    return find_organization_by_name(name) is not None

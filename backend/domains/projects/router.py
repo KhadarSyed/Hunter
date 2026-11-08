@@ -60,6 +60,9 @@ def project_gates_route(project_id: Annotated[int, Path(ge=1)],
 def create_project_route(
     req: CreateProjectRequest, user: Annotated[dict, Depends(get_current_user)],
 ):
+    if store.project_name_taken(user["org_id"], req.project_name):
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            f"A project named '{req.project_name.strip()}' already exists in this organization")
     pid = store.create_project(req.project_name, req.spec, project_type=req.project_type, brand=req.brand)
     store.set_project_owner(pid, user["org_id"], user["id"])
     project = store.get_project(pid)
@@ -101,6 +104,9 @@ def update_project_route(project_id: Annotated[int, Path(ge=1)], req: UpdateProj
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from e
+    if req.project_name is not None and store.project_name_taken(existing.get("org_id"), req.project_name, project_id):
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            f"A project named '{req.project_name.strip()}' already exists in this organization")
     store.update_project(project_id, req.project_name, req.spec, req.brand)
     return store.get_project(project_id)
 
