@@ -205,6 +205,9 @@ def _channel_ask(segments: list[str]) -> str:
 def _guardrail_words(valid: list, rejected: list) -> tuple[list, list]:
     """Insights using a word the organization's guardrails prohibit (or a form of it) are rejected with that reason,
     so the existing repair round rewrites them: junk vocabulary is fixed while drafting, not flagged after the deck."""
+    from ...core import llm_effort
+    if not llm_effort.enabled():          # the "before" side of the comparison
+        return valid, rejected
     try:
         from ..exclusions.service import org_of_project
         from ..guardrails import check

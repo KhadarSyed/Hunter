@@ -20,8 +20,16 @@ def settings(effort: str | None = None, verbosity: str | None = None, max_tokens
         _SETTINGS.reset(token)
 
 
+def enabled() -> bool:
+    """LLM_LIGHT_TASKS=0 turns the per-task tuning off (the before/after comparison, or a rollback)."""
+    import os
+    return os.environ.get("LLM_LIGHT_TASKS", "1").strip().lower() not in ("0", "false", "off", "no")
+
+
 def light(max_tokens: int | None = None):
     """Low thinking, low verbosity: for jobs that look something up or answer yes/no."""
+    if not enabled():
+        return settings()
     return settings(effort="low", verbosity="low", max_tokens=max_tokens)
 
 
