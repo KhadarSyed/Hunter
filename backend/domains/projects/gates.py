@@ -17,6 +17,7 @@ _RUNNING = ("pending", "running", "queued")
 _JOB = {"brief_scope": "spec_generation", "background_research": "background_research",
         "search_strategy": "search_strategy"}
 _SHARE = 100 / len(STAGES)
+JOB_DONE_FRACTION = 0.9  # a stage whose job finished but which is not yet done (approval or a follow-up step left)
 _TTL_S = 4               # live pages refetch on every progress event; a burst reads one computed summary
 _CACHE: dict[int, tuple[float, dict]] = {}
 _CACHE_LOCK = threading.Lock()
@@ -126,6 +127,8 @@ def _fraction(f: dict, stage: str) -> float:
     job = _latest_job(f["jobs"], stage)
     if job and job.get("status") in _RUNNING:
         return max(0.0, min(1.0, (job.get("progress_pct") or 0) / 100))
+    if job and job.get("status") == "completed":
+        return JOB_DONE_FRACTION    # job finished, its approval / analyst brief still to come: never fall back to 0
     return 0.0
 
 

@@ -23,3 +23,14 @@ User: "show the list in pop up window, same in dashboard pipeline status missing
 - Org dashboard: the Status ring is a button that opens the same popup (Org Admin only — a Super Admin cannot open
   projects, the gates route returns 403, so there it stays display-only).
 - Checked in the browser (shots/pipeline-card.png, shots/pipeline-dashboard.png): opens, stays on the page, closes.
+
+## Follow-up: pipeline status not matching
+User: "the pipeline status is not matching with actual one, dashboard shows 0 progress and drill down also not matching".
+- Dashboard 0%: the server had not been restarted after `org_detail` started returning `progress_pct`. Restarted.
+- Real bug (`projects/gates._fraction`): a stage counted progress only while its job ran. Once the research job
+  completed, the stage stays "running" until the analyst brief is written and approved, and it fell back to 0% (overall
+  dropped 23% → 16.67%). Now a finished job counts `JOB_DONE_FRACTION = 0.9` until the stage is done, so progress
+  never goes backwards. Local test `tests/projects/test_gates.py::test_finished_job_keeps_its_progress_until_the_stage_is_done`.
+- Verified: dashboard ring = popup = gates route (33%, 2 of 6 stages done, Search Strategy next).
+- Compare run (#19): the restart would have killed the autorun mid-brief and autorun always redoes research, so
+  project 8's brief and strategy were finished through the same API calls autorun makes; the driver resumes after.
