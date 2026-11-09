@@ -21,3 +21,19 @@ Regenerate each deck, compare insights + `llm_usage` per run; replace the DevOps
 - Driver now has `MAX_ARTICLES = 1000` + `cap()`: after the free match, if more than 1000 originals match, it keeps the
   top 1000 by reach, rewrites the source rows (unchanged) into `shots/compare/<key>-sample/`, deletes the uploaded
   files through the app, uploads the samples and matches again. It refuses to tag if more than 1000 still match.
+
+## Results — "after" (LLM_LIGHT_TASKS on), measured from llm_usage, platform Azure GPT-5
+| | Casino (project 8, deck run 1) | Planet Fitness (project 9, deck run 2) |
+|---|---|---|
+| Articles tagged | 996 (8 RQs) | 1000 (9 RQs) |
+| Brief & Scope | $6.49 (144 calls) | $2.06 (49 calls) |
+| Research + strategy | $0.27 | $0.28 |
+| Tagging | $9.40 (133 calls) | $17.94 (241 calls) |
+| Deck engine (insights, classify, compute) | $16.59 — insights alone $12.92 | $17.30 — insights $14.58 |
+| Deck studio (repair, assets, render) | $3.97 — repair $3.24 | $5.11 — repair $4.39 |
+| **Total** | **$36.72** | **$42.69** |
+| Deck checks | 36/39 pass, 129 slides | 34/36 pass, 7 rule-based fallback lines |
+
+- Planet Fitness tagging costs double: every article matched all 9 RQs (RQ keywords too broad).
+- Repair step is slow (~75-95 min, 150-170 sequential calls).
+- Not yet run: the "before" side (server with LLM_LIGHT_TASKS=0, Regenerate both decks, ~$20-25 each).
