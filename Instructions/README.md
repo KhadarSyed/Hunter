@@ -26,6 +26,7 @@ changed and why. Open the code only for the files a note or the map points to.
 
 | What | Command |
 |---|---|
+| Start all / stop all | `powershell -ExecutionPolicy Bypass -File deploystart-all.ps1` / `deploystop-all.ps1 [-Force]` (Docker, hunter-postgres, backend 8002, Vite 5173) |
 | Backend | `python -m uvicorn backend.main:app --host 0.0.0.0 --port 8002` (repo root) |
 | Frontend dev | `npm run dev` in `frontend/` → http://localhost:5173 (proxies `/api`, `/ws` to 8002) |
 | Type check | `cd frontend && npx tsc --noEmit` |
