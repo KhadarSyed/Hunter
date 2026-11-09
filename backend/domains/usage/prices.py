@@ -20,6 +20,7 @@ SKIP = re.compile(r"\b(batch|pro|codex|chat)\b", re.I)
 MODEL = re.compile(r"^GPT\s*(\d+(?:\.\d+)?)(?:\s+(mini|nano)\b)?", re.I)
 DEFAULTS = (
     ("azure_openai", "gpt-5", "global", 1.25, 0.125, 10.0, "2025-08-01", "default"),
+    ("azure_openai", "gpt-4.1", "global", 2.0, 0.5, 8.0, "2025-04-14", "default"),
     ("nvidia", "nvidia/", "", 0, 0, 0, "2025-01-01", "default"),  # prefix row: every NVIDIA model is free
 )
 

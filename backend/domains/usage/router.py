@@ -1,12 +1,15 @@
 """Usage dashboard API: cost and tokens per day, model, stage and project, scoped to the caller's role."""
 from __future__ import annotations
 
+import os
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from ...core import store
 from ...core.auth import get_current_user, require_project_access
+from ..providers import repository as provider_repo
 from . import repository as repo
 from .schemas import PriceRequest, SettingsRequest
 
@@ -153,9 +156,24 @@ def _require_super(user: dict) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Super admin only")
 
 
+def _may_price(user: dict, provider: str, model: str) -> bool:
+    """Super admin: any price. Org admin: a model only its own org runs (the platform model for a platform-LLM org,
+    or one of its providers' models), since a price row is shared by every org on that provider type and model."""
+    if user["role"] == "super_admin":
+        return True
+    org = user.get("org_id")
+    if user["role"] != "admin" or not org:
+        return False
+    owners = provider_repo.orgs_using_model(provider, model)
+    platform = (provider == "azure_openai" and model == os.getenv("AZURE_OPENAI_MODEL", "")
+                and store.org_uses_platform_llm(org))
+    return (platform or bool(owners)) and owners <= {org}
+
+
 @router.put("/prices")
 def usage_put_price(body: PriceRequest, user: UserDep) -> dict:
-    _require_super(user)
+    if not _may_price(user, body.provider, body.model):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You can set prices only for your organization's own models")
     repo.upsert_price(body.provider, body.model, body.deployment_type, body.input_per_m, body.cached_per_m,
                       body.output_per_m, body.effective_from, "manual")
     return {"ok": True}

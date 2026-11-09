@@ -6,6 +6,8 @@ import {
   type ProviderTestResult, type ProviderType,
 } from "../services/intel-api";
 import { PROVIDER_ICONS } from "../components/usage/ProviderLogo";
+import { ModelPrice } from "../components/usage/ModelPrice";
+import type { UsagePrices } from "../types/usage";
 import { formatRelativeOrDate } from "../utils/time";
 
 type Preset = { id: string; label: string; type: ProviderType; baseUrl: string; model: string; apiVersion: string; icon: string };
@@ -170,6 +172,9 @@ export function ProvidersTab() {
   const [busy, setBusy] = useState<number | null>(null);
   const [tests, setTests] = useState<Record<number, ProviderTestResult>>({});
   const [error, setError] = useState("");
+  const [prices, setPrices] = useState<UsagePrices | null>(null);
+  const loadPrices = useCallback(() => { intelApi.usagePrices().then(setPrices).catch(() => setPrices(null)); }, []);
+  useEffect(loadPrices, [loadPrices]);
 
   useEffect(() => {
     if (!isSuper) return;
@@ -236,6 +241,9 @@ export function ProvidersTab() {
                   : data.platform_llm ? "Azure OpenAI · billed to the platform"
                   : "Add a provider below. Until then every AI step of this organization's projects stops with this message."}
               </div>
+              {!current && data.platform_llm && prices && data.platform_model !== "not configured" && (
+                <ModelPrice provider="azure_openai" model={data.platform_model} prices={prices} canEdit onSaved={loadPrices} />
+              )}
             </div>
             {current && data.platform_llm && (
               <button type="button" onClick={() => act(current.id, () => intelApi.usePlatformLlm(data.org_id))}
@@ -263,6 +271,7 @@ export function ProvidersTab() {
                     {p.last_tested_at && <> · tested {formatRelativeOrDate(p.last_tested_at)}</>}
                   </div>
                   {p.status === "failed" && p.last_error && !tests[p.id] && <p className="mt-1 text-xs text-red-600 break-words">{p.last_error}</p>}
+                  {prices && <ModelPrice provider={p.provider_type} model={p.model} prices={prices} canEdit onSaved={loadPrices} />}
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-1.5">
                   <button type="button" onClick={() => testSaved(p)} disabled={busy === p.id}

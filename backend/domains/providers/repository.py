@@ -21,6 +21,12 @@ def list_for_org(org_id: int) -> list[dict]:
     return _rows("SELECT * FROM org_llm_providers WHERE org_id = ? ORDER BY is_default DESC, id DESC", (org_id,))
 
 
+def orgs_using_model(provider_type: str, model: str) -> set[int]:
+    """Organisations with a provider row for this model (prices are shared per provider type and model)."""
+    return {r["org_id"] for r in _rows("SELECT DISTINCT org_id FROM org_llm_providers WHERE provider_type = ? AND model = ?",
+                                       (provider_type, model))}
+
+
 def newest_for_org(org_id: int) -> dict | None:
     rows = _rows("SELECT * FROM org_llm_providers WHERE org_id = ? ORDER BY id DESC LIMIT 1", (org_id,))
     return rows[0] if rows else None
