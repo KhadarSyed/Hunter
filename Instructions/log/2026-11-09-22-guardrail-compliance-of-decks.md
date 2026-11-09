@@ -20,3 +20,6 @@ dataset_tagging, deck_engine, deck_studio) is in `GUARDED_STAGES`, so every GPT 
 editable), applied by Python to all Python-written slide text at render (labels, fact cards, summaries, titles),
 never to quoted headlines/URLs; same screen after the repair step; "%" → "percent" in prose, chart number labels
 decision for the user.
+
+**Decision (user, 2026-11-09):** "its leave it for now" — the fix is parked. Decks stay as they are; nothing built.
+Open questions if resumed: "%" in chart numbers too, or prose only? Keep or reword "Share of Voice" from the brief title?
