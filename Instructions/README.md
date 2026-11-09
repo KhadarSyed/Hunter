@@ -56,7 +56,7 @@ changed and why. Open the code only for the files a note or the map points to.
 ## Key subsystems
 
 - **LLM chain:** `core/llm_provider.py` (`HybridLLMClient`). Only orgs with `organizations.platform_llm` (InfoVision)
-  use platform GPT-5; every other org uses its own providers (Settings → LLM Providers).
+  use platform Azure GPT (gpt-5 or gpt-4.x, set by `AZURE_OPENAI_MODEL`; GPT-5-only params are dropped for gpt-4); every other org uses its own providers (Settings → LLM Providers).
 - **Failover:** `domains/providers/service.call` tries the org's models in order (saved default, then newest first),
   marks a down model for 120 s, waits and rechecks every 5 min when all are down (12 h cap), never falls back to the
   platform. `classify()`: 5xx/429/network = outage, 401/403/404/access = config, 400/cut-off/bad JSON = not failover.

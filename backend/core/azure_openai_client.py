@@ -136,17 +136,36 @@ class AzureOpenAIClient:
         # max_completion_tokens (gpt-5 rejects max_tokens) needs 2024-09-01-preview or later
         self.api_version = api_version or os.getenv("AZURE_OPENAI_API_VERSION", "2025-01-01-preview")
         self.reasoning_effort = os.getenv("AZURE_OPENAI_REASONING_EFFORT", "").strip().lower()
+        # gpt-4.x / gpt-3.5 reject reasoning_effort and verbosity (HTTP 400); a deployment whose name hides that
+        # is caught on its first 400 by _post_chat and the two are dropped from then on
+        self.reasoning_params = not re.match(r"gpt-(4|35|3\.5)", self.deployment.strip().lower())
 
     def _payload(self, messages: list[dict]) -> dict:
         from . import llm_effort
         task = llm_effort.current()            # a mechanical task asks for less thinking and a shorter reply
         payload: dict = {"messages": messages, "max_completion_tokens": task.get("max_tokens") or MAX_OUTPUT_TOKENS}
+        if not self.reasoning_params:
+            return payload
         effort = task.get("effort") or self.reasoning_effort
         if effort:                      # unset: the model's own default
             payload["reasoning_effort"] = effort
         if task.get("verbosity"):
             payload["verbosity"] = task["verbosity"]
         return payload
+
+    def _post_chat(self, headers: dict, payload: dict, **kw) -> requests.Response:
+        """_post, retried once without the GPT-5-only parameters when a non-reasoning model rejects them."""
+        r = _post(self._url(), headers, payload, **kw)
+        if r.status_code == 400 and ("reasoning_effort" in payload or "verbosity" in payload):
+            text = r.text.lower()
+            if "reasoning_effort" in text or "verbosity" in text or "unrecognized request argument" in text:
+                logger.warning("Azure deployment %s rejects reasoning parameters; sending without them", self.deployment)
+                r.close()
+                self.reasoning_params = False
+                payload.pop("reasoning_effort", None)
+                payload.pop("verbosity", None)
+                r = _post(self._url(), headers, payload, **kw)
+        return r
 
     def is_reachable(self) -> bool:
         return bool(self.api_key and self.endpoint and self.deployment)
@@ -170,7 +189,7 @@ class AzureOpenAIClient:
 
         started = time.time()
         if not on_token:
-            r = _post(self._url(), headers, payload)
+            r = self._post_chat(headers, payload)
             if r.status_code != 200:
                 _record(self.deployment, "chat", None, started, error=True, reason=_http_reason(r))
                 raise AzureOpenAIError(f"Azure OpenAI chat failed: {r.status_code} {r.text[:300]}")
@@ -190,7 +209,7 @@ class AzureOpenAIClient:
         full: list[str] = []
         done = cut_off = False
         model, usage = "", None
-        r = _post(self._url(), headers, payload, stream=True)    # records its own failed attempts
+        r = self._post_chat(headers, payload, stream=True)    # records its own failed attempts
         try:
             with r:
                 if r.status_code != 200:
@@ -231,7 +250,7 @@ class AzureOpenAIClient:
         if tools:
             payload.update(tools=tools, tool_choice=tool_choice)
         started = time.time()
-        r = _post(self._url(), headers, payload, kind="tools")
+        r = self._post_chat(headers, payload, kind="tools")
         if r.status_code != 200:
             _record(self.deployment, "tools", None, started, error=True, reason=_http_reason(r))
             raise AzureOpenAIError(f"Azure OpenAI tool call failed: {r.status_code} {r.text[:300]}")
