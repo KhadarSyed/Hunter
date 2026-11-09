@@ -20,12 +20,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent  # backend/
 REPO_ROOT = BACKEND_DIR.parent
-# InfoVision Intelligence's own mark, top right on every deck slide: the animated mark (the SPA's source copy, else
-# the built one), else the SPA's static logo
-HOUSE_LOGO = next((p for p in (REPO_ROOT / "frontend" / "public" / "infovision.gif", BACKEND_DIR / "static" / "infovision.gif",
-                               REPO_ROOT / "frontend" / "public" / "logo.png", BACKEND_DIR / "static" / "logo.png")
-                   if p.exists()), None)
-# AlphaMetricx's wordmark, beside InfoVision's in that badge on every deck
+# AlphaMetricx's wordmark, top right on every deck slide
 PARTNER_LOGO = next((p for p in (REPO_ROOT / "frontend" / "public" / "alphametricx.png",
                                  BACKEND_DIR / "static" / "alphametricx.png") if p.exists()), None)
 # HUNTER_AGENT_DATA_DIR lets a deployment keep runtime data somewhere other than data/.
