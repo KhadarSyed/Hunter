@@ -1889,12 +1889,6 @@ def _relocate_data_paths(conn) -> bool:
 
 
 def init_intelligence_db() -> None:
-    conn = _conn()
-    try:
-        conn.executescript(INTELLIGENCE_SCHEMA)
-        conn.executescript(QC_SCHEMA)
-        applied = _apply_migrations(conn) + ([_RELOCATE_VERSION] if _relocate_data_paths(conn) else [])
-        if applied:
-            logger.info("Applied DB migrations %s", applied)
-    finally:
-        conn.close()
+    """The schema, via Alembic (core/migrate.py)."""
+    from . import migrate      # local: migrate imports sa, which imports this module
+    migrate.run()
