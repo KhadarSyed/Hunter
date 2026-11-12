@@ -1,4 +1,5 @@
-"""Research Specifications repository (connection helper: core/db.py)."""
+"""Research Specifications repository through SQLAlchemy Core (models.py): spec versions, section approvals, the
+audit trail, clarifications and the readiness engine. Every multi-statement change runs in one transaction."""
 
 from __future__ import annotations
 
@@ -6,8 +7,21 @@ import json
 import time
 from typing import Any, Optional
 
-from ...core.db import _conn
+from sqlalchemy import func, insert, select, update
+
+from ...core import sa
 from ..projects.repository import get_project, update_project
+from .models import intel_research_specifications as specs
+from .models import intel_spec_audit as audit
+from .models import intel_spec_clarifications as clarifications
+from .models import intel_spec_section_approvals as approvals
+
+# core/store.py star-imports this module: export only the repository functions and the section constants
+__all__ = ["FORM_FIELDS", "SPEC_SECTION_ORDER", "MANDATORY_SECTIONS", "update_project_spec", "save_research_spec",
+           "get_latest_spec", "get_spec_by_id", "update_spec", "update_spec_section", "update_spec_industry",
+           "approve_spec_section", "lock_spec_section", "unlock_spec_section", "approve_full_spec", "reject_spec",
+           "update_spec_docx", "list_spec_versions", "get_spec_audit", "add_clarification", "resolve_clarification",
+           "remove_clarifications_except", "get_clarifications", "get_spec_readiness"]
 
 # ─── Project Spec Update ──────────────────────────────────────────────────────
 
@@ -49,6 +63,21 @@ SPEC_SECTION_ORDER = [
 ]
 
 
+def _audit(conn, spec_id: int, action: str, actor: str, now: float, *, section_key: str | None = None,
+           old_value: str | None = None, new_value: str | None = None) -> None:
+    conn.execute(insert(audit).values(spec_id=spec_id, action=action, section_key=section_key, old_value=old_value,
+                                      new_value=new_value, actor=actor, created_at=now))
+
+
+def _as_text(content: Any) -> str:
+    return content if isinstance(content, str) else json.dumps(content)
+
+
+def _readiness_values(spec: dict) -> dict:
+    readiness = _compute_readiness(spec)
+    return {"readiness_status": readiness["status"], "readiness_json": json.dumps(readiness)}
+
+
 def save_research_spec(
     project_id: int,
     spec: dict,
@@ -56,316 +85,170 @@ def save_research_spec(
     generation_source: str = "manual",
     llm_model: str = "",
 ) -> int:
-    conn = _conn()
+    """The project's next spec version, as a draft, with a draft approval row per section (one transaction)."""
     now = time.time()
-    existing = conn.execute(
-        "SELECT MAX(version) as v FROM intel_research_specifications WHERE project_id = ?",
-        (project_id,),
-    ).fetchone()
-    version = (existing["v"] or 0) + 1
-    readiness = _compute_readiness(spec)
-    cur = conn.execute(
-        "INSERT INTO intel_research_specifications "
-        "(project_id, version, spec_json, raw_brief_text, status, readiness_status, readiness_json, "
-        "generation_source, llm_model, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?)",
-        (
-            project_id, version, json.dumps(spec), raw_brief_text,
-            readiness["status"], json.dumps(readiness),
-            generation_source, llm_model, now, now,
-        ),
-    )
-    spec_id = cur.lastrowid
-    for key in SPEC_SECTION_ORDER:
-        conn.execute(
-            "INSERT INTO intel_spec_section_approvals "
-            "(spec_id, section_key, status, created_at, updated_at) VALUES (?, ?, 'draft', ?, ?)",
-            (spec_id, key, now, now),
-        )
-    conn.commit()
-    conn.close()
+    with sa.begin() as conn:
+        version = (conn.execute(select(func.max(specs.c.version)).where(specs.c.project_id == project_id))
+                   .scalar() or 0) + 1
+        spec_id = conn.execute(insert(specs).values(
+            project_id=project_id, version=version, spec_json=json.dumps(spec), raw_brief_text=raw_brief_text,
+            status="draft", generation_source=generation_source, llm_model=llm_model, created_at=now, updated_at=now,
+            **_readiness_values(spec)).returning(specs.c.id)).scalar_one()
+        conn.execute(insert(approvals), [{"spec_id": spec_id, "section_key": key, "status": "draft",
+                                          "created_at": now, "updated_at": now} for key in SPEC_SECTION_ORDER])
     return spec_id
 
 
-def get_latest_spec(project_id: int) -> Optional[dict]:
-    conn = _conn()
-    row = conn.execute(
-        "SELECT * FROM intel_research_specifications WHERE project_id = ? ORDER BY version DESC LIMIT 1",
-        (project_id,),
-    ).fetchone()
-    if not row:
-        conn.close()
-        return None
-    d = dict(row)
+def _full_spec(conn, row) -> dict:
+    d = dict(row._mapping)
     d["spec"] = json.loads(d["spec_json"])
     d["readiness"] = json.loads(d["readiness_json"]) if d.get("readiness_json") else None
-    section_rows = conn.execute(
-        "SELECT * FROM intel_spec_section_approvals WHERE spec_id = ?", (d["id"],)
-    ).fetchall()
-    d["section_approvals"] = {r["section_key"]: dict(r) for r in section_rows}
-    clar_rows = conn.execute(
-        "SELECT * FROM intel_spec_clarifications WHERE spec_id = ? ORDER BY created_at",
-        (d["id"],),
-    ).fetchall()
-    d["clarifications"] = [dict(r) for r in clar_rows]
-    conn.close()
+    d["section_approvals"] = {r.section_key: dict(r._mapping)
+                              for r in conn.execute(select(approvals).where(approvals.c.spec_id == d["id"]))}
+    d["clarifications"] = [dict(r._mapping) for r in conn.execute(
+        select(clarifications).where(clarifications.c.spec_id == d["id"]).order_by(clarifications.c.created_at))]
     return d
+
+
+def get_latest_spec(project_id: int) -> Optional[dict]:
+    with sa.begin() as conn:
+        row = conn.execute(select(specs).where(specs.c.project_id == project_id)
+                           .order_by(specs.c.version.desc()).limit(1)).first()
+        return _full_spec(conn, row) if row else None
 
 
 def get_spec_by_id(spec_id: int) -> Optional[dict]:
-    conn = _conn()
-    row = conn.execute(
-        "SELECT * FROM intel_research_specifications WHERE id = ?", (spec_id,)
-    ).fetchone()
-    if not row:
-        conn.close()
-        return None
-    d = dict(row)
-    d["spec"] = json.loads(d["spec_json"])
-    d["readiness"] = json.loads(d["readiness_json"]) if d.get("readiness_json") else None
-    section_rows = conn.execute(
-        "SELECT * FROM intel_spec_section_approvals WHERE spec_id = ?", (spec_id,)
-    ).fetchall()
-    d["section_approvals"] = {r["section_key"]: dict(r) for r in section_rows}
-    clar_rows = conn.execute(
-        "SELECT * FROM intel_spec_clarifications WHERE spec_id = ? ORDER BY created_at",
-        (spec_id,),
-    ).fetchall()
-    d["clarifications"] = [dict(r) for r in clar_rows]
-    conn.close()
-    return d
+    with sa.begin() as conn:
+        row = conn.execute(select(specs).where(specs.c.id == spec_id)).first()
+        return _full_spec(conn, row) if row else None
 
 
 def update_spec(spec_id: int, spec: dict) -> bool:
-    conn = _conn()
-    now = time.time()
-    readiness = _compute_readiness(spec)
-    conn.execute(
-        "UPDATE intel_research_specifications SET spec_json = ?, readiness_status = ?, "
-        "readiness_json = ?, updated_at = ? WHERE id = ?",
-        (json.dumps(spec), readiness["status"], json.dumps(readiness), now, spec_id),
-    )
-    conn.commit()
-    conn.close()
+    with sa.begin() as conn:
+        conn.execute(update(specs).where(specs.c.id == spec_id).values(
+            spec_json=json.dumps(spec), updated_at=time.time(), **_readiness_values(spec)))
     return True
 
 
 def update_spec_section(
     spec_id: int, section_key: str, content: Any, analyst_note: str = "", actor: str = "analyst"
 ) -> bool:
-    conn = _conn()
     now = time.time()
-    row = conn.execute(
-        "SELECT spec_json FROM intel_research_specifications WHERE id = ?", (spec_id,)
-    ).fetchone()
-    if not row:
-        conn.close()
-        return False
-    spec = json.loads(row["spec_json"])
-    sections = spec.get("sections", {})
-    old_value = json.dumps(sections.get(section_key, {}).get("content", ""))
-    if section_key in sections:
-        sections[section_key]["content"] = content
-        sections[section_key]["edited"] = True
-    else:
-        sections[section_key] = {"title": section_key, "content": content, "edited": True}
-    spec["sections"] = sections
-    readiness = _compute_readiness(spec)
-    conn.execute(
-        "UPDATE intel_research_specifications SET spec_json = ?, readiness_status = ?, "
-        "readiness_json = ?, updated_at = ? WHERE id = ?",
-        (json.dumps(spec), readiness["status"], json.dumps(readiness), now, spec_id),
-    )
-    sa_row = conn.execute(
-        "SELECT id FROM intel_spec_section_approvals WHERE spec_id = ? AND section_key = ?",
-        (spec_id, section_key),
-    ).fetchone()
-    if sa_row:
-        conn.execute(
-            "UPDATE intel_spec_section_approvals SET edited_content = ?, analyst_note = ?, "
-            "status = 'edited', updated_at = ? WHERE id = ?",
-            (json.dumps(content) if not isinstance(content, str) else content, analyst_note, now, sa_row["id"]),
-        )
-    else:
-        conn.execute(
-            "INSERT INTO intel_spec_section_approvals "
-            "(spec_id, section_key, status, edited_content, analyst_note, created_at, updated_at) "
-            "VALUES (?, ?, 'edited', ?, ?, ?, ?)",
-            (spec_id, section_key, json.dumps(content) if not isinstance(content, str) else content, analyst_note, now, now),
-        )
-    conn.execute(
-        "INSERT INTO intel_spec_audit (spec_id, action, section_key, old_value, new_value, actor, created_at) "
-        "VALUES (?, 'section_edit', ?, ?, ?, ?, ?)",
-        (spec_id, section_key, old_value, json.dumps(content) if not isinstance(content, str) else content, actor, now),
-    )
-    conn.commit()
-    conn.close()
+    with sa.begin() as conn:
+        raw = conn.execute(select(specs.c.spec_json).where(specs.c.id == spec_id)).scalar()
+        if raw is None:
+            return False
+        spec = json.loads(raw)
+        sections = spec.get("sections", {})
+        old_value = json.dumps(sections.get(section_key, {}).get("content", ""))
+        if section_key in sections:
+            sections[section_key]["content"] = content
+            sections[section_key]["edited"] = True
+        else:
+            sections[section_key] = {"title": section_key, "content": content, "edited": True}
+        spec["sections"] = sections
+        conn.execute(update(specs).where(specs.c.id == spec_id).values(
+            spec_json=json.dumps(spec), updated_at=now, **_readiness_values(spec)))
+        approval_id = conn.execute(select(approvals.c.id).where(approvals.c.spec_id == spec_id,
+                                                                approvals.c.section_key == section_key)).scalar()
+        if approval_id is not None:
+            conn.execute(update(approvals).where(approvals.c.id == approval_id).values(
+                edited_content=_as_text(content), analyst_note=analyst_note, status="edited", updated_at=now))
+        else:
+            conn.execute(insert(approvals).values(spec_id=spec_id, section_key=section_key, status="edited",
+                                                  edited_content=_as_text(content), analyst_note=analyst_note,
+                                                  created_at=now, updated_at=now))
+        _audit(conn, spec_id, "section_edit", actor, now, section_key=section_key, old_value=old_value,
+               new_value=_as_text(content))
     return True
 
 
 def update_spec_industry(spec_id: int, name: str, reasoning: str = "", actor: str = "analyst") -> bool:
     """Update the top-level `industry` field (a sibling of `sections`, not a section
     itself — see domains/spec/service.py's spec_data construction)."""
-    conn = _conn()
     now = time.time()
-    row = conn.execute(
-        "SELECT spec_json FROM intel_research_specifications WHERE id = ?", (spec_id,)
-    ).fetchone()
-    if not row:
-        conn.close()
-        return False
-    spec = json.loads(row["spec_json"])
-    old_value = json.dumps(spec.get("industry") or {})
-    spec["industry"] = {"name": name, "reasoning": reasoning}
-    conn.execute(
-        "UPDATE intel_research_specifications SET spec_json = ?, updated_at = ? WHERE id = ?",
-        (json.dumps(spec), now, spec_id),
-    )
-    conn.execute(
-        "INSERT INTO intel_spec_audit (spec_id, action, section_key, old_value, new_value, actor, created_at) "
-        "VALUES (?, 'industry_edit', 'industry', ?, ?, ?, ?)",
-        (spec_id, old_value, json.dumps(spec["industry"]), actor, now),
-    )
-    conn.commit()
-    conn.close()
+    with sa.begin() as conn:
+        raw = conn.execute(select(specs.c.spec_json).where(specs.c.id == spec_id)).scalar()
+        if raw is None:
+            return False
+        spec = json.loads(raw)
+        old_value = json.dumps(spec.get("industry") or {})
+        spec["industry"] = {"name": name, "reasoning": reasoning}
+        conn.execute(update(specs).where(specs.c.id == spec_id).values(spec_json=json.dumps(spec), updated_at=now))
+        _audit(conn, spec_id, "industry_edit", actor, now, section_key="industry", old_value=old_value,
+               new_value=json.dumps(spec["industry"]))
     return True
 
 
-def approve_spec_section(
-    spec_id: int, section_key: str, reviewer: str = "analyst"
-) -> bool:
-    conn = _conn()
+def _section_change(spec_id: int, section_key: str, values, action: str, new_value: str, actor: str) -> bool:
     now = time.time()
-    conn.execute(
-        "UPDATE intel_spec_section_approvals SET status = 'approved', reviewed_by = ?, "
-        "reviewed_at = ?, updated_at = ? WHERE spec_id = ? AND section_key = ?",
-        (reviewer, now, now, spec_id, section_key),
-    )
-    conn.execute(
-        "INSERT INTO intel_spec_audit (spec_id, action, section_key, new_value, actor, created_at) "
-        "VALUES (?, 'section_approved', ?, 'approved', ?, ?)",
-        (spec_id, section_key, reviewer, now),
-    )
-    conn.commit()
-    conn.close()
+    with sa.begin() as conn:
+        conn.execute(update(approvals).where(approvals.c.spec_id == spec_id, approvals.c.section_key == section_key)
+                     .values(**values(now)))
+        _audit(conn, spec_id, action, actor, now, section_key=section_key, new_value=new_value)
     return True
 
 
-def lock_spec_section(
-    spec_id: int, section_key: str, locked_by: str = "analyst"
-) -> bool:
-    conn = _conn()
-    now = time.time()
-    conn.execute(
-        "UPDATE intel_spec_section_approvals SET is_locked = 1, locked_by = ?, "
-        "locked_at = ?, updated_at = ? WHERE spec_id = ? AND section_key = ?",
-        (locked_by, now, now, spec_id, section_key),
-    )
-    conn.execute(
-        "INSERT INTO intel_spec_audit (spec_id, action, section_key, new_value, actor, created_at) "
-        "VALUES (?, 'section_locked', ?, 'locked', ?, ?)",
-        (spec_id, section_key, locked_by, now),
-    )
-    conn.commit()
-    conn.close()
-    return True
+def approve_spec_section(spec_id: int, section_key: str, reviewer: str = "analyst") -> bool:
+    return _section_change(spec_id, section_key, lambda now: {"status": "approved", "reviewed_by": reviewer,
+                                                              "reviewed_at": now, "updated_at": now},
+                           "section_approved", "approved", reviewer)
 
 
-def unlock_spec_section(
-    spec_id: int, section_key: str, actor: str = "analyst"
-) -> bool:
-    conn = _conn()
-    now = time.time()
-    conn.execute(
-        "UPDATE intel_spec_section_approvals SET is_locked = 0, locked_by = NULL, "
-        "locked_at = NULL, updated_at = ? WHERE spec_id = ? AND section_key = ?",
-        (now, spec_id, section_key),
-    )
-    conn.execute(
-        "INSERT INTO intel_spec_audit (spec_id, action, section_key, new_value, actor, created_at) "
-        "VALUES (?, 'section_unlocked', ?, 'unlocked', ?, ?)",
-        (spec_id, section_key, actor, now),
-    )
-    conn.commit()
-    conn.close()
-    return True
+def lock_spec_section(spec_id: int, section_key: str, locked_by: str = "analyst") -> bool:
+    return _section_change(spec_id, section_key, lambda now: {"is_locked": 1, "locked_by": locked_by,
+                                                              "locked_at": now, "updated_at": now},
+                           "section_locked", "locked", locked_by)
+
+
+def unlock_spec_section(spec_id: int, section_key: str, actor: str = "analyst") -> bool:
+    return _section_change(spec_id, section_key, lambda now: {"is_locked": 0, "locked_by": None,
+                                                              "locked_at": None, "updated_at": now},
+                           "section_unlocked", "unlocked", actor)
 
 
 def approve_full_spec(spec_id: int, reviewer: str = "analyst") -> bool:
-    conn = _conn()
+    """Approve the whole spec; refused (False) while its stored readiness lists blocking issues."""
     now = time.time()
-    row = conn.execute(
-        "SELECT readiness_json FROM intel_research_specifications WHERE id = ?", (spec_id,)
-    ).fetchone()
-    if row and row["readiness_json"]:
-        readiness = json.loads(row["readiness_json"])
-        if readiness.get("blocking_issues"):
-            conn.close()
+    with sa.begin() as conn:
+        raw = conn.execute(select(specs.c.readiness_json).where(specs.c.id == spec_id)).scalar()
+        if raw and json.loads(raw).get("blocking_issues"):
             return False
-    conn.execute(
-        "UPDATE intel_research_specifications SET approval_status = 'approved', "
-        "approved_by = ?, approved_at = ?, status = 'approved', updated_at = ? WHERE id = ?",
-        (reviewer, now, now, spec_id),
-    )
-    conn.execute(
-        "INSERT INTO intel_spec_audit (spec_id, action, new_value, actor, created_at) "
-        "VALUES (?, 'spec_approved', 'approved', ?, ?)",
-        (spec_id, reviewer, now),
-    )
-    conn.commit()
-    conn.close()
+        conn.execute(update(specs).where(specs.c.id == spec_id).values(
+            approval_status="approved", approved_by=reviewer, approved_at=now, status="approved", updated_at=now))
+        _audit(conn, spec_id, "spec_approved", reviewer, now, new_value="approved")
     return True
 
 
 def reject_spec(spec_id: int, reason: str = "", reviewer: str = "analyst") -> bool:
-    conn = _conn()
     now = time.time()
-    conn.execute(
-        "UPDATE intel_research_specifications SET approval_status = 'revision_requested', "
-        "rejected_reason = ?, status = 'revision_requested', updated_at = ? WHERE id = ?",
-        (reason, now, spec_id),
-    )
-    conn.execute(
-        "INSERT INTO intel_spec_audit (spec_id, action, new_value, actor, created_at) "
-        "VALUES (?, 'spec_rejected', ?, ?, ?)",
-        (spec_id, reason, reviewer, now),
-    )
-    conn.commit()
-    conn.close()
+    with sa.begin() as conn:
+        conn.execute(update(specs).where(specs.c.id == spec_id).values(
+            approval_status="revision_requested", rejected_reason=reason, status="revision_requested",
+            updated_at=now))
+        _audit(conn, spec_id, "spec_rejected", reviewer, now, new_value=reason)
     return True
 
 
 def update_spec_docx(spec_id: int, docx_path: str):
-    conn = _conn()
     now = time.time()
-    conn.execute(
-        "UPDATE intel_research_specifications SET docx_path = ?, docx_generated_at = ?, updated_at = ? WHERE id = ?",
-        (docx_path, now, now, spec_id),
-    )
-    conn.commit()
-    conn.close()
+    with sa.begin() as conn:
+        conn.execute(update(specs).where(specs.c.id == spec_id).values(docx_path=docx_path, docx_generated_at=now,
+                                                                       updated_at=now))
 
 
 def list_spec_versions(project_id: int) -> list[dict]:
-    conn = _conn()
-    rows = conn.execute(
-        "SELECT id, version, status, readiness_status, approval_status, generation_source, "
-        "docx_path, created_at, updated_at FROM intel_research_specifications "
-        "WHERE project_id = ? ORDER BY version DESC",
-        (project_id,),
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    s = specs.c
+    with sa.begin() as conn:
+        return [dict(r._mapping) for r in conn.execute(
+            select(s.id, s.version, s.status, s.readiness_status, s.approval_status, s.generation_source, s.docx_path,
+                   s.created_at, s.updated_at).where(s.project_id == project_id).order_by(s.version.desc()))]
 
 
 def get_spec_audit(spec_id: int) -> list[dict]:
-    conn = _conn()
-    rows = conn.execute(
-        "SELECT * FROM intel_spec_audit WHERE spec_id = ? ORDER BY created_at DESC",
-        (spec_id,),
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    with sa.begin() as conn:
+        return [dict(r._mapping) for r in conn.execute(select(audit).where(audit.c.spec_id == spec_id)
+                                                       .order_by(audit.c.created_at.desc()))]
 
 
 # ─── Research Spec Clarifications ─────────────────────────────────────────────
@@ -373,77 +256,51 @@ def get_spec_audit(spec_id: int) -> list[dict]:
 def add_clarification(
     spec_id: int, question: str, section_key: str = "", is_blocking: bool = True
 ) -> int:
-    conn = _conn()
     now = time.time()
-    cur = conn.execute(
-        "INSERT INTO intel_spec_clarifications "
-        "(spec_id, section_key, question, is_blocking, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (spec_id, section_key, question, 1 if is_blocking else 0, now, now),
-    )
-    cid = cur.lastrowid
-    conn.execute(
-        "INSERT INTO intel_spec_audit (spec_id, action, section_key, new_value, actor, created_at) "
-        "VALUES (?, 'clarification_added', ?, ?, 'system', ?)",
-        (spec_id, section_key, question, now),
-    )
-    _recompute_and_save_readiness(conn, spec_id, now)
-    conn.commit()
-    conn.close()
+    with sa.begin() as conn:
+        cid = conn.execute(insert(clarifications).values(
+            spec_id=spec_id, section_key=section_key, question=question, is_blocking=1 if is_blocking else 0,
+            created_at=now, updated_at=now).returning(clarifications.c.id)).scalar_one()
+        _audit(conn, spec_id, "clarification_added", "system", now, section_key=section_key, new_value=question)
+        _recompute_and_save_readiness(conn, spec_id, now)
     return cid
 
 
 def resolve_clarification(
     clarification_id: int, answer: str, resolved_by: str = "analyst"
 ) -> bool:
-    conn = _conn()
     now = time.time()
-    row = conn.execute(
-        "SELECT spec_id, question FROM intel_spec_clarifications WHERE id = ?",
-        (clarification_id,),
-    ).fetchone()
-    if not row:
-        conn.close()
-        return False
-    conn.execute(
-        "UPDATE intel_spec_clarifications SET answer = ?, resolved_by = ?, "
-        "resolved_at = ?, updated_at = ? WHERE id = ?",
-        (answer, resolved_by, now, now, clarification_id),
-    )
-    conn.execute(
-        "INSERT INTO intel_spec_audit (spec_id, action, old_value, new_value, actor, created_at) "
-        "VALUES (?, 'clarification_resolved', ?, ?, ?, ?)",
-        (row["spec_id"], row["question"], answer, resolved_by, now),
-    )
-    _recompute_and_save_readiness(conn, row["spec_id"], now)
-    conn.commit()
-    conn.close()
+    with sa.begin() as conn:
+        row = conn.execute(select(clarifications.c.spec_id, clarifications.c.question)
+                           .where(clarifications.c.id == clarification_id)).first()
+        if not row:
+            return False
+        conn.execute(update(clarifications).where(clarifications.c.id == clarification_id).values(
+            answer=answer, resolved_by=resolved_by, resolved_at=now, updated_at=now))
+        _audit(conn, row.spec_id, "clarification_resolved", resolved_by, now, old_value=row.question,
+               new_value=answer)
+        _recompute_and_save_readiness(conn, row.spec_id, now)
     return True
 
 
 def remove_clarifications_except(spec_id: int, keep_questions: set[str]) -> int:
     """Drop a spec's clarifications whose question a reanalysis no longer raises; returns how many went."""
-    conn = _conn()
-    rows = conn.execute("SELECT id, question FROM intel_spec_clarifications WHERE spec_id = ?", (spec_id,)).fetchall()
-    stale = [r["id"] for r in rows if r["question"] not in keep_questions]
-    for cid in stale:
-        conn.execute("DELETE FROM intel_spec_clarifications WHERE id = ?", (cid,))
-    if stale:
-        _recompute_and_save_readiness(conn, spec_id, time.time())
-    conn.commit()
-    conn.close()
+    with sa.begin() as conn:
+        rows = conn.execute(select(clarifications.c.id, clarifications.c.question)
+                            .where(clarifications.c.spec_id == spec_id)).all()
+        stale = [r.id for r in rows if r.question not in keep_questions]
+        if stale:
+            conn.execute(clarifications.delete().where(clarifications.c.id.in_(stale)))
+            _recompute_and_save_readiness(conn, spec_id, time.time())
     return len(stale)
 
 
 def get_clarifications(spec_id: int, unresolved_only: bool = False) -> list[dict]:
-    conn = _conn()
-    sql = "SELECT * FROM intel_spec_clarifications WHERE spec_id = ?"
+    q = select(clarifications).where(clarifications.c.spec_id == spec_id)
     if unresolved_only:
-        sql += " AND resolved_at IS NULL"
-    sql += " ORDER BY created_at"
-    rows = conn.execute(sql, (spec_id,)).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+        q = q.where(clarifications.c.resolved_at.is_(None))
+    with sa.begin() as conn:
+        return [dict(r._mapping) for r in conn.execute(q.order_by(clarifications.c.created_at))]
 
 
 # ─── Readiness Engine ─────────────────────────────────────────────────────────
@@ -513,50 +370,33 @@ def _compute_readiness(spec: dict) -> dict:
     }
 
 
-def _recompute_and_save_readiness(conn, spec_id: int, now: float):
-    row = conn.execute(
-        "SELECT spec_json FROM intel_research_specifications WHERE id = ?", (spec_id,)
-    ).fetchone()
-    if not row:
-        return
-    spec = json.loads(row["spec_json"])
+def _unresolved_blocking(conn, spec_id: int) -> int:
+    return conn.execute(select(func.count()).select_from(clarifications).where(
+        clarifications.c.spec_id == spec_id, clarifications.c.is_blocking == 1,
+        clarifications.c.resolved_at.is_(None))).scalar_one()
+
+
+def _readiness_with_clarifications(conn, spec_id: int, spec: dict) -> dict:
     readiness = _compute_readiness(spec)
-    unresolved = conn.execute(
-        "SELECT COUNT(*) as cnt FROM intel_spec_clarifications "
-        "WHERE spec_id = ? AND is_blocking = 1 AND resolved_at IS NULL",
-        (spec_id,),
-    ).fetchone()
-    if unresolved and unresolved["cnt"] > 0:
-        readiness["blocking_issues"].append(
-            f"{unresolved['cnt']} unresolved blocking clarification(s)"
-        )
+    open_count = _unresolved_blocking(conn, spec_id)
+    if open_count > 0:
+        readiness["blocking_issues"].append(f"{open_count} unresolved blocking clarification(s)")
         readiness["status"] = "not_ready"
-    conn.execute(
-        "UPDATE intel_research_specifications SET readiness_status = ?, readiness_json = ?, updated_at = ? WHERE id = ?",
-        (readiness["status"], json.dumps(readiness), now, spec_id),
-    )
+    return readiness
+
+
+def _recompute_and_save_readiness(conn, spec_id: int, now: float):
+    raw = conn.execute(select(specs.c.spec_json).where(specs.c.id == spec_id)).scalar()
+    if raw is None:
+        return
+    readiness = _readiness_with_clarifications(conn, spec_id, json.loads(raw))
+    conn.execute(update(specs).where(specs.c.id == spec_id).values(
+        readiness_status=readiness["status"], readiness_json=json.dumps(readiness), updated_at=now))
 
 
 def get_spec_readiness(spec_id: int) -> Optional[dict]:
-    conn = _conn()
-    row = conn.execute(
-        "SELECT spec_json, readiness_json FROM intel_research_specifications WHERE id = ?",
-        (spec_id,),
-    ).fetchone()
-    if not row:
-        conn.close()
-        return None
-    spec = json.loads(row["spec_json"])
-    readiness = _compute_readiness(spec)
-    unresolved = conn.execute(
-        "SELECT COUNT(*) as cnt FROM intel_spec_clarifications "
-        "WHERE spec_id = ? AND is_blocking = 1 AND resolved_at IS NULL",
-        (spec_id,),
-    ).fetchone()
-    conn.close()
-    if unresolved and unresolved["cnt"] > 0:
-        readiness["blocking_issues"].append(
-            f"{unresolved['cnt']} unresolved blocking clarification(s)"
-        )
-        readiness["status"] = "not_ready"
-    return readiness
+    with sa.begin() as conn:
+        raw = conn.execute(select(specs.c.spec_json).where(specs.c.id == spec_id)).scalar()
+        if raw is None:
+            return None
+        return _readiness_with_clarifications(conn, spec_id, json.loads(raw))
