@@ -236,5 +236,4 @@ URL (e.g. `/{projectId}/research-plan`), but no sidebar or Dashboard link leads 
 - `docs/handover/HANDOVER.md` — architecture, bug history, environment variables, DB schema reference.
 - `docs/CURRENT_STATUS.md` — authoritative per-stage completion status, endpoint/table/test counts,
   sprint-by-sprint change log. Check this before assuming a stage is unbuilt.
-- `docs/PRODUCT_SPEC.md` — product spec. (`docs/PRESENTATION_COMPOSER.md`, `POWERPOINT_RENDERER.md`,
-  `WORD_RENDERER.md`, `PUBLISHING_GATEWAY.md`, `SLIDE_INTELLIGENCE_GUIDE.md` describe deleted code.)
+- `docs/PRODUCT_SPEC.md` — product spec.

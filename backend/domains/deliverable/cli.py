@@ -7,15 +7,12 @@ from __future__ import annotations
 import functools
 import json
 import logging
-import os
 import re
 import sys
 from pathlib import Path
 
-import io
 
 import requests
-from PIL import Image, UnidentifiedImageError
 from pptx import Presentation
 
 from ...core.config import REPO_ROOT  # relative paths in a project config resolve against this
@@ -23,14 +20,11 @@ from ...core.llm_provider import get_llm_client
 from ..research.brandfetch import resolve_logo
 from . import classify, deck, gauge, ingest, insights, metrics, qc
 from .citations import CitationRegistry
+from .logos import LOGO_HEADERS, LOGO_TIMEOUT_S, is_real_logo, logo_png_url, save_logo_png
 
 logger = logging.getLogger("deliverable")
 THEMES = ("deal", "parenting", "expert", "celebrity")
 MAX_CANDIDATES = 12
-LOGO_TIMEOUT_S = 20
-# Brandfetch's CDN serves an HTML page to non-browser clients; a browser UA gets the image.
-LOGO_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                              "(KHTML, like Gecko) Chrome/126.0 Safari/537.36", "Accept": "image/png,image/*"}
 
 
 def _resolve(p: str) -> str:
@@ -50,13 +44,6 @@ def load_config(path: str | Path) -> dict:
         for f in theme["files"]:
             f["path"] = _resolve(f["path"])
     return cfg
-
-
-def logo_png_url(info: dict) -> str | None:
-    """PowerPoint can't embed webp/svg; ask Brandfetch's CDN for a PNG explicitly."""
-    if info.get("source") == "brandfetch" and info.get("domain"):
-        return f"https://cdn.brandfetch.io/{info['domain']}/w/400/h/400/logo.png?c={os.environ.get('BRANDFETCH_CLIENT_ID', '')}"
-    return info.get("logo_url")
 
 
 def _load_json(path: Path) -> dict:
@@ -101,22 +88,6 @@ def _theme_facts(key: str, label: str, m: dict, cm: dict) -> list[str]:
     if key == "parenting":
         facts += [f"Topic {k.replace('_', ' ')}: {v} articles" for k, v in cm["parenting"]["topics"].items()]
     return facts
-
-
-def is_real_logo(content_type: str) -> bool:
-    """We request logo.png; Brandfetch answers unknown brands with a WEBP placeholder instead."""
-    return content_type.split(";")[0].strip() == "image/png"
-
-
-def save_logo_png(data: bytes, path: Path) -> Path | None:
-    """Normalise any raster logo (webp/jpeg/png) to PNG so python-pptx can embed it; None if not an image."""
-    try:
-        img = Image.open(io.BytesIO(data))
-        img.load()
-    except (UnidentifiedImageError, OSError):
-        return None
-    img.convert("RGBA").save(path, format="PNG")
-    return path
 
 
 def _download_logos(brands: list[dict], folder: Path) -> dict[str, Path | None]:

@@ -85,7 +85,7 @@ def safe_font(name: str, origin: str | None) -> str:
 
 
 def _download_image(url: str, path: Path) -> Path | None:
-    from .cli import save_logo_png
+    from .logos import save_logo_png
     try:
         r = requests.get(url, timeout=TIMEOUT_S)
     except requests.RequestException as e:

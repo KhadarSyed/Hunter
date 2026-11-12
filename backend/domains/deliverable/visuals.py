@@ -81,7 +81,7 @@ def _as_png(data: bytes) -> bytes | None:
 
 def _fetch_logo(url: str, path: Path) -> Path | None:
     """One candidate logo, from the shared asset table when any organization fetched this address before."""
-    from .cli import LOGO_HEADERS, LOGO_TIMEOUT_S, is_real_logo
+    from .logos import LOGO_HEADERS, LOGO_TIMEOUT_S, is_real_logo
 
     def fetch():
         r = requests.get(url, headers=LOGO_HEADERS, timeout=LOGO_TIMEOUT_S)
@@ -103,7 +103,7 @@ def logos(names: list[str], folder: Path, judge=None, hint: str = "") -> dict[st
     land on a different company's site); when one is rejected, the brand's other plausible matches, and matches for
     the name plus `hint`, are tried in turn."""
     from ..research.brandfetch import candidate_domains, google_logo_candidates, resolve_logo
-    from .cli import logo_png_url
+    from .logos import logo_png_url
     folder.mkdir(parents=True, exist_ok=True)
     out: dict[str, Path] = {}
     for name in (n for n in names if n):
