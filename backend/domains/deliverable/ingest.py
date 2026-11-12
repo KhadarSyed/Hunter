@@ -9,9 +9,6 @@ from pathlib import Path
 
 import openpyxl
 
-DEFAULT_COLUMNS = {"title": "Title", "url": "URL", "date": "Date", "outlet": "Source Name",
-                   "sentiment": "Sentiment", "reach": "Reach"}
-TEXT_COLUMNS = ("Opening Text", "Hit Sentence", "Full Article Text (Important)", "Full Content")
 _TEXT_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%b. %d, %Y", "%b %d, %Y", "%B %d, %Y", "%m/%d/%Y")
 
 
@@ -124,32 +121,3 @@ def _to_float(v) -> float:
         return 0.0
 
 
-def load_articles(config: dict) -> tuple[list[Article], dict]:
-    merged: dict[str, Article] = {}
-    stats = {"rows_read": 0, "unparsed_dates": 0, "duplicates_merged": 0}
-    for theme in config["themes"]:
-        for spec in theme["files"]:
-            cols = {**DEFAULT_COLUMNS, **spec.get("columns", {})}
-            for idx, row in enumerate(_read_rows(spec), start=2):
-                url = str(row.get(cols["url"]) or "").strip()
-                if not url:
-                    continue
-                stats["rows_read"] += 1
-                norm = normalize_url(url)
-                d = parse_date(row.get(cols["date"]), spec.get("date_order", "ymd"))
-                if norm in merged:
-                    merged[norm].themes.add(theme["key"])
-                    if merged[norm].date is None and d is not None:
-                        merged[norm].date = d          # a duplicate row may carry the date the first lacked
-                    stats["duplicates_merged"] += 1
-                    continue
-                sentiment = row.get(cols["sentiment"])
-                merged[norm] = Article(
-                    url=url, norm_url=norm, title=str(row.get(cols["title"]) or "").strip(), date=d,
-                    outlet=str(row.get(cols["outlet"]) or "").strip(),
-                    text=" ".join(str(row[c]) for c in TEXT_COLUMNS if row.get(c)),
-                    sentiment=str(sentiment).strip().lower() if sentiment else None,
-                    reach=_to_float(row.get(cols["reach"])), themes={theme["key"]},
-                    source_file=Path(spec["path"]).name, row_index=idx)
-    stats["unparsed_dates"] = sum(1 for a in merged.values() if a.date is None)   # unique articles, not rows
-    return list(merged.values()), stats

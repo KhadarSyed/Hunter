@@ -1,6 +1,5 @@
 """Brand logos as PNG files for the decks: the Brandfetch PNG URL, a check that the answer is a real logo, and
-normalising any raster image to PNG (python-pptx cannot embed webp/svg). Used by brand_kit, visuals and the
-reference-deck CLI."""
+normalising any raster image to PNG (python-pptx cannot embed webp/svg). Used by brand_kit and visuals."""
 from __future__ import annotations
 
 import io
