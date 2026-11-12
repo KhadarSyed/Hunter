@@ -72,6 +72,8 @@ async def parse_brief_file(user: Annotated[dict, Depends(get_current_user)], fil
     except Exception as e:
         logger.error("Brief file parse error for %s: %s", file.filename, e)
         raise HTTPException(400, f"Could not parse file: {e}") from e
+    finally:
+        dest.unlink(missing_ok=True)      # only the extracted text is used: never keep a client's file on disk
     if not result["text"].strip():
         raise HTTPException(422, "No text could be extracted from this file")
     return {
