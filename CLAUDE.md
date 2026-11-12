@@ -96,7 +96,7 @@ backend/
 
 Rules: services call persistence through `from ...core import store` (add new SQL functions to
 the owning `domains/<stage>/repository.py`, never to `store.py`); repositories import `_conn` from
-`core.db` (domains already moved to SQLAlchemy — billing, guardrails, exclusions, assets, memory, datasources, providers, usage — use `core/sa.begin()` + their `models.py`
+`core.db` (domains already moved to SQLAlchemy — billing, guardrails, exclusions, assets, memory, datasources, providers, usage, auth — use `core/sa.begin()` + their `models.py`
 instead; see the database bullet below); build file paths from `core.config` constants, never from `Path(__file__)`; services
 never import a `router.py`. Frontend (`frontend/src/`): `pages/` · `components/` · `context/`
 (React providers) · `hooks/` · `services/` (REST + WebSocket clients) · `types/` · `data/` (demo fixtures).
@@ -114,7 +114,7 @@ never import a `router.py`. Frontend (`frontend/src/`): `pages/` · `components/
   plus the unused legacy tables of the deleted products) lives there.
   **Moving to SQLAlchemy, one domain at a time:** `core/sa.py` (pooled engine, capped connections) +
   `domains/<stage>/models.py` (SQLAlchemy Core `Table`s) + Core queries in that domain's `repository.py`. Done:
-  `billing`, `guardrails`, `exclusions`, `assets` (intel_assets), `memory`, `datasources`, `providers`, `usage`. A repository that `core/store.py`
+  `billing`, `guardrails`, `exclusions`, `assets` (intel_assets), `memory`, `datasources`, `providers`, `usage`, `auth`. A repository that `core/store.py`
   star-imports must declare `__all__` (or SQLAlchemy names leak into `store`). New code in a moved domain never uses `_conn`/`pg.py`; tables are still created by `core/db.py`
   MIGRATIONS until Alembic takes over with the first schema change in a moved domain.
   Uploaded dataset files are also kept in `intel_dataset_files`, since a hosted server's disk may
