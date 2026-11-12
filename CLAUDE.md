@@ -86,18 +86,19 @@ docs/            product/subsystem docs, docs/handover/
 backend/
   main.py              FastAPI app: mounts domains router, /api/auth, /ws, serves SPA
   core/                shared infra — config.py (DATA_DIR/UPLOAD_DIR/EXPORT_DIR), events.py
-                       (WebSocket broadcast), db.py (_conn, schema bootstrap, MIGRATIONS), pg.py
-                       (sqlite3-like Postgres adapter), store.py (facade that re-exports core.db and every
+                       (WebSocket broadcast), sa.py (pooled SQLAlchemy engine, `sa.begin()`), migrate.py (Alembic at
+                       startup), db.py (DATABASE_URL check, test schemas), store.py (facade that re-exports every
                        domain repository), LLM clients (llm_provider.py & co.)
+  migrations/          Alembic: env.py, versions/ (0001 = baseline.sql, the 2026-11-12 schema), alembic.ini beside it
   domains/<stage>/     router.py (APIRouter, bare sub-paths) · schemas.py (Pydantic) ·
-                       repository.py (SQL via core.db._conn) · service modules (service.py, …)
+                       models.py (SQLAlchemy Core Tables) · repository.py (Core queries via core/sa.py) ·
+                       service modules (service.py, …)
   agents/              LLM agents
 ```
 
 Rules: services call persistence through `from ...core import store` (add new SQL functions to
-the owning `domains/<stage>/repository.py`, never to `store.py`); repositories import `_conn` from
-`core.db` (domains already moved to SQLAlchemy — billing, guardrails, exclusions, assets, memory, datasources, providers, usage, auth, plan, brief, qc, deckstudio, agent, research, deliverable, projects, strategy, spec, dataset — use `core/sa.begin()` + their `models.py`
-instead; see the database bullet below); build file paths from `core.config` constants, never from `Path(__file__)`; services
+the owning `domains/<stage>/repository.py`, never to `store.py`); repositories use `core/sa.begin()` + their
+`models.py` (see the database bullet below); build file paths from `core.config` constants, never from `Path(__file__)`; services
 never import a `router.py`. Frontend (`frontend/src/`): `pages/` · `components/` · `context/`
 (React providers) · `hooks/` · `services/` (REST + WebSocket clients) · `types/` · `data/` (demo fixtures).
 
@@ -108,15 +109,18 @@ never import a `router.py`. Frontend (`frontend/src/`): `pages/` · `components/
   `frontend/src/pages/`, one per pipeline stage, QC step or settings tab.
 - **Database:** Postgres only, one database: local Docker Postgres or Render
   Postgres in production, via `DATABASE_URL` (required — the server refuses to start without it).
-  Repositories write SQLite-style SQL (`?` placeholders; `INSERT OR IGNORE` is NOT translated, use `ON CONFLICT DO NOTHING`), which `core/pg.py`
-  translates; there is no SQLite fallback. Older docs describing `intelligence.db` or
-  `data/memory.db` are out of date (`config.MEMORY_DB_PATH` survives only because `core/db.py` hashes it into the schema name). Every table (projects/specs/strategies/jobs/deliverables/QC,
-  plus the unused legacy tables of the deleted products) lives there.
-  **Moving to SQLAlchemy, one domain at a time:** `core/sa.py` (pooled engine, capped connections) +
-  `domains/<stage>/models.py` (SQLAlchemy Core `Table`s) + Core queries in that domain's `repository.py`. Done:
-  `billing`, `guardrails`, `exclusions`, `assets` (intel_assets), `memory`, `datasources`, `providers`, `usage`, `auth`, `plan`, `brief`, `qc`, `deckstudio` (reference library), `agent`, `research`, `deliverable`, `projects`, `strategy`, `spec`, `dataset` (every domain). A repository that `core/store.py`
-  star-imports must declare `__all__` (or SQLAlchemy names leak into `store`). New code in a moved domain never uses `_conn`/`pg.py`; tables are still created by `core/db.py`
-  MIGRATIONS until Alembic takes over with the first schema change in a moved domain.
+  Every query is SQLAlchemy Core: `core/sa.py` (pooled engine, capped connections, `with sa.begin() as conn:`) +
+  `domains/<stage>/models.py` (Core `Table`s) + the domain's `repository.py`; there is no raw-SQL adapter and no
+  SQLite fallback. A repository that `core/store.py` star-imports must declare `__all__` (or SQLAlchemy names leak
+  into `store`). Every table (projects/specs/strategies/jobs/deliverables/QC, plus the unused legacy tables of the
+  deleted products) lives in the one database. `config.MEMORY_DB_PATH` is not a database: `core/db.py` hashes it into
+  the test schema name.
+  **Schema = Alembic** (`backend/migrations/`): revision `0001` is the 2026-11-12 schema (`baseline.sql`); the app
+  migrates itself at startup (`core/migrate.py`, advisory lock; a database built by the old bootstrap is stamped at
+  0001, never rebuilt). A schema change is a new revision:
+  `PYTHONPATH=. python -m alembic -c backend/alembic.ini revision -m "what changes"`, write `upgrade()` and
+  `downgrade()`, add the columns to the domain's `models.py`, restart. Tests build each throwaway schema through the
+  same migrations (`HUNTER_PG_SCHEMA_PER_DB=1`; `tests/db_helpers.py` for raw SQL in tests).
   Uploaded dataset files are also kept in `intel_dataset_files`, since a hosted server's disk may
   not survive a restart.
 - **S3 object store (optional):** `core/object_store.py` puts everything kept beyond the database under the

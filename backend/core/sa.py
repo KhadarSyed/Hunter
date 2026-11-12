@@ -1,4 +1,4 @@
-"""SQLAlchemy access for the domains moved off core/pg.py (billing first; see Instructions/README "Reviewer backlog").
+"""SQLAlchemy access for every domain (pooled engine; schema by Alembic, see core/migrate.py).
 
 One pooled engine per process on the same psycopg driver: pool_size + max_overflow cap the open connections,
 pool_pre_ping replaces a connection the server dropped. Use `with sa.begin() as conn:` — commits on success,

@@ -19,6 +19,10 @@ def _run(conn) -> None:
 given = context.config.attributes.get("connection")
 if given is not None:
     _run(given)
-else:
+else:      # the alembic CLI: read .env like the app does (main.py), so DATABASE_URL needs no export
+    from dotenv import load_dotenv
+
+    from backend.core.config import REPO_ROOT
+    load_dotenv(REPO_ROOT / ".env")
     with create_engine(_url()).begin() as conn:
         _run(conn)

@@ -65,7 +65,7 @@ qc_exports = Table(
 )
 
 
-# the QC link checker's cache: the latest fetch of each source URL (core/db.py QC_SCHEMA; columns from the live DB)
+# the QC link checker's cache: the latest fetch of each source URL (columns from the live DB; schema in backend/migrations)
 qc_source_cache = Table(
     "qc_source_cache", metadata,
     Column("id", BigInteger, primary_key=True),
