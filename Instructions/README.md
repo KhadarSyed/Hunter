@@ -111,6 +111,14 @@ changed and why. Open the code only for the files a note or the map points to.
 
 ## Current state (2026-11-08)
 
+- **2026-11-12: production is down, local is the working environment.** Render Postgres `hunter-db` (free plan)
+  expired 2026-11-11 and is suspended; Render deletes it ≈2026-11-25 (14-day grace); no upgrade (no budget, user's
+  decision); free plans have no backups and the expired DB accepts no connections, so its data is not recoverable
+  from here. Local: Docker `hunter-postgres` (volume created fresh 2026-11-12, empty until used), backend
+  `uvicorn backend.main:app --port 8002` serves the built SPA. Local Super Admin: khadar.syed@infovision.com
+  (seeded from `.env` SEED_SUPER_ADMIN_EMAIL; temporary password in the backend log, must be changed at first
+  sign-in). The org/project notes below describe the old databases.
+
 - Orgs: InfoVision (org 5; admins Sweta Shah, Harish), Testing Org (org 6; VyceAI agnes default, NVIDIA Nemotron,
   Azure GPT-5). Super Admin (global) = Harish Thulasiram. Since 2026-11-12 the seed is env-driven
   (`SEED_SUPER_ADMIN_EMAIL`) and runs only while NO Super Admin exists, so it never re-promotes anyone. Khadar is an
