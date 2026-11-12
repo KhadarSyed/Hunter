@@ -6,11 +6,13 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import ColumnElement, and_, false, or_, select, true
 
 from ...core import store
 from ...core.auth import get_current_user, require_project_access
 from ..providers import repository as provider_repo
 from . import repository as repo
+from .models import intel_projects, llm_usage as U
 from .schemas import PriceRequest, SettingsRequest
 
 router = APIRouter(prefix="/usage", tags=["usage"])
@@ -20,22 +22,25 @@ _TOK = ("input_tokens", "cached_input_tokens", "output_tokens", "total_tokens")
 _DAY_SECONDS = timedelta(days=1).total_seconds()
 
 
-def _scope_where(user: dict, org_id: int | None = None) -> tuple[str, list]:
-    """The role scope on llm_usage (alias u), mirroring core.auth.can_access_project: through the project's org and
-    owner, with project-less rows falling back to the row's own org / user. org_id narrows a super_admin only."""
+# Its own alias: the dashboards also join intel_projects, and a same-name subquery would be auto-correlated to it.
+_SCOPE_P = intel_projects.alias("scope_projects")
+
+
+def _scope_where(user: dict, org_id: int | None = None) -> ColumnElement:
+    """The role scope on llm_usage, mirroring core.auth.can_access_project: through the project's org and owner, with
+    project-less rows falling back to the row's own org / user. org_id narrows a super_admin only."""
+    def org_rows(org: int) -> ColumnElement:
+        return or_(U.c.project_id.in_(select(_SCOPE_P.c.id).where(_SCOPE_P.c.org_id == org)),
+                   and_(U.c.project_id.is_(None), U.c.org_id == org))
     role = user["role"]
     if role == "super_admin":
-        if org_id is None:
-            return "TRUE", []
-        return ("(u.project_id IN (SELECT id FROM intel_projects WHERE org_id = ?) "
-                "OR (u.project_id IS NULL AND u.org_id = ?))", [org_id, org_id])
+        return true() if org_id is None else org_rows(org_id)
     if user.get("org_id") is None:
-        return "FALSE", []
+        return false()
     if role == "admin":
-        return ("(u.project_id IN (SELECT id FROM intel_projects WHERE org_id = ?) "
-                "OR (u.project_id IS NULL AND u.org_id = ?))", [user["org_id"], user["org_id"]])
-    return ("(u.project_id IN (SELECT id FROM intel_projects WHERE org_id = ? AND owner_user_id = ?) "
-            "OR (u.project_id IS NULL AND u.user_id = ?))", [user["org_id"], user["id"], user["id"]])
+        return org_rows(user["org_id"])
+    own = select(_SCOPE_P.c.id).where(_SCOPE_P.c.org_id == user["org_id"], _SCOPE_P.c.owner_user_id == user["id"])
+    return or_(U.c.project_id.in_(own), and_(U.c.project_id.is_(None), U.c.user_id == user["id"]))
 
 
 def _epoch(day: str) -> float:
@@ -48,20 +53,16 @@ def _epoch(day: str) -> float:
 
 def _filters(user: dict, date_from: str | None, date_to: str | None, org_id: int | None,
              project_id: int | None, stage: str | None, model: str | None,
-             sub_stage: str | None = None) -> tuple[str, list]:
-    sql, params = _scope_where(user, org_id)
-    parts = [sql]
+             sub_stage: str | None = None) -> ColumnElement:
+    conds = [_scope_where(user, org_id)]
     if date_from:
-        parts.append("u.ts >= ?")
-        params.append(_epoch(date_from))
+        conds.append(U.c.ts >= _epoch(date_from))
     if date_to:   # inclusive UTC day: everything before the next midnight
-        parts.append("u.ts < ?")
-        params.append(_epoch(date_to) + _DAY_SECONDS)
+        conds.append(U.c.ts < _epoch(date_to) + _DAY_SECONDS)
     for col, val in (("project_id", project_id), ("stage", stage), ("model", model), ("sub_stage", sub_stage)):
         if val is not None:
-            parts.append(f"u.{col} = ?")
-            params.append(val)
-    return " AND ".join(parts), params
+            conds.append(U.c[col] == val)
+    return and_(*conds)
 
 
 def _pick(row: dict, *keys: str) -> dict:
@@ -101,9 +102,9 @@ def trend_grain(date_from: str | None, date_to: str | None) -> str:
 @router.get("/summary")
 def usage_summary(user: UserDep, date_from: DateParam = None, date_to: DateParam = None, org_id: int | None = None,
                   project_id: int | None = None, stage: str | None = None, model: str | None = None) -> dict:
-    where, params = _filters(user, date_from, date_to, org_id, project_id, stage, model)
+    cond = _filters(user, date_from, date_to, org_id, project_id, stage, model)
     grain = trend_grain(date_from, date_to)
-    s = repo.summary(where, params, grain)
+    s = repo.summary(cond, grain)
     # "saved by cache": cache hits x the model's average cost of a real (non-hit) chat call in range
     saved = sum(m["cache_hits"] * float(m["avg_chat_cost"] or 0) for m in s["by_model"])
     total = sum(p["total_tokens"] for p in s["by_project"])
@@ -136,8 +137,8 @@ def usage_calls(user: UserDep, date_from: DateParam = None, date_to: DateParam =
                 project_id: int | None = None, stage: str | None = None, model: str | None = None,
                 sub_stage: Annotated[str | None, Query(max_length=64)] = None,
                 offset: Annotated[int, Query(ge=0)] = 0, limit: Annotated[int, Query(ge=1, le=200)] = 50) -> dict:
-    where, params = _filters(user, date_from, date_to, org_id, project_id, stage, model, sub_stage)
-    rows, total = repo.calls(where, params, limit, offset)
+    cond = _filters(user, date_from, date_to, org_id, project_id, stage, model, sub_stage)
+    rows, total = repo.calls(cond, limit, offset)
     return {"rows": rows, "total": total}
 
 
