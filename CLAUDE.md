@@ -64,7 +64,7 @@ docs/            product/subsystem docs, docs/handover/
   `http://127.0.0.1:8002` (see `frontend/vite.config.ts`).
 - **Frontend (build):** `npm run build` from `frontend/` — runs `tsc -b && vite build`, outputs straight
   into `backend/static/` so the FastAPI server can serve the built SPA directly from port 8002 with
-  no Vite involved. Type-check only: `cd frontend && npx tsc --noEmit`. Lint: `npm run lint` (ESLint 9,
+  no Vite involved. Type-check only: `cd frontend && npx tsc --noEmit`. Unit tests: `npm test` (Vitest). Lint: `npm run lint` (ESLint 9,
   `frontend/eslint.config.js`; must stay at 0 errors — `any` and effect-dependency findings are warnings).
 - **Docker:** `docker build -f deploy/Dockerfile .` from the repo root.
 - **Local Postgres:** `docker compose -f deploy/docker-compose.postgres.yml up -d`, then set
@@ -215,8 +215,10 @@ URL (e.g. `/{projectId}/research-plan`), but no sidebar or Dashboard link leads 
 - **JBL vs Jabil entity confusion** — research results can include Jabil Inc. (ticker "JBL") or the
   WWE commentator "JBL" instead of the intended speaker/brand; entity disambiguation in
   `domains/research/web_research.py` is incomplete.
-- **Hand-rolled URL routing** in the frontend — `App.tsx` maps its page state to and from the
-  path (`parseUrl`/`buildUrl`); there is no router library.
+- **Hand-rolled URL routing, on purpose** — URL <-> page mapping lives in `frontend/src/routing.ts` (unit-tested:
+  `npm test`), history handling in `App.tsx`. React Router was evaluated and NOT adopted (log 2026-11-12-12): the
+  async project hydration, stage gating and push-after-project-switch logic stay custom either way, and Router's
+  location-on-every-navigate would re-trigger project hydration with the previous project's id mid-switch.
 - **No Meltwater API integration** — Boolean search queries are validated for syntax only, never
   tested against Meltwater's actual parser.
 

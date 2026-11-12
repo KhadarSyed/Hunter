@@ -6,6 +6,7 @@ import { DemoStateProvider, useDemoState } from "./context/demo-state";
 import { ProjectProvider, useProject, type ProjectType } from "./context/project-context";
 import { intelApi } from "./services/intel-api";
 import { PAGE_STAGE, gateRedirect } from "./hooks/useStageGate";
+import { buildUrl, homeFor, isPage, parseUrl, type Page } from "./routing";
 import { LoginPage } from "./pages/LoginPage";
 import { ChangePasswordPage } from "./pages/ChangePasswordPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
@@ -49,11 +50,9 @@ const PAGES = {
   usage: UsagePage,
   admin: AdminDashboard,
   "org-dashboard": OrgDashboard,
-} satisfies Record<string, ComponentType<PageProps>>;
+} satisfies Record<Page, ComponentType<PageProps>>;   // exactly the ids in routing.ts PAGE_IDS
 
-export type Page = keyof typeof PAGES;
-
-const isPage = (p: string): p is Page => p in PAGES;
+export type { Page };
 
 /** Pages where no specific project is "open" yet — these get the minimal
  * icon-rail sidebar. Every other page is a pipeline stage inside an opened
@@ -63,31 +62,6 @@ const BROWSING_PAGES = new Set<Page>([
   "new-project", "edit-project",
   "settings", "usage", "admin", "org-dashboard",
 ]);
-
-/** Each role's home: a Super Admin lands on the platform dashboard, an Org Admin on the org dashboard. */
-function homeFor(role: string | undefined): Page {
-  return role === "super_admin" ? "admin" : role === "admin" ? "org-dashboard" : "landing";
-}
-
-/** URL shape: `/{projectId}/{pageSlug}` once a project is active, else `/{pageSlug}` —
- * the page slug is the same id used internally (PAGES keys / onNavigate strings), so
- * there is exactly one name for each page, not a separate URL-vs-internal mapping. */
-function parseUrl(pathname: string): { projectId: number | null; page: Page | null } {
-  // "data-sources" is the old name of the Data set page; old links and emails still open it
-  const segments = pathname.split("/").filter(Boolean).map(decodeURIComponent).map((s) => (s === "data-sources" ? "data-set" : s));
-  if (segments.length === 0) return { projectId: null, page: null };
-  const maybeId = Number(segments[0]);
-  if (Number.isInteger(maybeId) && maybeId > 0) {
-    const pageSeg = segments[1];
-    return { projectId: maybeId, page: pageSeg && isPage(pageSeg) ? pageSeg : null };
-  }
-  return { projectId: null, page: isPage(segments[0]) ? segments[0] : null };
-}
-
-function buildUrl(projectId: number | null, page: Page): string {
-  // Usage & cost is not inside a project: it has its own Project filter (?project=), so it never takes the prefix
-  return projectId && page !== "usage" ? `/${projectId}/${page}` : `/${page}`;
-}
 
 /** Routing + demo-sync shell — rendered inside ProjectProvider/DemoStateProvider so it
  * can read/write the active project as the URL and in-app navigation change. */
