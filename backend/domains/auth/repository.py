@@ -23,6 +23,7 @@ __all__ = [
     "make_super_admin", "is_member_of_org", "add_user_to_org", "list_user_organizations", "create_password_reset",
     "recent_reset_count", "open_otp_reset", "bump_reset_attempts", "verify_reset", "reset_by_token",
     "complete_reset", "set_platform_llm", "org_uses_platform_llm", "org_name_taken",
+    "get_allow_editorial_images", "set_allow_editorial_images",
 ]
 
 O, U, S, M, R, P = organizations, users, sessions, user_organizations, password_resets, intel_projects
@@ -345,3 +346,13 @@ def org_uses_platform_llm(org_id: int) -> bool:
 def org_name_taken(name: str) -> bool:
     """Organization names are unique, ignoring case and surrounding spaces (archived ones included)."""
     return find_organization_by_name(name) is not None
+
+
+def get_allow_editorial_images(org_id: int) -> bool:
+    """The org's deck image policy: True lets editorial article / web images into decks, False licence-safe only."""
+    row = _one(select(O.c.allow_editorial_images).where(O.c.id == org_id))
+    return bool(row and row["allow_editorial_images"])
+
+
+def set_allow_editorial_images(org_id: int, allow: bool) -> None:
+    _run(update(O).where(O.c.id == org_id).values(allow_editorial_images=int(allow)))

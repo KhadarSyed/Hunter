@@ -18,12 +18,13 @@ from dotenv import load_dotenv
 load_dotenv()  # before importing modules that read os.environ at import time
 
 from fastapi import Depends, FastAPI, Request  # noqa: E402
+from sqlalchemy import literal, select  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.middleware.gzip import GZipMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
-from .core import events, jobs, store  # noqa: E402
+from .core import events, jobs, sa, store  # noqa: E402
 from .core.api import install_http_layer, require_api_key  # noqa: E402
 from .core.auth import seed_super_admin_if_missing  # noqa: E402
 from .core.config import (  # noqa: E402
@@ -156,11 +157,8 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health", include_in_schema=False)
     def health():
-        conn = store._conn()
-        try:
-            conn.execute("SELECT 1")
-        finally:
-            conn.close()
+        with sa.begin() as conn:
+            conn.execute(select(literal(1)))
         return {"ok": True}
 
     _mount_spa(app)

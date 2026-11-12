@@ -96,3 +96,16 @@ intel_research_item_vectors = Table(
     Column("vector", LargeBinary, nullable=False),          # float32 bytes
     Column("created_at", Double, nullable=False),
 )
+
+# the article reader's cache: one row per URL, the extracted text blocks (or the error) of its last fetch
+research_article_fulltext = Table(
+    "research_article_fulltext", metadata,
+    Column("url", Text, primary_key=True),
+    Column("status", Text, nullable=False),
+    Column("title", Text),
+    Column("blocks_json", Text),
+    Column("error", Text),
+    Column("fetched_at", Double, nullable=False),
+    Column("platform", Text),
+    Column("embed_url", Text),
+)

@@ -12,7 +12,7 @@ from ...core import sa
 from .models import intel_research_plans as plans
 
 # core/store.py star-imports this module: export only the repository functions
-__all__ = ["save_research_plan", "get_latest_plan", "approve_plan", "reject_plan"]
+__all__ = ["save_research_plan", "get_latest_plan", "approve_plan", "reject_plan", "get_plan_project_id"]
 
 
 def save_research_plan(project_id: int, plan: dict, source: str = "llm") -> int:
@@ -46,3 +46,9 @@ def reject_plan(plan_id: int, notes: str = "") -> bool:
     with sa.begin() as conn:
         return conn.execute(update(plans).where(plans.c.id == plan_id).values(
             approval_status="rejected", notes=notes)).rowcount > 0
+
+
+def get_plan_project_id(plan_id: int) -> int | None:
+    """The project owning a plan, for the access check; None when there is none."""
+    with sa.begin() as conn:
+        return conn.execute(select(plans.c.project_id).where(plans.c.id == plan_id)).scalar()

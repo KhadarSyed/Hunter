@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ...core import sa
 from .models import brand_logos, intel_background_research, intel_news_approvals, intel_research_item_vectors
-from .models import intel_research_items, pexels_images, youtube_videos
+from .models import intel_research_items, pexels_images, research_article_fulltext, youtube_videos
 
 # core/store.py star-imports this module: export only the repository functions (and the lookup chunk size)
 __all__ = ["save_background_research", "save_background_research_update", "get_latest_research",
@@ -19,7 +19,7 @@ __all__ = ["save_background_research", "save_background_research_update", "get_l
            "get_brand_logo", "save_brand_logo", "get_pexels_image", "save_pexels_image", "get_youtube_video",
            "save_youtube_video", "upsert_research_item", "research_item_urls", "get_item_vectors",
            "save_item_classifications", "save_item_vectors", "get_research_item", "get_research_items",
-           "VECTOR_LOOKUP_CHUNK"]
+           "VECTOR_LOOKUP_CHUNK", "get_article_fulltext", "save_article_fulltext"]
 
 R, NA, I, V = intel_background_research, intel_news_approvals, intel_research_items, intel_research_item_vectors
 VECTOR_LOOKUP_CHUNK = 1000
@@ -230,3 +230,18 @@ def get_research_items(project_id: int, topic: str | None = None,
     if until is not None:
         q = q.where(I.c.published_date <= until)
     return _all(q.order_by(I.c.published_date.desc()))
+
+
+# ─── Article reader cache ─────────────────────────────────────────────────────
+def get_article_fulltext(url: str) -> Optional[dict]:
+    """The cached extraction of an article (status, title, blocks_json, error, platform, embed_url), or None."""
+    t = research_article_fulltext
+    return _one(select(t.c.status, t.c.title, t.c.blocks_json, t.c.error, t.c.platform, t.c.embed_url)
+                .where(t.c.url == url))
+
+
+def save_article_fulltext(url: str, status: str, title: Optional[str], blocks_json: str, error: Optional[str],
+                          platform: Optional[str], embed_url: Optional[str]) -> None:
+    _upsert(research_article_fulltext, "url", {"url": url, "status": status, "title": title,
+                                                 "blocks_json": blocks_json, "error": error, "platform": platform,
+                                                 "embed_url": embed_url, "fetched_at": time.time()})

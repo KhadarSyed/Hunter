@@ -17,12 +17,11 @@ from __future__ import annotations
 import json
 import logging
 import re
-import time
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup, Tag
 
-from ...core.db import _conn
+from . import repository
 from ...core.safe_fetch import safe_get
 
 logger = logging.getLogger(__name__)
@@ -72,12 +71,7 @@ def get_full_text(url: str, force: bool = False) -> dict:
 
 
 def _get_cached(url: str) -> dict | None:
-    conn = _conn()
-    row = conn.execute(
-        "SELECT status, title, blocks_json, error, platform, embed_url "
-        "FROM research_article_fulltext WHERE url = ?", (url,)
-    ).fetchone()
-    conn.close()
+    row = repository.get_article_fulltext(url)
     if not row:
         return None
     return {
@@ -88,19 +82,8 @@ def _get_cached(url: str) -> dict | None:
 
 
 def _save_cache(url: str, result: dict) -> None:
-    conn = _conn()
-    conn.execute(
-        "INSERT INTO research_article_fulltext "
-        "(url, status, title, blocks_json, error, platform, embed_url, fetched_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
-        "ON CONFLICT(url) DO UPDATE SET status = excluded.status, title = excluded.title, "
-        "blocks_json = excluded.blocks_json, error = excluded.error, "
-        "platform = excluded.platform, embed_url = excluded.embed_url, fetched_at = excluded.fetched_at",
-        (url, result["status"], result.get("title"), json.dumps(result.get("blocks", [])),
-         result.get("error"), result.get("platform"), result.get("embed_url"), time.time()),
-    )
-    conn.commit()
-    conn.close()
+    repository.save_article_fulltext(url, result["status"], result.get("title"), json.dumps(result.get("blocks", [])),
+                                     result.get("error"), result.get("platform"), result.get("embed_url"))
 
 
 def _looks_blocked(status_code: int, html: str) -> bool:

@@ -9,8 +9,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 
+from ...core import store
 from ...core.auth import get_current_user
-from ...core.db import _conn
 from . import repository as ds_repo
 from . import service
 from .schemas import FIRECRAWL_DEFAULTS, DataSourceRecord, SourceSettings, UpsertKeyRequest, ValidateResult
@@ -24,9 +24,7 @@ def _effective_org_id(user: dict) -> int:
     single-tenant in practice despite the multi-org data model (see CLAUDE.md)."""
     if user["org_id"] is not None:
         return user["org_id"]
-    conn = _conn()
-    row = conn.execute("SELECT id FROM organizations WHERE name = 'Default Organization'").fetchone()
-    conn.close()
+    row = store.find_organization_by_name("Default Organization")
     if not row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No default organization found")
     return row["id"]

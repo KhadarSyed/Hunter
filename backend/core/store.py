@@ -14,7 +14,6 @@ from __future__ import annotations
 
 # isort: skip_file
 from .db import *  # noqa: F401,F403
-from .db import _conn  # noqa: F401  (star import skips _names; qc code calls store._conn())
 from ..domains.projects.repository import *  # noqa: F401,F403
 from ..domains.research.repository import *  # noqa: F401,F403
 from ..domains.strategy.repository import *  # noqa: F401,F403

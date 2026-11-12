@@ -48,25 +48,15 @@ def _policy_org(user: dict) -> int:
 @router.get("/policy")
 def get_policy(user: User):
     """The org's deck image policy: licence-safe photos only (default) or editorial article / web images too."""
-    from ...core.db import _conn
-    conn = _conn()
-    try:
-        row = conn.execute("SELECT allow_editorial_images FROM organizations WHERE id = ?", (_policy_org(user),)).fetchone()
-    finally:
-        conn.close()
-    return {"allow_editorial_images": bool(row and row[0])}
+    from ...core import store
+    return {"allow_editorial_images": store.get_allow_editorial_images(_policy_org(user))}
 
 
 @router.put("/policy")
 def set_policy(req: ContentPolicy, user: User):
     org = _admin_org(user)
-    from ...core.db import _conn
-    conn = _conn()
-    try:
-        conn.execute("UPDATE organizations SET allow_editorial_images = ? WHERE id = ?", (int(req.allow_editorial_images), org))
-        conn.commit()
-    finally:
-        conn.close()
+    from ...core import store
+    store.set_allow_editorial_images(org, req.allow_editorial_images)
     return {"allow_editorial_images": req.allow_editorial_images}
 
 

@@ -21,7 +21,7 @@ __all__ = ["FORM_FIELDS", "SPEC_SECTION_ORDER", "MANDATORY_SECTIONS", "update_pr
            "get_latest_spec", "get_spec_by_id", "update_spec", "update_spec_section", "update_spec_industry",
            "approve_spec_section", "lock_spec_section", "unlock_spec_section", "approve_full_spec", "reject_spec",
            "update_spec_docx", "list_spec_versions", "get_spec_audit", "add_clarification", "resolve_clarification",
-           "remove_clarifications_except", "get_clarifications", "get_spec_readiness"]
+           "remove_clarifications_except", "get_clarifications", "get_spec_readiness", "get_clarification_project_id"]
 
 # ─── Project Spec Update ──────────────────────────────────────────────────────
 
@@ -400,3 +400,11 @@ def get_spec_readiness(spec_id: int) -> Optional[dict]:
         if raw is None:
             return None
         return _readiness_with_clarifications(conn, spec_id, json.loads(raw))
+
+
+def get_clarification_project_id(clarification_id: int) -> int | None:
+    """The project owning a clarification (through its spec), for the access check; None when there is none."""
+    with sa.begin() as conn:
+        return conn.execute(select(specs.c.project_id).select_from(
+            clarifications.join(specs, specs.c.id == clarifications.c.spec_id))
+            .where(clarifications.c.id == clarification_id)).scalar()

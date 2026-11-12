@@ -74,18 +74,13 @@ def editorial_allowed() -> bool:
     if legacy_mode():
         return True
     try:
-        from ...core.db import _conn
+        from ...core import store
         from ..exclusions.service import org_of_project
         from ..usage import service as usage
         org = org_of_project(usage.current().get("project_id") or 0)
         if not org:
             return False
-        conn = _conn()
-        try:
-            row = conn.execute("SELECT allow_editorial_images FROM organizations WHERE id = ?", (org,)).fetchone()
-        finally:
-            conn.close()
-        return bool(row and row[0])
+        return store.get_allow_editorial_images(org)
     except Exception as e:
         logger.warning("editorial image setting unreadable (%s): licensed photos only", type(e).__name__)
         return False

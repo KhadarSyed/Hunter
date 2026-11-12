@@ -1,44 +1,39 @@
-"""SQL for intel_asset_library (migration 35): one row per shared asset, bytes in S3, summary + embedding here."""
+"""SQL for intel_asset_library (migration 35) through SQLAlchemy Core: one row per shared asset, bytes in S3, summary
++ embedding (pgvector) here."""
 from __future__ import annotations
 
 import json
 import time
 
-from ...core.db import _conn
+from sqlalchemy import cast, delete as sql_delete, func, select, update
+from sqlalchemy.dialects.postgresql import JSONB, insert as pg_insert
 
-_COLS = "id, kind, key, s3_key, content_type, brand, summary, meta_json, missing, created_at"
+from ...core import sa
+from .models import intel_asset_library as L
 
-
-def _vec(embedding: list[float] | None) -> str | None:
-    return "[" + ",".join(f"{float(x):.6f}" for x in embedding) + "]" if embedding else None
+_COLS = (L.c.id, L.c.kind, L.c.key, L.c.s3_key, L.c.content_type, L.c.brand, L.c.summary, L.c.meta_json, L.c.missing,
+         L.c.created_at)
 
 
 def upsert(kind: str, key: str, *, s3_key: str | None, content_type: str, sha256: str, size: int, brand: str,
            summary: str, meta: dict, embedding: list[float] | None, missing: bool = False) -> int:
-    conn = _conn()
-    try:
-        row = conn.execute(
-            "INSERT INTO intel_asset_library (kind, key, s3_key, content_type, sha256, size, brand, summary, "
-            "meta_json, embedding, missing, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS vector), ?, ?) "
-            "ON CONFLICT (kind, key) DO UPDATE SET s3_key = EXCLUDED.s3_key, content_type = EXCLUDED.content_type, "
-            "sha256 = EXCLUDED.sha256, size = EXCLUDED.size, brand = EXCLUDED.brand, summary = EXCLUDED.summary, "
-            "meta_json = EXCLUDED.meta_json, embedding = COALESCE(EXCLUDED.embedding, intel_asset_library.embedding), "
-            "missing = EXCLUDED.missing, created_at = EXCLUDED.created_at RETURNING id",
-            (kind, key, s3_key, content_type, sha256, size, brand.lower(), summary, json.dumps(meta, default=str),
-             _vec(embedding), int(missing), time.time())).fetchone()
-        conn.commit()
-        return int(row[0])
-    finally:
-        conn.close()
+    """Insert or replace the (kind, key) row; a new row without an embedding keeps the stored one."""
+    stmt = pg_insert(L).values(kind=kind, key=key, s3_key=s3_key, content_type=content_type, sha256=sha256, size=size,
+                               brand=brand.lower(), summary=summary, meta_json=json.dumps(meta, default=str),
+                               embedding=[float(x) for x in embedding] if embedding else None, missing=int(missing),
+                               created_at=time.time())
+    new = stmt.excluded
+    with sa.begin() as conn:
+        return int(conn.execute(stmt.on_conflict_do_update(index_elements=[L.c.kind, L.c.key], set_={
+            "s3_key": new.s3_key, "content_type": new.content_type, "sha256": new.sha256, "size": new.size,
+            "brand": new.brand, "summary": new.summary, "meta_json": new.meta_json,
+            "embedding": func.coalesce(new.embedding, L.c.embedding, type_=L.c.embedding.type), "missing": new.missing,
+            "created_at": new.created_at}).returning(L.c.id)).scalar_one())
 
 
 def delete(kind: str, key: str) -> None:
-    conn = _conn()
-    try:
-        conn.execute("DELETE FROM intel_asset_library WHERE kind = ? AND key = ?", (kind, key))
-        conn.commit()
-    finally:
-        conn.close()
+    with sa.begin() as conn:
+        conn.execute(sql_delete(L).where(L.c.kind == kind, L.c.key == key))
 
 
 def _out(r) -> dict:
@@ -48,39 +43,26 @@ def _out(r) -> dict:
 
 
 def get(kind: str, key: str) -> dict | None:
-    conn = _conn()
-    try:
-        r = conn.execute(f"SELECT {_COLS} FROM intel_asset_library WHERE kind = ? AND key = ?", (kind, key)).fetchone()
-    finally:
-        conn.close()
-    return _out(r) if r else None
+    with sa.begin() as conn:
+        r = conn.execute(select(*_COLS).where(L.c.kind == kind, L.c.key == key)).first()
+    return _out(r._mapping) if r else None
 
 
 def touch(asset_id: int) -> None:
-    conn = _conn()
-    try:
-        conn.execute("UPDATE intel_asset_library SET use_count = use_count + 1, last_used_at = ? WHERE id = ?",
-                     (time.time(), asset_id))
-        conn.commit()
-    finally:
-        conn.close()
+    with sa.begin() as conn:
+        conn.execute(update(L).where(L.c.id == asset_id).values(use_count=L.c.use_count + 1, last_used_at=time.time()))
 
 
 def nearest(kind: str, embedding: list[float], *, brand: str | None = None, role: str | None = None,
             limit: int = 5) -> list[dict]:
-    where, args = ["kind = ?", "missing = 0", "embedding IS NOT NULL", "s3_key IS NOT NULL"], [kind]
+    """The stored assets of this kind closest to `embedding` (cosine), each with its score (1 = identical)."""
+    distance = L.c.embedding.cosine_distance([float(x) for x in embedding])
+    q = select(*_COLS, (1 - distance).label("score")).where(
+        L.c.kind == kind, L.c.missing == 0, L.c.embedding.isnot(None), L.c.s3_key.isnot(None))
     if brand is not None:
-        where.append("brand = ?")
-        args.append(brand.lower())
+        q = q.where(L.c.brand == brand.lower())
     if role is not None:
-        where.append("CAST(meta_json AS jsonb) ->> 'role' = ?")
-        args.append(role)
-    conn = _conn()
-    try:
-        rows = conn.execute(
-            f"SELECT {_COLS}, 1 - (embedding <=> CAST(? AS vector)) AS score FROM intel_asset_library "
-            f"WHERE {' AND '.join(where)} ORDER BY embedding <=> CAST(? AS vector) LIMIT ?",
-            [_vec(embedding), *args, _vec(embedding), limit]).fetchall()
-    finally:
-        conn.close()
-    return [{**_out(r), "score": float(r["score"])} for r in rows]
+        q = q.where(cast(L.c.meta_json, JSONB)["role"].astext == role)
+    with sa.begin() as conn:
+        rows = conn.execute(q.order_by(distance).limit(limit)).all()
+    return [{**_out(r._mapping), "score": float(r._mapping["score"])} for r in rows]

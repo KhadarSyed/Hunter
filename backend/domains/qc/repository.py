@@ -15,7 +15,7 @@ from .models import qc_exports, qc_findings, qc_reports, qc_runs
 __all__ = ["create_qc_report", "update_qc_report", "get_qc_report", "get_qc_report_for_project",
            "save_qc_field_mapping", "create_qc_run", "update_qc_run", "get_qc_run", "get_qc_runs_for_report",
            "add_qc_findings_batch", "get_qc_findings", "update_qc_finding_action", "create_qc_export",
-           "get_qc_export"]
+           "get_qc_export", "get_qc_run_project_id", "get_qc_finding_project_id", "get_qc_export_project_id"]
 
 _REPORT_FIELDS = ("row_count", "column_count", "columns_json", "field_mapping", "parse_status", "parse_error")
 _RUN_FIELDS = ("status", "total_rows", "total_checks", "total_findings", "score", "score_breakdown", "started_at",
@@ -147,3 +147,25 @@ def create_qc_export(run_id: int, file_name: str, file_path: str) -> int:
 
 def get_qc_export(export_id: int) -> Optional[dict]:
     return _one(select(qc_exports).where(qc_exports.c.id == export_id))
+
+
+# ─── owner lookups for the access checks (core/auth.py): the project of a run, finding or export ───────────────────
+def _project_of(query) -> int | None:
+    with sa.begin() as conn:
+        return conn.execute(query).scalar()
+
+
+def get_qc_run_project_id(run_id: int) -> int | None:
+    return _project_of(select(qc_reports.c.project_id).select_from(
+        qc_runs.join(qc_reports, qc_reports.c.id == qc_runs.c.report_id)).where(qc_runs.c.id == run_id))
+
+
+def get_qc_finding_project_id(finding_id: int) -> int | None:
+    return _project_of(select(qc_reports.c.project_id).select_from(
+        qc_findings.join(qc_reports, qc_reports.c.id == qc_findings.c.report_id)).where(qc_findings.c.id == finding_id))
+
+
+def get_qc_export_project_id(export_id: int) -> int | None:
+    return _project_of(select(qc_reports.c.project_id).select_from(
+        qc_exports.join(qc_runs, qc_runs.c.id == qc_exports.c.run_id)
+        .join(qc_reports, qc_reports.c.id == qc_runs.c.report_id)).where(qc_exports.c.id == export_id))

@@ -136,17 +136,6 @@ def _require_owner_access(project_id: int | None, user: dict, what: str) -> dict
     return user
 
 
-def _project_id_by_sql(sql: str, row_id: int | str) -> int | None:
-    """For rows no repository getter covers: one SELECT returning the owning project_id."""
-    from .db import _conn  # local: avoids a circular import — see module docstring
-    conn = _conn()
-    try:
-        row = conn.execute(sql, (row_id,)).fetchone()
-    finally:
-        conn.close()
-    return row[0] if row else None
-
-
 def require_project_access(
     project_id: Annotated[int, Path(ge=1)],
     user: Annotated[dict, Depends(get_current_user)],
@@ -202,10 +191,8 @@ def require_spec_access(spec_id: IdPath, user: UserDep) -> dict:
 
 
 def require_clarification_access(clarification_id: IdPath, user: UserDep) -> dict:
-    return _require_owner_access(_project_id_by_sql(
-        "SELECT s.project_id FROM intel_spec_clarifications c "
-        "JOIN intel_research_specifications s ON s.id = c.spec_id WHERE c.id = ?", clarification_id),
-        user, "Clarification")
+    from . import store  # local: avoids a circular import — see module docstring
+    return _require_owner_access(store.get_clarification_project_id(clarification_id), user, "Clarification")
 
 
 def require_brief_access(brief_id: IdPath, user: UserDep) -> dict:
@@ -229,8 +216,8 @@ def require_job_access(job_id: str, user: UserDep) -> dict:
 
 
 def require_plan_access(plan_id: IdPath, user: UserDep) -> dict:
-    return _require_owner_access(_project_id_by_sql(
-        "SELECT project_id FROM intel_research_plans WHERE id = ?", plan_id), user, "Plan")
+    from . import store  # local: avoids a circular import — see module docstring
+    return _require_owner_access(store.get_plan_project_id(plan_id), user, "Plan")
 
 
 def require_qc_report_access(report_id: IdPath, user: UserDep) -> dict:
@@ -239,21 +226,18 @@ def require_qc_report_access(report_id: IdPath, user: UserDep) -> dict:
 
 
 def require_qc_run_access(run_id: IdPath, user: UserDep) -> dict:
-    return _require_owner_access(_project_id_by_sql(
-        "SELECT r.project_id FROM qc_runs q JOIN qc_reports r ON r.id = q.report_id WHERE q.id = ?", run_id),
-        user, "QC run")
+    from . import store  # local: avoids a circular import — see module docstring
+    return _require_owner_access(store.get_qc_run_project_id(run_id), user, "QC run")
 
 
 def require_qc_finding_access(finding_id: IdPath, user: UserDep) -> dict:
-    return _require_owner_access(_project_id_by_sql(
-        "SELECT r.project_id FROM qc_findings f JOIN qc_reports r ON r.id = f.report_id WHERE f.id = ?",
-        finding_id), user, "Finding")
+    from . import store  # local: avoids a circular import — see module docstring
+    return _require_owner_access(store.get_qc_finding_project_id(finding_id), user, "Finding")
 
 
 def require_qc_export_access(export_id: IdPath, user: UserDep) -> dict:
-    return _require_owner_access(_project_id_by_sql(
-        "SELECT r.project_id FROM qc_exports e JOIN qc_runs q ON q.id = e.run_id "
-        "JOIN qc_reports r ON r.id = q.report_id WHERE e.id = ?", export_id), user, "Export")
+    from . import store  # local: avoids a circular import — see module docstring
+    return _require_owner_access(store.get_qc_export_project_id(export_id), user, "Export")
 
 
 def check_project_id_access(project_id: int | None, user: dict) -> None:
