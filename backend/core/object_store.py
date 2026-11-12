@@ -68,15 +68,18 @@ def get_bytes(key: str) -> bytes | None:
         return None
 
 
-def presigned_url(key: str, expires_s: int = 3600) -> str | None:
-    """A time-limited GET link to the object (the bucket stays private); None without S3."""
+def presigned_url(key: str, expires_s: int = 3600, download_name: str | None = None) -> str | None:
+    """A time-limited GET link to the object (the bucket stays private); None without S3. With download_name the
+    browser saves it under that name."""
     c = _client()
     if c is None:
         return None
     s3, bucket = c
+    params = {"Bucket": bucket, "Key": _full(key)}
+    if download_name:
+        params["ResponseContentDisposition"] = f'attachment; filename="{download_name}"'
     try:
-        return s3.generate_presigned_url("get_object", Params={"Bucket": bucket, "Key": _full(key)},
-                                         ExpiresIn=expires_s)
+        return s3.generate_presigned_url("get_object", Params=params, ExpiresIn=expires_s)
     except Exception as e:
         logger.warning("S3 presign %s failed: %s", key[:120], type(e).__name__)
         return None

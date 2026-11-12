@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Cookie, Depends, File, HTTPException, Response, UploadFile, status
 
-from ...core import store
+from ...core import object_store, store
 from ...core import ws_tickets
 from ...core.auth import SESSION_COOKIE_NAME, clear_session_cookie, get_current_user, set_session_cookie
 from ...core.config import UPLOAD_DIR
@@ -408,6 +408,7 @@ async def upload_avatar_route(
     filename = f"avatar_{user['id']}_{uuid.uuid4().hex[:8]}{ext}"
     dest = avatars_dir / filename
     dest.write_bytes(data)
+    object_store.put_bytes(f"avatars/{filename}", data, file.content_type)    # a hosted restart keeps the photo
     avatar_url = f"/uploads/avatars/{filename}"
     store.update_profile(user["id"], user["display_name"], avatar_url)
     return {"avatar_url": avatar_url}

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -17,14 +18,14 @@ from dotenv import load_dotenv
 
 load_dotenv()  # before importing modules that read os.environ at import time
 
-from fastapi import Depends, FastAPI, Request  # noqa: E402
+from fastapi import Depends, FastAPI, HTTPException, Request  # noqa: E402
 from sqlalchemy import literal, select  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.middleware.gzip import GZipMiddleware  # noqa: E402
-from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
-from .core import events, jobs, sa, store  # noqa: E402
+from .core import events, jobs, object_store, sa, store  # noqa: E402
 from .core.api import install_http_layer, require_api_key  # noqa: E402
 from .core.auth import seed_super_admin_if_missing  # noqa: E402
 from .core.config import (  # noqa: E402
@@ -79,12 +80,23 @@ async def lifespan(app: FastAPI):
         logger.info("Hunter stopped")
 
 
+_AVATAR_NAME = re.compile(r"^avatar_\d+_[0-9a-f]{8}\.(png|jpg|gif|webp)$")
+
+
 def mount_uploads(app: FastAPI, upload_dir: Path) -> None:
-    """Publicly serve only the avatars subdirectory — briefs, QC exports, and
-    other upload types under UPLOAD_DIR must never be web-accessible."""
-    avatars_dir = upload_dir / "avatars"
-    avatars_dir.mkdir(parents=True, exist_ok=True)
-    app.mount("/uploads/avatars", StaticFiles(directory=str(avatars_dir)), name="uploads-avatars")
+    """Publicly serve only avatars (briefs, QC exports and other uploads under UPLOAD_DIR are never web-accessible):
+    this server's copy, else the S3 copy (a hosted server's disk does not survive a restart)."""
+    @app.get("/uploads/avatars/{filename:path}", include_in_schema=False)   # the whole rest: odd paths get a 404
+    def avatar(filename: str):
+        if not _AVATAR_NAME.match(filename):
+            raise HTTPException(404, "Not found")
+        path = upload_dir / "avatars" / filename
+        if path.is_file():
+            return FileResponse(path, headers={"Cache-Control": "public, max-age=86400"})
+        link = object_store.presigned_url(f"avatars/{filename}")
+        if link:
+            return RedirectResponse(link, status_code=307, headers={"Cache-Control": "private, max-age=3000"})
+        raise HTTPException(404, "Not found")
 
 
 def _mount_spa(app: FastAPI) -> None:
