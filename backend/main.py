@@ -29,9 +29,7 @@ from .core.auth import seed_super_admin_if_missing  # noqa: E402
 from .core.config import (  # noqa: E402
     BACKEND_DIR,
     UPLOAD_DIR,
-    ensure_dirs,
     get_app_settings,
-    load_settings,
 )
 from .domains import router as intel_router  # noqa: E402
 from .domains.auth.router import router as auth_router  # noqa: E402
@@ -58,7 +56,6 @@ async def lifespan(app: FastAPI):
         logger.info("encrypted %d data source key(s) stored before encryption", n)
     from .domains.billing import service as billing
     billing.start_sweeper()
-    ensure_dirs(load_settings())
     events.bind_loop(asyncio.get_running_loop())
     from .domains.agent import autopilot
     autopilot.resume_all()

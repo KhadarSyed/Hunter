@@ -4,12 +4,26 @@ Start here before reviewing any code. This folder is the working memory for the 
 things live, the rules say how work is done, and `log/` holds one note per response with the full detail of what
 changed and why. Open the code only for the files a note or the map points to.
 
-## How to use this folder
+## How to use this folder (every request, every session — also stated at the top of `CLAUDE.md`)
 
+**Before** the work:
 1. Read this README (map + rules + current state).
-2. Read the newest notes in `log/` (newest first) for recent changes in the area you are touching.
-3. Only then open the specific files named there.
-4. After every response, add a note to `log/` (`YYYY-MM-DD-NN-topic.md`), update "Current state" below if it changed, and commit it with that response's work.
+2. Read the newest 3-5 notes in `log/` (newest first) for recent changes in the area you are touching.
+3. Only then open the specific files named there, and confirm in the code every fact you will rely on.
+
+**After** the work, in the same response:
+4. Add `log/YYYY-MM-DD-NN-topic.md` (next NN for that day) with: the request, what changed (files, functions,
+   commits), how it was verified (command + result), what was NOT verified, and follow-ups.
+5. Update "Current state" / the map below if they changed, and commit the note with that response's work.
+
+## No-hallucination rules
+
+- Facts come from the code, not from memory or docs: grep/read before naming a file, function, env var, table,
+  endpoint or default. This README, `CLAUDE.md` and old log notes go stale; when they disagree with code, fix the doc.
+- `.env.example` lists exactly the variables the code reads: add new ones in the same change, remove dropped ones.
+- No hard-coded machine paths, user names, emails or hosts in code; use `core/config.py` constants or env vars.
+- Say "not verified" for anything not run. Never claim tests pass without their output.
+- Remove dead code rather than keeping it "for later"; grep every caller (code and local `tests/`) first.
 
 ## Standing rules
 
@@ -83,6 +97,14 @@ changed and why. Open the code only for the files a note or the map points to.
   the system message (provider prompt cache makes repeats cheap) only for stages brief_scope, background_research,
   search_strategy, matching_label, dataset_tagging, deck_engine, deck_studio (`GUARDED_STAGES`). DB read cached 30 s.
   InfoVision's guardrail is seeded once from `guardrails/seed_infovision.md` (user's text, unchanged).
+
+## Reviewer backlog (2026-11-12)
+
+- **Raw SQL instead of an ORM** (open, needs a decision): ~384 `execute()` calls over 31 files, SQLite-style SQL
+  translated to Postgres by `core/pg.py`, schema + migrations hand-written in `core/db.py` (~1,900 lines).
+  Moving to SQLAlchemy models + Alembic means rewriting every repository; not started. See log 2026-11-12-01.
+- `domains/agent/qa_browser.py`: standalone CLI (argparse), imported by nothing; keep or delete is the user's call.
+- Local `.env` holds ~45 keys no code reads, and python-dotenv cannot parse its line 69 (not opened: may hold a secret).
 
 ## Current state (2026-11-08)
 

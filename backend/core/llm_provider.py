@@ -21,7 +21,6 @@ from typing import Callable, Optional
 
 import numpy as np
 
-from .config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +86,7 @@ class NoEmbedProviderError(RuntimeError):
     """Raised by embed()/embed_batch() when no embedding provider is configured or reachable."""
 
 
-def _build_chat_backend(settings: Settings):
+def _build_chat_backend():
     azure_key = os.getenv("AZURE_OPENAI_API_KEY", "")
     azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "")
     azure_deployment = os.getenv("AZURE_OPENAI_MODEL", "")
@@ -109,8 +108,8 @@ def _build_embed_backend():
 
 
 class HybridLLMClient:
-    def __init__(self, settings: Settings):
-        self._chat_backend, chat_name = _build_chat_backend(settings)
+    def __init__(self):
+        self._chat_backend, chat_name = _build_chat_backend()
         self._embed_backend, embed_name = _build_embed_backend()
         self._asked: set[str] = set()
         logger.info(
@@ -228,8 +227,8 @@ class HybridLLMClient:
         return self._embed_backend.embed_batch(texts)
 
 
-def build_llm_client(settings: Settings) -> HybridLLMClient:
-    return HybridLLMClient(settings)
+def build_llm_client() -> HybridLLMClient:
+    return HybridLLMClient()
 
 
 def get_llm_client() -> HybridLLMClient | None:
@@ -237,8 +236,7 @@ def get_llm_client() -> HybridLLMClient | None:
     from dotenv import load_dotenv
     load_dotenv()
 
-    from .config import load_settings
-    client = build_llm_client(load_settings())
+    client = build_llm_client()
     if client.is_reachable():
         return client
 

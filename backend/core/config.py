@@ -1,17 +1,8 @@
-"""Central configuration.
-
-Two kinds of settings live here:
-- `AppSettings` — process/environment config (CORS, API key, log level, provider keys),
-  read once from environment variables / .env and validated at startup.
-- `Settings` — the Brief-to-Deck agent's user-editable folders and models, stored in
-  data/settings.json and edited from the UI Settings panel.
-"""
+"""Central configuration: repo/data paths, and `AppSettings` (process/environment config read once from
+environment variables / .env and validated at startup)."""
 from __future__ import annotations
 
-import json
 import os
-import dataclasses
-from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
 
@@ -41,53 +32,9 @@ def input_roots() -> list[Path]:
 AGENT_INPUT_ROOTS = input_roots()
 TEMPLATES_DIR = REPO_ROOT / "PPT Templates"   # reference decks shipped with the repo
 
-SETTINGS_PATH = DATA_DIR / "settings.json"
+# Not a database file any more: core/db.py hashes this path into the Postgres schema name, so it must not change.
 MEMORY_DB_PATH = DATA_DIR / "memory.db"
 TEMPLATE_PATH = DATA_DIR / "hunter_template.pptx"
-
-DEFAULT_SETTINGS = {
-    "repo_dir": r"C:\Users\sweta.shah\OneDrive - InfoVision, Inc\Hunter PR\2026\All PPT Decks",
-    "briefs_dir": r"C:\Users\sweta.shah\OneDrive - InfoVision, Inc\Hunter PR\2026\New Client Brief Feeder Agent",
-    "output_dir": r"C:\Users\sweta.shah\OneDrive - InfoVision, Inc\Hunter PR\2026\Agent Output",
-    "ignore_patterns": ["Combined_*"],
-    "top_k_candidates": 8,
-    "relevance_threshold": 0.42,
-}
-
-
-@dataclass
-class Settings:
-    repo_dir: str
-    briefs_dir: str
-    output_dir: str
-    ignore_patterns: list
-    top_k_candidates: int
-    relevance_threshold: float
-
-    def to_dict(self):
-        return asdict(self)
-
-
-def load_settings() -> Settings:
-    if SETTINGS_PATH.exists():
-        try:
-            data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            data = {}
-    else:
-        data = {}
-    merged = {**DEFAULT_SETTINGS, **data}
-    known_fields = {f.name for f in dataclasses.fields(Settings)}
-    return Settings(**{k: v for k, v in merged.items() if k in known_fields})
-
-
-def save_settings(settings: Settings) -> None:
-    SETTINGS_PATH.write_text(json.dumps(settings.to_dict(), indent=2), encoding="utf-8")
-
-
-def ensure_dirs(settings: Settings) -> None:
-    for d in (settings.briefs_dir, settings.output_dir):
-        Path(d).mkdir(parents=True, exist_ok=True)
 
 
 class AppSettings(BaseSettings):

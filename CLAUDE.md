@@ -2,6 +2,28 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Every request: before and after (mandatory, every session)
+
+`Instructions/` is the project's working memory. It is the first and last thing touched in every response.
+
+**Before** answering or editing:
+1. Read `Instructions/README.md` (map, standing rules, current state).
+2. Read the newest 3-5 notes in `Instructions/log/` (newest first; names `YYYY-MM-DD-NN-topic.md`).
+3. Open only the files those point to, then verify each fact you will rely on in the code itself.
+
+**After** the work, in the same response:
+1. Add `Instructions/log/YYYY-MM-DD-NN-topic.md` (next NN for the day): request, what changed (files, functions),
+   how it was verified (commands + result), what was NOT verified, follow-ups.
+2. Update the README's "Current state" / map if they changed. Commit the note with that response's work.
+
+**No-hallucination rules** (the reviewer's main complaint was code and docs that did not match reality):
+- Never state a file, function, env var, table, endpoint or default from memory or from a doc alone. Grep or read it
+  first; docs here (including this file and old logs) go stale. If code and a doc disagree, the code wins: fix the doc.
+- Every new env var goes into `.env.example` in the same change; one that is no longer read is removed from it.
+- No hard-coded machine paths, user names, emails or hosts in code: use `core/config.py` constants or env vars.
+- Report outcomes as measured: say "not verified" when you did not run it. Do not claim tests pass without output.
+- Delete dead code instead of leaving it "for later"; before deleting, grep every caller (code and `tests/`).
+
 ## What this is
 
 The **Hunter Intelligence Platform** (see `docs/CURRENT_STATUS.md` and `docs/handover/HANDOVER.md`):
@@ -19,11 +41,12 @@ their Postgres tables are left in place (no data dropped) but no code reads them
 
 ```
 frontend/        React SPA (Vite); `npm run build` writes into backend/static/
-backend/         FastAPI app — main.py, core/, domains/<stage>/, supervisor.py, requirements.txt
+backend/         FastAPI app — main.py, core/, domains/<stage>/, requirements.txt
   agents/        LLM agents (brief scope, query builder, enrichment, tag schemas, …)
 data/            runtime data (gitignored) + the shipped house templates
-deploy/          Dockerfile (build from the repo root), render.yaml (reference), start.ps1,
-                 docker-compose.postgres.yml (local Postgres)
+deploy/          Dockerfile (build from the repo root), render.yaml (reference), start-all.ps1 / stop-all.ps1,
+                 start.ps1, docker-compose.postgres.yml (local Postgres, host port 5433)
+Instructions/    README (map, rules, current state) + log/ (one note per response) — read first, see above
 docs/            product/subsystem docs, docs/handover/
 .claude/skills/  Claude Code skills (deck-studio) — must stay here for Claude Code to load them
 .mcp.json        MCP servers (Playwright, Brandfetch) — must stay at the repo root
@@ -31,6 +54,10 @@ docs/            product/subsystem docs, docs/handover/
 
 ## Quick Start
 
+- **Everything at once:** `powershell -ExecutionPolicy Bypass -File deploy/start-all.ps1` (Docker Postgres, backend 8002,
+  Vite 5173); `deploy/stop-all.ps1 [-Force]` stops them (check for running deck/tagging jobs first: a restart kills them).
+- **Config:** copy `.env.example` to `.env`; it lists every variable the code reads (only `DATABASE_URL` is required
+  locally). `.env` itself is local and may hold extra unused keys; the code ignores them.
 - **Backend:** `python -m uvicorn backend.main:app --host 0.0.0.0 --port 8002` from the repo root
   (or `.\deploy\start.ps1` / `Start Hunter Agent.bat` to build the frontend once and launch).
 - **Frontend (dev):** `npm run dev` from `frontend/` — Vite on port 5173, proxies `/api` and `/ws` to
@@ -41,8 +68,10 @@ docs/            product/subsystem docs, docs/handover/
 - **Docker:** `docker build -f deploy/Dockerfile .` from the repo root.
 - **Local Postgres:** `docker compose -f deploy/docker-compose.postgres.yml up -d`, then set
   `DATABASE_URL` in `.env`.
-- If plain `python`/`pip` resolve to a broken Microsoft Store stub on a given machine, use the full
-  path to the real interpreter instead — check with `where python3`.
+- If plain `python` resolves to a broken Store stub or to `.venv-gpu` (which lacks the backend's packages), use the
+  real interpreter, e.g. `%LOCALAPPDATA%\Programs\Python\Python312\python.exe` (`deploy/start-all.ps1` picks it the same way).
+- **Tests (local only, `tests/` is gitignored, never push it):** `python -m pytest -q tests/<area>`; one test:
+  `python -m pytest -q tests/dataset/test_x.py::test_name`. `tests/conftest.py` holds the shared fixtures.
 - **Clear stale bytecode** (uvicorn `--reload` sometimes misses changes):
   `Get-ChildItem -Path "backend" -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force`
 
@@ -77,7 +106,7 @@ never import a `router.py`. Frontend (`frontend/src/`): `pages/` · `components/
   Postgres in production, via `DATABASE_URL` (required — the server refuses to start without it).
   Repositories write SQLite-style SQL (`?` placeholders, `INSERT OR IGNORE`), which `core/pg.py`
   translates; there is no SQLite fallback. Older docs describing `intelligence.db` or
-  `data/memory.db` are out of date. Every table (projects/specs/strategies/jobs/deliverables/QC,
+  `data/memory.db` are out of date (`config.MEMORY_DB_PATH` survives only because `core/db.py` hashes it into the schema name). Every table (projects/specs/strategies/jobs/deliverables/QC,
   plus the unused legacy tables of the deleted products) lives there.
   Uploaded dataset files are also kept in `intel_dataset_files`, since a hosted server's disk may
   not survive a restart.
@@ -95,7 +124,7 @@ never import a `router.py`. Frontend (`frontend/src/`): `pages/` · `components/
   `intel_articles` (deduped on normalised URL), one `intel_article_rq` row per article per approved RQ, and the
   tagging job (`tagging_job.py`: content → article tags → themes → RQs → relations). The deck reads only approved
   rows, through `deliverable/rows.approved_rows`. Analyst decisions are final: a Re-tag never overwrites a decided row.
-- **LLM chain:** `backend/core/llm_provider.py::build_llm_client(settings)` is the single factory
+- **LLM chain:** `backend/core/llm_provider.py::build_llm_client()` is the single factory
   used everywhere a chat/embedding client is needed (`get_llm_client()` in the same module,
   and every other call site — `domains/plan/service.py`,
   `core/llm_synthesis.py`, the `agents/*.py` modules). All clients live in `core/`. It returns a

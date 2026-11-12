@@ -13,7 +13,6 @@ import logging
 from typing import Any
 
 from ...core import store
-from ...core.config import load_settings
 from ...core.llm_provider import build_llm_client
 from ..dataset import repository as dataset_repo
 from ..deliverable import rows as engine_rows
@@ -281,8 +280,7 @@ def _run_planner_with_timeout(
     emit: Any,
 ) -> dict:
     """Run the LLM planner with a timeout, falling back to deterministic."""
-    settings = load_settings()
-    llm_client = build_llm_client(settings)
+    llm_client = build_llm_client()
 
     if not llm_client.is_reachable():
         logger.warning("[planner] No LLM provider reachable — using deterministic fallback")

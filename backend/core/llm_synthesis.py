@@ -9,7 +9,6 @@ import json
 import logging
 import re
 
-from .config import load_settings
 from .llm_provider import HybridLLMClient, build_llm_client
 
 logger = logging.getLogger(__name__)
@@ -20,8 +19,7 @@ _client: HybridLLMClient | None = None
 def _get_client() -> HybridLLMClient | None:
     global _client
     if _client is None:
-        cfg = load_settings()
-        _client = build_llm_client(cfg)
+        _client = build_llm_client()
     if not _client.is_reachable():
         logger.warning("[llm_synthesis] No LLM provider reachable")
         return None
