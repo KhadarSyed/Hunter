@@ -1,6 +1,6 @@
-"""SQLAlchemy table definitions for billing (the tables created by core/db.py migration 50), plus read-only column
-subsets of other domains' tables that billing's queries join. Those subsets move to their owning domain's models.py
-when that domain leaves core/pg.py. Column types mirror the Postgres schema (INTEGER→BIGINT, REAL→DOUBLE PRECISION)."""
+"""SQLAlchemy table definitions for billing (plans, org subscriptions, per-user token limits), plus read-only column
+subsets of other domains' tables that billing's queries join. Column types mirror the Postgres schema
+(backend/migrations: INTEGER→BIGINT, REAL→DOUBLE PRECISION)."""
 from __future__ import annotations
 
 from sqlalchemy import BigInteger, Column, Double, MetaData, Table, Text

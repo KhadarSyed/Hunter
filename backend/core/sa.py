@@ -34,7 +34,7 @@ def _url() -> str:
 
 class _BoolAsInt(Dumper):
     """Python True/False sent as 1/0: every flag column is an integer (the schema has no boolean columns), and code
-    passes comparisons such as `status == 200` straight into them, as the old core/pg.py adapter allowed."""
+    passes comparisons such as `status == 200` straight into them, as the earlier raw-SQL layer allowed."""
     oid = psycopg.adapters.types["int8"].oid
 
     def dump(self, obj: bool) -> bytes:

@@ -1,5 +1,4 @@
-"""Plans, org subscriptions, per-user token limits and the admin dashboards, through SQLAlchemy Core (models.py).
-The first domain moved off core/pg.py; same functions and dict results as before, so callers did not change."""
+"""Plans, org subscriptions, per-user token limits and the admin dashboards, through SQLAlchemy Core (models.py)."""
 from __future__ import annotations
 
 import time
