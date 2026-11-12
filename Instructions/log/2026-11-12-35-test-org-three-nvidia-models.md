@@ -23,3 +23,6 @@ admins emailed; never the platform model). Text and doc comment corrected; tsc/l
 
 **Open:** GLM 5.3 Flash stays as the 4th model; while NVIDIA does not serve it, it only adds a timeout at the end of
 a full outage chain. Remove it in Settings -> LLM Providers if not wanted (not removed: not asked).
+
+**Follow-up (user: "yes please"):** GLM 5.3 Flash removed from Test Organization through the app's
+DELETE `/api/intel/llm-providers/1` (200). Order now: Nemotron 3 Ultra (default), MiniMax M3.1 Flash, Step 5 Preview.
