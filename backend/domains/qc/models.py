@@ -63,3 +63,19 @@ qc_exports = Table(
     Column("format", Text),
     Column("created_at", Double, nullable=False),
 )
+
+
+# the QC link checker's cache: the latest fetch of each source URL (core/db.py QC_SCHEMA; columns from the live DB)
+qc_source_cache = Table(
+    "qc_source_cache", metadata,
+    Column("id", BigInteger, primary_key=True),
+    Column("url", Text, nullable=False),
+    Column("status_code", BigInteger),
+    Column("is_accessible", BigInteger),
+    Column("is_paywalled", BigInteger),
+    Column("extracted_headline", Text),
+    Column("extracted_date", Text),
+    Column("extracted_text", Text),
+    Column("fetch_error", Text),
+    Column("fetched_at", Double, nullable=False),
+)

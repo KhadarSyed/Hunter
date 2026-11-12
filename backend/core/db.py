@@ -10,7 +10,6 @@ import logging
 import os
 import re
 import time
-from typing import Optional
 
 from . import config
 
@@ -1899,35 +1898,3 @@ def init_intelligence_db() -> None:
             logger.info("Applied DB migrations %s", applied)
     finally:
         conn.close()
-
-
-# ─── QC Source Cache ────────────────────────────────────────────────────────
-
-def get_cached_source(url: str) -> Optional[dict]:
-    conn = _conn()
-    row = conn.execute("SELECT * FROM qc_source_cache WHERE url = ?", (url,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-
-def upsert_source_cache(url: str, **kwargs) -> None:
-    conn = _conn()
-    existing = conn.execute("SELECT id FROM qc_source_cache WHERE url = ?", (url,)).fetchone()
-    now = time.time()
-    if existing:
-        sets = []
-        vals = []
-        for k, v in kwargs.items():
-            sets.append(f"{k} = ?")
-            vals.append(v)
-        sets.append("fetched_at = ?")
-        vals.append(now)
-        vals.append(existing["id"])
-        conn.execute(f"UPDATE qc_source_cache SET {', '.join(sets)} WHERE id = ?", vals)
-    else:
-        cols = ["url", "fetched_at"] + list(kwargs.keys())
-        placeholders = ["?"] * len(cols)
-        vals = [url, now] + list(kwargs.values())
-        conn.execute(f"INSERT INTO qc_source_cache ({', '.join(cols)}) VALUES ({', '.join(placeholders)})", vals)
-    conn.commit()
-    conn.close()
