@@ -8,7 +8,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi import Path as PathParam
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 from ...core import store
 from ...core.api import OkResponse
@@ -25,6 +25,7 @@ from ...core.config import UPLOAD_DIR
 from ...core.events import broadcast as _broadcast
 from ...core.jobs import submit
 from . import export as qc_export
+from . import files as qc_files
 from . import parser as qc_parser
 from . import service as qc_service
 from .schemas import (
@@ -64,6 +65,7 @@ async def qc_upload_route(user: Annotated[dict, Depends(get_current_user)], proj
     dest.write_bytes(content)
 
     report_id = store.create_qc_report(project_id, file.filename or safe_name, str(dest))
+    qc_files.keep_upload(dest)                      # a hosted restart keeps the file the analyst is checking
 
     try:
         result = qc_parser.parse_file(str(dest))
@@ -124,7 +126,7 @@ def qc_preview_route(report_id: IdPath):
     if report["parse_status"] != "done":
         return {"status": report["parse_status"], "preview": [], "error": report.get("parse_error")}
 
-    parsed = qc_parser.parse_file(report["file_path"])
+    parsed = qc_parser.parse_file(qc_files.upload_path(report))
     if "error" in parsed:
         return {"status": "error", "preview": [], "error": parsed["error"]}
     return {"status": "done", "preview": parsed.get("preview", [])[:20]}
@@ -136,14 +138,14 @@ def qc_all_rows_route(report_id: IdPath):
     report = store.get_qc_report(report_id)
     if not report:
         raise HTTPException(404, "Report not found")
-    parsed = qc_parser.parse_file(report["file_path"])
+    parsed = qc_parser.parse_file(qc_files.upload_path(report))
     if "error" in parsed:
         return {"rows": []}
     columns = parsed.get("columns", [])
     all_preview = parsed.get("preview", [])
     if len(all_preview) < parsed.get("row_count", 0):
         mapping = report.get("field_mapping") or {}
-        raw = qc_parser.get_rows_from_file(report["file_path"], mapping)
+        raw = qc_parser.get_rows_from_file(qc_files.upload_path(report), mapping)
         reverse = {v: k for k, v in mapping.items()}
         all_preview = [{reverse.get(k, k): v for k, v in row.items()} for row in raw]
     return {"rows": all_preview, "columns": columns}
@@ -237,13 +239,16 @@ def qc_export_route(run_id: IdPath):
     return result
 
 
-@router.get("/qc/export/download/{export_id}", response_class=FileResponse, dependencies=[Depends(require_qc_export_access)])
+@router.get("/qc/export/download/{export_id}", dependencies=[Depends(require_qc_export_access)])
 def qc_export_download_route(export_id: IdPath):
 
     row = store.get_qc_export(export_id)
     if not row:
         raise HTTPException(404, "Export not found")
     p = Path(row["file_path"])
-    if not p.exists():
-        raise HTTPException(404, "Export file not found on disk")
-    return FileResponse(str(p), filename=row["file_name"], media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    if p.exists():
+        return FileResponse(str(p), filename=row["file_name"], media_type=qc_files.XLSX)
+    link = qc_files.export_link(row["run_id"], p, row["file_name"])     # this server's disk was reset: the S3 copy
+    if link:
+        return RedirectResponse(link, status_code=307)
+    raise HTTPException(404, "Export file not found")

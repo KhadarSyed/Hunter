@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ...core import store
 from ...core.config import EXPORT_DIR
+from . import files as qc_files
 from . import parser as qc_parser
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,7 @@ def export_qc_results(run_id: int) -> dict:
         cell.alignment = Alignment(horizontal="center")
         cell.border = thin_border
 
-    all_raw_rows = _read_all_original(report["file_path"], original_cols)
+    all_raw_rows = _read_all_original(qc_files.upload_path(report), original_cols)
 
     for row_idx, raw_row in enumerate(all_raw_rows, 2):
         for col_idx, col_name in enumerate(original_cols, 1):
@@ -135,6 +136,7 @@ def export_qc_results(run_id: int) -> dict:
     ws_summary.column_dimensions["B"].width = 30
 
     wb.save(str(export_path))
+    qc_files.keep_export(run_id, export_path)       # downloadable after a hosted restart too
 
     export_id = _save_export_record(run_id, export_name, str(export_path))
 

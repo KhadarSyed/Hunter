@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 from ...core import store
 from ...core.safe_fetch import safe_get
+from . import files as qc_files
 from . import parser as qc_parser
 from . import source_retrieval
 
@@ -40,7 +41,7 @@ def run_qc(report_id: int, on_progress=None) -> dict:
     run_id = store.create_qc_run(report_id)
     store.update_qc_run(run_id, status="running", started_at=time.time())
 
-    rows = qc_parser.get_rows_from_file(report["file_path"], mapping)
+    rows = qc_parser.get_rows_from_file(qc_files.upload_path(report), mapping)
     if not rows:
         store.update_qc_run(run_id, status="failed", completed_at=time.time())
         return {"error": "No rows to check"}
