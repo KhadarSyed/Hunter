@@ -1,4 +1,10 @@
-# Hunter Intelligence — Current Status
+# Hunter Intelligence — Status History (sprint log to 2026-11-06)
+
+> **This is a historical log, not the current state.** Many stages it marks "Complete" (slide intelligence,
+> presentation composer, PowerPoint/Word renderers, publishing gateway, evidence library, insights, storylines,
+> pipeline orchestrator) were deleted on 2026-11-05, and "SQLite tables" are Postgres tables managed by Alembic
+> since 2026-11-12. Current state: `Instructions/README.md`, `Instructions/log/`, `CLAUDE.md`,
+> `docs/handover/HANDOVER.md`.
 
 *Last updated: 2026-11-06 (Matching label + Data set replace the old Data sources flow)*
 

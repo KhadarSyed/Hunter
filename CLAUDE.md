@@ -26,7 +26,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-The **Hunter Intelligence Platform** (see `docs/CURRENT_STATUS.md` and `docs/handover/HANDOVER.md`):
+The **Hunter Intelligence Platform** (short handover: `docs/handover/HANDOVER.md`):
 a research pipeline (brief → scope → background research → search strategy → data sources →
 research plan → deliverables, where the deck engine in `domains/deliverable/` + `domains/deckstudio/`
 analyses the datasets and renders the branded PPTX/Word/HTML deck) plus a separate **QC flow** for
@@ -167,10 +167,9 @@ never import a `router.py`. Frontend (`frontend/src/`): `pages/` · `components/
 ### Intelligence Platform stage → module map
 
 Each stage is a `domains/<stage>/` folder + one or more frontend pages (paths below are relative
-to `backend/domains/` unless they start with `agents/`). Consult
-`docs/CURRENT_STATUS.md` for exhaustive per-stage detail (DB tables, endpoint counts, test
-counts) before assuming a stage is unbuilt — most of the pipeline is fully implemented and tested,
-not scaffolding.
+to `backend/domains/` unless they start with `agents/`). Before assuming a stage is unbuilt, read its
+`domains/<stage>/` folder and `Instructions/log/` — most of the pipeline is fully implemented and tested, not
+scaffolding.
 
 | Stage | Backend | Frontend |
 |---|---|---|
@@ -233,7 +232,8 @@ URL (e.g. `/{projectId}/research-plan`), but no sidebar or Dashboard link leads 
 
 ## Handover & Status Docs
 
-- `docs/handover/HANDOVER.md` — architecture, bug history, environment variables, DB schema reference.
-- `docs/CURRENT_STATUS.md` — authoritative per-stage completion status, endpoint/table/test counts,
-  sprint-by-sprint change log. Check this before assuming a stage is unbuilt.
+- `docs/handover/HANDOVER.md` — short handover (stack, run, deploy, how to change the code); rewritten 2026-11-12.
+- `Instructions/README.md` + `Instructions/log/` — the maintained current state and change history.
+- `docs/CURRENT_STATUS.md` — HISTORY only (sprint log to 2026-11-06): many stages it lists as complete were deleted
+  since; never cite it as current without checking the code.
 - `docs/PRODUCT_SPEC.md` — product spec.
