@@ -103,8 +103,9 @@ changed and why. Open the code only for the files a note or the map points to.
 - **Raw SQL → SQLAlchemy** (agreed 2026-11-12, in progress, one domain at a time): `core/sa.py` + `models.py` +
   Core queries per domain. Done: **billing** (log 04), **guardrails, exclusions, assets, memory** (log 05), **datasources, providers** (log 09). Next: the other domains, smallest first;
   delete `core/pg.py` after the last one. Alembic arrives with the first schema change in a moved domain.
-- **Packages to adopt** (order agreed, log 04): ruff + vulture DONE (log 10); ESLint DONE (log 11); Vitest DONE + react-router DROPPED (log 12); next openapi-typescript client, TanStack Query. Settings-into-AppSettings DROPPED (log 10): ~22 env vars
-  are changed at runtime by tests/schema switching; a cached settings object would ignore them.
+- **Packages to adopt** (order agreed, log 04): ruff + vulture DONE (log 10); ESLint DONE (log 11); Vitest DONE + react-router DROPPED (log 12). Remaining, adopt WHEN (log 13): openapi-typescript client once
+  most routes declare response_model (116/201 today); TanStack Query page by page where a page has a real
+  stale-data/refetch problem.
 - Dead code removed (log 10): `core/llm_synthesis.py`, 13 unused functions. Still open: `domains/agent/qa_browser.py`: standalone CLI (argparse), imported by nothing; keep or delete is the user's call.
 - Local `.env` holds ~45 keys no code reads, and python-dotenv cannot parse its line 69 (not opened: may hold a secret).
 
