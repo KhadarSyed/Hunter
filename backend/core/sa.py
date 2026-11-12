@@ -10,7 +10,9 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import lru_cache
 
-from sqlalchemy import Connection, Engine, create_engine
+import psycopg
+from psycopg.adapt import Dumper
+from sqlalchemy import Connection, Engine, create_engine, event
 
 from .db import MISSING_DATABASE, schema_for_tests
 
@@ -30,10 +32,24 @@ def _url() -> str:
     return url
 
 
+class _BoolAsInt(Dumper):
+    """Python True/False sent as 1/0: every flag column is an integer (the schema has no boolean columns), and code
+    passes comparisons such as `status == 200` straight into them, as the old core/pg.py adapter allowed."""
+    oid = psycopg.adapters.types["int8"].oid
+
+    def dump(self, obj: bool) -> bytes:
+        return b"1" if obj else b"0"
+
+
 @lru_cache(maxsize=4)
 def _engine(url: str) -> Engine:
-    return create_engine(url, pool_size=POOL_SIZE, max_overflow=MAX_OVERFLOW, pool_timeout=POOL_TIMEOUT_S,
-                         pool_recycle=POOL_RECYCLE_S, pool_pre_ping=True)
+    engine = create_engine(url, pool_size=POOL_SIZE, max_overflow=MAX_OVERFLOW, pool_timeout=POOL_TIMEOUT_S,
+                           pool_recycle=POOL_RECYCLE_S, pool_pre_ping=True)
+
+    @event.listens_for(engine, "connect")
+    def _bools_as_ints(dbapi_conn, _record) -> None:
+        dbapi_conn.adapters.register_dumper(bool, _BoolAsInt)
+    return engine
 
 
 @contextmanager
