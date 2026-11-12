@@ -42,10 +42,6 @@ def _scored(intent: str, brand_mood: list[str]) -> list[tuple[int, str, dict]]:
     return sorted(scored, key=lambda x: (-x[0], x[1]))
 
 
-def shortlist(intent: str, brand_mood: list[str], k: int = SHORTLIST) -> list[dict]:
-    return [t for _s, _slug, t in _scored(intent, brand_mood)[:k]]
-
-
 MIN_FIT = 2                       # words a library system shares with the brief before it counts as a match
 GENERATED = "generated"
 _HEX = re.compile(r"^#[0-9A-Fa-f]{6}$")

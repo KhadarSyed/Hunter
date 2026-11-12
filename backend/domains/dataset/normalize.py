@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from ..deliverable.ingest import infer_date_order, normalize_url, parse_date
 from ..deliverable.rows import author_of

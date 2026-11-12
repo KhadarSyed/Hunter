@@ -56,11 +56,6 @@ def _project_tag_schemas(project_id: int, llm=None) -> dict[str, ts.TagSchema]:
     return out
 
 
-def schema_for_dataset(dataset: dict, llm=None) -> ts.TagSchema | None:
-    """The schema of the question a dataset was uploaded for (none when it is not mapped to one)."""
-    return project_tag_schemas(dataset["project_id"], llm).get(dataset.get("research_question_id") or "")
-
-
 def with_also_questions(dataset: dict, records: list[dict], llm=None) -> tuple[list[dict], dict[str, ts.TagSchema]]:
     """The other questions' schemas, and each record with `also_questions`: the questions (not the file's own) whose
     Meltwater query matches it, as the deck's routing will. A question with no upload of its own gets its tags

@@ -70,6 +70,8 @@ docs/            product/subsystem docs, docs/handover/
   `DATABASE_URL` in `.env`.
 - If plain `python` resolves to a broken Store stub or to `.venv-gpu` (which lacks the backend's packages), use the
   real interpreter, e.g. `%LOCALAPPDATA%\Programs\Python\Python312\python.exe` (`deploy/start-all.ps1` picks it the same way).
+- **Lint (dev tools: `pip install -r backend/requirements-dev.txt`):** `python -m ruff check backend` (config
+  `ruff.toml`, must stay clean); dead code: `python -m vulture backend --min-confidence 80 --exclude backend/static`.
 - **Tests (local only, `tests/` is gitignored, never push it):** `python -m pytest -q tests/<area>`; one test:
   `python -m pytest -q tests/dataset/test_x.py::test_name`. `tests/conftest.py` holds the shared fixtures.
 - **Clear stale bytecode** (uvicorn `--reload` sometimes misses changes):

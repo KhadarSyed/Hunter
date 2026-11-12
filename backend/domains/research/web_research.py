@@ -6,14 +6,12 @@ validation, date filtering, and source quality classification.
 """
 from __future__ import annotations
 
-import asyncio
 import re
 import time
 from datetime import date, datetime, timedelta
 from typing import Callable, Optional
 from urllib.parse import urlparse
 
-from ...core.safe_fetch import safe_get
 from . import news_search
 from .multi_source import build_boolean_queries, date_range_to_timestamps, fetch_and_persist, search_brand_term
 
@@ -360,16 +358,6 @@ class LiveWebResearchAdapter:
             for r in results if not _is_blocked(r.get("url", ""))
         ]
 
-    async def fetch_url(self, url: str) -> dict:
-        """Fetch URL content — satisfies the protocol."""
-        try:
-            resp = await asyncio.to_thread(safe_get, url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
-            if resp is None:
-                return {"url": url, "title": "", "text": "", "status": 0, "error": "Not a public web address"}
-            return {"url": url, "title": "", "text": resp.text[:5000], "status": resp.status_code}
-        except Exception as e:
-            return {"url": url, "title": "", "text": "", "status": 0, "error": str(e)}
-
     def run_full_research(
         self,
         spec: dict,
@@ -637,12 +625,6 @@ class LiveWebResearchAdapter:
             return rs["description"]
         return ""
 
-    def _extract_parent_company(self, spec: dict) -> str | None:
-        cb = spec.get("commissioning_brand", {})
-        if isinstance(cb, dict):
-            return cb.get("parent_company")
-        return None
-
     def _extract_category(self, spec: dict) -> str:
         cb = spec.get("commissioning_brand", {})
         if isinstance(cb, dict) and cb.get("category"):
@@ -664,12 +646,6 @@ class LiveWebResearchAdapter:
                     return cat
         return "general"
 
-    def _extract_products(self, spec: dict) -> list[str]:
-        cb = spec.get("commissioning_brand", {})
-        if isinstance(cb, dict) and cb.get("products"):
-            return cb["products"]
-        return []
-
     def _extract_geography(self, spec: dict) -> str:
         scope = spec.get("included_scope", {})
         if isinstance(scope, dict):
@@ -677,19 +653,6 @@ class LiveWebResearchAdapter:
             if countries:
                 return _country_to_iso_code(countries[0])
         return "US"
-
-    def _extract_audience(self, spec: dict) -> str:
-        ra = spec.get("research_audience", {})
-        if isinstance(ra, dict) and ra.get("description"):
-            return ra["description"]
-        return ""
-
-    def _extract_rqs(self, spec: dict) -> list[str]:
-        rqs = spec.get("research_questions", [])
-        return [
-            rq["question"] for rq in rqs
-            if isinstance(rq, dict) and rq.get("question")
-        ][:8]
 
     def _extract_date_range(self, spec: dict) -> tuple[date, date]:
         scope = spec.get("included_scope", {})

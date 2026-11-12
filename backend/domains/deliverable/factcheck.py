@@ -9,7 +9,6 @@ from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.util import Pt
 
-from ...core.llm_synthesis import _figures
 from . import qc
 
 logger = logging.getLogger(__name__)
@@ -31,6 +30,19 @@ def _slide_text(slide) -> str:
         if getattr(sh, "has_table", False) and sh.has_table:
             parts += [c.text for row in sh.table.rows for c in row.cells]
     return "\n".join(parts)
+
+
+_FIGURE = re.compile(r"\d[\d,]*(?:\.\d+)?%?")
+
+
+def _figures(text: str) -> set[str]:
+    """Percentages and multi-digit numbers (the figures a reader would take as facts)."""
+    out = set()
+    for raw in _FIGURE.findall(text or ""):
+        value = raw.replace(",", "")
+        if value.endswith("%") or len(value.rstrip("%").split(".")[0]) >= 2:
+            out.add(value)
+    return out
 
 
 def _with_rounding(figures: set[str]) -> set[str]:

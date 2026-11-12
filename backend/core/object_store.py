@@ -110,18 +110,6 @@ def delete(key: str) -> bool:
         return False
 
 
-def presign(key: str, seconds: int = 604_800) -> str | None:
-    c = _client()
-    if c is None:
-        return None
-    s3, bucket = c
-    try:
-        return s3.generate_presigned_url("get_object", Params={"Bucket": bucket, "Key": _full(key)}, ExpiresIn=seconds)
-    except Exception as e:
-        logger.warning("S3 presign %s failed: %s", key[:120], type(e).__name__)
-        return None
-
-
 def list_keys(prefix: str) -> list[tuple[str, int]]:
     c = _client()
     if c is None:

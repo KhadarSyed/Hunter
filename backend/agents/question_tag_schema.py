@@ -165,13 +165,6 @@ def from_json(data: dict) -> TagSchema:
                      tuple((c["key"], c.get("label") or c["key"]) for c in data.get("review_columns") or []))
 
 
-def prompt_block(schema: TagSchema) -> str:
-    """The schema as the enrichment prompt states it."""
-    return json.dumps([{"tag_name": t.tag_name, "tag_type": t.tag_type, "definition": t.definition,
-                        "allowed_values": list(t.allowed_values), "extraction_rule": t.extraction_rule}
-                       for t in schema.tags], ensure_ascii=False)
-
-
 def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", str(text or "")).strip().lower()
 

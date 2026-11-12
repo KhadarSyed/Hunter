@@ -41,17 +41,6 @@ class WebResearchAdapter(Protocol):
         """
         ...
 
-    async def fetch_url(self, url: str) -> dict:
-        """Fetch and extract content from a URL.
-
-        Should return a dict with at minimum:
-          - url: str
-          - title: str
-          - text: str  (extracted body text)
-          - status: int
-        """
-        ...
-
 
 # ─── System prompt ────────────────────────────────────────────────────────────
 

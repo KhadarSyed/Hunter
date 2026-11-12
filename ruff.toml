@@ -1,0 +1,12 @@
+# Python lint for backend/ (run from the repo root): python -m ruff check backend
+# F = pyflakes (unused imports/variables, undefined names), E9 = syntax errors. The codebase passes these today;
+# widen `select` one rule family at a time, fixing what it finds in the same change.
+line-length = 120
+target-version = "py312"
+extend-exclude = ["backend/static", "frontend", "data", ".venv-gpu"]
+
+[lint]
+select = ["F", "E9"]
+
+[lint.per-file-ignores]
+"backend/core/store.py" = ["F401", "F403"]   # the facade re-exports every repository with star imports

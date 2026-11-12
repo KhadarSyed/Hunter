@@ -127,10 +127,3 @@ def _union(dim_lists: list[list[qd.Dimension]]) -> list[qd.Dimension]:
             names = {v.name for v in have.values}
             merged[d.key] = qd.Dimension(have.key, have.label, have.values + tuple(v for v in d.values if v.name not in names))
     return list(merged.values())
-
-
-def dimensions_for_dataset(dataset: dict, llm=None) -> list[qd.Dimension]:
-    """The dimensions of the question a dataset was uploaded for; every question's when it is not mapped to one."""
-    by_rq = project_dimensions(dataset["project_id"], llm)
-    rq = dataset.get("research_question_id")
-    return by_rq[rq] if rq in by_rq else _union(list(by_rq.values()))

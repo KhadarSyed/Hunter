@@ -5,8 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from ...core.llm_synthesis import _figures
-from ..deliverable.factcheck import _with_rounding
+from ..deliverable.factcheck import _figures, _with_rounding
 from .indexer import SHINGLE
 from .renderer import slide_text
 

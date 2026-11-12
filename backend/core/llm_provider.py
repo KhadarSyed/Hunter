@@ -118,8 +118,7 @@ class HybridLLMClient:
         )
 
     def is_reachable(self) -> bool:
-        """Chat reachability: the platform model, or the scoped org's own models. (Embeddings have their own
-        NVIDIA NIM check — see is_embed_reachable().)"""
+        """Chat reachability: the platform model, or the scoped org's own models (embeddings are not checked here)."""
         if self._chat_backend is not None:
             return True
         try:
@@ -146,9 +145,6 @@ class HybridLLMClient:
             return fn(self._platform())
         from ..domains.providers import service as providers
         return providers.call(org, rows, fn)
-
-    def is_embed_reachable(self) -> bool:
-        return self._embed_backend is not None
 
     def chat(
         self,

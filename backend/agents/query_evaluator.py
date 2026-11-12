@@ -547,8 +547,8 @@ def _classify_record_impl(
         result["classification"] = "relevant"
         result["confidence"] = "medium"
         result["reasons"].append(
-            f"Matches brand terms and strategy terms but no specific "
-            f"research question")
+            "Matches brand terms and strategy terms but no specific "
+            "research question")
     elif has_brand and not has_strategy and not has_rq:
         result["classification"] = "partially_relevant"
         result["confidence"] = "medium"

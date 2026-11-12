@@ -151,14 +151,3 @@ def _parse_xlsx(path: Path) -> str:
         return "\n\n".join(sheets)
     finally:
         wb.close()
-
-
-def guess_client_name(brief_text: str, filename: str) -> str:
-    """Best-effort client name guess; refined later by the LLM reasoning pass."""
-    stem = Path(filename).stem
-    for sep in ("_", "-"):
-        if sep in stem:
-            token = stem.split(sep)[0].strip()
-            if token and token.lower() not in ("brief", "client", "new"):
-                return token
-    return stem.strip() or "Unknown Client"

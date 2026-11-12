@@ -17,7 +17,6 @@ a deterministic fallback matches titles: same headline = syndicated, heavy word 
 from __future__ import annotations
 
 import logging
-import os
 import re
 from urllib.parse import urlparse
 
