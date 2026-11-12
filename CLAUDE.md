@@ -64,7 +64,8 @@ docs/            product/subsystem docs, docs/handover/
   `http://127.0.0.1:8002` (see `frontend/vite.config.ts`).
 - **Frontend (build):** `npm run build` from `frontend/` — runs `tsc -b && vite build`, outputs straight
   into `backend/static/` so the FastAPI server can serve the built SPA directly from port 8002 with
-  no Vite involved. Type-check only: `cd frontend && npx tsc --noEmit`.
+  no Vite involved. Type-check only: `cd frontend && npx tsc --noEmit`. Lint: `npm run lint` (ESLint 9,
+  `frontend/eslint.config.js`; must stay at 0 errors — `any` and effect-dependency findings are warnings).
 - **Docker:** `docker build -f deploy/Dockerfile .` from the repo root.
 - **Local Postgres:** `docker compose -f deploy/docker-compose.postgres.yml up -d`, then set
   `DATABASE_URL` in `.env`.

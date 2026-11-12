@@ -3,7 +3,6 @@ import { Donut } from "../components/Donut";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { intelApi, type BriefResult, type BriefSection, type JobStatus, type SourceRef } from "../services/intel-api";
-import { useDemoState } from "../context/demo-state";
 import { useProject, useActiveProjectId } from "../context/project-context";
 import { useJobStatus } from "../hooks/useJobStatus";
 import { useAutorun } from "../hooks/useAutorun";
@@ -676,7 +675,6 @@ interface Props {
 export function BackgroundResearch({ onNavigate }: Props) {
   const { activeProject, setActiveProject } = useProject();
   const projectId = activeProject?.id ?? null;
-  const demo = useDemoState();
 
   const [pageState, setPageState] = useState<PageState>("idle");
   const [progress, setProgress] = useState<ProgressState>({ pct: 0, message: "" });
@@ -876,7 +874,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
     try {
       const project = await intelApi.getProject(projectId);
       if (project.spec) spec = project.spec;
-    } catch {}
+    } catch { /* optional: the page works without this data */ }
     if (!spec) {
       setError("No project specification found. Complete Brief & Scope first.");
       setPageState("failed");
@@ -914,7 +912,7 @@ export function BackgroundResearch({ onNavigate }: Props) {
         if (existing && existing.research?.web_search_executed) {
           hasResearch = true;
         }
-      } catch {}
+      } catch { /* optional: the page works without this data */ }
 
       if (!hasResearch) {
         await triggerFreshResearch();

@@ -131,26 +131,26 @@ export function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }
         if (spec) {
           s.researchType = spec.research_type || spec.methodology?.primary || "Research";
         }
-      } catch {}
+      } catch { /* optional: the page works without this data */ }
 
       try {
         const prereqs = await intelApi.validatePlanPrereqs(activeProjectId);
         s.briefApproved = prereqs.prerequisites.brief_scope?.status === "approved";
         s.backgroundApproved = prereqs.prerequisites.background_research?.status === "approved";
         s.strategyApproved = prereqs.prerequisites.search_strategy?.status === "approved";
-      } catch {}
+      } catch { /* optional: the page works without this data */ }
 
       try {
         const st = await intelApi.getStrategy(activeProjectId);
         const rqs = ((st.strategy as { research_question_queries?: { status?: string }[] }).research_question_queries) ?? [];
         s.matchingApproved = rqs.some((r) => (r.status ?? "approved") === "approved");
-      } catch {}
+      } catch { /* optional: the page works without this data */ }
 
       try {
         // an article approved for an approved question, as the deck's gate requires
         const coverage = await intelApi.deliverableCoverage(activeProjectId);
         s.datasetApproved = coverage.rqs.some((r) => (r.shared ?? 0) > 0);
-      } catch {}
+      } catch { /* optional: the page works without this data */ }
 
       // Insights, slides and downloads come from the latest deliverable run
       let runActivity: ActivityItem[] = [];

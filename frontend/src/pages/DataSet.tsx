@@ -57,7 +57,6 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
   const [approval, setApproval] = useState<{ at: number; by: string | null } | null>(null);
   const [approving, setApproving] = useState(false);
   const [matchNote, setMatchNote] = useState<string | null>(null);
-  const [articleTotal, setArticleTotal] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -107,7 +106,6 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
       setTagged(t.counts.tags.tagged ?? 0);
       setApproval(t.approval ?? null);
       setPools({ matched: t.counts.matched ?? 0, irrelevant: t.counts.irrelevant ?? 0, unmatched: t.counts.unmatched ?? 0 });
-      setArticleTotal(t.counts.total);
       setProgress(t.running ? { phase: t.phase ?? "", done: t.done, total: t.total, minutesLeft: t.minutes_left } : null);
       // Seed the phase clock from the server's ETA (left = elapsed / done * remaining) so a page opened mid-run keeps counting.
       const remaining = t.total - t.done;

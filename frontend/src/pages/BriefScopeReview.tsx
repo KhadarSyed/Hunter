@@ -172,6 +172,7 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
   const [generating, setGenerating] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [submitting, setSubmitting] = useState<number | null>(null);
   const [editing, setEditing] = useState(false);
@@ -331,11 +332,13 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
     const answer = answers[clarId]?.trim();
     if (!answer) return;
     setSubmitting(clarId);
+    setActionError(null);
     try {
       await intelApi.resolveSpecClarification(clarId, answer);
       setAnswers(prev => { const next = { ...prev }; delete next[clarId]; return next; });
       await loadSpec();
     } catch {
+      setActionError("Your answer could not be saved. Please try again.");
     } finally {
       setSubmitting(null);
     }
@@ -343,10 +346,12 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
 
   const handleSkipQuestion = async (clarId: number) => {
     setSubmitting(clarId);
+    setActionError(null);
     try {
       await intelApi.resolveSpecClarification(clarId, "Skipped — use best judgment", "analyst");
       await loadSpec();
     } catch {
+      setActionError("The question could not be skipped. Please try again.");
     } finally {
       setSubmitting(null);
     }
@@ -443,6 +448,7 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
       setEditAnswerText("");
       await loadSpec();
     } catch {
+      setActionError("Your edited answer could not be saved. Please try again.");
     } finally {
       setSubmitting(null);
     }
@@ -486,6 +492,7 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
       a.click();
       URL.revokeObjectURL(url);
     } catch {
+      setActionError("The specification could not be downloaded. Please try again.");
     } finally {
       setDownloading(false);
     }
@@ -675,6 +682,7 @@ export function BriefScopeReview({ onNavigate }: { onNavigate: (page: string) =>
   return (
     <>
     <div className="p-8 max-w-7xl mx-auto space-y-6 animate-fade-in">
+      {actionError && <div role="alert" className="rounded-lg border border-red-100 bg-red-50 px-4 py-2 text-sm text-red-700">{actionError}</div>}
       {/* Header + Scope */}
       <div className={`grid grid-cols-1 gap-5 ${hasScope ? "md:grid-cols-2" : ""}`}>
       {/* Header */}
