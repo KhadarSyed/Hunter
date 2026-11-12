@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import time
 from pathlib import Path
 
 from ...core import store
@@ -171,13 +170,4 @@ def _read_all_original(file_path: str, columns: list[str]) -> list[dict]:
 
 
 def _save_export_record(run_id: int, file_name: str, file_path: str) -> int:
-    conn = store._conn()
-    now = time.time()
-    cur = conn.execute(
-        "INSERT INTO qc_exports (run_id, file_name, file_path, format, created_at) VALUES (?, ?, ?, 'xlsx', ?)",
-        (run_id, file_name, file_path, now),
-    )
-    eid = cur.lastrowid
-    conn.commit()
-    conn.close()
-    return eid
+    return store.create_qc_export(run_id, file_name, file_path)

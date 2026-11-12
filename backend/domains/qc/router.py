@@ -240,9 +240,7 @@ def qc_export_route(run_id: IdPath):
 @router.get("/qc/export/download/{export_id}", response_class=FileResponse, dependencies=[Depends(require_qc_export_access)])
 def qc_export_download_route(export_id: IdPath):
 
-    conn = store._conn()
-    row = conn.execute("SELECT * FROM qc_exports WHERE id = ?", (export_id,)).fetchone()
-    conn.close()
+    row = store.get_qc_export(export_id)
     if not row:
         raise HTTPException(404, "Export not found")
     p = Path(row["file_path"])
