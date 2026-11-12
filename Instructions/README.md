@@ -107,7 +107,7 @@ changed and why. Open the code only for the files a note or the map points to.
 - **Packages to adopt** (order agreed, log 04): ruff + vulture DONE (log 10); ESLint DONE (log 11); Vitest DONE + react-router DROPPED (log 12). Remaining, adopt WHEN (log 13): openapi-typescript client once
   most routes declare response_model (116/201 today); TanStack Query page by page where a page has a real
   stale-data/refetch problem.
-- Dead code removed (log 10): `core/llm_synthesis.py`, 13 unused functions. Still open: `domains/agent/qa_browser.py`: standalone CLI (argparse), imported by nothing; keep or delete is the user's call.
+- Dead code removed (log 10): `core/llm_synthesis.py`, 13 unused functions. `domains/agent/qa_browser.py` deleted (log 30, user approved).
 - Local `.env` holds ~45 keys no code reads, and python-dotenv cannot parse its line 69 (not opened: may hold a secret).
 
 ## Current state (2026-11-08)
