@@ -1,8 +1,5 @@
-"""Projects repository (connection helper: core/db.py).
-
-Also contains:
-- jobs: Jobs repository (connection helper: core/db.py).
-"""
+"""Projects and their background jobs, through SQLAlchemy Core (models.py), plus project deletion: every row that
+belongs to a project, found through the schema's links, deleted children-first in one transaction."""
 from __future__ import annotations
 
 import json
@@ -11,7 +8,17 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from ...core.db import _PATH_COLUMNS, _conn, declared_foreign_keys, table_columns, table_names
+from sqlalchemy import column, delete, func, insert, select, table, update
+
+from ...core import sa
+from ...core.db import _PATH_COLUMNS, declared_foreign_keys
+from .models import intel_jobs as jobs
+from .models import intel_projects as projects
+
+# core/store.py star-imports this module: export only the repository functions and the card text limit
+__all__ = ["DESCRIPTION_MAX_CHARS", "create_project", "get_project", "list_projects", "set_project_owner",
+           "update_project", "get_or_create_project", "create_job", "update_job", "get_job", "list_jobs",
+           "cancel_stale_running_jobs", "delete_project", "project_name_taken"]
 
 # ─── Projects ────────────────────────────────────────────────────────────────
 
@@ -41,82 +48,67 @@ def _card_fields(spec: dict) -> dict:
 def create_project(name: str, spec: dict, project_type: str = "research", brand: str | None = None) -> int:
     """Create a project. `brand` is the Client name from the New Project form (drives the
     Brandfetch logo); it is stored as entered and never inferred from the brief."""
-    conn = _conn()
     now = time.time()
-    cur = conn.execute(
-        "INSERT INTO intel_projects (project_name, spec_json, project_type, brand, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (name, json.dumps(spec), project_type, (brand or "").strip() or None, now, now),
-    )
-    pid = cur.lastrowid
-    conn.commit()
-    conn.close()
-    return pid
+    with sa.begin() as conn:
+        return conn.execute(insert(projects).values(
+            project_name=name, spec_json=json.dumps(spec), project_type=project_type,
+            brand=(brand or "").strip() or None, created_at=now, updated_at=now).returning(projects.c.id)).scalar_one()
 
 
 def get_project(project_id: int) -> Optional[dict]:
-    conn = _conn()
-    row = conn.execute("SELECT * FROM intel_projects WHERE id = ?", (project_id,)).fetchone()
-    conn.close()
+    with sa.begin() as conn:
+        row = conn.execute(select(projects).where(projects.c.id == project_id)).first()
     if not row:
         return None
-    return {**dict(row), "spec": json.loads(row["spec_json"])}
+    d = dict(row._mapping)
+    return {**d, "spec": json.loads(d["spec_json"])}
 
 
 def list_projects(project_type: str | None = None, org_id: int | None = None,
-                   owner_user_id: int | None = None, include_archived: bool = False) -> list[dict]:
+                  owner_user_id: int | None = None, include_archived: bool = False) -> list[dict]:
     """Projects for the list page, newest first, with card fields (brand, description,
     geography, client) resolved server-side so the page needs a single request.
     org_id/owner_user_id scope the list to the caller's role (see projects/router.py);
     archived projects are excluded unless include_archived is True."""
-    sql = ("SELECT id, project_name, project_type, brand, spec_json, created_at, updated_at, "
-           "org_id, owner_user_id, archived_at FROM intel_projects")
-    clauses: list[str] = []
-    params: list = []
+    p = projects.c
+    q = select(p.id, p.project_name, p.project_type, p.brand, p.spec_json, p.created_at, p.updated_at, p.org_id,
+               p.owner_user_id, p.archived_at).order_by(p.updated_at.desc())
     if project_type:
-        clauses.append("project_type = ?")
-        params.append(project_type)
+        q = q.where(p.project_type == project_type)
     if org_id is not None:
-        clauses.append("org_id = ?")
-        params.append(org_id)
+        q = q.where(p.org_id == org_id)
     if owner_user_id is not None:
-        clauses.append("owner_user_id = ?")
-        params.append(owner_user_id)
+        q = q.where(p.owner_user_id == owner_user_id)
     if not include_archived:
-        clauses.append("archived_at IS NULL")
-    if clauses:
-        sql += " WHERE " + " AND ".join(clauses)
-    conn = _conn()
-    rows = conn.execute(sql + " ORDER BY updated_at DESC", tuple(params)).fetchall()
-    conn.close()
+        q = q.where(p.archived_at.is_(None))
+    with sa.begin() as conn:
+        rows = [dict(r._mapping) for r in conn.execute(q)]
     out = []
-    for r in rows:
-        d = dict(r)
+    for d in rows:
         spec = json.loads(d.pop("spec_json") or "{}")
         out.append({**d, **_card_fields(spec)})
     return out
 
 
 def set_project_owner(project_id: int, org_id: int | None, owner_user_id: int) -> None:
-    conn = _conn()
-    conn.execute("UPDATE intel_projects SET org_id = ?, owner_user_id = ? WHERE id = ?",
-                 (org_id, owner_user_id, project_id))
-    conn.commit()
-    conn.close()
+    with sa.begin() as conn:
+        conn.execute(update(projects).where(projects.c.id == project_id)
+                     .values(org_id=org_id, owner_user_id=owner_user_id))
 
 
 def update_project(
     project_id: int, project_name: str | None = None, spec: dict | None = None, brand: str | None = None
 ) -> bool:
     """Partially update a project; only provided fields change (brand only when passed)."""
-    conn = _conn()
-    conn.execute(
-        "UPDATE intel_projects SET project_name = COALESCE(?, project_name), "
-        "spec_json = COALESCE(?, spec_json), brand = COALESCE(?, brand), updated_at = ? WHERE id = ?",
-        (project_name, json.dumps(spec) if spec is not None else None, brand, time.time(), project_id),
-    )
-    conn.commit()
-    conn.close()
+    values: dict = {"updated_at": time.time()}
+    if project_name is not None:
+        values["project_name"] = project_name
+    if spec is not None:
+        values["spec_json"] = json.dumps(spec)
+    if brand is not None:
+        values["brand"] = brand
+    with sa.begin() as conn:
+        conn.execute(update(projects).where(projects.c.id == project_id).values(**values))
     return True
 
 
@@ -128,115 +120,87 @@ def get_or_create_project(spec: dict, org_id: int | None = None, owner_user_id: 
         name = cb.get("name", "")
     if not name:
         name = spec.get("project_name", "Untitled")
-
-    conn = _conn()
-    in_org = " AND org_id = ?" if org_id is not None else ""     # never match another org's same-named project
-    row = conn.execute(
-        f"SELECT id FROM intel_projects WHERE project_name = ?{in_org} ORDER BY created_at DESC, id DESC LIMIT 1",
-        (name, org_id) if org_id is not None else (name,),
-    ).fetchone()
-    conn.close()
-
-    if row:
-        return row["id"]
+    q = select(projects.c.id).where(projects.c.project_name == name)
+    if org_id is not None:                      # never match another org's same-named project
+        q = q.where(projects.c.org_id == org_id)
+    with sa.begin() as conn:
+        found = conn.execute(q.order_by(projects.c.created_at.desc(), projects.c.id.desc()).limit(1)).scalar()
+    if found is not None:
+        return found
     pid = create_project(name, spec)
     if owner_user_id is not None:
         set_project_owner(pid, org_id, owner_user_id)
     return pid
 
 
+def project_name_taken(org_id: int | None, name: str, exclude_id: int | None = None) -> bool:
+    """Project names are unique within an organization, ignoring case and surrounding spaces (archived included).
+    shortcut: checked, not indexed (a project gets its org right after the insert); a same-second race could slip by."""
+    p = projects.c
+    q = select(p.id).where(p.org_id.is_(None) if org_id is None else p.org_id == org_id,
+                           func.lower(func.trim(p.project_name)) == func.lower(func.trim(name)))
+    if exclude_id is not None:
+        q = q.where(p.id != exclude_id)
+    with sa.begin() as conn:
+        return conn.execute(q.limit(1)).first() is not None
+
+
 # ─── Jobs ────────────────────────────────────────────────────────────────────
 
-def create_job(job_id: str, project_id: int, job_type: str) -> str:
-    conn = _conn()
-    now = time.time()
-    conn.execute(
-        "INSERT INTO intel_jobs (id, project_id, job_type, status, created_at) VALUES (?, ?, ?, 'pending', ?)",
-        (job_id, project_id, job_type, now),
-    )
-    conn.commit()
-    conn.close()
-    return job_id
-
-
-def update_job(job_id: str, *, status: str | None = None, progress_pct: int | None = None,
-               progress_message: str | None = None, result: dict | None = None, error: str | None = None):
-    conn = _conn()
-    parts = []
-    vals = []
-    if status is not None:
-        parts.append("status = ?")
-        vals.append(status)
-        if status == "running" and not parts.__contains__("started_at"):
-            parts.append("started_at = ?")
-            vals.append(time.time())
-        if status in ("completed", "failed", "cancelled"):
-            parts.append("finished_at = ?")
-            vals.append(time.time())
-    if progress_pct is not None:
-        parts.append("progress_pct = ?")
-        vals.append(progress_pct)
-    if progress_message is not None:
-        parts.append("progress_message = ?")
-        vals.append(progress_message)
-    if result is not None:
-        parts.append("result_json = ?")
-        vals.append(json.dumps(result))
-    if error is not None:
-        parts.append("error = ?")
-        vals.append(error)
-
-    if parts:
-        vals.append(job_id)
-        conn.execute(f"UPDATE intel_jobs SET {', '.join(parts)} WHERE id = ?", vals)
-        conn.commit()
-    conn.close()
-
-
-def get_job(job_id: str) -> Optional[dict]:
-    conn = _conn()
-    row = conn.execute("SELECT * FROM intel_jobs WHERE id = ?", (job_id,)).fetchone()
-    conn.close()
-    if not row:
-        return None
-    d = dict(row)
+def _with_result(d: dict) -> dict:
     if d.get("result_json"):
         d["result"] = json.loads(d["result_json"])
     return d
 
 
+def create_job(job_id: str, project_id: int, job_type: str) -> str:
+    with sa.begin() as conn:
+        conn.execute(insert(jobs).values(id=job_id, project_id=project_id, job_type=job_type, status="pending",
+                                         created_at=time.time()))
+    return job_id
+
+
+def update_job(job_id: str, *, status: str | None = None, progress_pct: int | None = None,
+               progress_message: str | None = None, result: dict | None = None, error: str | None = None):
+    values: dict = {}
+    if status is not None:
+        values["status"] = status
+        if status == "running":                     # (re)set on every move to running, as before
+            values["started_at"] = time.time()
+        if status in ("completed", "failed", "cancelled"):
+            values["finished_at"] = time.time()
+    if progress_pct is not None:
+        values["progress_pct"] = progress_pct
+    if progress_message is not None:
+        values["progress_message"] = progress_message
+    if result is not None:
+        values["result_json"] = json.dumps(result)
+    if error is not None:
+        values["error"] = error
+    if values:
+        with sa.begin() as conn:
+            conn.execute(update(jobs).where(jobs.c.id == job_id).values(**values))
+
+
+def get_job(job_id: str) -> Optional[dict]:
+    with sa.begin() as conn:
+        row = conn.execute(select(jobs).where(jobs.c.id == job_id)).first()
+    return _with_result(dict(row._mapping)) if row else None
+
+
 def list_jobs(project_id: int, job_type: str | None = None) -> list[dict]:
-    conn = _conn()
+    q = select(jobs).where(jobs.c.project_id == project_id).order_by(jobs.c.created_at.desc())
     if job_type:
-        rows = conn.execute(
-            "SELECT * FROM intel_jobs WHERE project_id = ? AND job_type = ? ORDER BY created_at DESC",
-            (project_id, job_type),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT * FROM intel_jobs WHERE project_id = ? ORDER BY created_at DESC",
-            (project_id,),
-        ).fetchall()
-    conn.close()
-    result = []
-    for row in rows:
-        d = dict(row)
-        if d.get("result_json"):
-            d["result"] = json.loads(d["result_json"])
-        result.append(d)
-    return result
+        q = q.where(jobs.c.job_type == job_type)
+    with sa.begin() as conn:
+        return [_with_result(dict(r._mapping)) for r in conn.execute(q)]
 
 
 def cancel_stale_running_jobs():
-    conn = _conn()
-    now = time.time()
-    conn.execute(
-        "UPDATE intel_jobs SET status = 'cancelled', finished_at = ?, error = 'Canceled: stale job from prior session' "
-        "WHERE status IN ('running', 'pending')",      # queued jobs die with the process too
-        (now,),
-    )
-    conn.commit()
-    conn.close()
+    with sa.begin() as conn:
+        conn.execute(update(jobs).where(jobs.c.status.in_(("running", "pending")))     # queued jobs die with the process too
+                     .values(status="cancelled", finished_at=time.time(),
+                             error="Canceled: stale job from prior session"))
 
 
 # ─── Project deletion ───────────────────────────────────────────────────────
@@ -249,51 +213,71 @@ _UNDECLARED_LINKS: list[tuple[str, str, str]] = [  # (child table, child column,
     ("intel_word_metrics", "job_id", "intel_word_jobs"),
     ("intel_si_storyline_matches", "storyline_id", "intel_storylines"),
     ("intel_dataset_files", "dataset_id", "intel_datasets"),   # the uploaded file's bytes
+    ("intel_deliverable_sections", "run_id", "intel_deliverable_runs"),   # a deck's content; was left behind before
 ]
 _ROOT = "intel_projects"
-_DELETE_CHUNK = 500  # stay under SQLite's bound-parameter limit
+_DELETE_CHUNK = 500  # keeps each IN list bounded
+
+_info_columns = table("columns", column("table_name"), column("column_name"), column("table_schema"),
+                      schema="information_schema")
+_info_tables = table("tables", column("table_name"), column("table_schema"), schema="information_schema")
 
 
-def _child_links(conn) -> dict[str, list[tuple[str, str]]]:
+def _schema_columns(conn) -> dict[str, set[str]]:
+    """Every table of the current schema (tests: their own) and its columns, read once per deletion."""
+    tables = set(conn.execute(select(_info_tables.c.table_name)
+                              .where(_info_tables.c.table_schema == func.current_schema())).scalars())
+    cols: dict[str, set[str]] = {t: set() for t in tables}
+    for t, c in conn.execute(select(_info_columns.c.table_name, _info_columns.c.column_name)
+                             .where(_info_columns.c.table_schema == func.current_schema())):
+        if t in cols:
+            cols[t].add(c)
+    return cols
+
+
+def _child_links(columns: dict[str, set[str]]) -> dict[str, list[tuple[str, str]]]:
     """parent table -> [(child table, child column)]: the schema's declared FKs, every
     table with a project_id column, and _UNDECLARED_LINKS."""
     links: dict[str, set[tuple[str, str]]] = {}
-    tables = table_names(conn)
     for child, col, parent in declared_foreign_keys():   # from the schema, so Postgres (no FKs) gets them too
-        if child in tables and parent != child:            # skip self-references (e.g. library canonical_id)
+        if child in columns and parent != child:          # skip self-references (e.g. library canonical_id)
             links.setdefault(parent, set()).add((child, col))
-    for t in tables:
-        if t != _ROOT and "project_id" in table_columns(conn, t):
+    for t, cols in columns.items():
+        if t != _ROOT and "project_id" in cols:
             links.setdefault(_ROOT, set()).add((t, "project_id"))
     for child, col, parent in _UNDECLARED_LINKS:
-        if child in tables:
+        if child in columns:
             links.setdefault(parent, set()).add((child, col))
     return {k: sorted(v) for k, v in links.items()}
+
+
+def _chunks(ids: list):
+    for i in range(0, len(ids), _DELETE_CHUNK):
+        yield ids[i:i + _DELETE_CHUNK]
 
 
 def delete_project(project_id: int) -> dict[str, int] | None:
     """Delete a project and every row that belongs to it (children first) in one
     transaction, then its files on disk inside the data folder (uploads, rendered decks).
     Returns rows deleted per table plus a "files" count, or None if the project doesn't exist."""
-    conn = _conn()
-    try:
-        if not conn.execute("SELECT 1 FROM intel_projects WHERE id = ?", (project_id,)).fetchone():
+    with sa.begin() as conn:
+        if conn.execute(select(projects.c.id).where(projects.c.id == project_id)).first() is None:
             return None
-        links = _child_links(conn)
-        plan: list[tuple[str, list]] = []  # (table, ids), deepest first
-        keyed: list[tuple[str, str, list]] = []  # tables with no id column (keyed by their link): deleted by it
+        columns = _schema_columns(conn)
+        links = _child_links(columns)
+        plan: list[tuple[str, list]] = []          # (table, ids), deepest first
+        keyed: list[tuple[str, str, list]] = []    # tables with no id column (keyed by their link): deleted by it
         seen: set[tuple[str, object]] = set()
 
-        def collect(table: str, ids: list) -> None:
-            for child, col in links.get(table, []):
-                if "id" not in table_columns(conn, child):   # e.g. agent_autopilots, intel_deliverable_plans
+        def collect(parent: str, ids: list) -> None:
+            for child, col in links.get(parent, []):
+                if "id" not in columns.get(child, ()):    # e.g. agent_autopilots, intel_deliverable_plans
                     keyed.append((child, col, ids))
                     continue
+                t = table(child, column("id"), column(col))
                 found = []
-                for i in range(0, len(ids), _DELETE_CHUNK):
-                    chunk = ids[i:i + _DELETE_CHUNK]
-                    marks = ",".join("?" * len(chunk))
-                    found += [r[0] for r in conn.execute(f'SELECT id FROM "{child}" WHERE "{col}" IN ({marks})', chunk)]
+                for chunk in _chunks(ids):
+                    found += list(conn.execute(select(t.c.id).where(t.c[col].in_(chunk))).scalars())
                 found = [x for x in found if (child, x) not in seen]
                 if found:
                     seen.update((child, x) for x in found)
@@ -304,41 +288,34 @@ def delete_project(project_id: int) -> dict[str, int] | None:
         plan.append((_ROOT, [project_id]))
         files = _referenced_files(conn, plan)
         deleted: dict[str, int] = {}
-        with conn:
-            for table, col, ids in keyed:
-                for i in range(0, len(ids), _DELETE_CHUNK):
-                    chunk = ids[i:i + _DELETE_CHUNK]
-                    marks = ",".join("?" * len(chunk))
-                    deleted[table] = deleted.get(table, 0) + conn.execute(
-                        f'DELETE FROM "{table}" WHERE "{col}" IN ({marks})', chunk).rowcount
-            for table, ids in plan:
-                for i in range(0, len(ids), _DELETE_CHUNK):
-                    chunk = ids[i:i + _DELETE_CHUNK]
-                    marks = ",".join("?" * len(chunk))
-                    deleted[table] = deleted.get(table, 0) + conn.execute(
-                        f'DELETE FROM "{table}" WHERE id IN ({marks})', chunk).rowcount
-            # project-scoped memory is keyed by scope/scope_id, not a project_id column, so _child_links misses it
-            deleted["memory_items"] = conn.execute("DELETE FROM memory_items WHERE scope = 'project' AND scope_id = ?",
-                                                   (str(project_id),)).rowcount
-        # its files go with its rows, after the commit (a failed delete keeps both): what the rows pointed at, the
-        # project's deliverables folder
-        from ...core import config
-        deleted["files"] = _remove_files(files + [config.DELIVERABLE_DIR / f"project_{project_id}"], config.DATA_DIR)
-        return deleted
-    finally:
-        conn.close()
+        for name, col, ids in keyed:
+            t = table(name, column(col))
+            for chunk in _chunks(ids):
+                deleted[name] = deleted.get(name, 0) + conn.execute(delete(t).where(t.c[col].in_(chunk))).rowcount
+        for name, ids in plan:
+            t = table(name, column("id"))
+            for chunk in _chunks(ids):
+                deleted[name] = deleted.get(name, 0) + conn.execute(delete(t).where(t.c.id.in_(chunk))).rowcount
+        # project-scoped memory is keyed by scope/scope_id, not a project_id column, so _child_links misses it
+        memory = table("memory_items", column("scope"), column("scope_id"))
+        deleted["memory_items"] = conn.execute(delete(memory).where(memory.c.scope == "project",
+                                                                    memory.c.scope_id == str(project_id))).rowcount
+    # its files go with its rows, after the commit (a failed delete keeps both): what the rows pointed at, the
+    # project's deliverables folder
+    from ...core import config
+    deleted["files"] = _remove_files(files + [config.DELIVERABLE_DIR / f"project_{project_id}"], config.DATA_DIR)
+    return deleted
 
 
 def _referenced_files(conn, plan: list[tuple[str, list]]) -> list[Path]:
     """Every file or folder the project's rows point at (core.db._PATH_COLUMNS)."""
     out = []
-    for table, ids in plan:
-        for col in (c for t, c in _PATH_COLUMNS if t == table and not c.endswith("_json")):
-            for i in range(0, len(ids), _DELETE_CHUNK):
-                chunk = ids[i:i + _DELETE_CHUNK]
-                marks = ",".join("?" * len(chunk))
-                out += [Path(r[0]) for r in conn.execute(
-                    f'SELECT "{col}" FROM "{table}" WHERE id IN ({marks}) AND "{col}" IS NOT NULL', chunk) if r[0]]
+    for name, ids in plan:
+        for col in (c for t, c in _PATH_COLUMNS if t == name and not c.endswith("_json")):
+            t = table(name, column("id"), column(col))
+            for chunk in _chunks(ids):
+                out += [Path(v) for v in conn.execute(select(t.c[col]).where(t.c.id.in_(chunk), t.c[col].is_not(None)))
+                        .scalars() if v]
     return out
 
 
@@ -359,20 +336,3 @@ def _remove_files(paths: list[Path], root: Path) -> int:
             target.unlink(missing_ok=True)
         n += 1
     return n
-
-
-def project_name_taken(org_id: int | None, name: str, exclude_id: int | None = None) -> bool:
-    """Project names are unique within an organization, ignoring case and surrounding spaces (archived included).
-    shortcut: checked, not indexed (a project gets its org right after the insert); a same-second race could slip by."""
-    org_sql = "org_id IS NULL" if org_id is None else "org_id = ?"
-    params: list = [] if org_id is None else [org_id]
-    sql = f"SELECT 1 FROM intel_projects WHERE {org_sql} AND lower(trim(project_name)) = lower(trim(?))"
-    params.append(name)
-    if exclude_id is not None:
-        sql += " AND id <> ?"
-        params.append(exclude_id)
-    conn = _conn()
-    try:
-        return conn.execute(sql + " LIMIT 1", tuple(params)).fetchone() is not None
-    finally:
-        conn.close()
