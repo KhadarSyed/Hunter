@@ -40,6 +40,8 @@ export function SettingsPage() {
     ...(user.role === "super_admin"
       ? [{ id: "organizations" as const, label: "Manage Organization" }] : []),
   ];
+  // a ?tab= this role does not have (an old link, a different role's tab) opens My Profile instead
+  const current: SettingsTab = tabs.some((t) => t.id === tab) ? tab : "profile";
 
   return (
     <div className="max-w-5xl mx-auto p-8">
@@ -63,7 +65,7 @@ export function SettingsPage() {
                 key={t.id}
                 onClick={() => setTab(t.id)}
                 className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                  tab === t.id ? "bg-[#5B2C9D10] text-[#5B2C9D] font-medium" : "text-slate-600 hover:bg-slate-50"
+                  current === t.id ? "bg-[#5B2C9D10] text-[#5B2C9D] font-medium" : "text-slate-600 hover:bg-slate-50"
                 }`}
               >
                 {t.label}
@@ -72,14 +74,14 @@ export function SettingsPage() {
           </nav>
         </aside>
         <div className="flex-1 min-w-0 rounded-xl border border-slate-200 bg-white p-6">
-          {tab === "profile" && <ProfileSettingsTab />}
-          {tab === "users" && <ManageUsersTab />}
-          {tab === "datasources" && <DataSourcesTab />}
-          {tab === "exclusions" && <ExclusionsTab />}
-          {tab === "organizations" && <ManageOrganizationTab />}
-          {tab === "providers" && <ProvidersTab />}
-          {tab === "subscription" && <SubscriptionTab />}
-          {tab === "guardrails" && <GuardrailsTab />}
+          {current === "profile" && <ProfileSettingsTab />}
+          {current === "users" && <ManageUsersTab />}
+          {current === "datasources" && <DataSourcesTab />}
+          {current === "exclusions" && <ExclusionsTab />}
+          {current === "organizations" && <ManageOrganizationTab />}
+          {current === "providers" && <ProvidersTab />}
+          {current === "subscription" && <SubscriptionTab />}
+          {current === "guardrails" && <GuardrailsTab />}
         </div>
       </div>
     </div>

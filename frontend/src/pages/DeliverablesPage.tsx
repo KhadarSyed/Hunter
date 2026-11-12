@@ -10,6 +10,7 @@ import { RunProgress } from "../components/deliverable/RunProgress";
 import { StudioDeckCard } from "../components/deliverable/StudioDeckCard";
 import { agentSocket } from "../services/ws";
 import { useActiveProjectId } from "../context/project-context";
+import { NoProjectSelected } from "../components/NoProjectSelected";
 import { ChartRenderer } from "../components/deliverable/ChartRenderer";
 import { Latest24hPanel } from "../components/deliverable/Latest24hPanel";
 import { RunTimeline } from "../components/deliverable/RunTimeline";
@@ -118,7 +119,12 @@ function SectionView({ section, logos }: { section: DeliverableSection; logos: R
 const RUN_POLL_MS = 30000;
 
 export function DeliverablesPage({ onNavigate }: { onNavigate: (page: string) => void }) {
-  const projectId = useActiveProjectId() ?? 1;
+  const projectId = useActiveProjectId();
+  if (!projectId) return <NoProjectSelected what="deliverables" onNavigate={onNavigate} />;
+  return <DeliverablesView projectId={projectId} onNavigate={onNavigate} />;
+}
+
+function DeliverablesView({ projectId, onNavigate }: { projectId: number; onNavigate: (page: string) => void }) {
   const [payload, setPayload] = useState<DeliverablePayload>({ run: null, sections: [] });
   const [details, setDetails] = useState<Record<string, string>>({});
   const [startError, setStartError] = useState<string | null>(null);

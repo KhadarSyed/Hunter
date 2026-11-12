@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useDemoState } from "../context/demo-state";
 import { intelApi, type PlanResult, type JobStatus } from "../services/intel-api";
 import { useActiveProjectId, useProject } from "../context/project-context";
+import { NoProjectSelected } from "../components/NoProjectSelected";
 import { PexelsHeaderBanner } from "../components/PexelsHeaderBanner";
 import type {
   ResearchPlanData,
@@ -239,6 +240,12 @@ function SectionHeader({ title, count }: { title: string; count?: number }) {
 }
 
 export function ResearchPlan({ onNavigate }: { onNavigate: (page: string) => void }) {
+  const projectId = useActiveProjectId();
+  if (!projectId) return <NoProjectSelected what="research plan" onNavigate={onNavigate} />;
+  return <ResearchPlanView projectId={projectId} onNavigate={onNavigate} />;
+}
+
+function ResearchPlanView({ projectId, onNavigate }: { projectId: number; onNavigate: (page: string) => void }) {
   const demo = useDemoState();
   const [plan, setPlan] = useState<ResearchPlanData | null>(null);
   const [planRecord, setPlanRecord] = useState<PlanResult | null>(null);
@@ -251,7 +258,6 @@ export function ResearchPlan({ onNavigate }: { onNavigate: (page: string) => voi
   const [activeTab, setActiveTab] = useState<"objectives" | "execution" | "methods" | "deliverables">("objectives");
   const [approving, setApproving] = useState(false);
 
-  const projectId = useActiveProjectId() ?? 1;
   const { activeProject } = useProject();
 
   const loadPlan = useCallback(async () => {
