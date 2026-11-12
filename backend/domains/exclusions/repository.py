@@ -1,34 +1,28 @@
-"""SQL for intel_exclusions (one row per excluded domain or keyword, scoped to an organization)."""
+"""intel_exclusions (one row per excluded domain or keyword, scoped to an organization) through SQLAlchemy Core."""
 from __future__ import annotations
 
 import time
 
-from ...core.db import _conn
+from sqlalchemy import delete, insert, select
+
+from ...core import sa
+from .models import intel_exclusions as x
+
+# core/store.py star-imports this module: export only the repository functions, not SQLAlchemy helpers
+__all__ = ["list_exclusions", "add_exclusion", "add_exclusions", "get_exclusion", "delete_exclusion"]
 
 
 def list_exclusions(org_id: int | None) -> list[dict]:
-    conn = _conn()
-    try:
-        if org_id is None:
-            rows = conn.execute("SELECT * FROM intel_exclusions WHERE org_id IS NULL ORDER BY kind, value").fetchall()
-        else:
-            rows = conn.execute("SELECT * FROM intel_exclusions WHERE org_id = ? ORDER BY kind, value",
-                                (org_id,)).fetchall()
-    finally:
-        conn.close()
-    return [dict(r) for r in rows]
+    scope = x.c.org_id.is_(None) if org_id is None else x.c.org_id == org_id
+    with sa.begin() as conn:
+        return [dict(r._mapping) for r in conn.execute(select(x).where(scope).order_by(x.c.kind, x.c.value))]
 
 
 def add_exclusion(org_id: int | None, kind: str, value: str, user_id: int) -> dict:
-    conn = _conn()
-    try:
-        cur = conn.execute("INSERT INTO intel_exclusions (org_id, kind, value, created_by, created_at) "
-                           "VALUES (?, ?, ?, ?, ?)", (org_id, kind, value, user_id, time.time()))
-        conn.commit()
-        row = conn.execute("SELECT * FROM intel_exclusions WHERE id = ?", (cur.lastrowid,)).fetchone()
-    finally:
-        conn.close()
-    return dict(row)
+    with sa.begin() as conn:
+        row = conn.execute(insert(x).values(org_id=org_id, kind=kind, value=value, created_by=user_id,
+                                            created_at=time.time()).returning(*x.c)).one()
+    return dict(row._mapping)
 
 
 def add_exclusions(org_id: int | None, kind: str, values: list[str], user_id: int) -> int:
@@ -36,30 +30,18 @@ def add_exclusions(org_id: int | None, kind: str, values: list[str], user_id: in
     if not values:
         return 0
     now = time.time()
-    conn = _conn()
-    try:
-        for v in values:
-            conn.execute("INSERT INTO intel_exclusions (org_id, kind, value, created_by, created_at) "
-                         "VALUES (?, ?, ?, ?, ?)", (org_id, kind, v, user_id, now))
-        conn.commit()
-    finally:
-        conn.close()
+    with sa.begin() as conn:
+        conn.execute(insert(x), [{"org_id": org_id, "kind": kind, "value": v, "created_by": user_id,
+                                  "created_at": now} for v in values])
     return len(values)
 
 
 def get_exclusion(exclusion_id: int) -> dict | None:
-    conn = _conn()
-    try:
-        row = conn.execute("SELECT * FROM intel_exclusions WHERE id = ?", (exclusion_id,)).fetchone()
-    finally:
-        conn.close()
-    return dict(row) if row else None
+    with sa.begin() as conn:
+        row = conn.execute(select(x).where(x.c.id == exclusion_id)).first()
+    return dict(row._mapping) if row else None
 
 
 def delete_exclusion(exclusion_id: int) -> None:
-    conn = _conn()
-    try:
-        conn.execute("DELETE FROM intel_exclusions WHERE id = ?", (exclusion_id,))
-        conn.commit()
-    finally:
-        conn.close()
+    with sa.begin() as conn:
+        conn.execute(delete(x).where(x.c.id == exclusion_id))
