@@ -104,7 +104,7 @@ never import a `router.py`. Frontend (`frontend/src/`): `pages/` · `components/
   `frontend/src/pages/`, one per pipeline stage, QC step or settings tab.
 - **Database:** Postgres only, one database: local Docker Postgres or Render
   Postgres in production, via `DATABASE_URL` (required — the server refuses to start without it).
-  Repositories write SQLite-style SQL (`?` placeholders, `INSERT OR IGNORE`), which `core/pg.py`
+  Repositories write SQLite-style SQL (`?` placeholders; `INSERT OR IGNORE` is NOT translated, use `ON CONFLICT DO NOTHING`), which `core/pg.py`
   translates; there is no SQLite fallback. Older docs describing `intelligence.db` or
   `data/memory.db` are out of date (`config.MEMORY_DB_PATH` survives only because `core/db.py` hashes it into the schema name). Every table (projects/specs/strategies/jobs/deliverables/QC,
   plus the unused legacy tables of the deleted products) lives there.
