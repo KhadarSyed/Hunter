@@ -2,13 +2,16 @@
 environment variables / .env and validated at startup)."""
 from __future__ import annotations
 
+import json
 import os
+import re
 import tempfile
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated
 
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent  # backend/
 REPO_ROOT = BACKEND_DIR.parent
@@ -40,6 +43,10 @@ MEMORY_DB_PATH = DATA_DIR / "memory.db"
 TEMPLATE_PATH = DATA_DIR / "hunter_template.pptx"
 
 
+DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]   # the Vite dev server
+_ORIGIN = re.compile(r"^https?://[A-Za-z0-9.-]+(:\d{1,5})?$")
+
+
 class AppSettings(BaseSettings):
     """Environment configuration, validated once at startup (see get_app_settings)."""
 
@@ -49,11 +56,9 @@ class AppSettings(BaseSettings):
     app_version: str = "1.0.0"
     environment: str = Field("development", description="development | production")
     log_level: str = "INFO"
-    # Browser origins allowed to call the API (Vite dev server + the backend-served SPA).
-    cors_origins: list[str] = [
-        "http://localhost:5173", "http://127.0.0.1:5173",
-        "http://localhost:8002", "http://127.0.0.1:8002",
-    ]
+    # Browser origins (other than this server's own) allowed to call the API with the session cookie: CORS_ORIGINS,
+    # a comma list or JSON array of exact http(s) origins. Default: the local Vite dev server.
+    cors_origins: Annotated[list[str], NoDecode] = DEV_ORIGINS
     # Shared secret for /api/* (header X-API-Key, or ?api_key= for the WebSocket).
     # Empty = auth disabled, which is only allowed when environment != production.
     api_key: str = ""
@@ -72,6 +77,20 @@ class AppSettings(BaseSettings):
     # gpt-5's hidden reasoning is billed as output, so a call costs more output than its visible reply.
     llm_price_input_per_1m: float = 1.25
     llm_price_output_per_1m: float = 10.0
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _origins(cls, v):
+        """Exact origins only: "*" with credentials would let any site act as the signed-in user."""
+        if isinstance(v, str) and not v.strip():
+            return list(DEV_ORIGINS)                    # CORS_ORIGINS= left blank (as in .env.example)
+        if isinstance(v, str):
+            v = json.loads(v) if v.strip().startswith("[") else v.split(",")
+        out = [str(o).strip().rstrip("/") for o in v if str(o).strip()]
+        bad = [o for o in out if not _ORIGIN.match(o)]
+        if bad:
+            raise ValueError(f"CORS_ORIGINS must be exact http(s) origins like https://app.example.com, not {bad}")
+        return out
 
     @property
     def is_production(self) -> bool:

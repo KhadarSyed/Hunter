@@ -18,8 +18,8 @@ services:
         # ephemeral disk and loses everything on restart
         sync: false
       - key: CORS_ORIGINS
-        # JSON array string, e.g. ["https://your-app.vercel.app"]; must NOT be "*" (allow_credentials requires
-        # an explicit origin list, see backend/core/auth.py's cross-origin session cookie)
+        # exact origins, comma list or JSON array, e.g. https://your-app.vercel.app; "*" is refused at startup
+        # (allow_credentials needs an explicit origin list, see backend/core/auth.py's cross-origin session cookie)
         sync: false
       - key: AZURE_OPENAI_API_KEY
         sync: false
