@@ -11,7 +11,7 @@ from typing import Optional
 from sqlalchemy import column, delete, func, insert, select, table, update
 
 from ...core import sa
-from ...core.db import _PATH_COLUMNS, declared_foreign_keys
+from .links import DECLARED_LINKS, PATH_COLUMNS
 from .models import intel_jobs as jobs
 from .models import intel_projects as projects
 
@@ -239,7 +239,7 @@ def _child_links(columns: dict[str, set[str]]) -> dict[str, list[tuple[str, str]
     """parent table -> [(child table, child column)]: the schema's declared FKs, every
     table with a project_id column, and _UNDECLARED_LINKS."""
     links: dict[str, set[tuple[str, str]]] = {}
-    for child, col, parent in declared_foreign_keys():   # from the schema, so Postgres (no FKs) gets them too
+    for child, col, parent in DECLARED_LINKS:   # from the schema, so Postgres (no FKs) gets them too
         if child in columns and parent != child:          # skip self-references (e.g. library canonical_id)
             links.setdefault(parent, set()).add((child, col))
     for t, cols in columns.items():
@@ -308,10 +308,10 @@ def delete_project(project_id: int) -> dict[str, int] | None:
 
 
 def _referenced_files(conn, plan: list[tuple[str, list]]) -> list[Path]:
-    """Every file or folder the project's rows point at (core.db._PATH_COLUMNS)."""
+    """Every file or folder the project's rows point at (links.PATH_COLUMNS)."""
     out = []
     for name, ids in plan:
-        for col in (c for t, c in _PATH_COLUMNS if t == name and not c.endswith("_json")):
+        for col in (c for t, c in PATH_COLUMNS if t == name and not c.endswith("_json")):
             t = table(name, column("id"), column(col))
             for chunk in _chunks(ids):
                 out += [Path(v) for v in conn.execute(select(t.c[col]).where(t.c.id.in_(chunk), t.c[col].is_not(None)))
