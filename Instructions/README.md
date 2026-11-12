@@ -109,36 +109,23 @@ changed and why. Open the code only for the files a note or the map points to.
 - Dead code removed (log 10): `core/llm_synthesis.py`, 13 unused functions. `domains/agent/qa_browser.py` deleted (log 30, user approved).
 - Local `.env` holds ~45 keys no code reads, and python-dotenv cannot parse its line 69 (not opened: may hold a secret).
 
-## Current state (2026-11-08)
+## Current state (2026-11-12, end of day; checked against the local database and code)
 
-- **2026-11-12: production is down, local is the working environment.** Render Postgres `hunter-db` (free plan)
-  expired 2026-11-11 and is suspended; Render deletes it ≈2026-11-25 (14-day grace); no upgrade (no budget, user's
-  decision); free plans have no backups and the expired DB accepts no connections, so its data is not recoverable
-  from here. Local: Docker `hunter-postgres` (volume created fresh 2026-11-12, empty until used), backend
-  `uvicorn backend.main:app --port 8002` serves the built SPA. Local Super Admin: khadar.syed@infovision.com
-  (seeded from `.env` SEED_SUPER_ADMIN_EMAIL; temporary password in the backend log, must be changed at first
-  sign-in). The org/project notes below describe the old databases.
-
-- Orgs: InfoVision (org 5; admins Sweta Shah, Harish), Testing Org (org 6; VyceAI agnes default, NVIDIA Nemotron,
-  Azure GPT-5). Super Admin (global) = Harish Thulasiram. Since 2026-11-12 the seed is env-driven
-  (`SEED_SUPER_ADMIN_EMAIL`) and runs only while NO Super Admin exists, so it never re-promotes anyone. Khadar is an
-  Admin of InfoVision (org 5) alongside Sweta Shah (local DB; prod keeps Khadar as Super Admin until changed there).
-  Production checkout is closed while only the test gateway exists; a Super Admin grants/renews plans with
-  `POST /api/intel/billing/orgs/{org_id}/grant {plan_id}` (no UI button yet). Both orgs: Enterprise plan to 2027-11-08 (backfill).
-  InfoVision has the "Instructions/Guardrail Prompt" guardrail (11,003 chars). Sweta Shah still has the
-  first-login password-change flag (all her API calls 403 until she changes it).
-- Test orgs from the 3-org browser test (log #06): 9 Acme Retail, 10 Globex Media, 11 Initech Finance (all "Test
-  11081934"), accounts `khadar.syed+<org>-admin/-analystN@infovision.com`; harness `tests/e2e_3org/run.py`.
-- Working test model: BazaarLink `qwen3.7-flash` only; FreeModel 503, CodeCraft/RadoxAI 402, Puter unusable.
-- Deck images are licence-safe by default (`deckstudio/assets.py`, legal note `Instructions/image-licensing-legal-note.md`);
-  org opt-in for editorial images in Settings > Guardrails; `IMAGE_SOURCE=legacy` = old behaviour.
-- Firecrawl research source needs the org's key in Settings > Data Sources (none saved yet); all data-source keys are
-  Fernet-encrypted (migration 53). Deliverables shows a Guardrails check above the downloads.
-- Data set: exclusion list blocks articles at Match (Irrelevant, "Blocked"); "Mark relevant" + comment → org memory.
-- Project 1 "Casino Gaming" (InfoVision): Brief → Matching label done, Data set open, Deliverables locked.
-- Testing Org outage state: acting model NVIDIA (VyceAI in maintenance); a real "recovered" email goes out when
-  VyceAI answers.
-- Known pre-existing test failures: `tests/deliverable/test_latest24h.py`, `test_time_grain.py`
-  (`analytics._theme_trend` no longer exists).
-- Known limits: first call after an outage can take ~3 min (client retries before failover); Background Research
-  and Search Strategy can finish rule-based during a long outage.
+- **Production is down; local is the working environment.** Render Postgres `hunter-db` (free plan) expired
+  2026-11-11 and is suspended; Render deletes it about 2026-11-25; no upgrade (user's decision, no budget). Work and
+  test locally only; never trigger Render/Vercel deploys or change Render env.
+- **Local stack:** Docker `hunter-postgres` (port 5433) + backend `uvicorn backend.main:app --port 8002` (serves the
+  built SPA). Schema at Alembic revision `0001` (stamped 2026-11-12, log 40). Local Super Admin = the
+  `SEED_SUPER_ADMIN_EMAIL` account (user 2); the `.env` seed password no longer matches it (changed at sign-in).
+- **Local data:** organisations 1 Default Organization, 2 InfoVision, 3 Test Organization; 0 projects (wiped on
+  request, log 27). Test Organization's chat models, in failover order: NVIDIA `nemotron-3-ultra-550b-a55b` (default),
+  `minimax-m3.1-flash`, `step-5-preview` (logs 34-35; GLM 5.3 Flash removed: NVIDIA does not serve it).
+- **Storage:** with the `AWS_*` keys set, decks, logos/favicons (linked by signed URL), uploads, avatars and QC files
+  live in S3 under `HunterAgent/`; disk copies are throwaway (logs 28, 42, 43).
+- **Checks (2026-11-12):** `pytest tests --ignore=tests/e2e_3org` 624 passed; ruff clean; vulture only the
+  `deckstudio/creative.py` `handle_decl` false positive; frontend tsc/lint (0 errors)/Vitest 14/build ok; browser walk
+  21 pages 0 problems (scratchpad script, log 33).
+- **Not verified:** pages that need a project (data set, deck run, strategy content) only in their empty state
+  (standing rule: no projects created while testing); a real QC upload/export round trip through S3; `tests/e2e_3org`.
+- **Open questions for the user:** the unmerged themes-over-time chart (commit 48a1f73, never on main, log 30);
+  Brandfetch fuzzy-matches unknown brand names (log 28).
