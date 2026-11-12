@@ -1,4 +1,4 @@
-"""Analyst Orientation Briefs repository (connection helper: core/db.py)."""
+"""Analyst Orientation Briefs repository, through SQLAlchemy Core (models.py)."""
 
 from __future__ import annotations
 
@@ -6,114 +6,89 @@ import json
 import time
 from typing import Optional
 
-from ...core.db import _conn
+from sqlalchemy import func, insert, select, update
 
-# ─── Analyst Orientation Briefs ─────────────────────────────────────────────
+from ...core import sa
+from .models import intel_background_briefs as briefs
+from .models import intel_brief_section_edits as edits
+
+# core/store.py star-imports this module: export only the repository functions
+__all__ = ["save_background_brief", "get_latest_brief", "get_brief_by_id", "update_brief_section", "approve_brief",
+           "reject_brief", "update_brief_docx", "list_brief_versions"]
+
+
+def _with_brief(row) -> Optional[dict]:
+    if not row:
+        return None
+    d = dict(row._mapping)
+    d["brief"] = json.loads(d["brief_json"])
+    return d
+
 
 def save_background_brief(project_id: int, research_id: int, brief: dict) -> int:
-    conn = _conn()
+    """The project's next brief version, as a draft (version read and row written in one transaction)."""
     now = time.time()
-    existing = conn.execute(
-        "SELECT MAX(version) as v FROM intel_background_briefs WHERE project_id = ?",
-        (project_id,),
-    ).fetchone()
-    version = (existing["v"] or 0) + 1
-    cur = conn.execute(
-        "INSERT INTO intel_background_briefs (project_id, research_id, version, brief_json, status, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, 'draft', ?, ?)",
-        (project_id, research_id, version, json.dumps(brief), now, now),
-    )
-    bid = cur.lastrowid
-    conn.commit()
-    conn.close()
-    return bid
+    with sa.begin() as conn:
+        version = (conn.execute(select(func.max(briefs.c.version)).where(briefs.c.project_id == project_id))
+                   .scalar() or 0) + 1
+        return conn.execute(insert(briefs).values(
+            project_id=project_id, research_id=research_id, version=version, brief_json=json.dumps(brief),
+            status="draft", created_at=now, updated_at=now).returning(briefs.c.id)).scalar_one()
 
 
 def get_latest_brief(project_id: int) -> Optional[dict]:
-    conn = _conn()
-    row = conn.execute(
-        "SELECT * FROM intel_background_briefs WHERE project_id = ? ORDER BY version DESC LIMIT 1",
-        (project_id,),
-    ).fetchone()
-    conn.close()
-    if not row:
-        return None
-    d = dict(row)
-    d["brief"] = json.loads(d["brief_json"])
-    return d
+    with sa.begin() as conn:
+        return _with_brief(conn.execute(select(briefs).where(briefs.c.project_id == project_id)
+                                        .order_by(briefs.c.version.desc()).limit(1)).first())
 
 
 def get_brief_by_id(brief_id: int) -> Optional[dict]:
-    conn = _conn()
-    row = conn.execute("SELECT * FROM intel_background_briefs WHERE id = ?", (brief_id,)).fetchone()
-    conn.close()
-    if not row:
-        return None
-    d = dict(row)
-    d["brief"] = json.loads(d["brief_json"])
-    return d
+    with sa.begin() as conn:
+        return _with_brief(conn.execute(select(briefs).where(briefs.c.id == brief_id)).first())
 
 
 def update_brief_section(brief_id: int, section_key: str, content: str, analyst_note: str = ""):
-    conn = _conn()
+    """An analyst edit: the section's content changes (when the section exists) and the edit is logged."""
     now = time.time()
-    row = conn.execute("SELECT brief_json FROM intel_background_briefs WHERE id = ?", (brief_id,)).fetchone()
-    if row:
-        brief = json.loads(row["brief_json"])
+    with sa.begin() as conn:
+        row = conn.execute(select(briefs.c.brief_json).where(briefs.c.id == brief_id)).first()
+        if not row:
+            return
+        brief = json.loads(row.brief_json)
         if section_key in brief.get("sections", {}):
             brief["sections"][section_key]["content"] = content
             brief["sections"][section_key]["edited"] = True
-            conn.execute(
-                "UPDATE intel_background_briefs SET brief_json = ?, updated_at = ? WHERE id = ?",
-                (json.dumps(brief), now, brief_id),
-            )
-        conn.execute(
-            "INSERT INTO intel_brief_section_edits (brief_id, section_key, edited_content, analyst_note, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (brief_id, section_key, content, analyst_note, now),
-        )
-    conn.commit()
-    conn.close()
+            conn.execute(update(briefs).where(briefs.c.id == brief_id)
+                         .values(brief_json=json.dumps(brief), updated_at=now))
+        conn.execute(insert(edits).values(brief_id=brief_id, section_key=section_key, edited_content=content,
+                                          analyst_note=analyst_note, created_at=now))
 
 
 def approve_brief(brief_id: int, reviewer: str = "analyst") -> bool:
-    conn = _conn()
-    conn.execute(
-        "UPDATE intel_background_briefs SET approval_status = 'approved', approved_by = ?, approved_at = ?, updated_at = ? WHERE id = ?",
-        (reviewer, time.time(), time.time(), brief_id),
-    )
-    conn.commit()
-    conn.close()
+    now = time.time()
+    with sa.begin() as conn:
+        conn.execute(update(briefs).where(briefs.c.id == brief_id).values(
+            approval_status="approved", approved_by=reviewer, approved_at=now, updated_at=now))
     return True
 
 
 def reject_brief(brief_id: int, notes: str = "") -> bool:
-    conn = _conn()
-    conn.execute(
-        "UPDATE intel_background_briefs SET approval_status = 'revision_requested', notes = ?, updated_at = ? WHERE id = ?",
-        (notes, time.time(), brief_id),
-    )
-    conn.commit()
-    conn.close()
+    with sa.begin() as conn:
+        conn.execute(update(briefs).where(briefs.c.id == brief_id).values(
+            approval_status="revision_requested", notes=notes, updated_at=time.time()))
     return True
 
 
 def update_brief_docx(brief_id: int, docx_path: str):
-    conn = _conn()
-    conn.execute(
-        "UPDATE intel_background_briefs SET docx_path = ?, docx_generated_at = ?, updated_at = ? WHERE id = ?",
-        (docx_path, time.time(), time.time(), brief_id),
-    )
-    conn.commit()
-    conn.close()
+    now = time.time()
+    with sa.begin() as conn:
+        conn.execute(update(briefs).where(briefs.c.id == brief_id).values(
+            docx_path=docx_path, docx_generated_at=now, updated_at=now))
 
 
 def list_brief_versions(project_id: int) -> list[dict]:
-    conn = _conn()
-    rows = conn.execute(
-        "SELECT id, version, status, approval_status, docx_path, created_at, updated_at FROM intel_background_briefs "
-        "WHERE project_id = ? ORDER BY version DESC",
-        (project_id,),
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    cols = (briefs.c.id, briefs.c.version, briefs.c.status, briefs.c.approval_status, briefs.c.docx_path,
+            briefs.c.created_at, briefs.c.updated_at)
+    with sa.begin() as conn:
+        return [dict(r._mapping) for r in conn.execute(
+            select(*cols).where(briefs.c.project_id == project_id).order_by(briefs.c.version.desc()))]

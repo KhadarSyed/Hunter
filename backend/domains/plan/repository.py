@@ -1,4 +1,4 @@
-"""Research Plans repository (connection helper: core/db.py)."""
+"""Research Plans repository, through SQLAlchemy Core (models.py)."""
 
 from __future__ import annotations
 
@@ -6,65 +6,43 @@ import json
 import time
 from typing import Optional
 
-from ...core.db import _conn
+from sqlalchemy import func, insert, select, update
 
-# ─── Research Plans ────────────────────────────────────────────────────────
+from ...core import sa
+from .models import intel_research_plans as plans
+
+# core/store.py star-imports this module: export only the repository functions
+__all__ = ["save_research_plan", "get_latest_plan", "approve_plan", "reject_plan"]
+
 
 def save_research_plan(project_id: int, plan: dict, source: str = "llm") -> int:
-    conn = _conn()
-    now = time.time()
-    existing = conn.execute(
-        "SELECT MAX(version) as v FROM intel_research_plans WHERE project_id = ?",
-        (project_id,),
-    ).fetchone()
-    version = (existing["v"] or 0) + 1
-
-    cur = conn.execute(
-        "INSERT INTO intel_research_plans (project_id, version, status, plan_json, source, created_at) "
-        "VALUES (?, ?, 'draft', ?, ?, ?)",
-        (project_id, version, json.dumps(plan), source, now),
-    )
-    pid = cur.lastrowid
-    conn.commit()
-    conn.close()
-    return pid
+    """The project's next plan version, as a draft (version read and row written in one transaction)."""
+    with sa.begin() as conn:
+        version = (conn.execute(select(func.max(plans.c.version)).where(plans.c.project_id == project_id))
+                   .scalar() or 0) + 1
+        return conn.execute(insert(plans).values(
+            project_id=project_id, version=version, status="draft", plan_json=json.dumps(plan), source=source,
+            created_at=time.time()).returning(plans.c.id)).scalar_one()
 
 
 def get_latest_plan(project_id: int) -> Optional[dict]:
-    conn = _conn()
-    row = conn.execute(
-        "SELECT * FROM intel_research_plans WHERE project_id = ? ORDER BY version DESC LIMIT 1",
-        (project_id,),
-    ).fetchone()
-    conn.close()
+    with sa.begin() as conn:
+        row = conn.execute(select(plans).where(plans.c.project_id == project_id)
+                           .order_by(plans.c.version.desc()).limit(1)).first()
     if not row:
         return None
-    d = dict(row)
+    d = dict(row._mapping)
     d["plan"] = json.loads(d["plan_json"])
     return d
 
 
 def approve_plan(plan_id: int, reviewer: str = "analyst") -> bool:
-    conn = _conn()
-    cur = conn.execute(
-        "UPDATE intel_research_plans SET approval_status = 'approved', approved_by = ?, approved_at = ? WHERE id = ?",
-        (reviewer, time.time(), plan_id),
-    )
-    conn.commit()
-    changed = cur.rowcount > 0
-    conn.close()
-    return changed
+    with sa.begin() as conn:
+        return conn.execute(update(plans).where(plans.c.id == plan_id).values(
+            approval_status="approved", approved_by=reviewer, approved_at=time.time())).rowcount > 0
 
 
 def reject_plan(plan_id: int, notes: str = "") -> bool:
-    conn = _conn()
-    cur = conn.execute(
-        "UPDATE intel_research_plans SET approval_status = 'rejected', notes = ? WHERE id = ?",
-        (notes, plan_id),
-    )
-    conn.commit()
-    changed = cur.rowcount > 0
-    conn.close()
-    return changed
-
-
+    with sa.begin() as conn:
+        return conn.execute(update(plans).where(plans.c.id == plan_id).values(
+            approval_status="rejected", notes=notes)).rowcount > 0
