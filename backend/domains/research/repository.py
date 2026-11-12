@@ -1,206 +1,148 @@
-"""Background Research repository (connection helper: core/db.py).
-
-Also contains:
-- news_approval: News Item Approvals repository (connection helper: core/db.py).
-"""
+"""Background Research repository, through SQLAlchemy Core (models.py): research versions, news item approvals,
+the brand-logo / Pexels / YouTube lookup caches, multi-source research items and their embeddings."""
 from __future__ import annotations
 
 import json
 import time
 from typing import Optional
 
-from ...core.db import _conn
+from sqlalchemy import func, insert, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from ...core import sa
+from .models import brand_logos, intel_background_research, intel_news_approvals, intel_research_item_vectors
+from .models import intel_research_items, pexels_images, youtube_videos
+
+# core/store.py star-imports this module: export only the repository functions (and the lookup chunk size)
+__all__ = ["save_background_research", "save_background_research_update", "get_latest_research",
+           "get_research_by_id", "approve_research", "reject_research", "update_news_approval", "get_news_approvals",
+           "get_brand_logo", "save_brand_logo", "get_pexels_image", "save_pexels_image", "get_youtube_video",
+           "save_youtube_video", "upsert_research_item", "research_item_urls", "get_item_vectors",
+           "save_item_classifications", "save_item_vectors", "get_research_item", "get_research_items",
+           "VECTOR_LOOKUP_CHUNK"]
+
+R, NA, I, V = intel_background_research, intel_news_approvals, intel_research_items, intel_research_item_vectors
+VECTOR_LOOKUP_CHUNK = 1000
+
+
+def _one(query) -> Optional[dict]:
+    with sa.begin() as conn:
+        row = conn.execute(query).first()
+    return dict(row._mapping) if row else None
+
+
+def _all(query) -> list[dict]:
+    with sa.begin() as conn:
+        return [dict(r._mapping) for r in conn.execute(query)]
+
+
+def _with_json(d: Optional[dict]) -> Optional[dict]:
+    if not d:
+        return None
+    d["research"] = json.loads(d["research_json"])
+    if d.get("llm_output_json"):
+        d["llm_output"] = json.loads(d["llm_output_json"])
+    return d
+
+
+def _upsert(table, key: str, values: dict) -> None:
+    """Insert, or replace every non-key column of the row with the same key."""
+    stmt = pg_insert(table).values(**values)
+    with sa.begin() as conn:
+        conn.execute(stmt.on_conflict_do_update(index_elements=[table.c[key]],
+                                                set_={c: stmt.excluded[c] for c in values if c != key}))
+
 
 # ─── Background Research ─────────────────────────────────────────────────────
 
 def save_background_research(project_id: int, research: dict, llm_output: dict | None = None) -> int:
-    conn = _conn()
-    now = time.time()
-    existing = conn.execute(
-        "SELECT MAX(version) as v FROM intel_background_research WHERE project_id = ?",
-        (project_id,),
-    ).fetchone()
-    version = (existing["v"] or 0) + 1
-
-    cur = conn.execute(
-        "INSERT INTO intel_background_research (project_id, version, status, research_json, llm_output_json, created_at) "
-        "VALUES (?, ?, 'draft', ?, ?, ?)",
-        (project_id, version, json.dumps(research), json.dumps(llm_output) if llm_output else None, now),
-    )
-    rid = cur.lastrowid
-    conn.commit()
-    conn.close()
-    return rid
+    """The project's next research version, as a draft (version read and row written in one transaction)."""
+    with sa.begin() as conn:
+        version = (conn.execute(select(func.max(R.c.version)).where(R.c.project_id == project_id)).scalar() or 0) + 1
+        return conn.execute(insert(R).values(
+            project_id=project_id, version=version, status="draft", research_json=json.dumps(research),
+            llm_output_json=json.dumps(llm_output) if llm_output else None, created_at=time.time())
+            .returning(R.c.id)).scalar_one()
 
 
 def save_background_research_update(research_id: int, research: dict, llm_output: dict | None = None):
-    conn = _conn()
-    conn.execute(
-        "UPDATE intel_background_research SET research_json = ?, llm_output_json = ? WHERE id = ?",
-        (json.dumps(research), json.dumps(llm_output) if llm_output else None, research_id),
-    )
-    conn.commit()
-    conn.close()
+    with sa.begin() as conn:
+        conn.execute(update(R).where(R.c.id == research_id).values(
+            research_json=json.dumps(research), llm_output_json=json.dumps(llm_output) if llm_output else None))
 
 
 def get_latest_research(project_id: int) -> Optional[dict]:
-    conn = _conn()
-    row = conn.execute(
-        "SELECT * FROM intel_background_research WHERE project_id = ? ORDER BY version DESC LIMIT 1",
-        (project_id,),
-    ).fetchone()
-    conn.close()
-    if not row:
-        return None
-    d = dict(row)
-    d["research"] = json.loads(d["research_json"])
-    if d.get("llm_output_json"):
-        d["llm_output"] = json.loads(d["llm_output_json"])
-    return d
+    return _with_json(_one(select(R).where(R.c.project_id == project_id).order_by(R.c.version.desc()).limit(1)))
 
 
 def get_research_by_id(research_id: int) -> Optional[dict]:
-    conn = _conn()
-    row = conn.execute(
-        "SELECT * FROM intel_background_research WHERE id = ?",
-        (research_id,),
-    ).fetchone()
-    conn.close()
-    if not row:
-        return None
-    d = dict(row)
-    d["research"] = json.loads(d["research_json"])
-    if d.get("llm_output_json"):
-        d["llm_output"] = json.loads(d["llm_output_json"])
-    return d
+    return _with_json(_one(select(R).where(R.c.id == research_id)))
 
 
 def approve_research(research_id: int, reviewer: str = "analyst") -> bool:
-    conn = _conn()
-    conn.execute(
-        "UPDATE intel_background_research SET approval_status = 'approved', approved_by = ?, approved_at = ? WHERE id = ?",
-        (reviewer, time.time(), research_id),
-    )
-    conn.commit()
-    conn.close()
+    with sa.begin() as conn:
+        conn.execute(update(R).where(R.c.id == research_id).values(
+            approval_status="approved", approved_by=reviewer, approved_at=time.time()))
     return True
 
 
 def reject_research(research_id: int, notes: str = "") -> bool:
-    conn = _conn()
-    conn.execute(
-        "UPDATE intel_background_research SET approval_status = 'revision_requested', notes = ? WHERE id = ?",
-        (notes, research_id),
-    )
-    conn.commit()
-    conn.close()
+    with sa.begin() as conn:
+        conn.execute(update(R).where(R.c.id == research_id).values(approval_status="revision_requested", notes=notes))
     return True
 
-
-# ─── News Approval ─────────────────────────────────────────────────────
 
 # ─── News Item Approvals ────────────────────────────────────────────────────
 
 def update_news_approval(research_id: int, item_index: int, status: str, notes: str = ""):
-    conn = _conn()
     now = time.time()
-    existing = conn.execute(
-        "SELECT id FROM intel_news_approvals WHERE research_id = ? AND item_index = ?",
-        (research_id, item_index),
-    ).fetchone()
-
-    if existing:
-        conn.execute(
-            "UPDATE intel_news_approvals SET status = ?, notes = ?, updated_at = ? WHERE id = ?",
-            (status, notes, now, existing["id"]),
-        )
-    else:
-        conn.execute(
-            "INSERT INTO intel_news_approvals (research_id, item_index, status, notes, updated_at) VALUES (?, ?, ?, ?, ?)",
-            (research_id, item_index, status, notes, now),
-        )
-    conn.commit()
-    conn.close()
+    with sa.begin() as conn:
+        existing = conn.execute(select(NA.c.id).where(NA.c.research_id == research_id,
+                                                      NA.c.item_index == item_index)).scalar()
+        if existing is not None:
+            conn.execute(update(NA).where(NA.c.id == existing).values(status=status, notes=notes, updated_at=now))
+        else:
+            conn.execute(insert(NA).values(research_id=research_id, item_index=item_index, status=status, notes=notes,
+                                           updated_at=now))
 
 
 def get_news_approvals(research_id: int) -> dict[int, dict]:
-    conn = _conn()
-    rows = conn.execute(
-        "SELECT * FROM intel_news_approvals WHERE research_id = ?",
-        (research_id,),
-    ).fetchall()
-    conn.close()
-    return {row["item_index"]: dict(row) for row in rows}
+    return {row["item_index"]: row for row in _all(select(NA).where(NA.c.research_id == research_id))}
 
 
-# ─── Brand logos ─────────────────────────────────────────────────────────────
+# ─── Lookup caches: brand logos, Pexels images, YouTube videos ───────────────
 
 def get_brand_logo(brand_key: str) -> Optional[dict]:
-    conn = _conn()
-    row = conn.execute("SELECT * FROM brand_logos WHERE brand_key = ?", (brand_key,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    return _one(select(brand_logos).where(brand_logos.c.brand_key == brand_key))
 
 
 def save_brand_logo(brand_key: str, brand_name: str, logo_url: str | None,
                     domain: str | None, source: str) -> None:
-    conn = _conn()
-    conn.execute(
-        "INSERT INTO brand_logos (brand_key, brand_name, logo_url, domain, source, fetched_at) "
-        "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(brand_key) DO UPDATE SET brand_name = excluded.brand_name, "
-        "logo_url = excluded.logo_url, domain = excluded.domain, source = excluded.source, "
-        "fetched_at = excluded.fetched_at",
-        (brand_key, brand_name, logo_url, domain, source, time.time()),
-    )
-    conn.commit()
-    conn.close()
+    _upsert(brand_logos, "brand_key", {"brand_key": brand_key, "brand_name": brand_name, "logo_url": logo_url,
+                                       "domain": domain, "source": source, "fetched_at": time.time()})
 
-
-# ─── Pexels background images ────────────────────────────────────────────────
 
 def get_pexels_image(query_key: str) -> Optional[dict]:
-    conn = _conn()
-    row = conn.execute("SELECT * FROM pexels_images WHERE query_key = ?", (query_key,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    return _one(select(pexels_images).where(pexels_images.c.query_key == query_key))
 
 
 def save_pexels_image(query_key: str, query_text: str, image_url: str | None,
                       photographer: str | None, source_url: str | None,
                       video_url: str | None = None) -> None:
-    conn = _conn()
-    conn.execute(
-        "INSERT INTO pexels_images (query_key, query_text, image_url, photographer, source_url, video_url, fetched_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(query_key) DO UPDATE SET query_text = excluded.query_text, "
-        "image_url = excluded.image_url, photographer = excluded.photographer, "
-        "source_url = excluded.source_url, video_url = excluded.video_url, fetched_at = excluded.fetched_at",
-        (query_key, query_text, image_url, photographer, source_url, video_url, time.time()),
-    )
-    conn.commit()
-    conn.close()
+    _upsert(pexels_images, "query_key", {"query_key": query_key, "query_text": query_text, "image_url": image_url,
+                                         "photographer": photographer, "source_url": source_url,
+                                         "video_url": video_url, "fetched_at": time.time()})
 
-
-# ─── YouTube section-background videos ───────────────────────────────────────
 
 def get_youtube_video(query_key: str) -> Optional[dict]:
-    conn = _conn()
-    row = conn.execute("SELECT * FROM youtube_videos WHERE query_key = ?", (query_key,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    return _one(select(youtube_videos).where(youtube_videos.c.query_key == query_key))
 
 
 def save_youtube_video(query_key: str, query_text: str, video_id: str | None, embed_url: str | None,
                        title: str | None, thumbnail_url: str | None) -> None:
-    conn = _conn()
-    conn.execute(
-        "INSERT INTO youtube_videos (query_key, query_text, video_id, embed_url, title, thumbnail_url, fetched_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(query_key) DO UPDATE SET query_text = excluded.query_text, "
-        "video_id = excluded.video_id, embed_url = excluded.embed_url, title = excluded.title, "
-        "thumbnail_url = excluded.thumbnail_url, fetched_at = excluded.fetched_at",
-        (query_key, query_text, video_id, embed_url, title, thumbnail_url, time.time()),
-    )
-    conn.commit()
-    conn.close()
+    _upsert(youtube_videos, "query_key", {"query_key": query_key, "query_text": query_text, "video_id": video_id,
+                                          "embed_url": embed_url, "title": title, "thumbnail_url": thumbnail_url,
+                                          "fetched_at": time.time()})
 
 
 # ─── Research Items (multi-source pipeline) ──────────────────────────────────
@@ -212,119 +154,79 @@ def upsert_research_item(project_id: int, research_id: int | None, item: dict) -
     source_api accumulates every distinct source that reported this URL (comma-joined, e.g.
     "serpapi,google_news_rss") instead of the later source silently overwriting the earlier
     one's attribution, so the "All Articles" table can show all of them for that row."""
-    conn = _conn()
-    now = time.time()
-    existing = conn.execute(
-        "SELECT source_api FROM intel_research_items WHERE project_id = ? AND url = ?",
-        (project_id, item["url"]),
-    ).fetchone()
-    source_api = item["source_api"]
-    if existing and existing["source_api"]:
-        existing_sources = [s for s in existing["source_api"].split(",") if s]
-        if source_api not in existing_sources:
-            source_api = ",".join(existing_sources + [source_api])
-        else:
-            source_api = existing["source_api"]
-    conn.execute(
-        "INSERT INTO intel_research_items "
-        "(project_id, research_id, topic, source_api, platform, publication, "
-        "published_date, title, content, url, author, thumbnail_url, access, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-        "ON CONFLICT(project_id, url) DO UPDATE SET "
-        "research_id = excluded.research_id, topic = excluded.topic, "
-        "source_api = excluded.source_api, platform = excluded.platform, "
-        "publication = excluded.publication, published_date = excluded.published_date, "
-        "title = excluded.title, content = excluded.content, author = excluded.author, "
-        "thumbnail_url = excluded.thumbnail_url, "
-        "access = COALESCE(excluded.access, intel_research_items.access)",  # an unknown never erases a known
-        (
-            project_id, research_id, item["topic"], source_api, item.get("platform"),
-            item.get("publication"), item["published_date"], item.get("title"),
-            item.get("content"), item["url"], item.get("author"), item.get("thumbnail_url"),
-            item.get("access"), now,
-        ),
-    )
-    conn.commit()
-    row = conn.execute(
-        "SELECT id FROM intel_research_items WHERE project_id = ? AND url = ?",
-        (project_id, item["url"]),
-    ).fetchone()
-    conn.close()
-    return row["id"]
+    with sa.begin() as conn:
+        known = conn.execute(select(I.c.source_api).where(I.c.project_id == project_id,
+                                                          I.c.url == item["url"])).scalar()
+        source_api = item["source_api"]
+        if known:
+            sources = [s for s in known.split(",") if s]
+            source_api = known if source_api in sources else ",".join(sources + [source_api])
+        stmt = pg_insert(I).values(
+            project_id=project_id, research_id=research_id, topic=item["topic"], source_api=source_api,
+            platform=item.get("platform"), publication=item.get("publication"),
+            published_date=item["published_date"], title=item.get("title"), content=item.get("content"),
+            url=item["url"], author=item.get("author"), thumbnail_url=item.get("thumbnail_url"),
+            access=item.get("access"), created_at=time.time())
+        changed = ("research_id", "topic", "source_api", "platform", "publication", "published_date", "title",
+                   "content", "author", "thumbnail_url")
+        return conn.execute(stmt.on_conflict_do_update(
+            index_elements=[I.c.project_id, I.c.url],
+            set_={**{c: stmt.excluded[c] for c in changed},
+                  "access": func.coalesce(stmt.excluded.access, I.c.access)})   # an unknown never erases a known
+            .returning(I.c.id)).scalar_one()
 
 
 def research_item_urls(project_id: int) -> list[str]:
     """Every stored research-item URL of a project, so a new fetch can match variants of pages it already has."""
-    conn = _conn()
-    rows = conn.execute("SELECT url FROM intel_research_items WHERE project_id = ?", (project_id,)).fetchall()
-    conn.close()
-    return [row["url"] for row in rows]
+    with sa.begin() as conn:
+        return list(conn.execute(select(I.c.url).where(I.c.project_id == project_id)).scalars())
 
 
 def get_item_vectors(item_ids: list[int], model: str) -> dict[int, bytes]:
     """Stored embedding bytes (float32) per item id, only those made with `model`."""
     found: dict[int, bytes] = {}
-    conn = _conn()
-    for start in range(0, len(item_ids), VECTOR_LOOKUP_CHUNK):  # Postgres caps bound parameters per statement
-        chunk = item_ids[start:start + VECTOR_LOOKUP_CHUNK]
-        rows = conn.execute(f"SELECT item_id, vector FROM intel_research_item_vectors WHERE model = ? "
-                            f"AND item_id IN ({','.join('?' * len(chunk))})", [model, *chunk]).fetchall()
-        found.update({row["item_id"]: bytes(row["vector"]) for row in rows})
-    conn.close()
+    with sa.begin() as conn:
+        for start in range(0, len(item_ids), VECTOR_LOOKUP_CHUNK):     # keeps each statement's IN list bounded
+            chunk = item_ids[start:start + VECTOR_LOOKUP_CHUNK]
+            rows = conn.execute(select(V.c.item_id, V.c.vector).where(V.c.model == model, V.c.item_id.in_(chunk)))
+            found.update({r.item_id: bytes(r.vector) for r in rows})
     return found
-
-
-VECTOR_LOOKUP_CHUNK = 1000
 
 
 def save_item_classifications(rows: list[tuple[int, float, str, float, str]]) -> None:
     """(item id, about_brand probability, sentiment, sentiment confidence, brand classified for) per item."""
-    conn = _conn()
-    for item_id, about, sentiment, confidence, brand in rows:
-        conn.execute("UPDATE intel_research_items SET about_brand = ?, sentiment = ?, sentiment_confidence = ?, "
-                     "classified_for = ? WHERE id = ?", (about, sentiment, confidence, brand, item_id))
-    conn.commit()
-    conn.close()
+    with sa.begin() as conn:
+        for item_id, about, sentiment, confidence, brand in rows:
+            conn.execute(update(I).where(I.c.id == item_id).values(
+                about_brand=about, sentiment=sentiment, sentiment_confidence=confidence, classified_for=brand))
 
 
 def save_item_vectors(vectors: dict[int, bytes], model: str, dim: int) -> None:
-    conn = _conn()
+    if not vectors:
+        return
     now = time.time()
-    for item_id, blob in vectors.items():
-        conn.execute(
-            "INSERT INTO intel_research_item_vectors (item_id, model, dim, vector, created_at) VALUES (?, ?, ?, ?, ?) "
-            "ON CONFLICT (item_id) DO UPDATE SET model = excluded.model, dim = excluded.dim, "
-            "vector = excluded.vector, created_at = excluded.created_at",
-            (item_id, model, dim, blob, now))
-    conn.commit()
-    conn.close()
+    stmt = pg_insert(V)
+    with sa.begin() as conn:            # no RETURNING: the rows hold the vector bytes
+        conn.execute(stmt.on_conflict_do_update(index_elements=[V.c.item_id], set_={
+            c: stmt.excluded[c] for c in ("model", "dim", "vector", "created_at")}),
+            [{"item_id": i, "model": model, "dim": dim, "vector": blob, "created_at": now}
+             for i, blob in vectors.items()])
 
 
 def get_research_item(item_id: int) -> dict | None:
-    conn = _conn()
-    row = conn.execute("SELECT * FROM intel_research_items WHERE id = ?", (item_id,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    return _one(select(I).where(I.c.id == item_id))
 
 
 def get_research_items(project_id: int, topic: str | None = None,
-                        since: float | None = None, until: float | None = None) -> list[dict]:
+                       since: float | None = None, until: float | None = None) -> list[dict]:
     """`since`/`until` (Unix timestamps, both inclusive) scope to a date_range — e.g. the
     current run's window — using the (project_id, published_date) index, so a project's
     earlier runs/date windows don't silently bleed into a scoped read."""
-    conn = _conn()
-    query = "SELECT * FROM intel_research_items WHERE project_id = ?"
-    params: list = [project_id]
+    q = select(I).where(I.c.project_id == project_id)
     if topic:
-        query += " AND topic = ?"
-        params.append(topic)
+        q = q.where(I.c.topic == topic)
     if since is not None:
-        query += " AND published_date >= ?"
-        params.append(since)
+        q = q.where(I.c.published_date >= since)
     if until is not None:
-        query += " AND published_date <= ?"
-        params.append(until)
-    query += " ORDER BY published_date DESC"
-    rows = conn.execute(query, params).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+        q = q.where(I.c.published_date <= until)
+    return _all(q.order_by(I.c.published_date.desc()))
