@@ -167,6 +167,7 @@ class Connection:
         if pg is None:
             return Cursor()
         cur = self._raw.cursor()
+        # An INSERT into a table holding file bytes must name its own RETURNING <key>, or the bytes come back too.
         insert = bool(_INSERT.match(pg)) and not _RETURNING.search(pg)
         cur.execute(pg + (" RETURNING *" if insert else ""), values)
         if not insert:

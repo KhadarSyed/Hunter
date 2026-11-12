@@ -88,7 +88,22 @@ def get_checkout_route(sub_id: int, user: User):
 @router.post("/checkout/{sub_id}/pay")
 def pay_route(sub_id: int, req: PayRequest, user: User):
     _own_checkout(sub_id, user)
+    if req.success and not service.payments_live():
+        raise HTTPException(status.HTTP_403_FORBIDDEN, service.PAYMENTS_OFF)
     return service.complete_checkout(sub_id, req.success)
+
+
+@router.post("/orgs/{org_id}/grant")
+def grant_route(org_id: int, req: CheckoutRequest, user: User):
+    """Super Admin activates or renews an org's plan without payment (queued after any paid time)."""
+    _super(user)
+    if not store.get_organization_by_id(org_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Organization not found")
+    try:
+        sub_id = service.grant(org_id, req.plan_id, user["id"])
+    except service.LimitError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+    return repo.get_subscription(sub_id)
 
 
 # ─── dashboards ─────────────────────────────────────────────────────────────────────────────────────────────

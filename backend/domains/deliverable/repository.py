@@ -255,7 +255,7 @@ def save_deck_files(run_id: int, project_id: int, parts) -> int:
             now = time.time()
             for name, part, gz, content, *rest in parts:
                 conn.execute("INSERT INTO intel_deliverable_files (run_id, project_id, name, part, gz, content, "
-                             "created_at, s3_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                             "created_at, s3_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING run_id",
                              (run_id, project_id, name, part, gz, content, now, rest[0] if rest else None))
                 total += len(content)
             conn.execute("DELETE FROM intel_deliverable_files WHERE project_id = ? AND run_id != ?", (project_id, run_id))

@@ -463,13 +463,16 @@ def check_urls(rows: list[dict], mapping: dict) -> list[dict]:
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         futures = [pool.submit(_check_one, i, row) for i, row in enumerate(rows)]
-        for fut in futures:
+        for i, fut in enumerate(futures):
             try:
                 result = fut.result(timeout=10)
-                if result:
-                    findings.append(result)
-            except Exception:
-                pass
+            except Exception as e:   # an unfinished check must not read as a working link
+                url = (rows[i].get("url") or "").strip()
+                result = {"check_type": "url_validation", "row_number": i + 2, "column_name": "url",
+                          "severity": "medium", "message": f"Link could not be checked ({type(e).__name__})",
+                          "expected": "Checked link", "actual": url[:100], "source_url": url}
+            if result:
+                findings.append(result)
 
     return findings
 

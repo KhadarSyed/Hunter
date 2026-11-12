@@ -52,6 +52,14 @@ class TestGateway:
 
 
 gateway: PaymentGateway = TestGateway()
+PAYMENTS_OFF = "Online payment is not available yet. Ask the platform team to activate or renew your plan."
+
+
+def payments_live() -> bool:
+    """shortcut: the test gateway moves no money, so in production plans come only from a Super Admin grant;
+    plug a real gateway in to open self-service checkout there."""
+    from ...core.config import get_app_settings
+    return gateway.name != "test" or not get_app_settings().is_production
 
 
 # ─── dates and current plan ─────────────────────────────────────────────────────────────────────────────────
@@ -124,6 +132,8 @@ def require_project_slot(org_id: int | None) -> None:
 # ─── checkout ───────────────────────────────────────────────────────────────────────────────────────────────
 
 def start_checkout(org_id: int, plan_id: int, user_id: int) -> dict:
+    if not payments_live():
+        raise LimitError(PAYMENTS_OFF)
     plan = repo.get_plan(plan_id)
     if not plan or not plan["active"]:
         raise LimitError("That plan is not available")
@@ -156,13 +166,15 @@ def complete_checkout(sub_id: int, success: bool) -> dict:
 
 
 def grant(org_id: int, plan_id: int, user_id: int | None) -> int:
-    """The first plan of a new org: active now, no payment (Super Admin)."""
+    """A plan with no payment (Super Admin): a new org's first plan, or a renewal/upgrade, which starts when the
+    org's paid time ends (active now when nothing is paid, else queued)."""
     plan = repo.get_plan(plan_id)
     if not plan:
         raise LimitError("Unknown plan")
     now = time.time()
-    return repo.create_subscription(org_id, plan_id, "active", user_id, now, add_months(now, plan["duration_months"]),
-                                    "granted")
+    start = _paid_until(org_id, now)
+    return repo.create_subscription(org_id, plan_id, "active" if start <= now else "queued", user_id, start,
+                                    add_months(start, plan["duration_months"]), "granted")
 
 
 # ─── token allowance ────────────────────────────────────────────────────────────────────────────────────────

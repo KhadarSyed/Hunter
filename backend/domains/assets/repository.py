@@ -27,7 +27,7 @@ def put_asset(kind: str, key: str, content: bytes, content_type: str, meta: dict
         conn.execute(
             "INSERT INTO intel_assets (kind, key, content, content_type, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?) "
             "ON CONFLICT (kind, key) DO UPDATE SET content = EXCLUDED.content, content_type = EXCLUDED.content_type, "
-            "meta_json = EXCLUDED.meta_json, created_at = EXCLUDED.created_at",
+            "meta_json = EXCLUDED.meta_json, created_at = EXCLUDED.created_at RETURNING kind",
             (kind, key, content, content_type, json.dumps(meta, default=str), time.time()))
         conn.commit()
     finally:

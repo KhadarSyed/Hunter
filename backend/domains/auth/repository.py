@@ -323,6 +323,16 @@ def create_bare_organization(name: str) -> int:
     return org_id
 
 
+def has_super_admin() -> bool:
+    """True when any live (not archived) Super Admin account exists."""
+    conn = _conn()
+    try:
+        return conn.execute("SELECT 1 FROM users WHERE role = 'super_admin' AND archived_at IS NULL LIMIT 1"
+                            ).fetchone() is not None
+    finally:
+        conn.close()
+
+
 def make_super_admin(user_id: int) -> None:
     """Super Admins are org-less by design (memberships list them under organizations); also un-archives."""
     conn = _conn()

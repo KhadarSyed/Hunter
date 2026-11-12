@@ -28,9 +28,12 @@ class ProviderFields(BaseModel):
         if self.provider_type in _NEEDS_URL and not self.base_url:
             raise ValueError("Base URL is required for this provider type")
         if self.base_url:
+            from ..deckstudio.verbatims import is_public_http   # local: same lazy import as core/safe_fetch
             u = urlparse(self.base_url)
             if u.scheme != "https" or not u.netloc:
                 raise ValueError("Base URL must be an https:// address")
+            if not is_public_http(self.base_url):           # the server calls it: never an address inside our network
+                raise ValueError("Base URL must be a public internet address")
         return self
 
 

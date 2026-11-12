@@ -255,7 +255,7 @@ def _keep_file(dataset_id: int, file_name: str, file_path: str) -> None:
     try:
         conn.execute("DELETE FROM intel_dataset_files WHERE dataset_id = ?", (dataset_id,))
         conn.execute("INSERT INTO intel_dataset_files (dataset_id, file_name, content, created_at) "
-                     "VALUES (?, ?, ?, ?)", (dataset_id, file_name, content, time.time()))
+                     "VALUES (?, ?, ?, ?) RETURNING dataset_id", (dataset_id, file_name, content, time.time()))
         conn.commit()
     except Exception as e:
         logger.error("dataset %s: could not keep its file in the database (%s)", dataset_id, e)
