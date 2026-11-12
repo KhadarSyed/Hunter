@@ -1,143 +1,110 @@
-"""SQL for an organisation's own chat LLM providers (table org_llm_providers, migration 46)."""
+"""An organisation's own chat LLM providers (org_llm_providers, migration 46) and outage state (org_llm_state),
+through SQLAlchemy Core. This module's own `update`/`delete` are repository functions, so SQLAlchemy's are aliased."""
 from __future__ import annotations
 
 import time
 
-from ...core.db import _conn
+from sqlalchemy import delete as sql_delete
+from sqlalchemy import insert, select
+from sqlalchemy import update as sql_update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from ...core import sa
+from .models import intel_projects, org_llm_providers as p, org_llm_state as st
 
 FIELDS = ("name", "provider_type", "base_url", "model", "api_version")
+_OUTAGE = ("acting_provider_id", "down_since", "failed_calls", "notified", "paused", "last_error")
 
 
-def _rows(sql: str, params: tuple) -> list[dict]:
-    conn = _conn()
-    try:
-        return [dict(r) for r in conn.execute(sql, params).fetchall()]
-    finally:
-        conn.close()
+def _rows(query) -> list[dict]:
+    with sa.begin() as conn:
+        return [dict(r._mapping) for r in conn.execute(query)]
+
+
+def _first(query) -> dict | None:
+    rows = _rows(query.limit(1))
+    return rows[0] if rows else None
 
 
 def list_for_org(org_id: int) -> list[dict]:
     """The default first, then newest first."""
-    return _rows("SELECT * FROM org_llm_providers WHERE org_id = ? ORDER BY is_default DESC, id DESC", (org_id,))
+    return _rows(select(p).where(p.c.org_id == org_id).order_by(p.c.is_default.desc(), p.c.id.desc()))
 
 
 def orgs_using_model(provider_type: str, model: str) -> set[int]:
     """Organisations with a provider row for this model (prices are shared per provider type and model)."""
-    return {r["org_id"] for r in _rows("SELECT DISTINCT org_id FROM org_llm_providers WHERE provider_type = ? AND model = ?",
-                                       (provider_type, model))}
+    return {r["org_id"] for r in _rows(select(p.c.org_id).distinct()
+                                       .where(p.c.provider_type == provider_type, p.c.model == model))}
 
 
 def newest_for_org(org_id: int) -> dict | None:
-    rows = _rows("SELECT * FROM org_llm_providers WHERE org_id = ? ORDER BY id DESC LIMIT 1", (org_id,))
-    return rows[0] if rows else None
+    return _first(select(p).where(p.c.org_id == org_id).order_by(p.c.id.desc()))
 
 
 def get(provider_id: int) -> dict | None:
-    rows = _rows("SELECT * FROM org_llm_providers WHERE id = ?", (provider_id,))
-    return rows[0] if rows else None
+    return _first(select(p).where(p.c.id == provider_id))
 
 
 def default_for_org(org_id: int) -> dict | None:
-    rows = _rows("SELECT * FROM org_llm_providers WHERE org_id = ? AND is_default = 1 ORDER BY id LIMIT 1", (org_id,))
-    return rows[0] if rows else None
+    return _first(select(p).where(p.c.org_id == org_id, p.c.is_default == 1).order_by(p.c.id))
 
 
 def create(org_id: int, fields: dict, key_enc: str, key_hint: str, user_id: int) -> int:
     now = time.time()
-    conn = _conn()
-    try:
-        row = conn.execute(
-            "INSERT INTO org_llm_providers (org_id, name, provider_type, base_url, model, api_version, api_key_enc, "
-            "key_hint, created_at, updated_at, updated_by_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (org_id, *(fields[f] for f in FIELDS), key_enc, key_hint, now, now, user_id)).fetchone()
-        conn.commit()
-        return int(row["id"])
-    finally:
-        conn.close()
+    with sa.begin() as conn:
+        return int(conn.execute(insert(p).values(
+            org_id=org_id, **{f: fields[f] for f in FIELDS}, api_key_enc=key_enc, key_hint=key_hint,
+            is_default=0, status="untested", last_error="", created_at=now, updated_at=now,
+            updated_by_user_id=user_id).returning(p.c.id)).scalar_one())
 
 
 def update(provider_id: int, fields: dict, key_enc: str | None, key_hint: str | None, user_id: int) -> None:
     """A changed connection is untested again."""
-    sets = [f"{f} = ?" for f in FIELDS]
-    params: list = [fields[f] for f in FIELDS]
+    values = {f: fields[f] for f in FIELDS}
     if key_enc is not None:
-        sets += ["api_key_enc = ?", "key_hint = ?"]
-        params += [key_enc, key_hint]
-    sets += ["status = 'untested'", "last_error = ''", "updated_at = ?", "updated_by_user_id = ?"]
-    conn = _conn()
-    try:
-        conn.execute(f"UPDATE org_llm_providers SET {', '.join(sets)} WHERE id = ?",
-                     (*params, time.time(), user_id, provider_id))
-        conn.commit()
-    finally:
-        conn.close()
+        values.update(api_key_enc=key_enc, key_hint=key_hint)
+    with sa.begin() as conn:
+        conn.execute(sql_update(p).where(p.c.id == provider_id).values(
+            **values, status="untested", last_error="", updated_at=time.time(), updated_by_user_id=user_id))
 
 
 def delete(provider_id: int) -> None:
-    conn = _conn()
-    try:
-        conn.execute("DELETE FROM org_llm_providers WHERE id = ?", (provider_id,))
-        conn.commit()
-    finally:
-        conn.close()
+    with sa.begin() as conn:
+        conn.execute(sql_delete(p).where(p.c.id == provider_id))
 
 
 def set_default(org_id: int, provider_id: int | None) -> None:
     """One default per org; None clears it (the org goes back to the platform model). One transaction."""
-    conn = _conn()
-    try:
-        conn.execute("UPDATE org_llm_providers SET is_default = 0 WHERE org_id = ?", (org_id,))
+    with sa.begin() as conn:
+        conn.execute(sql_update(p).where(p.c.org_id == org_id).values(is_default=0))
         if provider_id is not None:
-            conn.execute("UPDATE org_llm_providers SET is_default = 1 WHERE id = ? AND org_id = ?",
-                         (provider_id, org_id))
-        conn.commit()
-    finally:
-        conn.close()
+            conn.execute(sql_update(p).where(p.c.id == provider_id, p.c.org_id == org_id).values(is_default=1))
 
 
 def record_test(provider_id: int, ok: bool, error: str, latency_ms: int) -> None:
-    conn = _conn()
-    try:
-        conn.execute("UPDATE org_llm_providers SET status = ?, last_error = ?, last_tested_at = ?, "
-                     "last_latency_ms = ? WHERE id = ?",
-                     ("ok" if ok else "failed", error[:300], time.time(), latency_ms, provider_id))
-        conn.commit()
-    finally:
-        conn.close()
+    with sa.begin() as conn:
+        conn.execute(sql_update(p).where(p.c.id == provider_id).values(
+            status="ok" if ok else "failed", last_error=error[:300], last_tested_at=time.time(),
+            last_latency_ms=latency_ms))
 
 
 def project_org(project_id: int) -> int | None:
-    rows = _rows("SELECT org_id FROM intel_projects WHERE id = ?", (project_id,))
-    return rows[0]["org_id"] if rows else None
-
-
-_OUTAGE = ("acting_provider_id", "down_since", "failed_calls", "notified", "paused", "last_error")
+    row = _first(select(intel_projects.c.org_id).where(intel_projects.c.id == project_id))
+    return row["org_id"] if row else None
 
 
 def get_outage(org_id: int) -> dict | None:
-    rows = _rows("SELECT * FROM org_llm_state WHERE org_id = ?", (org_id,))
-    return {k: rows[0][k] for k in _OUTAGE} if rows else None
+    row = _first(select(st).where(st.c.org_id == org_id))
+    return {k: row[k] for k in _OUTAGE} if row else None
 
 
-def save_outage(org_id: int, st: dict) -> None:
-    conn = _conn()
-    try:
-        conn.execute(
-            "INSERT INTO org_llm_state (org_id, acting_provider_id, down_since, failed_calls, notified, paused, "
-            "last_error, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (org_id) DO UPDATE SET "
-            "acting_provider_id = EXCLUDED.acting_provider_id, down_since = EXCLUDED.down_since, "
-            "failed_calls = EXCLUDED.failed_calls, notified = EXCLUDED.notified, paused = EXCLUDED.paused, "
-            "last_error = EXCLUDED.last_error, updated_at = EXCLUDED.updated_at",
-            (org_id, *(st[k] for k in _OUTAGE), time.time()))
-        conn.commit()
-    finally:
-        conn.close()
+def save_outage(org_id: int, state: dict) -> None:
+    stmt = pg_insert(st).values(org_id=org_id, **{k: state[k] for k in _OUTAGE}, updated_at=time.time())
+    with sa.begin() as conn:
+        conn.execute(stmt.on_conflict_do_update(index_elements=[st.c.org_id], set_={
+            c: stmt.excluded[c] for c in (*_OUTAGE, "updated_at")}))
 
 
 def clear_outage(org_id: int) -> None:
-    conn = _conn()
-    try:
-        conn.execute("DELETE FROM org_llm_state WHERE org_id = ?", (org_id,))
-        conn.commit()
-    finally:
-        conn.close()
+    with sa.begin() as conn:
+        conn.execute(sql_delete(st).where(st.c.org_id == org_id))

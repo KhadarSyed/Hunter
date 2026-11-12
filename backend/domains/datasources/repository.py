@@ -1,4 +1,4 @@
-"""Postgres access for org-managed data source credentials (Tavily, SerpAPI, Firecrawl).
+"""Postgres access for org-managed data source credentials (Tavily, SerpAPI, Firecrawl), through SQLAlchemy Core.
 
 Keys are encrypted at rest with the same Fernet box as the LLM provider keys (core/secret_box). Rows written before
 encryption hold the plain key; `encrypt_legacy_keys()` (startup) converts them, and reads accept either form."""
@@ -8,8 +8,11 @@ import json
 import logging
 import time
 
-from ...core import secret_box
-from ...core.db import _conn
+from sqlalchemy import delete, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from ...core import sa, secret_box
+from .models import org_data_sources as ds
 
 logger = logging.getLogger(__name__)
 SOURCES = ("tavily", "serpapi", "firecrawl")
@@ -33,7 +36,7 @@ def _open(stored: str | None) -> str | None:
 
 
 def _plain(row) -> dict:
-    out = dict(row)
+    out = dict(row._mapping)
     out["api_key"] = _open(out.get("api_key")) or ""
     try:
         out["settings"] = json.loads(out.get("settings_json") or "{}")
@@ -42,56 +45,48 @@ def _plain(row) -> dict:
     return out
 
 
+def _where(org_id: int, source: str):
+    return (ds.c.org_id == org_id, ds.c.source == source)
+
+
 def upsert_key(org_id: int, source: str, api_key: str, user_id: int, status: str = "ok",
                error: str | None = None, settings: dict | None = None) -> dict:
     """Admin sets/replaces the org's key for a source (stored encrypted). Settings, when given, replace the old ones."""
-    conn = _conn()
-    now = time.time()
-    conn.execute(
-        "INSERT INTO org_data_sources (org_id, source, api_key, status, expired_at, last_error, "
-        "updated_at, updated_by_user_id, settings_json) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?) "
-        "ON CONFLICT(org_id, source) DO UPDATE SET "
-        "api_key = excluded.api_key, status = excluded.status, expired_at = NULL, last_error = excluded.last_error, "
-        "updated_at = excluded.updated_at, updated_by_user_id = excluded.updated_by_user_id"
-        + (", settings_json = excluded.settings_json" if settings is not None else ""),
-        (org_id, source, _seal(api_key), status, error, now, user_id, json.dumps(settings or {})),
-    )
-    conn.commit()
-    row = conn.execute("SELECT * FROM org_data_sources WHERE org_id = ? AND source = ?", (org_id, source)).fetchone()
-    conn.close()
-    return _plain(row)
+    stmt = pg_insert(ds).values(org_id=org_id, source=source, api_key=_seal(api_key), status=status, expired_at=None,
+                                last_error=error, updated_at=time.time(), updated_by_user_id=user_id,
+                                settings_json=json.dumps(settings or {}))
+    changed = ["api_key", "status", "expired_at", "last_error", "updated_at", "updated_by_user_id"]
+    if settings is not None:
+        changed.append("settings_json")
+    with sa.begin() as conn:
+        conn.execute(stmt.on_conflict_do_update(index_elements=[ds.c.org_id, ds.c.source],
+                                                set_={c: stmt.excluded[c] for c in changed}))
+        return _plain(conn.execute(select(ds).where(*_where(org_id, source))).one())
 
 
 def update_settings(org_id: int, source: str, settings: dict) -> dict | None:
-    conn = _conn()
-    conn.execute("UPDATE org_data_sources SET settings_json = ?, updated_at = ? WHERE org_id = ? AND source = ?",
-                 (json.dumps(settings), time.time(), org_id, source))
-    conn.commit()
-    row = conn.execute("SELECT * FROM org_data_sources WHERE org_id = ? AND source = ?", (org_id, source)).fetchone()
-    conn.close()
+    with sa.begin() as conn:
+        conn.execute(update(ds).where(*_where(org_id, source))
+                     .values(settings_json=json.dumps(settings), updated_at=time.time()))
+        row = conn.execute(select(ds).where(*_where(org_id, source))).first()
     return _plain(row) if row else None
 
 
 def delete_key(org_id: int, source: str) -> bool:
-    conn = _conn()
-    cur = conn.execute("DELETE FROM org_data_sources WHERE org_id = ? AND source = ?", (org_id, source))
-    conn.commit()
-    conn.close()
-    return bool(cur.rowcount)
+    with sa.begin() as conn:
+        return bool(conn.execute(delete(ds).where(*_where(org_id, source))).rowcount)
 
 
 def get_org_sources(org_id: int) -> list[dict]:
     """All configured sources for an org, keys decrypted (callers exposing them must mask; see schemas.py)."""
-    conn = _conn()
-    rows = conn.execute("SELECT * FROM org_data_sources WHERE org_id = ?", (org_id,)).fetchall()
-    conn.close()
+    with sa.begin() as conn:
+        rows = conn.execute(select(ds).where(ds.c.org_id == org_id)).all()
     return [_plain(r) for r in rows]
 
 
 def get_source(org_id: int, source: str) -> dict | None:
-    conn = _conn()
-    row = conn.execute("SELECT * FROM org_data_sources WHERE org_id = ? AND source = ?", (org_id, source)).fetchone()
-    conn.close()
+    with sa.begin() as conn:
+        row = conn.execute(select(ds).where(*_where(org_id, source))).first()
     return _plain(row) if row else None
 
 
@@ -103,29 +98,17 @@ def get_key(org_id: int, source: str) -> str | None:
 
 def mark_status(org_id: int, source: str, status: str, error: str | None = None) -> None:
     """Reactively flip a configured source's status after a real call succeeds/fails (no-op when not configured)."""
-    conn = _conn()
     now = time.time()
-    expired_at = now if status == "expired" else None
-    conn.execute(
-        "UPDATE org_data_sources SET status = ?, expired_at = ?, last_error = ?, updated_at = ? "
-        "WHERE org_id = ? AND source = ?",
-        (status, expired_at, error, now, org_id, source),
-    )
-    conn.commit()
-    conn.close()
+    with sa.begin() as conn:
+        conn.execute(update(ds).where(*_where(org_id, source)).values(
+            status=status, expired_at=now if status == "expired" else None, last_error=error, updated_at=now))
 
 
 def encrypt_legacy_keys() -> int:
     """Startup, idempotent: plain keys saved before encryption are encrypted in place. Returns how many."""
-    conn = _conn()
-    try:
-        rows = conn.execute("SELECT id, api_key FROM org_data_sources").fetchall()
-        n = 0
-        for r in rows:
-            if r["api_key"] and not r["api_key"].startswith(_FERNET_PREFIX):
-                conn.execute("UPDATE org_data_sources SET api_key = ? WHERE id = ?", (_seal(r["api_key"]), r["id"]))
-                n += 1
-        conn.commit()
-        return n
-    finally:
-        conn.close()
+    with sa.begin() as conn:
+        legacy = [r for r in conn.execute(select(ds.c.id, ds.c.api_key)).all()
+                  if r.api_key and not r.api_key.startswith(_FERNET_PREFIX)]
+        for r in legacy:
+            conn.execute(update(ds).where(ds.c.id == r.id).values(api_key=_seal(r.api_key)))
+    return len(legacy)

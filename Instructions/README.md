@@ -101,7 +101,7 @@ changed and why. Open the code only for the files a note or the map points to.
 ## Reviewer backlog (2026-11-12)
 
 - **Raw SQL → SQLAlchemy** (agreed 2026-11-12, in progress, one domain at a time): `core/sa.py` + `models.py` +
-  Core queries per domain. Done: **billing** (log 04), **guardrails, exclusions, assets, memory** (log 05). Next: the other domains, smallest first;
+  Core queries per domain. Done: **billing** (log 04), **guardrails, exclusions, assets, memory** (log 05), **datasources, providers** (log 09). Next: the other domains, smallest first;
   delete `core/pg.py` after the last one. Alembic arrives with the first schema change in a moved domain.
 - **Packages to adopt** (log 2026-11-12-04, order agreed): settings into `AppSettings` (61 scattered env reads),
   ruff + vulture (dev), ESLint + Vitest (FE), react-router, openapi-typescript client, TanStack Query.
