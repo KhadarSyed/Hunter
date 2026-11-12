@@ -100,9 +100,11 @@ changed and why. Open the code only for the files a note or the map points to.
 
 ## Reviewer backlog (2026-11-12)
 
-- **Raw SQL instead of an ORM** (open, needs a decision): ~384 `execute()` calls over 31 files, SQLite-style SQL
-  translated to Postgres by `core/pg.py`, schema + migrations hand-written in `core/db.py` (~1,900 lines).
-  Moving to SQLAlchemy models + Alembic means rewriting every repository; not started. See log 2026-11-12-01.
+- **Raw SQL → SQLAlchemy** (agreed 2026-11-12, in progress, one domain at a time): `core/sa.py` + `models.py` +
+  Core queries per domain. Done: **billing** (log 2026-11-12-04). Next: the other domains, smallest first;
+  delete `core/pg.py` after the last one. Alembic arrives with the first schema change in a moved domain.
+- **Packages to adopt** (log 2026-11-12-04, order agreed): settings into `AppSettings` (61 scattered env reads),
+  ruff + vulture (dev), ESLint + Vitest (FE), react-router, openapi-typescript client, TanStack Query.
 - `domains/agent/qa_browser.py`: standalone CLI (argparse), imported by nothing; keep or delete is the user's call.
 - Local `.env` holds ~45 keys no code reads, and python-dotenv cannot parse its line 69 (not opened: may hold a secret).
 

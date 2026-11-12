@@ -1799,9 +1799,16 @@ def _conn() -> pg.Connection:
     if not url:
         raise RuntimeError(MISSING_DATABASE)
     conn = pg.connect(url)
-    if os.environ.get("HUNTER_PG_SCHEMA_PER_DB"):        # tests: each throwaway DB path is its own schema
-        conn.use_schema("t_" + hashlib.sha1(str(config.MEMORY_DB_PATH).encode()).hexdigest()[:16])
+    if schema := schema_for_tests():
+        conn.use_schema(schema)
     return conn
+
+
+def schema_for_tests() -> str | None:
+    """Tests (HUNTER_PG_SCHEMA_PER_DB): each throwaway DB path is its own Postgres schema; None in normal runs."""
+    if not os.environ.get("HUNTER_PG_SCHEMA_PER_DB"):
+        return None
+    return "t_" + hashlib.sha1(str(config.MEMORY_DB_PATH).encode()).hexdigest()[:16]
 
 
 def table_names(conn) -> list[str]:

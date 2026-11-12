@@ -93,7 +93,8 @@ backend/
 
 Rules: services call persistence through `from ...core import store` (add new SQL functions to
 the owning `domains/<stage>/repository.py`, never to `store.py`); repositories import `_conn` from
-`core.db`; build file paths from `core.config` constants, never from `Path(__file__)`; services
+`core.db` (domains already moved to SQLAlchemy — billing — use `core/sa.begin()` + their `models.py`
+instead; see the database bullet below); build file paths from `core.config` constants, never from `Path(__file__)`; services
 never import a `router.py`. Frontend (`frontend/src/`): `pages/` · `components/` · `context/`
 (React providers) · `hooks/` · `services/` (REST + WebSocket clients) · `types/` · `data/` (demo fixtures).
 
@@ -108,6 +109,10 @@ never import a `router.py`. Frontend (`frontend/src/`): `pages/` · `components/
   translates; there is no SQLite fallback. Older docs describing `intelligence.db` or
   `data/memory.db` are out of date (`config.MEMORY_DB_PATH` survives only because `core/db.py` hashes it into the schema name). Every table (projects/specs/strategies/jobs/deliverables/QC,
   plus the unused legacy tables of the deleted products) lives there.
+  **Moving to SQLAlchemy, one domain at a time:** `core/sa.py` (pooled engine, capped connections) +
+  `domains/<stage>/models.py` (SQLAlchemy Core `Table`s) + Core queries in that domain's `repository.py`. Done:
+  `billing`. New code in a moved domain never uses `_conn`/`pg.py`; tables are still created by `core/db.py`
+  MIGRATIONS until Alembic takes over with the first schema change in a moved domain.
   Uploaded dataset files are also kept in `intel_dataset_files`, since a hosted server's disk may
   not survive a restart.
 - **S3 object store (optional):** `core/object_store.py` puts everything kept beyond the database under the
