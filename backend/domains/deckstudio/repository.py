@@ -1,67 +1,65 @@
-"""SQLite access for the reference deck library (slide types and features learned from reference decks)."""
+"""The reference deck library (slide types and features learned from reference decks), through SQLAlchemy Core."""
 from __future__ import annotations
 
 import json
 import time
 from typing import Optional
 
-from ...core.db import _conn
+from sqlalchemy import delete, insert, select, update
+
+from ...core import sa
+from .models import deck_reference_decks as decks
+from .models import deck_reference_slides as slides
+
+# core/store.py star-imports this module: export only the repository functions
+__all__ = ["upsert_library_deck", "get_library_deck", "list_library_decks", "delete_library_deck",
+           "replace_library_slides", "list_library_slides"]
 
 
 def upsert_library_deck(path: str, digest: str, family: str, n_slides: int) -> int:
-    conn = _conn()
-    row = conn.execute("SELECT id FROM deck_reference_decks WHERE path = ?", (path,)).fetchone()
-    if row:
-        conn.execute("UPDATE deck_reference_decks SET hash = ?, family = ?, n_slides = ?, indexed_at = ? WHERE id = ?",
-                     (digest, family, n_slides, time.time(), row["id"]))
-        deck_id = row["id"]
-    else:
-        deck_id = conn.execute("INSERT INTO deck_reference_decks (path, hash, family, n_slides, indexed_at) "
-                               "VALUES (?, ?, ?, ?, ?)", (path, digest, family, n_slides, time.time())).lastrowid
-    conn.commit()
-    conn.close()
-    return deck_id
+    values = {"hash": digest, "family": family, "n_slides": n_slides, "indexed_at": time.time()}
+    with sa.begin() as conn:
+        deck_id = conn.execute(select(decks.c.id).where(decks.c.path == path)).scalar()
+        if deck_id is not None:
+            conn.execute(update(decks).where(decks.c.id == deck_id).values(**values))
+            return deck_id
+        return conn.execute(insert(decks).values(path=path, **values).returning(decks.c.id)).scalar_one()
 
 
 def get_library_deck(path: str) -> Optional[dict]:
-    conn = _conn()
-    row = conn.execute("SELECT * FROM deck_reference_decks WHERE path = ?", (path,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    with sa.begin() as conn:
+        row = conn.execute(select(decks).where(decks.c.path == path)).first()
+    return dict(row._mapping) if row else None
 
 
 def list_library_decks() -> list[dict]:
-    conn = _conn()
-    rows = conn.execute("SELECT * FROM deck_reference_decks ORDER BY path").fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    with sa.begin() as conn:
+        return [dict(r._mapping) for r in conn.execute(select(decks).order_by(decks.c.path))]
 
 
 def delete_library_deck(path: str) -> None:
-    conn = _conn()
-    row = conn.execute("SELECT id FROM deck_reference_decks WHERE path = ?", (path,)).fetchone()
-    if row:
-        conn.execute("DELETE FROM deck_reference_slides WHERE deck_id = ?", (row["id"],))
-        conn.execute("DELETE FROM deck_reference_decks WHERE id = ?", (row["id"],))
-    conn.commit()
-    conn.close()
+    with sa.begin() as conn:
+        deck_id = conn.execute(select(decks.c.id).where(decks.c.path == path)).scalar()
+        if deck_id is not None:
+            conn.execute(delete(slides).where(slides.c.deck_id == deck_id))
+            conn.execute(delete(decks).where(decks.c.id == deck_id))
 
 
-def replace_library_slides(deck_id: int, slides: list[dict]) -> None:
-    conn = _conn()
-    conn.execute("DELETE FROM deck_reference_slides WHERE deck_id = ?", (deck_id,))
-    conn.executemany("INSERT INTO deck_reference_slides (deck_id, n, type, features_json) VALUES (?, ?, ?, ?)",
-                     [(deck_id, s["n"], s["type"], json.dumps(s.get("features") or {}, default=str)) for s in slides])
-    conn.commit()
-    conn.close()
+def replace_library_slides(deck_id: int, deck_slides: list[dict]) -> None:
+    with sa.begin() as conn:
+        conn.execute(delete(slides).where(slides.c.deck_id == deck_id))
+        if deck_slides:
+            conn.execute(insert(slides), [{"deck_id": deck_id, "n": s["n"], "type": s["type"],
+                                           "features_json": json.dumps(s.get("features") or {}, default=str)}
+                                          for s in deck_slides])
 
 
 def list_library_slides(slide_type: str | None = None) -> list[dict]:
-    conn = _conn()
-    sql = ("SELECT s.deck_id, s.n, s.type, s.features_json, d.path AS deck_path, d.family "
-           "FROM deck_reference_slides s JOIN deck_reference_decks d ON d.id = s.deck_id")
-    rows = conn.execute(sql + (" WHERE s.type = ?" if slide_type else "") + " ORDER BY d.path, s.n",
-                        (slide_type,) if slide_type else ()).fetchall()
-    conn.close()
-    return [{"deck_id": r["deck_id"], "deck_path": r["deck_path"], "family": r["family"], "n": r["n"],
-             "type": r["type"], "features": json.loads(r["features_json"])} for r in rows]
+    q = (select(slides.c.deck_id, slides.c.n, slides.c.type, slides.c.features_json, decks.c.path.label("deck_path"),
+                decks.c.family).join(decks, decks.c.id == slides.c.deck_id).order_by(decks.c.path, slides.c.n))
+    if slide_type:
+        q = q.where(slides.c.type == slide_type)
+    with sa.begin() as conn:
+        rows = conn.execute(q).all()
+    return [{"deck_id": r.deck_id, "deck_path": r.deck_path, "family": r.family, "n": r.n, "type": r.type,
+             "features": json.loads(r.features_json)} for r in rows]
