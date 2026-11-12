@@ -10,8 +10,10 @@ RUN npm run build
 FROM python:3.12-slim AS runtime
 WORKDIR /app
 COPY backend/requirements.txt backend/requirements.txt
-# Chromium (with its system libraries) renders the deck screenshots, PPTX/PDF export and verbatim captures
-RUN pip install --no-cache-dir -r backend/requirements.txt \
+# Chromium (with its system libraries) renders the deck screenshots, PPTX/PDF export and verbatim captures.
+# libatomic1 first: Playwright's bundled Node driver (1.65+) needs it to run at all, and --with-deps runs it.
+RUN apt-get update && apt-get install -y --no-install-recommends libatomic1 && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir -r backend/requirements.txt \
     && python -m playwright install --with-deps chromium
 COPY backend/ backend/
 COPY data/ data/
