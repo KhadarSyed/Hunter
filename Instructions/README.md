@@ -101,8 +101,8 @@ changed and why. Open the code only for the files a note or the map points to.
 ## Reviewer backlog (2026-11-12)
 
 - **Raw SQL → SQLAlchemy** (agreed 2026-11-12, in progress, one domain at a time): `core/sa.py` + `models.py` +
-  Core queries per domain. Done: **billing** (log 04), **guardrails, exclusions, assets, memory** (log 05), **datasources, providers** (log 09), **usage** (log 17), **auth** (log 18), **plan, brief** (log 19), **qc** (log 20), **deckstudio, agent** (log 21), **research** (log 22). Remaining: projects,
-  spec, strategy, deliverable, dataset Next: the other domains, smallest first;
+  Core queries per domain. Done: **billing** (log 04), **guardrails, exclusions, assets, memory** (log 05), **datasources, providers** (log 09), **usage** (log 17), **auth** (log 18), **plan, brief** (log 19), **qc** (log 20), **deckstudio, agent** (log 21), **research** (log 22), **deliverable** (log 23). Remaining:
+  projects, spec, strategy, dataset Next: the other domains, smallest first;
   delete `core/pg.py` after the last one. Alembic arrives with the first schema change in a moved domain.
 - **Packages to adopt** (order agreed, log 04): ruff + vulture DONE (log 10); ESLint DONE (log 11); Vitest DONE + react-router DROPPED (log 12). Remaining, adopt WHEN (log 13): openapi-typescript client once
   most routes declare response_model (116/201 today); TanStack Query page by page where a page has a real

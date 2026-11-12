@@ -1,232 +1,216 @@
-"""SQLite access for the deliverable engine: runs, streamed sections, classification cache, template index."""
+"""The deliverable engine's storage through SQLAlchemy Core (models.py): runs, streamed sections, classification
+cache, reference-deck index, analysis plans, "Refresh latest 7 days" results and a finished deck's files."""
 from __future__ import annotations
 
 import json
 import time
 from typing import Any, Optional
 
-from ...core.db import _conn
+from sqlalchemy import delete, insert, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from ...core import sa
+from .models import intel_article_classifications as classifications
+from .models import intel_deliverable_files as files
+from .models import intel_deliverable_plans as plans
+from .models import intel_deliverable_runs as runs
+from .models import intel_deliverable_sections as sections
+from .models import intel_latest24h_refreshes as refreshes
+from .models import intel_reference_decks as reference_decks
+
+# core/store.py star-imports this module: export only the repository functions and the cache age
+__all__ = ["create_deliverable_run", "update_deliverable_run", "get_deliverable_run", "recent_run_durations",
+           "get_latest_deliverable_run", "fail_interrupted_deliverable_runs", "get_active_deliverable_run",
+           "save_deliverable_section", "replace_deliverable_section", "list_deliverable_sections",
+           "CLASSIFICATION_MAX_AGE_S", "get_cached_classification", "save_cached_classification",
+           "save_reference_deck", "list_reference_decks", "get_deliverable_plans", "save_deliverable_plan",
+           "create_latest24h_refresh", "finish_latest24h_refresh", "get_latest_latest24h_refresh",
+           "fail_interrupted_latest24h_refreshes", "save_deck_files", "deck_file_names", "project_deck_s3_keys",
+           "deck_file_s3_key", "deck_file_parts"]
 
 _RUN_FIELDS = {"status", "stage", "pptx_path", "docx_path", "thumbs_dir", "error", "finished_at",
                "html_path", "pdf_path", "studio_pptx_path", "deck_dir"}
+CLASSIFICATION_MAX_AGE_S = 30 * 86400
+_REFRESH_JSON = ("counts", "summary", "charts", "articles")
 
 
-def create_deliverable_run(project_id: int) -> int:
-    conn = _conn()
-    cur = conn.execute(
-        "INSERT INTO intel_deliverable_runs (project_id, status, stages_json, created_at) "
-        "VALUES (?, 'running', '{}', ?)", (project_id, time.time()))
-    conn.commit()
-    conn.close()
-    return cur.lastrowid
+def _first(query) -> Optional[dict]:
+    with sa.begin() as conn:
+        row = conn.execute(query).first()
+    return dict(row._mapping) if row else None
 
 
-def update_deliverable_run(run_id: int, **fields: Any) -> None:
-    sets, vals = [], []
-    for key, value in fields.items():
-        if key == "stages_json":
-            sets.append("stages_json = ?")
-            vals.append(json.dumps(value))
-        elif key in _RUN_FIELDS:
-            sets.append(f"{key} = ?")
-            vals.append(value)
-    if not sets:
-        return
-    conn = _conn()
-    conn.execute(f"UPDATE intel_deliverable_runs SET {', '.join(sets)} WHERE id = ?", (*vals, run_id))
-    conn.commit()
-    conn.close()
-
-
-def _run(row) -> Optional[dict]:
-    if not row:
+def _with_stages(d: Optional[dict]) -> Optional[dict]:
+    if d is None:
         return None
-    d = dict(row)
     d["stages"] = json.loads(d.pop("stages_json") or "{}")
     return d
 
 
+# ─── runs ───────────────────────────────────────────────────────────────────
+
+def create_deliverable_run(project_id: int) -> int:
+    with sa.begin() as conn:
+        return conn.execute(insert(runs).values(project_id=project_id, status="running", stages_json="{}",
+                                                created_at=time.time()).returning(runs.c.id)).scalar_one()
+
+
+def update_deliverable_run(run_id: int, **fields: Any) -> None:
+    values = {k: v for k, v in fields.items() if k in _RUN_FIELDS}      # other keys are ignored
+    if "stages_json" in fields:
+        values["stages_json"] = json.dumps(fields["stages_json"])
+    if values:
+        with sa.begin() as conn:
+            conn.execute(update(runs).where(runs.c.id == run_id).values(**values))
+
+
 def get_deliverable_run(run_id: int) -> Optional[dict]:
-    conn = _conn()
-    row = conn.execute("SELECT * FROM intel_deliverable_runs WHERE id = ?", (run_id,)).fetchone()
-    conn.close()
-    return _run(row)
+    return _with_stages(_first(select(runs).where(runs.c.id == run_id)))
 
 
 def recent_run_durations(limit: int = 5) -> list[float]:
     """Wall-clock seconds of the latest completed runs, newest first (the progress bar's typical duration)."""
-    conn = _conn()
-    rows = conn.execute("SELECT finished_at - created_at AS d FROM intel_deliverable_runs WHERE status = 'completed' "
-                        "AND finished_at IS NOT NULL ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
-    conn.close()
-    return [r["d"] for r in rows if r["d"] and r["d"] > 0]
+    q = (select((runs.c.finished_at - runs.c.created_at).label("d"))
+         .where(runs.c.status == "completed", runs.c.finished_at.is_not(None)).order_by(runs.c.id.desc()).limit(limit))
+    with sa.begin() as conn:
+        return [d for d in conn.execute(q).scalars() if d and d > 0]
 
 
 def get_latest_deliverable_run(project_id: int) -> Optional[dict]:
-    conn = _conn()
-    row = conn.execute("SELECT * FROM intel_deliverable_runs WHERE project_id = ? "
-                       "ORDER BY created_at DESC, id DESC LIMIT 1", (project_id,)).fetchone()
-    conn.close()
-    return _run(row)
+    return _with_stages(_first(select(runs).where(runs.c.project_id == project_id)
+                               .order_by(runs.c.created_at.desc(), runs.c.id.desc()).limit(1)))
 
 
 def fail_interrupted_deliverable_runs() -> int:
     """Runs still 'running' at startup died with the previous process; without this they block Generate."""
-    conn = _conn()
-    # a Fix on a finished deck (its deck_dir is set only once the run has finished) was interrupted, not the run:
-    # the deck as last saved is still the deliverable
-    repaired = conn.execute("UPDATE intel_deliverable_runs SET status = 'completed' WHERE status = 'running' "
-                            "AND stage = 'repair' AND deck_dir IS NOT NULL").rowcount
-    cur = conn.execute("UPDATE intel_deliverable_runs SET status = 'failed', "
-                       "error = 'interrupted by a server restart', finished_at = ? WHERE status = 'running'",
-                       (time.time(),))
-    conn.commit()
-    conn.close()
-    return cur.rowcount + repaired
+    with sa.begin() as conn:
+        # a Fix on a finished deck (its deck_dir is set only once the run has finished) was interrupted, not the run:
+        # the deck as last saved is still the deliverable
+        repaired = conn.execute(update(runs).where(runs.c.status == "running", runs.c.stage == "repair",
+                                                   runs.c.deck_dir.is_not(None)).values(status="completed")).rowcount
+        failed = conn.execute(update(runs).where(runs.c.status == "running").values(
+            status="failed", error="interrupted by a server restart", finished_at=time.time())).rowcount
+    return failed + repaired
 
 
 def get_active_deliverable_run(project_id: int) -> Optional[dict]:
-    conn = _conn()
-    row = conn.execute("SELECT * FROM intel_deliverable_runs WHERE project_id = ? AND status = 'running' "
-                       "ORDER BY id DESC LIMIT 1", (project_id,)).fetchone()
-    conn.close()
-    return _run(row)
+    return _with_stages(_first(select(runs).where(runs.c.project_id == project_id, runs.c.status == "running")
+                               .order_by(runs.c.id.desc()).limit(1)))
+
+
+# ─── streamed sections ──────────────────────────────────────────────────────
+
+def _section_values(run_id: int, section: dict) -> dict:
+    return {"run_id": run_id, "section_key": section.get("id", ""), "rq_id": section.get("rq_id"),
+            "module": section.get("module"), "payload_json": json.dumps(section, ensure_ascii=False, default=str),
+            "created_at": time.time()}
 
 
 def save_deliverable_section(run_id: int, section: dict) -> int:
-    conn = _conn()
-    cur = conn.execute(
-        "INSERT INTO intel_deliverable_sections (run_id, section_key, rq_id, module, payload_json, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (run_id, section.get("id", ""), section.get("rq_id"), section.get("module"),
-         json.dumps(section, ensure_ascii=False, default=str), time.time()))
-    conn.commit()
-    conn.close()
-    return cur.lastrowid
+    with sa.begin() as conn:
+        return conn.execute(insert(sections).values(**_section_values(run_id, section))
+                            .returning(sections.c.id)).scalar_one()
 
 
 def replace_deliverable_section(run_id: int, section: dict) -> int:
-    """One row per key (the run log is rewritten as it grows)."""
-    conn = _conn()
-    conn.execute("DELETE FROM intel_deliverable_sections WHERE run_id = ? AND section_key = ?",
-                 (run_id, section.get("id", "")))
-    conn.commit()
-    conn.close()
-    return save_deliverable_section(run_id, section)
+    """One row per key (the run log is rewritten as it grows); delete and insert in one transaction."""
+    with sa.begin() as conn:
+        conn.execute(delete(sections).where(sections.c.run_id == run_id,
+                                            sections.c.section_key == section.get("id", "")))
+        return conn.execute(insert(sections).values(**_section_values(run_id, section))
+                            .returning(sections.c.id)).scalar_one()
 
 
 def list_deliverable_sections(run_id: int) -> list[dict]:
-    conn = _conn()
-    rows = conn.execute("SELECT payload_json FROM intel_deliverable_sections WHERE run_id = ? ORDER BY id",
-                        (run_id,)).fetchall()
-    conn.close()
-    return [json.loads(r["payload_json"]) for r in rows]
+    with sa.begin() as conn:
+        return [json.loads(p) for p in conn.execute(select(sections.c.payload_json)
+                                                    .where(sections.c.run_id == run_id).order_by(sections.c.id))
+                .scalars()]
 
 
-CLASSIFICATION_MAX_AGE_S = 30 * 86400
-
+# ─── caches and indexes ─────────────────────────────────────────────────────
 
 def get_cached_classification(norm_url: str, field: str, model: str | None = None) -> Optional[list]:
     """A saved classification, reused only while it is under 30 days old and (when given) made by the same model:
     a better model, or an article that changed, gets classified again."""
-    conn = _conn()
-    sql = "SELECT value_json FROM intel_article_classifications WHERE norm_url = ? AND field = ? AND created_at > ?"
-    params: list = [norm_url, field, time.time() - CLASSIFICATION_MAX_AGE_S]
+    q = select(classifications.c.value_json).where(
+        classifications.c.norm_url == norm_url, classifications.c.field == field,
+        classifications.c.created_at > time.time() - CLASSIFICATION_MAX_AGE_S)
     if model:
-        sql += " AND model = ?"
-        params.append(model)
-    row = conn.execute(sql, tuple(params)).fetchone()
-    conn.close()
+        q = q.where(classifications.c.model == model)
+    row = _first(q)
     return json.loads(row["value_json"]) if row else None
 
 
 def save_cached_classification(norm_url: str, field: str, value: list, model: str) -> None:
-    conn = _conn()
-    conn.execute("INSERT INTO intel_article_classifications (norm_url, field, value_json, model, created_at) "
-                 "VALUES (?, ?, ?, ?, ?) ON CONFLICT (norm_url, field) DO UPDATE SET value_json = excluded.value_json, "
-                 "model = excluded.model, created_at = excluded.created_at",
-                 (norm_url, field, json.dumps(value, ensure_ascii=False), model, time.time()))
-    conn.commit()
-    conn.close()
+    stmt = pg_insert(classifications).values(norm_url=norm_url, field=field, model=model, created_at=time.time(),
+                                             value_json=json.dumps(value, ensure_ascii=False))
+    with sa.begin() as conn:
+        conn.execute(stmt.on_conflict_do_update(index_elements=[classifications.c.norm_url, classifications.c.field],
+                                                set_={c: stmt.excluded[c] for c in ("value_json", "model", "created_at")}))
 
 
 def save_reference_deck(path: str, text: str, embedding: Optional[list[float]], model: str = "") -> None:
-    conn = _conn()
-    conn.execute("INSERT INTO intel_reference_decks (path, text, embedding_json, indexed_at, model) VALUES (?, ?, ?, ?, ?) "
-                 "ON CONFLICT (path) DO UPDATE SET text = excluded.text, embedding_json = excluded.embedding_json, "
-                 "indexed_at = excluded.indexed_at, model = excluded.model",
-                 (path, text, json.dumps(embedding) if embedding is not None else None, time.time(), model))
-    conn.commit()
-    conn.close()
+    stmt = pg_insert(reference_decks).values(path=path, text=text, indexed_at=time.time(), model=model,
+                                             embedding_json=json.dumps(embedding) if embedding is not None else None)
+    with sa.begin() as conn:
+        conn.execute(stmt.on_conflict_do_update(index_elements=[reference_decks.c.path], set_={
+            c: stmt.excluded[c] for c in ("text", "embedding_json", "indexed_at", "model")}))
 
 
 def list_reference_decks() -> list[dict]:
-    conn = _conn()
-    rows = conn.execute("SELECT path, text, embedding_json, model FROM intel_reference_decks").fetchall()
-    conn.close()
-    return [{"path": r["path"], "text": r["text"] or "", "model": r["model"] or "",
-             "embedding": json.loads(r["embedding_json"]) if r["embedding_json"] else None} for r in rows]
+    q = select(reference_decks.c.path, reference_decks.c.text, reference_decks.c.embedding_json,
+               reference_decks.c.model)
+    with sa.begin() as conn:
+        rows = conn.execute(q).all()
+    return [{"path": r.path, "text": r.text or "", "model": r.model or "",
+             "embedding": json.loads(r.embedding_json) if r.embedding_json else None} for r in rows]
 
 
 def get_deliverable_plans(project_id: int) -> dict[str, dict]:
     """rq_id -> {signature, plan, source}: each question's last analysis plan (see engine's plan stage)."""
-    conn = _conn()
-    rows = conn.execute("SELECT rq_id, signature, plan_json, source FROM intel_deliverable_plans WHERE project_id = ?",
-                        (project_id,)).fetchall()
-    conn.close()
-    return {r["rq_id"]: {"signature": r["signature"], "plan": json.loads(r["plan_json"]), "source": r["source"]}
-            for r in rows}
+    q = select(plans.c.rq_id, plans.c.signature, plans.c.plan_json, plans.c.source).where(
+        plans.c.project_id == project_id)
+    with sa.begin() as conn:
+        rows = conn.execute(q).all()
+    return {r.rq_id: {"signature": r.signature, "plan": json.loads(r.plan_json), "source": r.source} for r in rows}
 
 
 def save_deliverable_plan(project_id: int, rq_id: str, signature: str, plan: dict, source: str) -> None:
-    conn = _conn()
-    conn.execute("INSERT INTO intel_deliverable_plans (project_id, rq_id, signature, plan_json, source, updated_at) "
-                 "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, rq_id) DO UPDATE SET "
-                 "signature = excluded.signature, plan_json = excluded.plan_json, source = excluded.source, "
-                 "updated_at = excluded.updated_at",
-                 (project_id, rq_id, signature, json.dumps(plan), source, time.time()))
-    conn.commit()
-    conn.close()
+    stmt = pg_insert(plans).values(project_id=project_id, rq_id=rq_id, signature=signature,
+                                   plan_json=json.dumps(plan), source=source, updated_at=time.time())
+    with sa.begin() as conn:
+        conn.execute(stmt.on_conflict_do_update(index_elements=[plans.c.project_id, plans.c.rq_id], set_={
+            c: stmt.excluded[c] for c in ("signature", "plan_json", "source", "updated_at")}))
 
 
 # ─── "Refresh latest 24h" ───────────────────────────────────────────────────
 
-_REFRESH_JSON = ("counts", "summary", "charts", "articles")
-
-
 def create_latest24h_refresh(project_id: int) -> int:
     """A new running refresh (the older ones are dropped once it completes, so a failed refresh keeps the last good one)."""
-    conn = _conn()
-    cur = conn.execute("INSERT INTO intel_latest24h_refreshes (project_id, status, started_at) VALUES (?, 'running', ?)",
-                       (project_id, time.time()))
-    conn.commit()
-    conn.close()
-    return cur.lastrowid
+    with sa.begin() as conn:
+        return conn.execute(insert(refreshes).values(project_id=project_id, status="running", started_at=time.time())
+                            .returning(refreshes.c.id)).scalar_one()
 
 
 def finish_latest24h_refresh(refresh_id: int, status: str, counts: dict, fetched: int, kept: int,
                              summary: Any = None, charts: Any = None, articles: Any = None,
                              error: Optional[str] = None) -> None:
-    conn = _conn()
-    conn.execute("UPDATE intel_latest24h_refreshes SET status = ?, finished_at = ?, counts_json = ?, fetched = ?, "
-                 "kept = ?, summary_json = ?, charts_json = ?, articles_json = ?, error = ? WHERE id = ?",
-                 (status, time.time(), json.dumps(counts), fetched, kept, json.dumps(summary), json.dumps(charts),
-                  json.dumps(articles), error, refresh_id))
-    if status == "completed":        # only the latest is ever read: a completed refresh replaces the older ones
-        conn.execute("DELETE FROM intel_latest24h_refreshes WHERE id != ? AND status != 'running' AND project_id = "
-                     "(SELECT project_id FROM intel_latest24h_refreshes WHERE id = ?)", (refresh_id, refresh_id))
-    conn.commit()
-    conn.close()
+    with sa.begin() as conn:
+        conn.execute(update(refreshes).where(refreshes.c.id == refresh_id).values(
+            status=status, finished_at=time.time(), counts_json=json.dumps(counts), fetched=fetched, kept=kept,
+            summary_json=json.dumps(summary), charts_json=json.dumps(charts), articles_json=json.dumps(articles),
+            error=error))
+        if status == "completed":        # only the latest is ever read: a completed refresh replaces the older ones
+            same_project = select(refreshes.c.project_id).where(refreshes.c.id == refresh_id).scalar_subquery()
+            conn.execute(delete(refreshes).where(refreshes.c.id != refresh_id, refreshes.c.status != "running",
+                                                 refreshes.c.project_id == same_project))
 
 
 def get_latest_latest24h_refresh(project_id: int) -> Optional[dict]:
-    conn = _conn()
-    row = conn.execute("SELECT * FROM intel_latest24h_refreshes WHERE project_id = ? ORDER BY id DESC LIMIT 1",
-                       (project_id,)).fetchone()
-    conn.close()
-    if not row:
+    d = _first(select(refreshes).where(refreshes.c.project_id == project_id).order_by(refreshes.c.id.desc()).limit(1))
+    if d is None:
         return None
-    d = dict(row)
     for key in _REFRESH_JSON:
         d[key] = json.loads(d.pop(f"{key}_json") or "null")
     return d
@@ -234,12 +218,9 @@ def get_latest_latest24h_refresh(project_id: int) -> Optional[dict]:
 
 def fail_interrupted_latest24h_refreshes() -> int:
     """A server restart ends any refresh mid-flight; mark it so the page never waits on it forever."""
-    conn = _conn()
-    n = conn.execute("UPDATE intel_latest24h_refreshes SET status = 'failed', error = 'Interrupted by a server restart', "
-                     "finished_at = ? WHERE status = 'running'", (time.time(),)).rowcount
-    conn.commit()
-    conn.close()
-    return n
+    with sa.begin() as conn:
+        return conn.execute(update(refreshes).where(refreshes.c.status == "running").values(
+            status="failed", error="Interrupted by a server restart", finished_at=time.time())).rowcount
 
 
 # ─── A finished deck's files (deck_store.py) ────────────────────────────────
@@ -247,63 +228,44 @@ def fail_interrupted_latest24h_refreshes() -> int:
 def save_deck_files(run_id: int, project_id: int, parts) -> int:
     """Replace the run's stored files with `parts` ((name, part, gz, bytes[, s3_key]) tuples, read one at a time) and drop the
     project's other runs, in one transaction: a failed save keeps the previous run. Returns the bytes stored."""
-    conn = _conn()
     total = 0
-    try:
-        with conn:
-            conn.execute("DELETE FROM intel_deliverable_files WHERE run_id = ?", (run_id,))
-            now = time.time()
-            for name, part, gz, content, *rest in parts:
-                conn.execute("INSERT INTO intel_deliverable_files (run_id, project_id, name, part, gz, content, "
-                             "created_at, s3_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING run_id",
-                             (run_id, project_id, name, part, gz, content, now, rest[0] if rest else None))
-                total += len(content)
-            conn.execute("DELETE FROM intel_deliverable_files WHERE project_id = ? AND run_id != ?", (project_id, run_id))
-    finally:
-        conn.close()
+    now = time.time()
+    with sa.begin() as conn:
+        conn.execute(delete(files).where(files.c.run_id == run_id))
+        for name, part, gz, content, *rest in parts:          # one part in memory at a time; no RETURNING of the bytes
+            conn.execute(insert(files).values(run_id=run_id, project_id=project_id, name=name, part=part, gz=gz,
+                                              content=content, created_at=now, s3_key=rest[0] if rest else None))
+            total += len(content)
+        conn.execute(delete(files).where(files.c.project_id == project_id, files.c.run_id != run_id))
     return total
 
 
 def deck_file_names(run_id: int) -> list[str]:
-    conn = _conn()
-    try:
-        return [r[0] for r in conn.execute("SELECT DISTINCT name FROM intel_deliverable_files WHERE run_id = ?",
-                                           (run_id,))]
-    finally:
-        conn.close()
+    with sa.begin() as conn:
+        return list(conn.execute(select(files.c.name).distinct().where(files.c.run_id == run_id)).scalars())
 
 
 def project_deck_s3_keys(project_id: int) -> list[tuple[int, str]]:
     """(run_id, S3 key) of every file of the project's stored decks that lives in S3."""
-    conn = _conn()
-    try:
-        return [(r[0], r[1]) for r in conn.execute(
-            "SELECT run_id, s3_key FROM intel_deliverable_files WHERE project_id = ? AND s3_key IS NOT NULL",
-            (project_id,))]
-    finally:
-        conn.close()
+    with sa.begin() as conn:
+        return [(r.run_id, r.s3_key) for r in conn.execute(
+            select(files.c.run_id, files.c.s3_key).where(files.c.project_id == project_id, files.c.s3_key.is_not(None)))]
 
 
 def deck_file_s3_key(run_id: int, name: str) -> Optional[str]:
     """The S3 key the file was stored under, or None when it is kept as chunks."""
-    conn = _conn()
-    try:
-        row = conn.execute("SELECT s3_key FROM intel_deliverable_files WHERE run_id = ? AND name = ? AND part = 0",
-                           (run_id, name)).fetchone()
-        return row[0] if row and row[0] else None
-    finally:
-        conn.close()
+    with sa.begin() as conn:
+        key = conn.execute(select(files.c.s3_key).where(files.c.run_id == run_id, files.c.name == name,
+                                                        files.c.part == 0)).scalar()
+    return key or None
 
 
 def deck_file_parts(run_id: int, name: str):
     """(gz, bytes) of each stored part in order, fetched one at a time so a large file never sits in memory whole."""
-    conn = _conn()
-    try:
-        parts = [r[0] for r in conn.execute("SELECT part FROM intel_deliverable_files WHERE run_id = ? AND name = ? "
-                                            "ORDER BY part", (run_id, name))]
-        for part in parts:
-            row = conn.execute("SELECT gz, content FROM intel_deliverable_files WHERE run_id = ? AND name = ? AND "
-                               "part = ?", (run_id, name, part)).fetchone()
-            yield row[0], bytes(row[1])
-    finally:
-        conn.close()
+    with sa.begin() as conn:
+        part_numbers = list(conn.execute(select(files.c.part).where(files.c.run_id == run_id, files.c.name == name)
+                                         .order_by(files.c.part)).scalars())
+        for part in part_numbers:
+            row = conn.execute(select(files.c.gz, files.c.content).where(
+                files.c.run_id == run_id, files.c.name == name, files.c.part == part)).one()
+            yield row.gz, bytes(row.content)
