@@ -14,3 +14,6 @@ random temporary password, so the new env value alone had no effect.
 
 ## Verified
 - POST /api/auth/login with the .env password → 200, must_change_password true. Password never printed.
+
+## Confirmed by the user
+- Signed in successfully in the browser (2026-11-12).
