@@ -160,8 +160,9 @@ function OutageBanner({ outage, providers }: { outage: LlmOutage; providers: Llm
 }
 
 /** Settings → LLM Providers: an organization's own chat model (OpenAI, Azure OpenAI, Claude, Gemini or any
- * OpenAI-compatible server). The default provider carries every chat call of the org's projects, with no fallback
- * to the platform model; with none, the org uses the platform model. Embeddings stay on the platform. */
+ * OpenAI-compatible server). The default provider carries every chat call of the org's projects; when it is down the
+ * next one in the listed order takes over (providers/service.call), never the platform model; with none, the org uses
+ * the platform model. Embeddings stay on the platform. */
 export function ProvidersTab() {
   const { user } = useAuth();
   const isSuper = user?.role === "super_admin";
@@ -210,9 +211,10 @@ export function ProvidersTab() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="max-w-xl text-sm text-slate-500">
-          Connect this organization's own chat model. The default provider answers every chat call of the
-          organization's projects; if it fails, the call fails with its reason (no fallback). Keys are encrypted
-          and never shown again. Embeddings stay on the platform.
+          Connect this organization's own chat models. The default answers every chat call of the organization's
+          projects; when it is down, the next model in this list takes over, in the order shown. When all are down,
+          calls wait and resume as soon as one is back, and admins are emailed. Keys are encrypted and never shown
+          again. Embeddings stay on the platform.
         </p>
         {isSuper && (
           <label className="text-xs font-medium text-slate-600">Organization
