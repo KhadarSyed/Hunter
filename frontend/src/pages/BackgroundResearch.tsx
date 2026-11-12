@@ -2,7 +2,7 @@ import { formatDate } from "../utils/format";
 import { Donut } from "../components/Donut";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { intelApi, type BriefResult, type BriefSection, type JobStatus, type SourceRef } from "../services/intel-api";
+import { faviconUrl, intelApi, type BriefResult, type BriefSection, type JobStatus, type SourceRef } from "../services/intel-api";
 import { useProject, useActiveProjectId } from "../context/project-context";
 import { useJobStatus } from "../hooks/useJobStatus";
 import { useAutorun } from "../hooks/useAutorun";
@@ -169,7 +169,7 @@ function CitationLink({ refId, sources }: { refId: string; sources: SourceLookup
     >
       {domain && !faviconFailed ? (
         <img
-          src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`}
+          src={faviconUrl(domain)}
           alt={src.publisher}
           onError={() => setFaviconFailed(true)}
           className="w-3.5 h-3.5 rounded-full ring-1 ring-slate-200 bg-white"
@@ -227,7 +227,7 @@ function CitationIcon({ url, label }: { url: string; label: string }) {
   let domain = "";
   try { domain = new URL(url).hostname; } catch { /* fall back to initial */ }
   return domain && !failed ? (
-    <img src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`} alt="" onError={() => setFailed(true)}
+    <img src={faviconUrl(domain)} alt="" onError={() => setFailed(true)}
       className="w-3.5 h-3.5 rounded-full ring-1 ring-slate-200 bg-white" />
   ) : <SourceInitial label={label || domain} />;
 }

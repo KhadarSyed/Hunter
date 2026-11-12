@@ -106,7 +106,7 @@ def provider_logo(provider_type: str, base_url: str = "") -> dict | None:
                                                   "simple-icons:openai" if "openai.com" in host else "mdi:api")
     try:
         from ..domains.deliverable import visuals       # lazy: domains import core
-        path = visuals.icon_png(icon, config.DATA_DIR / "email_icons", "#000000")
+        path = visuals.icon_png(icon, config.ASSET_CACHE_DIR / "email_icons", "#000000")
         return _png(path.read_bytes(), 22) if path else None
     except Exception as e:
         logger.info("No provider logo %s in an email: %s", icon, type(e).__name__)

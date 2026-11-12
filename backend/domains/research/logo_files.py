@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import hashlib
 import io
-import json
 import logging
 import os
 from pathlib import Path
@@ -23,7 +22,7 @@ from . import brandfetch as brandfetch_client
 
 logger = logging.getLogger(__name__)
 
-CACHE_DIR = config.DATA_DIR / "brand_logos"
+CACHE_DIR = config.ASSET_CACHE_DIR / "brand_logos"   # throwaway copies; the PNG lives in S3
 CDN = "https://cdn.brandfetch.io"
 TIMEOUT_S = 20
 MAX_BYTES = 3_000_000
@@ -34,9 +33,9 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 _IMAGE_TYPES = ("image/png", "image/jpeg", "image/webp", "image/gif")
 
 
-def _paths(brand_name: str) -> tuple[Path, Path]:
+def _path(brand_name: str) -> Path:
     key = hashlib.sha1(brandfetch_client.normalize_brand(brand_name).encode("utf-8")).hexdigest()[:20]
-    return CACHE_DIR / f"{key}.png", CACHE_DIR / f"{key}.json"
+    return CACHE_DIR / f"{key}.png"
 
 
 def _candidates(info: dict) -> list[str]:
@@ -80,7 +79,8 @@ def public_logo(brand_name: str, image_path: str) -> dict:
     """The brand's logo for the page: the cached PNG served by this app (image_path is its route), else a direct
     non-Brandfetch URL (an SVG from Google cannot become a PNG), else none. Brandfetch's CDN refuses hotlinks."""
     info = brandfetch_client.resolve_logo(brand_name)
-    found = logo_file(brand_name)
+    linked = logo_link(brand_name)                      # S3: no download, the flag comes from the stored meta
+    found = (linked[0], bool(linked[1].get("light"))) if linked else logo_bytes(brand_name)
     if found:
         return {**info, "logo_url": image_path, "is_light": found[1]}
     direct = info.get("logo_url") or ""
@@ -94,6 +94,9 @@ def _fetch(brand_name: str) -> tuple[bytes, str, dict] | None:
     never remembered as "no logo"."""
     failed: requests.RequestException | None = None
     for url in _candidates(brandfetch_client.resolve_logo(brand_name)):
+        # a Google image saved under the older, looser match rule is not a logo for this brand
+        if not url.startswith(CDN) and not brandfetch_client.is_plausible_logo(brand_name, url):
+            continue
         try:
             got = _download(url)
         except requests.RequestException as e:
@@ -114,23 +117,26 @@ def _fetch(brand_name: str) -> tuple[bytes, str, dict] | None:
     return None
 
 
-def logo_file(brand_name: str) -> tuple[Path, bool] | None:
-    """(the cached PNG, white?) for a brand: this server's file, else the shared asset table, else fetched once (and
-    saved to both); None when no usable logo exists."""
-    png, meta = _paths(brand_name)
-    if png.exists() and meta.exists():
-        saved = json.loads(meta.read_text("utf-8"))
-        source = saved.get("source") or ""
-        # a Google image cached under the older, looser match rule is fetched again, not served
-        if source.startswith(CDN) or brandfetch_client.is_plausible_logo(brand_name, source):
-            return png, bool(saved.get("light"))
+def logo_bytes(brand_name: str) -> tuple[bytes, bool] | None:
+    """(PNG bytes, white?) for a brand from the shared asset store (S3; Postgres without S3), fetched once and saved
+    there for every organization; None when no usable logo exists."""
     key = brandfetch_client.normalize_brand(brand_name)
-    if not key:
-        return None
-    got = assets.lookup("logo", key, lambda: _fetch(brand_name))
+    got = assets.lookup("logo", key, lambda: _fetch(brand_name)) if key else None
+    return (got[0], bool(got[1].get("light"))) if got else None
+
+
+def logo_link(brand_name: str) -> tuple[str, dict] | None:
+    """(time-limited S3 link, meta) for the brand's logo, stored first when new; None without S3 or without a logo."""
+    key = brandfetch_client.normalize_brand(brand_name)
+    return assets.link("logo", key, lambda: _fetch(brand_name)) if key else None
+
+
+def logo_file(brand_name: str) -> tuple[Path, bool] | None:
+    """(a temp-file copy of the brand's PNG, white?) for renderers that need a path; None when there is no logo."""
+    got = logo_bytes(brand_name)
     if not got:
         return None
-    data, info = got
-    assets.write_file(png, data)
-    meta.write_text(json.dumps(info), "utf-8")
-    return png, bool(info.get("light"))
+    png = _path(brand_name)
+    if not png.is_file() or png.stat().st_size != len(got[0]):
+        assets.write_file(png, got[0])
+    return png, got[1]

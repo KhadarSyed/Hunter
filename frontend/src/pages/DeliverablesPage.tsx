@@ -1,7 +1,7 @@
 import { GuardrailsCheck } from "../components/deliverable/GuardrailsCheck";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@iconify/react";
-import { intelApi } from "../services/intel-api";
+import { faviconUrl, intelApi } from "../services/intel-api";
 import type {
   DeliverableCard, DeliverableCitation, DeliverableLogLine, DeliverablePayload, DeliverableProgress, DeliverableSection,
   RepairScope,
@@ -25,7 +25,7 @@ const MODULE_ICONS: Record<string, string> = {
   outlet_ranking: "lucide:newspaper", reach: "lucide:radio-tower", theme_clusters: "lucide:layout-grid",
   entities: "lucide:users", brand_sov: "lucide:award", top_articles: "lucide:file-text", overview: "lucide:bar-chart-3",
 };
-const favicon = (domain: string) => `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`;
+const favicon = faviconUrl;
 
 type CiteMap = Record<number, DeliverableCitation>;
 

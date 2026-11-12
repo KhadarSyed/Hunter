@@ -166,6 +166,27 @@ def write_file(path: Path, data: bytes) -> Path:
     return path
 
 
+LINK_TTL_S = 3600
+
+
+def link(kind: str, key: str, fetch: Fetch) -> tuple[str, dict] | None:
+    """(time-limited S3 link, stored meta) for the asset, fetched and stored first when new; None without S3, when
+    the source has none, or when it could not be stored in S3 (the caller then serves the bytes from lookup())."""
+    if not object_store.enabled():
+        return None
+    try:
+        row = library.get(kind, key)
+    except Exception as e:
+        logger.warning("asset %s/%s library not read: %s", kind, key[:80], type(e).__name__)
+        return None
+    if not (row and row["s3_key"]):
+        if lookup(kind, key, fetch) is None:
+            return None
+        row = library.get(kind, key)
+    url = object_store.presigned_url(row["s3_key"], LINK_TTL_S) if row and row["s3_key"] else None
+    return (url, row["meta"]) if url else None
+
+
 def to_file(kind: str, key: str, out: Path, fetch: Fetch) -> Path | None:
     """The asset as a file at `out`: the disk copy, else the table's, else fetched."""
     if out.is_file():

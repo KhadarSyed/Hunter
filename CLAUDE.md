@@ -123,7 +123,12 @@ never import a `router.py`. Frontend (`frontend/src/`): `pages/` · `components/
   `HunterAgent/` prefix of `AWS_S3_BUCKET` (keys `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`,
   `AWS_S3_BUCKET`; values are `.strip()`ped). Without the keys every call returns None and callers fall back to
   Postgres; failures log and never fail a deck or a tagging run. Finished decks (`deliverable/deck_store.py`) and
-  the PPT reference decks live there; uploaded Data set files go under `datasets/project-{id}/`.
+  the PPT reference decks live there; uploaded Data set files go under `datasets/project-{id}/`. Logos and site icons
+  are stored once in S3 (`assets/<kind>/`, via `domains/assets/service.py`) and the page links to them:
+  `/api/intel/brandfetch/logo/image` and `/api/intel/favicon?domain=` answer with a 307 to a 1-hour signed S3 link
+  (`assets.link`, `object_store.presigned_url`; the bytes themselves without S3). The frontend never hotlinks Google's
+  favicon service (`faviconUrl()` in `services/intel-api.ts`). Renderers that need a file get a throwaway copy in
+  `config.ASSET_CACHE_DIR` (system temp), never under `data/`.
 - **Asset library:** `domains/assets/` (`library.py` = table `intel_asset_library`, migration 35; `service.py` =
   fetchers) holds logos, site icons, flags and slide photos shared across organisations: bytes in S3, summary +
   embedding in Postgres, so a near-identical photo of the same subject and role is reused before any search.

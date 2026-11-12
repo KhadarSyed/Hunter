@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Icon } from "@iconify/react";
-import { intelApi } from "../../services/intel-api";
+import { faviconUrl, intelApi } from "../../services/intel-api";
 import type { Latest24hArticle, Latest24hRefresh } from "../../services/intel-api";
 import { agentSocket } from "../../services/ws";
 import { ChartRenderer } from "./ChartRenderer";
@@ -12,7 +12,7 @@ const TOP_STORIES = 10;
 // one distinct light tint per brand (the house palette has four, and the brand + five competitors need six)
 const BRAND_TINTS = ["B794E8", "F9B98E", "8FB8E0", "8FD3B6", "F2A7C3", "F6D57A", "A3A8F0", "9ED9E8"];
 const domainOf = (url: string) => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } };
-const favicon = (url: string) => `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domainOf(url))}&sz=64`;
+const favicon = (url: string) => faviconUrl(domainOf(url));
 const timeOf = (date: string) => {
   const d = new Date(date);
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });

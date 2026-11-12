@@ -9,14 +9,17 @@ import asyncio
 import concurrent.futures
 import contextvars
 import logging
+import re
 import uuid
 from typing import Annotated
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Path
-from fastapi.responses import FileResponse
+from fastapi.responses import RedirectResponse, Response
 
 from ...agents.brand_intelligence import run as run_bi
+from ..assets import service as assets
+from ..deliverable import visuals
 from ...core import store, writing_locale
 from ..datasources import repository as ds_repo
 from ..projects import gates
@@ -382,14 +385,38 @@ def get_brand_logo_route(brand_name: str):
     return logo_files.public_logo(brand_name, f"/api/intel/brandfetch/logo/image?brand_name={quote(brand_name)}")
 
 
-@router.get("/brandfetch/logo/image", response_class=FileResponse)
+_IMAGE_HEADERS = {"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"}
+# a redirect is cached for less than the S3 link lives, so a cached redirect never points at an expired link
+_LINK_HEADERS = {"Cache-Control": f"private, max-age={assets.LINK_TTL_S - 600}"}
+_DOMAIN = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)+$")
+
+
+def _image(linked: tuple[str, dict] | None, data: bytes | None, missing: str) -> Response:
+    """A redirect to the image in S3, else its bytes (no S3), else 404."""
+    if linked:
+        return RedirectResponse(linked[0], status_code=307, headers=_LINK_HEADERS)
+    if not data:
+        raise HTTPException(404, missing)
+    return Response(data, media_type="image/png", headers=_IMAGE_HEADERS)
+
+
+@router.get("/brandfetch/logo/image")
 def get_brand_logo_image_route(brand_name: str):
-    """The brand's logo as a PNG, fetched once and cached."""
-    found = logo_files.logo_file(brand_name)
-    if not found:
-        raise HTTPException(404, "No logo for this brand")
-    return FileResponse(found[0], media_type="image/png",
-                        headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"})
+    """The brand's logo: a redirect to its PNG in S3 (fetched once and stored there), else the PNG itself."""
+    linked = logo_files.logo_link(brand_name)
+    got = None if linked else logo_files.logo_bytes(brand_name)
+    return _image(linked, got[0] if got else None, "No logo for this brand")
+
+
+@router.get("/favicon")
+def get_favicon_route(domain: str):
+    """A site's icon: a redirect to its PNG in S3 (fetched once from Google's favicon service), else the PNG itself."""
+    host = domain.strip().lower()
+    if len(host) > 253 or not _DOMAIN.match(host):
+        raise HTTPException(422, "Not a domain name")
+    linked = assets.link("favicon", host, lambda: visuals.fetch_favicon(host))
+    got = None if linked else assets.lookup("favicon", host, lambda: visuals.fetch_favicon(host))
+    return _image(linked, got[0] if got else None, "No icon for this site")
 
 
 # ─── Pexels ────────────────────────────────────────────────────────────────

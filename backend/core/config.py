@@ -3,6 +3,7 @@ environment variables / .env and validated at startup)."""
 from __future__ import annotations
 
 import os
+import tempfile
 from functools import lru_cache
 from pathlib import Path
 
@@ -21,6 +22,8 @@ UPLOAD_DIR = DATA_DIR / "uploads"
 EXPORT_DIR = DATA_DIR / "exports"
 DELIVERABLE_DIR = DATA_DIR / "deliverables"
 DELIVERABLE_DIR.mkdir(parents=True, exist_ok=True)
+# Throwaway copies of S3-stored logos, favicons and icons for renderers that need a file path; S3 is the store.
+ASSET_CACHE_DIR = Path(tempfile.gettempdir()) / "hunter-asset-cache"
 
 
 def input_roots() -> list[Path]:

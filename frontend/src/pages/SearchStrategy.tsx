@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Donut } from "../components/Donut";
 import * as XLSX from "xlsx";
-import { intelApi, type StrategyResult, type JobStatus } from "../services/intel-api";
+import { faviconUrl, intelApi, type StrategyResult, type JobStatus } from "../services/intel-api";
 import { useActiveProjectId, useProject } from "../context/project-context";
 import { useDemoState } from "../context/demo-state";
 import { useAutorun } from "../hooks/useAutorun";
@@ -129,7 +129,7 @@ function PlatformBadge({ name }: { name: string }) {
     <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 bg-slate-50 px-2 py-0.5 rounded border border-slate-100">
       {domain && !failed ? (
         <img
-          src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`}
+          src={faviconUrl(domain)}
           alt=""
           onError={() => setFailed(true)}
           className="w-3.5 h-3.5 rounded-sm"

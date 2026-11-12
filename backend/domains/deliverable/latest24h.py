@@ -384,7 +384,7 @@ def outlet_icons(articles: list[dict]) -> dict[str, str]:
         if a["outlet"] and host and a["outlet"] not in sites and len(sites) < ICON_OUTLETS:
             sites[a["outlet"]] = host
     with ThreadPoolExecutor(max_workers=ICON_WORKERS) as pool:
-        files = dict(zip(sites, pool.map(lambda h: favicon_png(h, config.DATA_DIR / "favicons"), sites.values())))
+        files = dict(zip(sites, pool.map(lambda h: favicon_png(h, config.ASSET_CACHE_DIR / "favicons"), sites.values())))
     return {o: "data:image/png;base64," + base64.b64encode(p.read_bytes()).decode("ascii")
             for o, p in files.items() if p and p.is_file()}
 

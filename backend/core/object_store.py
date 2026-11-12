@@ -25,8 +25,10 @@ def _client():
         return None
     try:
         import boto3
+        from botocore.config import Config
         return boto3.client("s3", region_name=_env("AWS_REGION") or None, aws_access_key_id=_env("AWS_ACCESS_KEY_ID"),
-                            aws_secret_access_key=_env("AWS_SECRET_ACCESS_KEY")), bucket
+                            aws_secret_access_key=_env("AWS_SECRET_ACCESS_KEY"),
+                            config=Config(signature_version="s3v4")), bucket   # signed links: SigV2 is deprecated
     except Exception as e:          # a bad region or missing boto3 means "no S3", never a crash
         logger.warning("S3 client not created: %s", type(e).__name__)
         return None
@@ -63,6 +65,20 @@ def get_bytes(key: str) -> bytes | None:
         return s3.get_object(Bucket=bucket, Key=_full(key))["Body"].read()
     except Exception as e:
         logger.info("S3 get %s failed: %s", key[:120], type(e).__name__)
+        return None
+
+
+def presigned_url(key: str, expires_s: int = 3600) -> str | None:
+    """A time-limited GET link to the object (the bucket stays private); None without S3."""
+    c = _client()
+    if c is None:
+        return None
+    s3, bucket = c
+    try:
+        return s3.generate_presigned_url("get_object", Params={"Bucket": bucket, "Key": _full(key)},
+                                         ExpiresIn=expires_s)
+    except Exception as e:
+        logger.warning("S3 presign %s failed: %s", key[:120], type(e).__name__)
         return None
 
 

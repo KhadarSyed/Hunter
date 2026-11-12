@@ -248,14 +248,16 @@ def favicon_png(domain: str, folder: Path) -> Path | None:
     if not domain:
         return None
     out = folder / (re.sub(r"[^a-z0-9]+", "_", domain.lower()) + ".png")
+    return assets.to_file("favicon", domain.lower(), out, lambda: fetch_favicon(domain))
 
-    def fetch():
-        r = requests.get(FAVICON_API, params={"domain": domain, "sz": FAVICON_SIZE}, timeout=TIMEOUT_S)
-        if r.status_code >= 500:
-            r.raise_for_status()
-        png = _as_png(r.content) if r.ok and r.headers.get("content-type", "").startswith("image/") else None
-        return (png, "image/png", {"source": FAVICON_API}) if png else None
-    return assets.to_file("favicon", domain.lower(), out, fetch)
+
+def fetch_favicon(domain: str) -> tuple[bytes, str, dict] | None:
+    """(png, type, meta) from Google's favicon service; None when the site has none, raises when unreachable."""
+    r = requests.get(FAVICON_API, params={"domain": domain, "sz": FAVICON_SIZE}, timeout=TIMEOUT_S)
+    if r.status_code >= 500:
+        r.raise_for_status()
+    png = _as_png(r.content) if r.ok and r.headers.get("content-type", "").startswith("image/") else None
+    return (png, "image/png", {"source": FAVICON_API}) if png else None
 
 
 BADGE_PX = 128

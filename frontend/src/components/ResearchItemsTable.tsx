@@ -1,6 +1,7 @@
 import { formatDate as formatDateUS } from "../utils/format";
 import { useEffect, useState } from "react";
 import {
+  faviconUrl,
   intelApi,
   type ItemClassification,
   type ItemRelations,
@@ -9,9 +10,8 @@ import {
 import { ArticleReaderModal } from "./ArticleReaderModal";
 import { AccessBadge, RelatedArticlesDrawer, type RelationKind } from "./RelatedArticlesDrawer";
 
-function faviconUrl(domain: string | null): string | null {
-  if (!domain) return null;
-  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`;
+function siteIcon(domain: string | null): string | null {
+  return domain ? faviconUrl(domain) : null;
 }
 
 function singleSourceLabel(sourceApi: string): string {
@@ -219,7 +219,7 @@ export function ResearchItemsTable({ projectId }: ResearchItemsTableProps) {
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
               {items.map((item) => {
-                const favicon = faviconUrl(item.domain);
+                const favicon = siteIcon(item.domain);
                 return (
                   <tr key={item.id} className="align-top hover:bg-slate-50/70">
                     <td className="px-3 py-2.5">

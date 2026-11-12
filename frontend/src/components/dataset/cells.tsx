@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { type EnrichedRecord, type DynamicTagDef } from "../../services/intel-api";
+import { faviconUrl, type EnrichedRecord, type DynamicTagDef } from "../../services/intel-api";
 
 export const V = "#5B2C9D";
 
@@ -39,7 +39,7 @@ export function PublisherCell({ record }: { record: EnrichedRecord }) {
   return (
     <div className="flex items-center gap-2 min-w-0">
       {domain && !failed ? (
-        <img src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`} alt=""
+        <img src={faviconUrl(domain)} alt=""
           onError={() => setFailed(true)} className="w-4 h-4 rounded-sm shrink-0" />
       ) : (
         <span className="w-4 h-4 rounded-full bg-slate-100 shrink-0" />

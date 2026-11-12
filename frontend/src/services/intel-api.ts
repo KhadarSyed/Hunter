@@ -14,6 +14,9 @@ export interface ExclusionRecord {
 
 export const API_BASE = `${API_ORIGIN}/api/intel`;
 
+/** A site's icon, stored once in S3 by the backend (the page links there, never to Google directly). */
+export const faviconUrl = (domain: string): string => `${API_BASE}/favicon?domain=${encodeURIComponent(domain)}`;
+
 // "include" is required (not just "same-origin", the fetch default) once API_ORIGIN
 // points at a different origin than the page — otherwise the browser never attaches
 // the session cookie to the request. Harmless same-origin too, so always set it.
