@@ -88,3 +88,5 @@ data/recreate_inputs/
 
 # client dataset exports used for local end-to-end tests
 /Dataset/
+# local browser session cookies (may hold a session token)
+cookie.json
