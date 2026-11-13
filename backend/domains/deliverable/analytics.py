@@ -136,6 +136,56 @@ def _trend(module, rq, rows, base_n, _):
                     drill_urls=_drill((labels[id(r)], r) for r in dated))
 
 
+THEME_TREND_THEMES = 5       # the legend holds five themes; the rest would be slivers no one can read
+THEME_TREND_PERIODS = 12     # the latest twelve periods with themed articles: one bar each
+
+
+def _theme_trend(module, rq, rows, base_n, _):
+    """How the theme mix shifts over time: one 100% bar per period (the grain follows the data's span, as the volume
+    trend's does), split into the top themes' shares of that period's theme mentions."""
+    dated = [r for r in rows if r.article.date and any(t and t.strip() for t in r.themes)]
+    if not dated:
+        return _section(module, rq, skipped="No dated, themed articles")
+    grain = time_grain([r.article.date for r in dated])          # no hourly mix: a day is the finest grain here
+    labels = row_periods(dated, grain)
+    display: dict[str, str] = {}
+    totals: Counter = Counter()
+    by_period: dict[str, Counter] = {}
+    keys_of: dict[int, set[str]] = {}
+    for r in dated:
+        keys = keys_of[id(r)] = {theme_key(t) for t in r.themes if t and t.strip()}   # case/plural variants merged
+        for t in r.themes:
+            if t and t.strip():
+                display.setdefault(theme_key(t), t.strip())
+        totals.update(keys)
+        by_period.setdefault(labels[id(r)], Counter()).update(keys)
+    periods = [p for p in period_labels(dated, grain) if p in by_period][-THEME_TREND_PERIODS:]
+    themes = [k for k, _ in totals.most_common(THEME_TREND_THEMES)]
+    groups, facts = [], []
+    for p in periods:
+        counts = by_period[p]
+        n = sum(counts[k] for k in themes)
+        if not n:
+            continue
+        shares = [_pct(counts[k], n) for k in themes]
+        groups.append({"name": p, "n": n, "values": shares})
+        lead = max(range(len(themes)), key=lambda i: shares[i])
+        facts.append(f"{p}: \"{display[themes[lead]]}\" leads with {shares[lead]}% of {n} theme mentions")
+    if len(groups) < 2:
+        return _section(module, rq, skipped="Themes span a single period")
+    shown = {g["name"] for g in groups}
+    drill = _drill((f"{labels[id(r)]}	{display[k]}", r) for r in dated if labels[id(r)] in shown
+                   for k in keys_of[id(r)] if k in themes)
+    drill.update(_drill((labels[id(r)], r) for r in dated if labels[id(r)] in shown))
+    return _section(module, rq, chart={"kind": "bar", "categories": [g["name"] for g in groups],
+                                       "values": [g["n"] for g in groups], "unit": "count", "peaks": [],
+                                       "series_label": "Theme mentions", "grain": grain,
+                                       # drawn as one 100% bar per period: that period's theme mix
+                                       "breakdown": {"by": "period", "stacks": [display[k] for k in themes],
+                                                     "groups": groups}},
+                    facts=facts, drill_urls=drill)
+
+
 BRAND_LINES = 6           # lines one chart keeps readable
 # A trend's point by the data's span: two days or less by the hour (when the export gives times), more than two
 # days by the day, more than three weeks by the week, more than three months by the month, more than three years
@@ -702,7 +752,8 @@ def _us_map(module, rq, rows, base_n, _):
 _HANDLERS = {"share_kpi": _share_kpi, "volume_trend": _trend, "outlet_ranking": _outlets,
              "sentiment_split": _sentiment, "reach": _reach, "theme_clusters": _themes, "brand_sov": _brand_sov,
              "top_articles": _top_articles, "entities": _entities, "question_breakdown": _breakdown,
-             "dimension_crosstab": _crosstab, "media_split": _media_split, "us_map": _us_map}
+             "dimension_crosstab": _crosstab, "media_split": _media_split, "us_map": _us_map,
+             "theme_trend": _theme_trend}
 
 
 def compute_module(module: dict, rq: RQ, rows: list[EngineRow], base_n: int,

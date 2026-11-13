@@ -418,7 +418,8 @@ def _question_plan(project_id: int, llm, q: RQ, rows, stored: dict, log) -> dict
     cached = stored.get(q.id)
     if cached and cached["signature"] == signature and (cached["source"] == "llm" or not llm_ok):
         log(f"{q.id}: analysis plan reused (question and articles unchanged)")
-        return cached["plan"]
+        # analyses added to the required set since the plan was stored (e.g. theme_trend) join it; none are dropped
+        return catalog._ensure_required(cached["plan"], q, rows)
     plan, source = catalog.plan_rq(llm, q, rows)
     store.save_deliverable_plan(project_id, q.id, signature, plan, source)
     return plan

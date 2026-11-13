@@ -18,6 +18,8 @@ MODULES: dict[str, dict] = {
     "outlet_ranking": {"needs_extraction": False, "desc": "top outlets by articles (bar chart)"},
     "reach": {"needs_extraction": False, "desc": "total and top-outlet reach (bar chart)"},
     "theme_clusters": {"needs_extraction": False, "desc": "top themes from enrichment (treemap)"},
+    "theme_trend": {"needs_extraction": False,
+                    "desc": "how the top themes shift over time: each period's theme mix (stacked 100% bars)"},
     "entities": {"needs_extraction": True, "desc": "named experts / celebrities / brands / products / retailers (table + chart)"},
     "brand_sov": {"needs_extraction": False, "desc": "brand share of voice with logos (bar chart)"},
     "top_articles": {"needs_extraction": False, "desc": "most-read articles (table)"},
@@ -109,7 +111,17 @@ def _ensure_required(plan: dict, rq: RQ, rows: list[EngineRow]) -> dict:
     kind = next((k for hint, k in _ENTITY_HINTS if hint in rq.question.lower()), None)
     if kind and not any(m["module"] == "entities" and m["entity_kind"] == kind for m in modules):
         modules.insert(2, {"module": "entities", "title": f"Named {kind}", "entity_kind": kind})
-    return {**plan, "modules": modules[:MAX_MODULES]}
+    limit = MAX_MODULES
+    if (_CHANGE_ASK.search(rq.question) and any(r.article.date and r.themes for r in rows)
+            and not any(m["module"] == "theme_trend" for m in modules)):
+        modules.insert(2, {"module": "theme_trend", "title": "How themes shifted over time", "entity_kind": None})
+        limit += 1          # on top of the plan, so a stored full plan keeps every analysis it had
+    return {**plan, "modules": modules[:limit]}
+
+
+# a question about how coverage changed gets the theme mix over time, not only the volume line
+_CHANGE_ASK = re.compile(r"develop|evolv|over time|trend|chang|shift|spike|grow|declin|emerg|year[- ]on[- ]year|yoy",
+                         re.IGNORECASE)
 
 
 BREAKDOWN_MODULES = ("question_breakdown", "dimension_crosstab")

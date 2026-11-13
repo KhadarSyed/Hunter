@@ -3,15 +3,18 @@ they will render), banner image and logo. Any failure falls back to the house st
 from __future__ import annotations
 
 import colorsys
+import json
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import requests
 from PIL import Image
 
+from ..assets import service as assets
 from ..research import logo_files
 from ..research.brandfetch import LookupUnavailable, resolve_brand_domain
 from . import style
@@ -39,11 +42,28 @@ class BrandKit:
     accent: str = style.VIOLET
 
 
+BRAND_DATA_TTL_S = 30 * 86_400     # a brand's colours, fonts and logos rarely change: the paid call is made monthly
+
+
 def _brand_api(domain: str) -> dict:
+    """Brandfetch's brand data for a domain (a paid call), kept in the shared asset store: every deck and revise for
+    the same brand reuses it for BRAND_DATA_TTL_S; "no such brand" (404) is remembered for a week."""
+    saved = assets.get("brand_data", domain)
+    age = time.time() - ((saved or {}).get("created_at") or 0)
+    if saved and saved["content"] and age < BRAND_DATA_TTL_S:
+        return json.loads(saved["content"])
+    if saved and not saved["content"] and age < assets.MISSING_RETRY_S:
+        return {}
     key = os.environ.get("BRANDFETCH_API_KEY", "")
     r = requests.get(f"{BRAND_API}/{domain}", timeout=TIMEOUT_S, headers={"Authorization": f"Bearer {key}"})
+    if r.status_code == 404:
+        assets.put("brand_data", domain, b"", "", {"missing": True, "brand": domain})
+        return {}
     r.raise_for_status()
-    return r.json() or {}
+    data = r.json() or {}
+    assets.put("brand_data", domain, json.dumps(data).encode("utf-8"), "application/json",
+               {"brand": domain, "source": BRAND_API})
+    return data
 
 
 def _luminance(hex_rgb: str) -> float:

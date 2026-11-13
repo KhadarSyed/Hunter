@@ -72,19 +72,43 @@ def _get(url: str, *, timeout: int, **kwargs) -> requests.Response:
 
 # ─── Brandfetch ──────────────────────────────────────────────────────────────
 
+def worth_looking_up(name: str) -> bool:
+    """A name worth a paid lookup: two or more letters/digits incl. a letter, and a word that is not generic. "1234",
+    "x", "--", "Inc" and "The Group" cost no Brandfetch or Google call."""
+    words = [w for w in (_compact(x) for x in name.split()) if w]
+    joined = "".join(words)
+    return len(joined) >= 2 and any(c.isalpha() for c in joined) and any(w not in _GENERIC_WORDS for w in words)
+
+
+def _leading_runs(query: str) -> set[str]:
+    """The query's first word, first two words, ... joined without spaces/punctuation."""
+    runs, acc = set(), ""
+    for word in query.split():
+        acc += _compact(word)
+        if acc:
+            runs.add(acc)
+    return runs
+
+
 def _is_plausible_match(query: str, match_name: str, domain: str) -> bool:
-    """The match's name or domain stem appears in the query, ignoring spaces/punctuation:
-    "McDonald's" ~ mcdonalds.com, "Heineken 0.0 beer" ~ Heineken; "Zxq Corp" !~ Corpay."""
-    q = _compact(query)
+    """The match's name or domain stem is the whole query or its leading words, ignoring spaces/punctuation:
+    "McDonald's" ~ mcdonalds.com, "MC Donald's" ~ McDonald's, "Heineken 0.0 beer" ~ Heineken. Not a piece inside a
+    word ("zzqx-no-such-brand-qq" !~ nosuch.vc) nor a later word ("Lightning by Ford" !~ ford.com)."""
+    runs = _leading_runs(query)
     name, stem = _compact(match_name), _compact(domain.split(".")[0])
-    return bool(q) and any(len(t) >= MIN_TOKEN_LEN and t in q for t in (name, stem))
+    return any(len(t) >= MIN_TOKEN_LEN and t in runs for t in (name, stem))
 
 
 def resolve_brand_domain(brand_name: str) -> str | None:
     """Brandfetch search → the first plausible match's domain, or None.
     Names with spaces are retried without them ("MC Donald's" → "MCDonald's")."""
-    if not brand_name.strip() or not is_reachable():
+    if not worth_looking_up(brand_name) or not is_reachable():
         return None
+    saved = repository.get_brand_logo(normalize_brand(brand_name))       # the logo lookup's answer: no new search
+    if saved and saved["source"] == "brandfetch" and saved["domain"] and             _is_plausible_match(brand_name, "", saved["domain"]):
+        return saved["domain"]
+    if saved and not saved["domain"] and time.time() - (saved["fetched_at"] or 0) < NOT_FOUND_RETRY_S:
+        return None                     # searched within the week: Brandfetch had no plausible match
     queries = [brand_name.strip()]
     if " " in queries[0]:
         queries.append(queries[0].replace(" ", ""))
@@ -109,7 +133,7 @@ def resolve_brand_domain(brand_name: str) -> str | None:
 def candidate_domains(brand_name: str, hint: str = "", limit: int = 5) -> list[str]:
     """Every plausible Brandfetch match for the name, then for the name plus a hint (the project's category), in
     search order: the first match is often a namesake ("Rini" -> rini.se, not iamrini.com)."""
-    if not brand_name.strip() or not is_reachable():
+    if not worth_looking_up(brand_name) or not is_reachable():
         return []
     out: list[str] = []
     for query in dict.fromkeys(q for q in (brand_name.strip(), f"{brand_name.strip()} {hint}".strip()) if q):
@@ -174,6 +198,8 @@ def _google_logo(brand_name: str) -> str | None:
 def google_logo_candidates(brand_name: str, hint: str = "", limit: int = 4) -> list[str]:
     """Plausible logo image URLs from Google Images for "<name> <hint> logo" (the hint, e.g. the project's category,
     steers away from namesakes); PNG/JPG first, since the deck cannot embed SVG. Empty when SerpAPI is unavailable."""
+    if not worth_looking_up(brand_name):
+        return []
     try:
         r = serp_keys.get(SERPAPI_URL, {"engine": "google_images", "q": f"{brand_name} {hint} logo".replace("  ", " ")},
                           GOOGLE_TIMEOUT_S)
@@ -195,7 +221,7 @@ def resolve_logo(brand_name: str) -> dict:
     name = brand_name.strip()
     key = normalize_brand(name)
     result = {"brand_name": name, "logo_url": None, "source": "none", "domain": None, "cached": False}
-    if not key:
+    if not key or not worth_looking_up(name):          # not a brand: no Brandfetch or paid Google search
         return result
 
     saved = repository.get_brand_logo(key)

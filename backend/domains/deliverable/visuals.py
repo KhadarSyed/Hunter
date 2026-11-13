@@ -24,7 +24,7 @@ LIGHTNESS = (0.80, 0.72, 0.86, 0.76)
 
 ICONS = {
     "share_kpi": "lucide:pie-chart", "volume_trend": "lucide:trending-up", "sentiment_split": "lucide:smile",
-    "outlet_ranking": "lucide:newspaper", "reach": "lucide:radio-tower", "theme_clusters": "lucide:layout-grid",
+    "outlet_ranking": "lucide:newspaper", "reach": "lucide:radio-tower", "theme_clusters": "lucide:layout-grid", "theme_trend": "lucide:bar-chart-3",
     "entities": "lucide:users", "brand_sov": "lucide:award", "top_articles": "lucide:file-text",
     "media_split": "lucide:share-2", "question_breakdown": "lucide:bar-chart-horizontal", "dimension_crosstab": "lucide:table-2",
     "takeaway": "lucide:lightbulb", "methodology": "lucide:database", "overview": "lucide:bar-chart-3",

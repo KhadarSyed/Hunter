@@ -22,12 +22,15 @@ from ...core import object_store
 from . import library, repository
 
 logger = logging.getLogger(__name__)
-KINDS = ("logo", "icon", "favicon", "flag", "photo", "svg_icon", "product_logo", "slide_image", "house_logo", "deck")
+KINDS = ("logo", "icon", "favicon", "flag", "photo", "svg_icon", "product_logo", "slide_image", "house_logo", "deck",
+         "brand_data")
 _EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/gif": ".gif", "image/svg+xml": ".svg",
-        "image/webp": ".webp", "image/x-icon": ".ico", "image/vnd.microsoft.icon": ".ico"}
+        "image/webp": ".webp", "image/x-icon": ".ico", "image/vnd.microsoft.icon": ".ico", "application/json": ".json"}
 _LABELS = {"logo": "Brand logo", "product_logo": "Product logo", "icon": "Icon", "svg_icon": "SVG icon",
            "favicon": "Site icon", "flag": "Country flag", "photo": "Slide photo", "slide_image": "Slide image",
-           "house_logo": "House logo", "deck": "Research deck"}
+           "house_logo": "House logo", "deck": "Research deck",
+           "brand_data": "Brandfetch brand data"}
+_NOT_SEARCHED = ("brand_data",)     # cached API answers: never matched by similarity, so no embedding call
 MISSING_RETRY_S = 7 * 86_400       # a brand / site with no logo or icon is asked again after a week
 
 # fetch() -> (bytes, content type, meta) | None (the source definitely has none); raising RequestException / OSError
@@ -111,7 +114,8 @@ def put(kind: str, key: str, content: bytes, content_type: str = "", meta: dict 
         summary = summary_for(kind, key, meta)
         library.upsert(kind, key, s3_key=s3_key, content_type=content_type, sha256=sha, size=len(content),
                        brand=str(meta.get("brand") or ""), summary=summary, meta=meta,
-                       embedding=embed_text(summary) if content else None, missing=not content)
+                       embedding=embed_text(summary) if content and kind not in _NOT_SEARCHED else None,
+                       missing=not content)
     except Exception as e:
         logger.warning("asset %s/%s not saved: %s", kind, key[:80], type(e).__name__)
 

@@ -114,7 +114,7 @@ def credit_photos(spec) -> None:
     spec.slides = slides[:at] + planner.photo_credits_slides(credits) + slides[at:]
 
 
-UNMARKED_CHARTS = ("theme_clusters",)
+UNMARKED_CHARTS = ("theme_clusters", "theme_trend")
 
 
 def add_chart_logos(slide, logos: dict[str, Path]) -> None:
