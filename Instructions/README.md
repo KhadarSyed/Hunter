@@ -122,10 +122,13 @@ changed and why. Open the code only for the files a note or the map points to.
   `minimax-m3.1-flash`, `step-5-preview` (logs 34-35; GLM 5.3 Flash removed: NVIDIA does not serve it).
 - **Storage:** with the `AWS_*` keys set, decks, logos/favicons (linked by signed URL), uploads, avatars and QC files
   live in S3 under `HunterAgent/`; disk copies are throwaway (logs 28, 42, 43).
-- **Checks (2026-11-12):** `pytest tests --ignore=tests/e2e_3org` 624 passed; ruff clean; vulture only the
+- **Checks (2026-11-13):** `pytest tests --ignore=tests/e2e_3org` 635 passed; ruff clean; vulture only the
   `deckstudio/creative.py` `handle_decl` false positive; frontend tsc/lint (0 errors)/Vitest 14/build ok; browser walk
   21 pages 0 problems (scratchpad script, log 33).
+- **Deck/brands (2026-11-13, log 2026-11-13-01):** themes-over-time chart (`theme_trend`) added for questions about
+  change; Brandfetch guarded (junk names skipped, leading-words match, saved domain reused, paid Brand API cached 30
+  days). **All 6 SerpAPI keys reported "exhausted" on 2026-11-13**: Google logo/news/video fallbacks return nothing
+  until they reset (user's account).
 - **Not verified:** pages that need a project (data set, deck run, strategy content) only in their empty state
   (standing rule: no projects created while testing); a real QC upload/export round trip through S3; `tests/e2e_3org`.
-- **Open questions for the user:** the unmerged themes-over-time chart (commit 48a1f73, never on main, log 30);
-  Brandfetch fuzzy-matches unknown brand names (log 28).
+- **Open questions for the user:** none.
