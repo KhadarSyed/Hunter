@@ -31,7 +31,8 @@ changed and why. Open the code only for the files a note or the map points to.
   US dates ("Nov 3, 2026", "2:05 PM", en-US numbers). Every LLM call carries `writing_locale.SPELLING_RULE`;
   English-speaking geographies write US English (non-English countries keep their language).
 - Commit on `main`, push, restart the backend after every fix. No pending branches.
-- Before a restart, check for running/queued jobs (`intel_jobs` status running/queued); a restart kills them.
+- Before a restart, check for running/queued jobs (`intel_jobs` status running/queued, deck runs 'running'). Since log
+  2026-11-14-01 they resume at the next startup from their checkpoints, but a restart still costs the step in flight.
 - `tests/` and `docs/superpowers/plans/` stay local (gitignored); never push them.
 - No manual Render/Vercel deploys and no Render env changes; pushing `main` auto-deploys.
 - Never print, log or commit API keys, `.env` values or session tokens. Provider keys live only Fernet-encrypted in the DB.
@@ -121,9 +122,10 @@ changed and why. Open the code only for the files a note or the map points to.
   2026-11-11 and is suspended; Render deletes it about 2026-11-25; no upgrade (user's decision, no budget). Work and
   test locally only; never trigger Render/Vercel deploys or change Render env.
 - **Local stack:** Docker `hunter-postgres` (port 5433) + backend `uvicorn backend.main:app --port 8002` (serves the
-  built SPA). Schema at Alembic revision `0005` (0001 stamped 2026-11-12, log 40; 0002 renames `org_subscriptions.payment_ref`
+  built SPA). Schema at Alembic revision `0006` (0001 stamped 2026-11-12, log 40; 0002 renames `org_subscriptions.payment_ref`
   to `source`, log 2026-11-13-10; 0003 stores author_type "Organization", log 2026-11-13-11; 0004 keys
-  `intel_research_item_vectors` by (kind, item_id), log 2026-11-13-17; 0005 adds `intel_tag_feedback`, log 2026-11-13-19).
+  `intel_research_item_vectors` by (kind, item_id), log 2026-11-13-17; 0005 adds `intel_tag_feedback`, log 2026-11-13-19; 0006 adds `intel_jobs.params_json`,
+  `intel_checkpoints` and `org_llm_providers.reads_images`, log 2026-11-14-01).
   Local Super Admin = the
   `SEED_SUPER_ADMIN_EMAIL` account (user 2); the `.env` seed password no longer matches it (changed at sign-in).
 - **Local data:** organisations 1 Default Organization, 2 InfoVision (`platform_llm` on), 3 Test Organization
@@ -138,6 +140,15 @@ changed and why. Open the code only for the files a note or the map points to.
   web research) and never reach a deck; blocked keywords move Data set articles to Irrelevant. Irrelevant articles are
   never tagged until an analyst marks them relevant for a question (Irrelevant view, bulk bar) and runs Re-tag; Re-tag
   sends only untagged articles. Domain matching is pure Python (`exclusions.blocked_domain`), no LLM.
+- **Resume after a restart (log 2026-11-14-01):** every stage job is started through `core/jobs.launch` (inputs saved
+  in `intel_jobs.params_json`); at startup `jobs.resume_interrupted()` starts each running/queued job again,
+  `deliverable/engine.resume_interrupted_runs()` continues each deck run on the same run id and log, and
+  `latest24h.resume_interrupted()` reruns a refresh. Finished steps are kept in `intel_checkpoints` (research: web
+  results; deck: insights per question, template, classic deck + brief + fact check) and AI answers received before
+  the restart are replayed (`memory.replay`), so nothing finished is paid for again. Tagging, plans, classifications
+  and photos were already stored per item.
+- **Models and images (log 2026-11-14-01):** `org_llm_providers.reads_images` (Settings → LLM Providers, "Reads
+  images"); image requests skip models marked No; a model that refuses an image is marked No automatically.
 - **Learning from analysts (log 2026-11-13-19):** tag edits (+ optional comment), rejections (+ reason), "Mark
   relevant" and "Keep relevant" go to `intel_tag_feedback` with the article's NVIDIA embedding (`domains/feedback/`,
   organization-wide, kept after a project is deleted). Article and RQ tagging get the closest past corrections

@@ -55,7 +55,7 @@ docs/            product/subsystem docs, docs/handover/
 ## Quick Start
 
 - **Everything at once:** `powershell -ExecutionPolicy Bypass -File deploy/start-all.ps1` (Docker Postgres, backend 8002,
-  Vite 5173); `deploy/stop-all.ps1 [-Force]` stops them (check for running deck/tagging jobs first: a restart kills them).
+  Vite 5173); `deploy/stop-all.ps1 [-Force]` stops them (check for running deck/tagging jobs first: they resume at the next startup from their checkpoints, but the step in flight is redone).
 - **Config:** copy `.env.example` to `.env`; it lists every variable the code reads (only `DATABASE_URL` is required
   locally). `.env` itself is local and may hold extra unused keys; the code ignores them.
 - **Backend:** `python -m uvicorn backend.main:app --host 0.0.0.0 --port 8002` from the repo root
