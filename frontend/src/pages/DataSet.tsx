@@ -214,13 +214,14 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
       toastTimer.current = window.setTimeout(() => setToast(null), UNDO_MS);
       setSelected(new Set());
       reload();
+      void syncTagging();         // marking an Irrelevant article relevant moves it to Matched: refresh the counts
     } catch (e) { setError(errMsg(e, "Could not save the decision")); }
     finally { setBusy(false); }
   };
 
   const undo = async () => {
     if (!projectId || !toast) return;
-    try { await intelApi.undoDecision(projectId, toast.token); reload(); }
+    try { await intelApi.undoDecision(projectId, toast.token); reload(); void syncTagging(); }
     catch (e) { setError(errMsg(e, "Nothing to undo")); }
     window.clearTimeout(toastTimer.current);
     setToast(null);

@@ -18,8 +18,10 @@ from .labels import canon, theme_key
 logger = logging.getLogger(__name__)
 
 MAX_THEMES = 80          # labels sent in one call, most frequent first; the long tail is grouped by embedding
-# shortcut: 0.85 is a conservative guess (not measured on a project): a tail label joins a theme only when nearly
-# synonymous, so a minor label is not folded into a major theme; tune on a real project's labels.
+# Measured 2026-11-13 on 24 label pairs (nvidia embed, log 2026-11-13-18): near-synonyms scored 0.68-0.89, different
+# issues 0.48-0.76 ("Store openings" vs "Store closures" 0.763). 0.85 merged 3 of 12 synonyms and 0 wrong pairs;
+# anything below ~0.77 starts merging opposites. shortcut: label-only embeddings; adding sample headlines to the
+# embedded text could raise recall, measure first.
 TAIL_MERGE_MIN = 0.85
 EMBED_BATCH = 50
 SAMPLE_TITLES = 2        # article titles shown per label so GPT judges substance, not just wording

@@ -270,6 +270,7 @@ def undo(project_id: ProjectId, req: UndoRequest, _: Access):
             raise HTTPException(404, "Nothing to undo (the undo window has passed)")
         del _UNDO[req.undo_token]
     repo.undo(project_id, entry[2])
+    service.match_rqs(project_id)       # an undone "mark relevant" sends the article back to Irrelevant (free)
     return {"restored": len(entry[2])}
 
 
