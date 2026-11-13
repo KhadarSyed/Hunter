@@ -64,7 +64,8 @@ submit = runner.submit
 
 _RESUMABLE: dict[str, Callable[..., Any]] = {}
 _BOOTED_AT = time.time()
-_SCOPE_FIELDS = ("org_id", "user_id")
+# the request's usage scope: who pays, which stage (also what decides the org's guardrails go into the prompt)
+_SCOPE_FIELDS = ("org_id", "user_id", "project_id", "stage")
 
 
 def resumable(job_type: str):
@@ -76,10 +77,11 @@ def resumable(job_type: str):
 
 
 def launch(job_type: str, job_id: str, project_id: int, **params: Any) -> str:
-    """Create the job row with its inputs (JSON-able) and the caller's org/user, then run it in the background."""
+    """Create the job row with its inputs (JSON-able) and the caller's usage scope, then run it in the background."""
     from . import store
     from ..domains.usage import service as usage
-    scope = {k: v for k, v in usage.current().items() if k in _SCOPE_FIELDS and v is not None}
+    scope = {k: v for k, v in {**usage.current(), "project_id": project_id}.items()
+             if k in _SCOPE_FIELDS and v is not None}
     store.create_job(job_id, project_id, job_type, params={"args": params, "scope": scope})
     runner.submit(_RESUMABLE[job_type], job_id, project_id, name=f"{job_type}:{project_id}", **params)
     return job_id
