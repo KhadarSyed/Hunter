@@ -1,20 +1,27 @@
 """The language client-facing text is written in, from the project's country or region. Global (and any region not
-listed) is written for the United States. Applied by wrapping the LLM client, so every drafting call of a run --
-insights, summaries, the cover subtitle, the background brief -- carries the same instruction."""
+listed) is written for the United States, and so is every English-speaking country: the product writes US English
+only. Applied by wrapping the LLM client, so every drafting call of a run -- insights, summaries, the cover subtitle,
+the background brief -- carries the same instruction; SPELLING_RULE goes on every LLM call (core/llm_provider)."""
 from __future__ import annotations
 
 US_ENGLISH = "American English (US spelling)"
+# On every LLM call: whatever the language, any English the model writes is US English (tags, themes, briefs, insights)
+SPELLING_RULE = ("Whenever you write English, write American English with US spelling only: organization, analyze, "
+                 "summarize, prioritize, color, behavior, favorite, center, license, defense, catalog, program, gray, "
+                 "canceled, labeled, modeling, traveling, judgment, toward. Never British spellings (organisation, "
+                 "analyse, colour, behaviour, centre, licence, cancelled, judgement). Keep names, quotes and JSON keys "
+                 "exactly as given.")
 
 # The New Project form's geographies (frontend/src/components/CountryFlag.tsx GEOGRAPHIES)
 _LANGUAGES = {
     "global": US_ENGLISH,
     "united states": US_ENGLISH,
-    "united kingdom": "British English (UK spelling)",
-    "canada": "Canadian English (Canadian spelling)",
-    "india": "Indian English (UK spelling)",
-    "australia": "Australian English (Australian spelling)",
-    "singapore": "English (UK spelling, as used in Singapore)",
-    "united arab emirates": "English (UK spelling, as used in the UAE)",
+    "united kingdom": US_ENGLISH,
+    "canada": US_ENGLISH,
+    "india": US_ENGLISH,
+    "australia": US_ENGLISH,
+    "singapore": US_ENGLISH,
+    "united arab emirates": US_ENGLISH,
     "germany": "German",
     "france": "French",
     "spain": "Spanish (Spain)",

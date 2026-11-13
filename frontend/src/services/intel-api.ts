@@ -692,7 +692,7 @@ export const intelApi = {
   deleteOrganization: (orgId: number) => authDelete<{ ok: boolean }>(`/organizations/${orgId}`),
   deleteUser: (userId: number) => authDelete<{ ok: boolean }>(`/users/${userId}`),
   listMyOrganizations: () => authGet<UserOrganizationRow[]>("/me/organizations"),
-  /** Switch the organisation this session works in; null goes back to your own org (Super Admin: all orgs). */
+  /** Switch the organization this session works in; null goes back to your own org (Super Admin: all orgs). */
   setActiveOrg: (orgId: number | null) => authPost<AuthUser>("/me/active-org", { org_id: orgId }),
 
   // Projects
@@ -999,7 +999,7 @@ export const intelApi = {
   /** Whether the active org has a model (its own provider, or the platform model for InfoVision). */
   llmProviderStatus: () => get<{ ready: boolean; source: "org" | "platform" | "none"; model: string; name?: string;
     can_manage?: boolean }>("/llm-providers/status"),
-  /** An organisation's own chat LLM providers (Settings → LLM Providers); the key is write-only. */
+  /** An organization's own chat LLM providers (Settings → LLM Providers); the key is write-only. */
   listLlmProviders: (orgId?: number) => get<LlmProvidersResponse>(`/llm-providers${orgId ? `?org_id=${orgId}` : ""}`),
   createLlmProvider: (body: ProviderFields & { org_id?: number; api_key: string }) =>
     post<LlmProvider>("/llm-providers", body),
@@ -1053,7 +1053,7 @@ export const intelApi = {
     `${API_BASE}/deliverable/${projectId}/runs/${runId}/deck/${path}`,
   deliverableThumbUrl: (projectId: number, runId: number, n: number) =>
     `${API_BASE}/deliverable/${projectId}/runs/${runId}/thumbnail/${n}`,
-  // Deck colours on a finished run: preview re-renders the HTML only (seconds); apply/reset re-export PPTX + PDF (~1 min)
+  // Deck colors on a finished run: preview re-renders the HTML only (seconds); apply/reset re-export PPTX + PDF (~1 min)
   deckDesign: (projectId: number, runId: number) =>
     get<DeckDesign>(`/deliverable/${projectId}/runs/${runId}/design`),
   deckDesignPreview: (projectId: number, runId: number, change: DeckDesignChange) =>
@@ -1085,7 +1085,7 @@ function usageQuery(q: UsageQuery, extra: Record<string, number> = {}): string {
   return s ? `?${s}` : "";
 }
 
-/** Deck colours are 6 hex digits without '#'. */
+/** Deck colors are 6 hex digits without '#'. */
 export interface DeckDesignChange { primary?: string; accent?: string }
 export interface DeckDesign { primary: string; accent: string; swatches: string[]; can_reset: boolean }
 export interface DeckDesignResult { applied: string[]; rejected: Record<string, string>; html: string }

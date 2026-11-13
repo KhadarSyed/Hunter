@@ -38,7 +38,7 @@ export function UploadedFiles({ projectId, files, onRemoved }: {
               className={`inline-flex items-center gap-1.5 rounded-full border bg-white py-1 pl-2 pr-1 text-xs ${f.error ? "border-red-200" : "border-slate-200"}`}>
               <Icon icon={f.error ? "lucide:file-warning" : csv ? "lucide:file-text" : "lucide:file-spreadsheet"} width={14} aria-hidden
                 className={f.error ? "text-red-500" : csv ? "text-slate-500" : "text-emerald-600"} />
-              <span className="font-semibold tabular-nums text-slate-700">{(f.added ?? 0).toLocaleString()}</span>
+              <span className="font-semibold tabular-nums text-slate-700">{(f.added ?? 0).toLocaleString("en-US")}</span>
               <span className="sr-only">{f.file_name}</span>
               <button type="button" onClick={() => void ask(f)} aria-label={`Remove ${f.file_name}`}
                 className="rounded-full p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600">
@@ -50,7 +50,7 @@ export function UploadedFiles({ projectId, files, onRemoved }: {
       </ul>
       {confirm && (
         <div role="alertdialog" aria-label="Remove file" className="flex flex-wrap items-center gap-3 rounded-lg border border-red-100 bg-red-50 px-4 py-2 text-sm text-red-800">
-          <span>Remove <b>{confirm.file.file_name}</b>? {confirm.articles.toLocaleString()} articles ({confirm.approved.toLocaleString()} approved) leave the data set.</span>
+          <span>Remove <b>{confirm.file.file_name}</b>? {confirm.articles.toLocaleString("en-US")} articles ({confirm.approved.toLocaleString("en-US")} approved) leave the data set.</span>
           <span className="ml-auto flex gap-2">
             <button type="button" onClick={() => setConfirm(null)} className="rounded-lg px-3 py-1 text-xs font-medium text-slate-600 hover:bg-white">Cancel</button>
             <button type="button" disabled={busy} onClick={() => void remove()} className="rounded-lg bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50">

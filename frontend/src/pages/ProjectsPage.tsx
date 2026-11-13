@@ -18,7 +18,7 @@ interface Props {
   projectType?: ProjectType;
 }
 
-// Card header backgrounds, picked deterministically per brand (same brand → same colour).
+// Card header backgrounds, picked deterministically per brand (same brand → same color).
 const BRAND_GRADIENTS = [
   "from-emerald-950 via-emerald-900 to-slate-900",
   "from-rose-950 via-red-900 to-slate-900",

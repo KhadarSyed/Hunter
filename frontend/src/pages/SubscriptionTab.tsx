@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { intelApi, type Plan, type SubscriptionSummary } from "../services/intel-api";
 import { Meter, Tile, fmtDate } from "../components/admin/adminUi";
+import { usSpelling } from "../utils/format";
 
 /** Settings → Subscription (Org Admin): current plan, queued renewal, the plans on offer and history. Read-only: there is
  * no payment in the app; the platform team (Super Admin) applies every plan, renewal and top-up. */
@@ -46,7 +47,7 @@ export function SubscriptionTab() {
               <div className="font-semibold text-slate-900">{p.name}</div>
               {cur?.plan_id === p.id && <span className="text-[11px] font-medium text-[#5B2C9D]">Current</span>}
             </div>
-            <div className="mt-1 text-2xl font-bold text-slate-900">{p.price.toLocaleString()} <span className="text-sm font-medium text-slate-500">{p.currency}</span></div>
+            <div className="mt-1 text-2xl font-bold text-slate-900">{p.price.toLocaleString("en-US")} <span className="text-sm font-medium text-slate-500">{p.currency}</span></div>
             <ul className="mt-2 space-y-1 text-sm text-slate-600 flex-1">
               <li>{p.max_users} users</li><li>{p.max_projects} projects</li><li>{p.duration_months} months</li>
             </ul>
@@ -65,7 +66,7 @@ export function SubscriptionTab() {
               {summary.history.map((h) => (
                 <tr key={h.id} className="border-t border-slate-100">
                   <td className="py-2">{h.plan_name}</td><td>{fmtDate(h.starts_at)}</td><td>{fmtDate(h.ends_at)}</td>
-                  <td className="capitalize">{h.status}</td>
+                  <td className="capitalize">{usSpelling(h.status)}</td>
                 </tr>
               ))}
             </tbody>

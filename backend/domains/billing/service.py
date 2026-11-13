@@ -198,7 +198,8 @@ def start_sweeper() -> None:
 # ─── emails ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 def _date(ts: float) -> str:
-    return time.strftime("%d %b %Y", time.localtime(ts))
+    lt = time.localtime(ts)
+    return f"{time.strftime('%b', lt)} {lt.tm_mday}, {lt.tm_year}"        # US style: "Nov 3, 2026"
 
 
 def _recipients(org_id: int) -> list[dict]:

@@ -10,7 +10,7 @@ const usd = (v: number) => (v < 0.01 ? `$${v.toFixed(4)}` : `$${v.toFixed(2)}`);
 const kTokens = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
 
 function Chip({ label, n, tone = "bg-slate-100 text-slate-600" }: { label: string; n: number; tone?: string }) {
-  return <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums ${tone}`}>{n.toLocaleString()} {label}</span>;
+  return <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums ${tone}`}>{n.toLocaleString("en-US")} {label}</span>;
 }
 
 /** Collapsible list of the approved research questions with their Boolean queries; a row opens the drawer. */
@@ -122,7 +122,7 @@ function RqDrawer({ projectId, rq, disabled, onClose, onChanged }: {
           <div className="text-xs text-slate-600" aria-live="polite">
             {checking || !preview ? "Checking…" : preview.valid && (
               <>
-                Current {preview.current.toLocaleString()} · Edited {preview.edited.toLocaleString()} ·{" "}
+                Current {preview.current.toLocaleString("en-US")} · Edited {preview.edited.toLocaleString("en-US")} ·{" "}
                 <span className="text-emerald-700">+{preview.added.length} new</span> ·{" "}
                 <span className="text-red-700">−{preview.dropped.length} no longer match</span>
                 {(preview.added.length > 0 || preview.dropped.length > 0) && (
@@ -147,7 +147,7 @@ function RqDrawer({ projectId, rq, disabled, onClose, onChanged }: {
         {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>}
         {estimate && (
           <div role="alertdialog" className="rounded-lg border border-violet-100 bg-violet-50 px-4 py-3 text-sm text-violet-900">
-            Re-tag {rq.rq_id}: {estimate.articles.toLocaleString()} articles · {estimate.batches} batches ·
+            Re-tag {rq.rq_id}: {estimate.articles.toLocaleString("en-US")} articles · {estimate.batches} batches ·
             ~{kTokens(estimate.input_tokens + estimate.output_tokens)} tokens · ≈ {usd(estimate.cost_usd)}
             <div className="mt-2 flex gap-2">
               <button type="button" onClick={() => setEstimate(null)} className="rounded-lg px-3 py-1 text-xs font-medium text-slate-600 hover:bg-white">Cancel</button>
@@ -158,7 +158,7 @@ function RqDrawer({ projectId, rq, disabled, onClose, onChanged }: {
         )}
         {confirmDelete && (
           <div role="alertdialog" className="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-800">
-            Delete {rq.rq_id}? {rq.counts.approved.toLocaleString()} approved articles leave the deck.
+            Delete {rq.rq_id}? {rq.counts.approved.toLocaleString("en-US")} approved articles leave the deck.
             <div className="mt-2 flex gap-2">
               <button type="button" onClick={() => setConfirmDelete(false)} className="rounded-lg px-3 py-1 text-xs font-medium text-slate-600 hover:bg-white">Cancel</button>
               <button type="button" disabled={busy} onClick={() => void remove()} className="rounded-lg bg-red-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-50">Delete question</button>

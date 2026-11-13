@@ -171,7 +171,7 @@ def brand_colors(brand_name: str) -> list[str]:
         domain = resolve_brand_domain(brand_name)
         data = _brand_api(domain) if domain else {}
     except (requests.RequestException, ValueError, LookupUnavailable) as e:
-        logger.warning("brand colours for %r unavailable: %s", brand_name, type(e).__name__)
+        logger.warning("brand colors for %r unavailable: %s", brand_name, type(e).__name__)
         return []
     listed = [c["hex"].lstrip("#").upper() for c in sorted(
         (c for c in data.get("colors") or [] if re.fullmatch(r"#?[0-9A-Fa-f]{6}", c.get("hex") or "")),

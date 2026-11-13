@@ -26,7 +26,7 @@ export function CallLogTable({ rows, total, offset, loading, onOffset }:
           <tbody>
             {rows.map((r, i) => (
               <tr key={`${r.ts}-${offset + i}`} className="border-b border-slate-100 tabular-nums hover:bg-slate-50">
-                <td className="whitespace-nowrap px-3 py-2 text-slate-700">{new Date(r.ts * 1000).toLocaleString()}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-slate-700">{new Date(r.ts * 1000).toLocaleString("en-US")}</td>
                 <td className="max-w-[14rem] truncate px-3 py-2 text-slate-800" title={r.project_name ?? undefined}>
                   {r.project_name ?? (r.project_id === null ? <span className="text-slate-400">No project</span> : `#${r.project_id}`)}
                 </td>

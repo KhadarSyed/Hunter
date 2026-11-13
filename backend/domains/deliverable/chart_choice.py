@@ -117,7 +117,7 @@ def _view(chart: dict, question: str, section_id: str) -> dict:
         return {**chart, "view": "multi_line", "choice": why, "alternatives": ALTERNATIVES["multi_line"]}
     if chart["kind"] in ("bar", "treemap", "doughnut") and parts >= 3 and _THEMES.search(section_id) and not chart.get("breakdown"):
         toned = chart.get("tone") and any(t is not None for t in chart["tone"])
-        why = f"themes: {parts} themes as bubbles sized by volume" + (", coloured by net sentiment" if toned else "")
+        why = f"themes: {parts} themes as bubbles sized by volume" + (", colored by net sentiment" if toned else "")
         return {**chart, "view": "bubble", "choice": why, "alternatives": ALTERNATIVES["bubble"]}
     return {**chart, "alternatives": ALTERNATIVES.get(chart["kind"], "")}
 

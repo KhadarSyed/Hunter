@@ -153,9 +153,9 @@ Return ONLY a JSON object with these exact keys:
    common misspellings/variations as OR alternatives.
 
 3. Build queries progressively:
-   - Broad: maximise recall, accept more noise
+   - Broad: maximize recall, accept more noise
    - Balanced: good recall with reasonable precision
-   - Precise: maximise precision, accept some recall loss
+   - Precise: maximize precision, accept some recall loss
 
 4. Each research question MUST have its own targeted subquery.
 

@@ -63,7 +63,7 @@ const GUIDE: Record<Stage, { title: string; purpose: string; processes: string[]
     why: "The presentation follows proven designs instead of fixed presets." },
   design: { title: "Designing the deck", share: 0.6,
     purpose: "Chooses the presentation's look.",
-    processes: ["A design family from the references", "A design system: brand colours and type"],
+    processes: ["A design family from the references", "A design system: brand colors and type"],
     why: "The deck looks like the brand, consistently from slide to slide." },
   assets: { title: "Finding photos & logos", share: 51.6,
     purpose: "Collects the images the slides need.",

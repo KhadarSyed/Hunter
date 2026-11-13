@@ -28,7 +28,7 @@ function ColorField({ field, value, isActive, onFocus, onChange }: ColorFieldPro
   return (
     <div className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 ${isActive ? "border-[#5B2C9D] ring-1 ring-[#5B2C9D]" : "border-slate-200"}`}
       onClick={onFocus}>
-      <input type="color" aria-label={`${FIELD_LABEL[field]} colour`} value={`#${value}`} onFocus={onFocus}
+      <input type="color" aria-label={`${FIELD_LABEL[field]} color`} value={`#${value}`} onFocus={onFocus}
         onChange={(e) => onChange(e.target.value.slice(1).toUpperCase())}
         className="h-7 w-7 cursor-pointer rounded border-0 bg-transparent p-0" />
       <span className="text-xs font-semibold text-slate-700">{FIELD_LABEL[field]}</span>
@@ -50,7 +50,7 @@ type Props = {
   onShow: (file: string) => void;
 };
 
-/** Pick the deck's brand colours after it is built: preview them on every slide, then apply to the downloads. */
+/** Pick the deck's brand colors after it is built: preview them on every slide, then apply to the downloads. */
 export function DeckColorPanel({ projectId, runId, onShow }: Props) {
   const [design, setDesign] = useState<DeckDesign | null>(null);
   const [colors, setColors] = useState<Record<Field, string>>({ primary: "", accent: "" });
@@ -93,9 +93,9 @@ export function DeckColorPanel({ projectId, runId, onShow }: Props) {
         setIsPreviewing(false);
         onShow("deck.html");
       }
-      const done = kind === "preview" ? "Preview shows the new colours on every slide; Apply to update the downloads."
-        : kind === "apply" ? "Applied: the .pptx and .pdf downloads now use these colours."
-        : "Back to the deck's original colours.";
+      const done = kind === "preview" ? "Preview shows the new colors on every slide; Apply to update the downloads."
+        : kind === "apply" ? "Applied: the .pptx and .pdf downloads now use these colors."
+        : "Back to the deck's original colors.";
       setMessage(rejected ? { kind: "warn", text: rejected } : result.applied.length ? { kind: "ok", text: done }
         : { kind: "warn", text: "Nothing changed." });
     } catch (e) {
@@ -118,7 +118,7 @@ export function DeckColorPanel({ projectId, runId, onShow }: Props) {
     <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
       <div className="flex flex-wrap items-center gap-3">
         <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
-          <Icon icon="lucide:palette" width={16} className="text-[#5B2C9D]" /> Brand colours
+          <Icon icon="lucide:palette" width={16} className="text-[#5B2C9D]" /> Brand colors
         </p>
         {(["primary", "accent"] as const).map((f) => (
           <ColorField key={f} field={f} value={colors[f]} isActive={active === f} onFocus={() => setActive(f)}

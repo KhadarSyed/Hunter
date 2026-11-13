@@ -200,9 +200,12 @@ class HybridLLMClient:
 
     @staticmethod
     def _guard(org: int | None, messages: list[dict]) -> list[dict]:
-        """The scoped org's guardrails added to the system message (before the memory key, so an edit is fresh)."""
+        """The US-spelling rule and the scoped org's guardrails added to the system messages (before the memory key,
+        so an edit is fresh)."""
         from ..domains.guardrails import service as guardrails
         from ..domains.usage import service as usage
+        from .writing_locale import SPELLING_RULE
+        messages = [{"role": "system", "content": SPELLING_RULE}, *messages]
         scope = usage.current()
         if not guardrails.wanted(scope.get("stage")):
             return messages

@@ -218,7 +218,7 @@ def override_context(org_id: int | None, limit: int = 10) -> str:
         lines.append(f"- {what}: blocked by the organization, but analysts kept {v['count']} article(s) as relevant"
                      + (f' — "{note}"' if note else ""))
     return ("ANALYST DECISIONS ON BLOCKED CONTENT (the block list still applies; use these only to understand the "
-            "analysts' judgement):\n" + "\n".join(lines))
+            "analysts' judgment):\n" + "\n".join(lines))
 
 
 RESEARCH_LISTS = ("news_items", "background_context", "social_items", "traditional_items", "sources")

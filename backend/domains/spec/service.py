@@ -89,7 +89,7 @@ def _apply_form_context(llm_spec: dict, form_spec: dict) -> dict:
 def _analysis_failed(result: dict, next_step: str) -> str:
     """The job's error when the agent produced no usable spec: saving the form placeholder as "completed" hid it."""
     reason = result.get("error") or "; ".join(result.get("validation_errors") or []) or "no usable output"
-    return (f"The brief could not be analysed after {result.get('attempts', 0)} attempt(s) ({reason[:200]}). "
+    return (f"The brief could not be analyzed after {result.get('attempts', 0)} attempt(s) ({reason[:200]}). "
             f"{next_step}")
 
 

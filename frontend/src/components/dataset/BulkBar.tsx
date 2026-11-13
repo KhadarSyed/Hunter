@@ -18,7 +18,7 @@ export function BulkBar({ count, rqs, defaultRq, busy, onApprove, onReject, onCl
   const btn = "text-xs font-medium px-3 py-1.5 rounded-lg text-white disabled:opacity-50";
   return (
     <div role="region" aria-label="Bulk actions" className="flex flex-wrap items-center gap-3 rounded-lg border border-violet-200 bg-violet-50 px-4 py-2">
-      <span className="text-sm font-semibold text-slate-800">{count.toLocaleString()} selected</span>
+      <span className="text-sm font-semibold text-slate-800">{count.toLocaleString("en-US")} selected</span>
       <label className="text-xs text-slate-600">for{" "}
         <select value={rq} onChange={(e) => setRq(e.target.value)} aria-label="Apply to"
           className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs">

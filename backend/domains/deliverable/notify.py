@@ -63,7 +63,7 @@ def build_context(project: dict, run: dict, sections: list[dict]) -> dict:
                                          f"{card.get('missing', 0)} missing"))
     articles = ((by_id.get("data-collection") or {}).get("data") or {}).get("unique_urls")
     if articles:
-        stats.append(("Articles analysed", f"{articles:,}"))
+        stats.append(("Articles analyzed", f"{articles:,}"))
     files = _files(run)
     if files:
         stats.append(("Files", " · ".join(files)))

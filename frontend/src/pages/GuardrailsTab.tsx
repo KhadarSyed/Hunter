@@ -88,7 +88,7 @@ export function GuardrailsTab() {
             <div className="flex items-center gap-3 px-4 py-3">
               <button className="flex-1 text-left" onClick={() => setOpen(open === g.id ? null : g.id)} aria-expanded={open === g.id}>
                 <div className="font-medium text-slate-900">{g.title}</div>
-                <div className="text-xs text-slate-500">{g.active ? "Active" : "Off"} · updated {fmtDate(g.updated_at)} · {g.body.length.toLocaleString()} characters</div>
+                <div className="text-xs text-slate-500">{g.active ? "Active" : "Off"} · updated {fmtDate(g.updated_at)} · {g.body.length.toLocaleString("en-US")} characters</div>
               </button>
               {canEdit && (
                 <>

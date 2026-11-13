@@ -124,7 +124,7 @@ export function ArticlesTable(p: Props) {
         </table>
       </div>
       <div className="flex items-center justify-between pt-2 text-xs text-slate-500">
-        <span>{p.total === 0 ? "0 articles" : `${p.offset + 1}–${last} of ${p.total.toLocaleString()}`}</span>
+        <span>{p.total === 0 ? "0 articles" : `${p.offset + 1}–${last} of ${p.total.toLocaleString("en-US")}`}</span>
         <span className="flex gap-2">
           <button type="button" disabled={p.offset === 0} onClick={() => p.onPage(Math.max(0, p.offset - PAGE_SIZE))} className="px-3 py-1 rounded-lg border border-slate-200 disabled:opacity-40">Previous</button>
           <button type="button" disabled={last >= p.total} onClick={() => p.onPage(p.offset + PAGE_SIZE)} className="px-3 py-1 rounded-lg border border-slate-200 disabled:opacity-40">Next</button>

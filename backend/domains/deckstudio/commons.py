@@ -13,7 +13,7 @@ import requests
 logger = logging.getLogger(__name__)
 API = "https://commons.wikimedia.org/w/api.php"
 TIMEOUT_S = 10
-UA = {"User-Agent": "HunterAgent/1.0 (deck photo licence check)"}   # Wikimedia asks every API client to name itself
+UA = {"User-Agent": "HunterAgent/1.0 (deck photo license check)"}   # Wikimedia asks every API client to name itself
 _TAG = re.compile(r"<[^>]+>")
 
 
@@ -64,12 +64,12 @@ def licence(url: str) -> dict:
         page = next(iter(r.json()["query"]["pages"].values()))
         info = page["imageinfo"][0]
     except (requests.RequestException, ValueError, KeyError, IndexError, StopIteration) as e:
-        logger.warning("commons licence lookup failed for %s: %s", name, type(e).__name__)
-        return {"use": "no", "name": "licence unknown", "author": "", "page": url}
+        logger.warning("commons license lookup failed for %s: %s", name, type(e).__name__)
+        return {"use": "no", "name": "license unknown", "author": "", "page": url}
     meta = info.get("extmetadata") or {}
     short = (meta.get("LicenseShortName") or {}).get("value", "")
     author = html.unescape(_TAG.sub("", (meta.get("Artist") or {}).get("value", ""))).strip()
-    found = {"use": classify(short), "name": short or "no licence given", "author": author or "Unknown author",
+    found = {"use": classify(short), "name": short or "no license given", "author": author or "Unknown author",
              "page": info.get("descriptionurl") or url}
     _known[url] = found
     return found

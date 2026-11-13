@@ -85,7 +85,7 @@ READ_JS = r"""s => {
     const padL = parseFloat(c.paddingLeft) + parseFloat(c.borderLeftWidth), padR = parseFloat(c.paddingRight) + parseFloat(c.borderRightWidth);
     const left = e.left + padL, right = e.right - padR, align = c.textAlign;
     // left-aligned text starts where its first character does (after an icon) and may grow to the content's right
-    // edge, so PowerPoint wraps where Chrome did; centred and right-aligned text keep the content box
+    // edge, so PowerPoint wraps where Chrome did; centered and right-aligned text keep the content box
     const lead = ['left', 'start', 'justify'].includes(align) ? t.left : left;
     const b = {x: lead, y: t.top, w: right - lead, h: Math.min(t.height, e.bottom - t.top)};
     const isTitle = !titled && el.matches(titleSel);

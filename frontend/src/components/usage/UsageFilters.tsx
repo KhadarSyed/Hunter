@@ -130,7 +130,7 @@ export function UsageFilters({ value, onChange, orgOptions, projectOptions, stag
             className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 shadow-sm focus:border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-500/20" />
         </label>
         {orgOptions && (
-          <LogoSelect label="Org" allLabel="All organisations" value={value.org === null ? "" : String(value.org)}
+          <LogoSelect label="Org" allLabel="All organizations" value={value.org === null ? "" : String(value.org)}
             options={orgOptions} onChange={(v) => set({ org: v ? Number(v) : null, project: null })} />
         )}
         <LogoSelect label="Project" allLabel="All projects" value={value.project === null ? "" : String(value.project)}

@@ -188,7 +188,7 @@ function PlansEditor() {
           {plans.map((p) => (
             <tr key={p.id} className="border-t border-slate-100">
               <td className="py-2 font-medium">{p.name}</td><td>{p.max_users}</td><td>{p.max_projects}</td><td>{p.duration_months}</td>
-              <td>{p.price.toLocaleString()} {p.currency}</td><td>{p.active ? "Active" : "Hidden"}</td>
+              <td>{p.price.toLocaleString("en-US")} {p.currency}</td><td>{p.active ? "Active" : "Hidden"}</td>
               <td className="text-right"><button className="text-xs text-[#5B2C9D] hover:underline"
                 onClick={() => setEdit({ id: p.id, plan: { ...p, active: Boolean(p.active) } })}>Edit</button></td>
             </tr>

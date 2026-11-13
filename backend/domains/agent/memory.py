@@ -17,7 +17,7 @@ PROMPT_BUDGET_TOKENS = 6000
 RECENT_EVENTS = 30
 SUMMARY_KEY = "events"
 SUMMARY_SHARE = 0.25          # at most a quarter of the budget goes to the rolling summary
-_SUMMARY_PROMPT = ("Summarise this project's agent activity log in at most 120 words: what was done, what failed and "
+_SUMMARY_PROMPT = ("Summarize this project's agent activity log in at most 120 words: what was done, what failed and "
                    "why, what the user asked for. Plain sentences, no lists.")
 
 

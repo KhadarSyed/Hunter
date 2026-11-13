@@ -50,7 +50,7 @@ export function Tabs<T extends string>({ tabs, active, onChange, label, size = "
   );
 }
 
-/** The content of one tab, labelled by its tab. */
+/** The content of one tab, labeled by its tab. */
 export function TabPanel({ id, children }: { id: string; children: ReactNode }) {
   return (
     <div role="tabpanel" id={`panel-${id}`} aria-labelledby={`tab-${id}`} tabIndex={0} className="space-y-6 focus:outline-none">

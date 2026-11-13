@@ -35,7 +35,7 @@ VALID_ANALYTICAL_METHODS = [
     "Emerging Topics",
     "Thematic Analysis",
     "Tension Analysis",
-    "Behaviour Analysis",
+    "Behavior Analysis",
     "Language Analysis",
     "Life-stage Comparison",
     "Platform Comparison",
@@ -44,6 +44,11 @@ VALID_ANALYTICAL_METHODS = [
     "Conversation Mapping",
     "Narrative Analysis",
 ]
+
+
+def _method_key(method: str) -> str:
+    """A method's lookup key; plans saved before US spelling say "Behaviour Analysis"."""
+    return method.lower().replace("behaviour", "behavior")
 
 
 # ─── Prerequisite validation ───────────────────────────────────────────────
@@ -422,7 +427,7 @@ def _infer_required_fields(methods: list) -> list:
         "media framing": ["content", "headline", "source"],
         "emerging topics": ["content", "date"],
         "tension analysis": ["content"],
-        "behaviour analysis": ["content", "source"],
+        "behavior analysis": ["content", "source"],
         "language analysis": ["content"],
         "life-stage comparison": ["content", "source"],
         "platform comparison": ["content", "source", "engagement"],
@@ -430,7 +435,7 @@ def _infer_required_fields(methods: list) -> list:
     }
     fields = set()
     for m in methods:
-        fields.update(field_map.get(m.lower(), ["content"]))
+        fields.update(field_map.get(_method_key(m), ["content"]))
     return sorted(fields)
 
 
@@ -527,13 +532,13 @@ def _method_description(method: str) -> str:
         "media framing": "Analyze how media frames and positions topics",
         "emerging topics": "Detect newly emerging discussion topics",
         "tension analysis": "Identify points of friction and unmet needs",
-        "behaviour analysis": "Analyze user behaviors and usage patterns",
+        "behavior analysis": "Analyze user behaviors and usage patterns",
         "language analysis": "Study the language and terminology used by audiences",
         "life-stage comparison": "Compare behavior across life stages or demographics",
         "platform comparison": "Compare discussion patterns across platforms",
         "secondary validation": "Validate findings against published research",
     }
-    return descriptions.get(method.lower(), f"Apply {method} to relevant data")
+    return descriptions.get(_method_key(method), f"Apply {method} to relevant data")
 
 
 def _method_output_type(method: str) -> str:
@@ -551,10 +556,10 @@ def _method_output_type(method: str) -> str:
         "media framing": "frame analysis",
         "emerging topics": "topic radar",
         "tension analysis": "tension map",
-        "behaviour analysis": "behaviour framework",
+        "behavior analysis": "behavior framework",
         "platform comparison": "platform comparison chart",
     }
-    return outputs.get(method.lower(), "structured findings")
+    return outputs.get(_method_key(method), "structured findings")
 
 
 def _build_expected_deliverables(objectives: list) -> list:
@@ -595,7 +600,7 @@ def _build_validation_report(plan: dict, spec: dict, dataset_meta: dict) -> dict
             })
 
         method = unit.get("recommended_method", "")
-        if method.lower() not in {m.lower() for m in VALID_ANALYTICAL_METHODS}:
+        if _method_key(method) not in {m.lower() for m in VALID_ANALYTICAL_METHODS}:
             warnings.append({
                 "unit_id": unit["id"],
                 "type": "unsupported_method",

@@ -15,7 +15,7 @@ const domainOf = (url: string) => { try { return new URL(url).hostname.replace(/
 const favicon = (url: string) => faviconUrl(domainOf(url));
 const timeOf = (date: string) => {
   const d = new Date(date);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString("en-US", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 };
 
 function Cite({ n, byN }: { n: number; byN: Record<number, Latest24hArticle> }) {
@@ -90,7 +90,7 @@ export function Latest24hPanel({ projectId }: { projectId: number }) {
               {live
                 ? `${live.total} articles fetched${live.kept !== null ? ` · ${live.kept} kept after dedupe and relevance checks · writing the summary…` : ""}`
                 : refresh?.finished_at
-                  ? `Last refreshed ${new Date(refresh.finished_at * 1000).toLocaleString("en-GB")} · ${refresh.fetched} fetched, ${refresh.kept} kept`
+                  ? `Last refreshed ${new Date(refresh.finished_at * 1000).toLocaleString("en-US")} · ${refresh.fetched} fetched, ${refresh.kept} kept`
                   : "Fresh coverage of the brand and its competitors"}
             </span>
           </span>

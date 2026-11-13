@@ -105,7 +105,7 @@ def photo_credits_slides(credits: list[dict]) -> list[SlideSpec]:
     pages = range(0, len(credits), CITES_PER_SLIDE)
     return [SlideSpec(id=f"{CREDITS_ID}-{p // CITES_PER_SLIDE + 1}", type="citations", treatment="plain",
                       title="Photo credits",
-                      tables=[{"header": ["Photo", "Author", "Licence"], "rows": rows[p:p + CITES_PER_SLIDE],
+                      tables=[{"header": ["Photo", "Author", "License"], "rows": rows[p:p + CITES_PER_SLIDE],
                                "links": [_link(c["page"]) for c in credits[p:p + CITES_PER_SLIDE]], "link_col": 0}],
                       facts_allowed=[x for r in rows[p:p + CITES_PER_SLIDE] for x in r],
                       notes="\n".join(c["page"] for c in credits[p:p + CITES_PER_SLIDE])) for p in pages]

@@ -50,7 +50,7 @@ Think like a senior consultant planning a research engagement.
    Common platforms: Reddit, Facebook, Instagram, TikTok, X, Threads, YouTube.
    Each platform has different strengths:
    - Reddit: long-form discussion, problem-solving, authentic tensions
-   - TikTok: behaviour demonstration, hacks, simplification
+   - TikTok: behavior demonstration, hacks, simplification
    - Instagram: lifestyle, visual inspiration, aspirational content
    - Facebook: community groups, parent discussions, neighbourhood
    - Threads: emerging conversations, brief opinions
@@ -71,7 +71,7 @@ Think like a senior consultant planning a research engagement.
 
 8. Analytical methods must support a specific business question.
    Valid methods: Thematic Analysis, Narrative Analysis, Conversation Mapping,
-   Tension Analysis, Behaviour Analysis, Language Analysis,
+   Tension Analysis, Behavior Analysis, Language Analysis,
    Life-stage Comparison, Platform Comparison, Trend Analysis,
    Secondary Validation.
 
@@ -104,7 +104,7 @@ Return ONLY a JSON object:
       "deliverable_mapping": {
         "supports": "which insight or section this feeds",
         "evidence_type": "verbatims, themes, framework, etc.",
-        "recommended_visual": "theme map, behaviour framework, comparison chart, etc."
+        "recommended_visual": "theme map, behavior framework, comparison chart, etc."
       },
       "dependencies": [],
       "confidence_target": "high",
@@ -128,7 +128,8 @@ VALID_METHODS = frozenset({
     "narrative analysis",
     "conversation mapping",
     "tension analysis",
-    "behaviour analysis",
+    "behavior analysis",
+    "behaviour analysis",           # the British spelling still validates (older plans)
     "language analysis",
     "life-stage comparison",
     "platform comparison",
@@ -141,8 +142,8 @@ CANONICAL_METHOD_NAMES = {
     "narrative analysis": "Narrative Analysis",
     "conversation mapping": "Conversation Mapping",
     "tension analysis": "Tension Analysis",
-    "behaviour analysis": "Behaviour Analysis",
-    "behavior analysis": "Behaviour Analysis",
+    "behavior analysis": "Behavior Analysis",
+    "behaviour analysis": "Behavior Analysis",
     "language analysis": "Language Analysis",
     "life-stage comparison": "Life-stage Comparison",
     "life stage comparison": "Life-stage Comparison",

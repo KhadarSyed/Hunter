@@ -46,8 +46,8 @@ MIN_FIT = 2                       # words a library system shares with the brief
 GENERATED = "generated"
 _HEX = re.compile(r"^#[0-9A-Fa-f]{6}$")
 _GEN_PROMPT = ("No design system in the library fits this client research deck. Design one for it. Reply as JSON "
-               '{{"name": "<2-4 words>", "why": "<one sentence>", "colors": {{"<role>": "#RRGGBB", ...5 colours, one '
-               'light paper colour, one dark ink colour}}, "typography": {{"display": {{"fontFamily": "<font>", '
+               '{{"name": "<2-4 words>", "why": "<one sentence>", "colors": {{"<role>": "#RRGGBB", ...5 colors, one '
+               'light paper color, one dark ink color}}, "typography": {{"display": {{"fontFamily": "<font>", '
                '"fontSize": "64px", "fontWeight": 700}}, "headline": {{...}}, "body": {{...}}, "label": {{...}}}}}}. '
                "Fonts only from: {fonts}.")
 

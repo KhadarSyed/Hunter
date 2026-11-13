@@ -248,8 +248,8 @@ export function NewProject({ onNavigate, projectType = "research", mode = "new" 
         <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="alert">
           <b>Your organization has no AI model yet.</b>{" "}
           {llm.can_manage
-            ? <>Add one in <button type="button" onClick={() => onNavigate("settings")} className="font-semibold underline">Settings → LLM Providers</button> before analysing a brief.</>
-            : "Ask your organization admin to add one in Settings → LLM Providers before analysing a brief."}
+            ? <>Add one in <button type="button" onClick={() => onNavigate("settings")} className="font-semibold underline">Settings → LLM Providers</button> before analyzing a brief.</>
+            : "Ask your organization admin to add one in Settings → LLM Providers before analyzing a brief."}
         </div>
       )}
 

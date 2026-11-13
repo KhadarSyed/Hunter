@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Icon } from "@iconify/react";
 
 export const fmtDate = (ts: number | null | undefined) =>
-  ts ? new Date(ts * 1000).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" }) : "—";
+  ts ? new Date(ts * 1000).toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
 export const fmtTokens = (n: number) =>
   n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${(n / 1_000).toFixed(1)}k` : String(n);
@@ -25,7 +25,7 @@ const NEAR_WHITE = 0.85;
 
 /** True when a logo is transparent and mostly near-white (white marks made for dark headers), so it needs a dark
  * backing to stay visible. A logo with its own opaque background (all four corners filled) is shown as it is. The
- * logo is rendered on a canvas, so default colours (e.g. unfilled SVG text = black) count too. */
+ * logo is rendered on a canvas, so default colors (e.g. unfilled SVG text = black) count too. */
 function needsDarkBacking(src: string): Promise<boolean> {
   return new Promise((resolve) => {
     const img = new Image();

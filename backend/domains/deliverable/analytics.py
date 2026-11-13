@@ -227,8 +227,8 @@ def _next(t: datetime, grain: str) -> datetime:
 
 
 def _grain_label(t: datetime, grain: str) -> str:
-    return {"year": f"{t.year}", "month": t.strftime("%b-%y"), "week": f"Wk {t.day} {t:%b}",
-            "day": f"{t.day} {t:%b}", "hour": f"{t.day} {t:%b} {t:%H}:00"}[grain]
+    return {"year": f"{t.year}", "month": t.strftime("%b-%y"), "week": f"Wk {t:%b} {t.day}",
+            "day": f"{t:%b} {t.day}", "hour": f"{t:%b} {t.day}, {t.hour % 12 or 12} {'AM' if t.hour < 12 else 'PM'}"}[grain]
 
 
 def period_label(d: date, grain: str, hour: int | None = None) -> str:

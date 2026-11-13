@@ -144,7 +144,7 @@ function ProviderForm({ orgId, editing, onDone, onCancel }:
 /** The live outage (org_llm_state): which model is failing, what work runs on now, or that AI steps are paused. */
 function OutageBanner({ outage, providers }: { outage: LlmOutage; providers: LlmProvider[] }) {
   const acting = providers.find((p) => p.id === outage.acting_provider_id);
-  const since = new Date(outage.down_since * 1000).toLocaleString(undefined, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  const since = new Date(outage.down_since * 1000).toLocaleString("en-US", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
   const paused = Boolean(outage.paused);
   return (
     <div role="status" className={`rounded-xl border px-4 py-3 text-sm ${paused ? "border-red-200 bg-red-50 text-red-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>

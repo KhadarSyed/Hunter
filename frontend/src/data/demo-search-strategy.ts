@@ -31,7 +31,7 @@ export const DEMO_QUERY_MODULES: QueryModule[] = [
   },
   {
     module_name: "Topic — Food & Meals",
-    module_type: "behaviour",
+    module_type: "behavior",
     terms: ['"meal prep"', '"weeknight dinner"', "cooking", '"picky eater"', '"what to cook"', '"dinner ideas"', '"freezer meals"', '"air fryer"'],
     boolean_fragment: '("meal prep" OR "weeknight dinner" OR cooking OR "picky eater" OR "what to cook" OR "dinner ideas" OR "freezer meals" OR "air fryer")',
   },

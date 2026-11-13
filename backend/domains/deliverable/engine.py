@@ -228,7 +228,7 @@ def _subtitle(title: str, project_name: str) -> str:
 
 
 _THEME_PROMPT = ("Write the subtitle for the cover of a research deck, from the client brief below. Name the theme of the "
-                 "study the way the brief frames it (what is being analysed and why), in 4 to 10 words, title case. Do "
+                 "study the way the brief frames it (what is being analyzed and why), in 4 to 10 words, title case. Do "
                  "not repeat the brand name \"{brand}\", and write no dates or numbers. Reply with the subtitle only.\n\n"
                  "Research objective: {objective}\n\nBrief:\n{brief}")
 

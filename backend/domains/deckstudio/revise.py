@@ -105,7 +105,7 @@ def design(deck_dir: Path, brand_name: str = "") -> dict:
 def reset_design(deck_dir: Path) -> dict:
     path = deck_dir / _ORIGINAL
     if not path.exists():
-        raise ValueError("the deck still has its generated colours")
+        raise ValueError("the deck still has its generated colors")
     spec, candidates = load(deck_dir)
     spec.tokens = DeckTokens(**json.loads(path.read_text(encoding="utf-8")))
     html = renderer.render_deck(spec, deck_dir, candidates)

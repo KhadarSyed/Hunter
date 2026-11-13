@@ -239,7 +239,7 @@ def derive_with_source(llm, question: str, query: str, brands: list[str]) -> tup
          "with a short label and its values; a value groups synonym terms (\"football\" and \"5-a-side\" are one "
          "value, Soccer). Use only terms from the candidates or words written in the question. Drop generic "
          "catch-all terms. List first the dimension the question asks 'which/what' about; a parenthetical list that only "
-         "qualifies its scope comes last. When the question asks for a categorisation no keyword list captures (who is cited, "
+         "qualifies its scope comes last. When the question asks for a categorization no keyword list captures (who is cited, "
          "expert type, purchase driver, occasion), add a judged dimension: its values are the categories, each "
          "with \"terms\": [] -- they are tagged by reading each article. "
          f"At most {MAX_DIMENSIONS} dimensions, {MAX_VALUES} values each. Return JSON only: "
@@ -250,7 +250,7 @@ def derive_with_source(llm, question: str, query: str, brands: list[str]) -> tup
     try:
         dims = _validate(json.loads(llm.chat(messages, format_json=True)), base, f"{question}\n{query}".lower())
     except Exception as e:  # noqa: BLE001 -- any LLM failure means the deterministic dimensions
-        logger.warning("question dimensions: LLM labelling failed (%s); using query groups", type(e).__name__)
+        logger.warning("question dimensions: LLM labeling failed (%s); using query groups", type(e).__name__)
         return base, "query"
     return (dims or base), "llm"
 

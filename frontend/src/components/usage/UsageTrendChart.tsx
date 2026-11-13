@@ -138,7 +138,7 @@ export function UsageTrendChart({ rows, from, to, grain = "day" }: { rows: Usage
     const legend = chart.children.push(am5.Legend.new(root, { useDefaultMarker: true, centerX: am5.p50, x: am5.p50, marginTop: 8 }));
     legend.labels.template.setAll({ fontSize: 12, fontWeight: "500" });
     legend.data.setAll(chart.series.values);
-    // Each model's marker: its line colour as a dot, then the provider logo(s); the label is the full model name.
+    // Each model's marker: its line color as a dot, then the provider logo(s); the label is the full model name.
     for (const item of legend.dataItems) {
       const s = item.dataContext as am5xy.XYSeries;
       const urls = logosBySeries.get(s);

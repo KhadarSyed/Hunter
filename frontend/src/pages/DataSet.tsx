@@ -28,7 +28,7 @@ function UploadBanner({ result }: { result: UploadResult }) {
   return (
     <div className="space-y-1">
       <div role="status" className="rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
-        {result.added.toLocaleString()} articles uploaded ({result.traditional.toLocaleString()} traditional, {result.social.toLocaleString()} social, {result.duplicates.toLocaleString()} duplicates removed)
+        {result.added.toLocaleString("en-US")} articles uploaded ({result.traditional.toLocaleString("en-US")} traditional, {result.social.toLocaleString("en-US")} social, {result.duplicates.toLocaleString("en-US")} duplicates removed)
       </div>
       {failed.map((f) => <div key={f.file_name} role="alert" className="rounded-lg border border-red-100 bg-red-50 px-4 py-2 text-sm text-red-700">{f.file_name}: {f.error}</div>)}
     </div>
@@ -157,9 +157,9 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
     setError(null);
     try {
       const r = await intelApi.matchRqs(projectId);
-      const per = Object.entries(r.per_rq).map(([q, n]) => `${q} ${n.toLocaleString()}`).join(" · ");
-      setMatchNote(`${per} — ${r.matched.toLocaleString()} matched, ${r.irrelevant.toLocaleString()} irrelevant`
-        + (r.copies ? `, ${r.copies.toLocaleString()} syndicated copies (tagged once, through their original)` : ""));
+      const per = Object.entries(r.per_rq).map(([q, n]) => `${q} ${n.toLocaleString("en-US")}`).join(" · ");
+      setMatchNote(`${per} — ${r.matched.toLocaleString("en-US")} matched, ${r.irrelevant.toLocaleString("en-US")} irrelevant`
+        + (r.copies ? `, ${r.copies.toLocaleString("en-US")} syndicated copies (tagged once, through their original)` : ""));
       reloadData();
       void syncTagging();
     } catch (e) { setError(errMsg(e, "Could not match the research questions")); }
@@ -210,7 +210,7 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
       const r = await intelApi.decideArticles(projectId, ids, rqId, status, reason);
       const verb = status === "approved" ? "Approved" : status === "irrelevant" ? "Rejected" : "Reset";
       window.clearTimeout(toastTimer.current);
-      setToast({ token: r.undo_token, text: `${verb} ${ids.length.toLocaleString()} article${ids.length === 1 ? "" : "s"}${rqId ? ` for ${rqId}` : ""}` });
+      setToast({ token: r.undo_token, text: `${verb} ${ids.length.toLocaleString("en-US")} article${ids.length === 1 ? "" : "s"}${rqId ? ` for ${rqId}` : ""}` });
       toastTimer.current = window.setTimeout(() => setToast(null), UNDO_MS);
       setSelected(new Set());
       reload();
@@ -257,11 +257,11 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
           <button type="button" onClick={startTagging} disabled={running || pools.matched + pools.unmatched === 0}
             title="Tags only the articles a research question matched (new uploads are matched first)"
             className="rounded-lg px-5 py-2 text-sm font-medium text-white disabled:opacity-50" style={{ background: V }}>
-            {tagged > 0 ? "2 · Re-tag matched" : `2 · Tag ${(pools.matched + pools.unmatched).toLocaleString()} matched`}
+            {tagged > 0 ? "2 · Re-tag matched" : `2 · Tag ${(pools.matched + pools.unmatched).toLocaleString("en-US")} matched`}
           </button>
           {approval ? (
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700"
-                  title={`Approved by ${approval.by ?? "analyst"} on ${new Date(approval.at * 1000).toLocaleString()}`}>
+                  title={`Approved by ${approval.by ?? "analyst"} on ${new Date(approval.at * 1000).toLocaleString("en-US")}`}>
               ✓ Data set approved
             </span>
           ) : (
@@ -294,7 +294,7 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
         <div role="status" aria-label="Tagging progress" className="flex items-center gap-3 rounded-lg border border-violet-100 bg-violet-50 px-4 py-2">
           <Donut value={pct} size={40} track="#EDE9FE" title={`Tagging ${pct}%`} />
           <div className="flex flex-1 flex-wrap justify-between gap-2 text-xs font-medium text-violet-900">
-            <span>Tagging: {progress.phase} — {progress.done.toLocaleString()} of {progress.total.toLocaleString()}</span>
+            <span>Tagging: {progress.phase} — {progress.done.toLocaleString("en-US")} of {progress.total.toLocaleString("en-US")}</span>
             <span>{progress.minutesLeft != null ? `about ${progress.minutesLeft} min left` : "estimating time…"}</span>
           </div>
         </div>
@@ -304,8 +304,8 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Tabs<"matched" | "irrelevant"> label="Pool" active={filters.pool ?? "matched"} onChange={(pool) => changeFilters({ pool })}
-          tabs={[{ id: "matched", label: `Matched (${(pools.matched + pools.unmatched).toLocaleString()})`, icon: "mdi:check-decagram-outline" },
-                 { id: "irrelevant", label: `Irrelevant (${pools.irrelevant.toLocaleString()})`, icon: "mdi:filter-remove-outline" }]} />
+          tabs={[{ id: "matched", label: `Matched (${(pools.matched + pools.unmatched).toLocaleString("en-US")})`, icon: "mdi:check-decagram-outline" },
+                 { id: "irrelevant", label: `Irrelevant (${pools.irrelevant.toLocaleString("en-US")})`, icon: "mdi:filter-remove-outline" }]} />
         <Tabs<Channel> label="Channel" active={filters.channel} onChange={(c) => changeFilters({ ...EMPTY, pool: filters.pool, channel: c })}
           tabs={[{ id: "traditional", label: "Traditional", icon: "mdi:newspaper-variant-outline" }, { id: "social", label: "Social media", icon: "mdi:account-group-outline" }]} />
         <ColumnPicker hidden={hidden} onChange={setHidden} />

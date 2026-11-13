@@ -123,7 +123,9 @@ def _running_projects(org_id: int) -> list[tuple[dict, str]]:
 
 
 def _since(ts: float) -> str:
-    return time.strftime("%d %b %Y, %H:%M %Z", time.localtime(ts))
+    lt = time.localtime(ts)
+    return (f"{time.strftime('%b', lt)} {lt.tm_mday}, {lt.tm_year}, {lt.tm_hour % 12 or 12}:{lt.tm_min:02d} "
+            f"{'AM' if lt.tm_hour < 12 else 'PM'} {time.strftime('%Z', lt)}")      # US style: "Nov 3, 2026, 2:05 PM"
 
 
 def _listed(names: list[str]) -> str:

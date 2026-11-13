@@ -18,10 +18,10 @@ GOOGLE_FONTS = ("Inter", "Nunito Sans", "Source Sans 3", "Work Sans", "DM Sans",
                 "Poppins", "Raleway", "Playfair Display", "Fraunces", "Lora", "Merriweather", "DM Serif Display",
                 "Libre Baskerville", "Cormorant Garamond", "Space Grotesk", "Outfit", "Quicksand")
 _HEX = re.compile(r"^[0-9A-Fa-f]{6}$")
-_PROMPT = ("You are an art director. From the brand colours and the project intent, propose design tokens for a "
+_PROMPT = ("You are an art director. From the brand colors and the project intent, propose design tokens for a "
            "research presentation that feels like the brand. Return JSON with keys background, surface, primary, "
-           "accent, text, muted, series (6 distinguishable chart colours), title_font, body_font, mood (3-5 words "
-           "for photo search). Hex colours without '#'. Fonts must come from this list: {fonts}.")
+           "accent, text, muted, series (6 distinguishable chart colors), title_font, body_font, mood (3-5 words "
+           "for photo search). Hex colors without '#'. Fonts must come from this list: {fonts}.")
 
 
 def _hex(v, default: str) -> str:

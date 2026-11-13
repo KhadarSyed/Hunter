@@ -101,6 +101,11 @@ class RefreshBusy(RuntimeError):
 
 # ─── Pure helpers (unit-tested) ──────────────────────────────────────────────
 
+def day_label(d) -> str:
+    """US style: "Nov 2" (no zero padding, which strftime cannot drop on Windows)."""
+    return f"{d:%b} {d.day}"
+
+
 def parse_utc(date_str: str) -> datetime | None:
     """A source's date as an aware UTC datetime; None when unparseable. Offsets are honoured (news_search._parse_date
     drops them), which matters at the window's edge."""
@@ -341,7 +346,7 @@ def build_charts(articles: list[dict], brands: list[str], now: datetime) -> dict
     per_day = Counter(dt.date() for a in articles if (dt := parse_utc(a["date"])))
     values = [per_day[d] for d in days]
     peak = max(values) if values else 0
-    timeline = {"kind": "line_peaks", "categories": [d.strftime("%d %b") for d in days], "values": values,
+    timeline = {"kind": "line_peaks", "categories": [day_label(d) for d in days], "values": values,
                 "peaks": [i for i, v in enumerate(values) if peak and v == peak][:1], "unit": "count",
                 "series_label": "Articles per day (UTC)"}
     shown: dict[str, str] = {}                  # "motor1.com" and "Motor1.com" are one outlet, shown as first seen
@@ -351,7 +356,7 @@ def build_charts(articles: list[dict], brands: list[str], now: datetime) -> dict
     outlets = [(shown[k], n) for k, n in Counter(a["outlet"].casefold() for a in articles if a["outlet"]).most_common(8)]
     # each bar / day's articles (by n), listed when the deck's chart element is clicked
     share["drill"] = {b: [a["n"] for a in articles if b in a["brands"]] for b in share_brands}
-    timeline["drill"] = {d.strftime("%d %b"): [a["n"] for a in articles if (dt := parse_utc(a["date"])) and dt.date() == d]
+    timeline["drill"] = {day_label(d): [a["n"] for a in articles if (dt := parse_utc(a["date"])) and dt.date() == d]
                          for d in days}
     charts = {"share": share, "timeline": timeline}
     if len(outlets) >= 3:
@@ -384,7 +389,7 @@ def outlet_icons(articles: list[dict]) -> dict[str, str]:
 
 def _hhmm(a: dict) -> str:
     dt = parse_utc(a["date"])
-    return dt.strftime("%d %b %H:%M UTC") if dt else ""
+    return f"{day_label(dt)}, {dt.hour % 12 or 12}:{dt:%M} {'AM' if dt.hour < 12 else 'PM'} UTC" if dt else ""
 
 
 def deterministic_summary(articles: list[dict], brands: list[str], questions: list[dict], now: datetime) -> list[dict]:
@@ -404,10 +409,10 @@ def deterministic_summary(articles: list[dict], brands: list[str], questions: li
             when = _hhmm(story)
             bullets.append({"text": f"Latest on {brand}: \"{story['title']}\" ({story['outlet'] or 'unknown outlet'}"
                                     f"{', ' + when if when else ''}).", "citations": [story["n"]]})
-    daily = Counter(dt.strftime("%d %b") for a in articles if (dt := parse_utc(a["date"])))
+    daily = Counter(day_label(dt) for a in articles if (dt := parse_utc(a["date"])))
     if daily:
         day, k = daily.most_common(1)[0]
-        cites = [a["n"] for a in articles if (parse_utc(a["date"]) or now).strftime("%d %b") == day][:3]
+        cites = [a["n"] for a in articles if day_label(parse_utc(a["date"]) or now) == day][:3]
         bullets.append({"text": f"Coverage peaked on {day} with {k} {'article' if k == 1 else 'articles'}.",
                         "citations": cites})
     for q in questions:

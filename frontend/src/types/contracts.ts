@@ -97,7 +97,7 @@ export interface BrandIntelligenceOutput {
 
 export interface QueryModule {
   module_name: string;
-  module_type: "brand" | "product" | "audience" | "topic" | "behaviour" | "tension" | "resolution" | "geography" | "language" | "platform" | "exclusion";
+  module_type: "brand" | "product" | "audience" | "topic" | "behavior" | "tension" | "resolution" | "geography" | "language" | "platform" | "exclusion";
   terms: string[];
   boolean_fragment: string;
 }

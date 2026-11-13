@@ -68,6 +68,9 @@ const US_SPELLINGS: [RegExp, string][] = [
   [/visualis/gi, "visualiz"],
   [/analys(e|ed|ing)\b/gi, "analyz$1"],
   [/colour/gi, "color"],
+  [/organis/gi, "organiz"],
+  [/licence/gi, "license"],
+  [/centre/gi, "center"],
 ];
 
 export function usSpelling(text: string): string {
