@@ -1,6 +1,6 @@
 # Starts everything HunterAgent needs locally, in order:
 #   1. the Docker engine (Rancher Desktop via rdctl, if Docker is not answering)
-#   2. the hunter-postgres container (port 5433) and, if present, hunter-objects (S3 store, port 9000)
+#   2. the hunter-postgres container (port 5433)
 #   3. the FastAPI backend on http://localhost:8002 (also serves the built SPA)
 #   4. the Vite dev server on http://localhost:5173
 # Anything already running is left as it is. Logs: data\logs\backend.*.log, data\logs\frontend.log
@@ -16,7 +16,6 @@ New-Item -ItemType Directory -Force $logs | Out-Null
 $BACKEND_PORT = 8002
 $FRONTEND_PORT = 5173
 $DB_CONTAINER = "hunter-postgres"
-$OBJECTS_CONTAINER = "hunter-objects"
 $RDCTL = "C:\Program Files\Rancher Desktop\resources\resources\win32\bin\rdctl.exe"
 
 function Test-Port([int]$port) {
@@ -68,12 +67,6 @@ Write-Host "Waiting for Postgres to accept connections (after a crash it first r
 Wait-Until { docker exec $DB_CONTAINER pg_isready -U hunter 2>$null | Out-Null; $LASTEXITCODE -eq 0 } 180 "Postgres"
 Write-Host "Postgres ($DB_CONTAINER, port 5433): ready"
 
-docker container inspect $OBJECTS_CONTAINER 2>$null | Out-Null
-if ($LASTEXITCODE -eq 0) {
-    $err = docker start $OBJECTS_CONTAINER 2>&1
-    if ($LASTEXITCODE -eq 0) { Write-Host "Object store ($OBJECTS_CONTAINER, port 9000): started" }
-    else { Write-Warning "$OBJECTS_CONTAINER did not start ($(($err | Out-String).Trim().Split("`n")[-1].Trim())); the app falls back to Postgres for stored files." }
-}
 
 # 3. Backend
 if (Test-Port $BACKEND_PORT) {

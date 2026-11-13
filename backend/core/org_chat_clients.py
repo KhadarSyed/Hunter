@@ -28,7 +28,7 @@ class ProviderCallError(RuntimeError):
 
 
 class _RetryWithoutUsage(Exception):
-    """HTTP 400 on a stream that asked for usage: the server may not know stream_options."""
+    """HTTP 400 on a stream: the server may not know stream_options, or the model's limit is below max_tokens."""
 
 
 def _tool_reply(message: dict) -> dict:
@@ -54,13 +54,13 @@ class OpenAICompatClient:
         return bool(self.base_url and self.api_key and self.model)
 
     def _stream(self, payload: dict, kind: str, on_token: Optional[Callable[[str], None]] = None,
-                usage_opt: bool = True) -> tuple[str, list[dict], str | None]:
+                usage_opt: bool = True, cap: bool = True) -> tuple[str, list[dict], str | None]:
         """One streamed call: (text, tool calls in OpenAI shape, finish_reason). Every call streams: a proxy behind
         Cloudflare cuts a silent connection at ~100 s (HTTP 524/502), and some proxies (VyceAI) only serve streams.
         An error sent inside the stream raises. Usage comes from the last chunk."""
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         # same output cap as the Azure / Anthropic clients: a reasoning model left uncapped streamed one reply 30+ min
-        body = {"model": self.model, "max_tokens": MAX_OUTPUT_TOKENS, **payload, "stream": True}
+        body = {"model": self.model, **({"max_tokens": MAX_OUTPUT_TOKENS} if cap else {}), **payload, "stream": True}
         if usage_opt:
             body["stream_options"] = {"include_usage": True}
         started = time.time()
@@ -73,7 +73,9 @@ class OpenAICompatClient:
             with r:
                 if r.status_code != 200:
                     reason = _http_reason(r)
-                    if r.status_code == 400 and usage_opt:     # a server without stream_options: ask once more
+                    # a 400 may be a server without stream_options, then a model whose limit is below our cap:
+                    # ask once without each
+                    if r.status_code == 400 and (usage_opt or cap):
                         raise _RetryWithoutUsage(reason)
                     raise ProviderCallError(reason)
                 for line in r.iter_lines():
@@ -102,7 +104,9 @@ class OpenAICompatClient:
                             slot["args"].append(fn.get("arguments") or "")
                         finish = ch.get("finish_reason") or finish
         except _RetryWithoutUsage:
-            return self._stream(payload, kind, on_token, usage_opt=False)
+            if usage_opt:
+                return self._stream(payload, kind, on_token, usage_opt=False, cap=cap)
+            return self._stream(payload, kind, on_token, usage_opt=False, cap=False)
         except ProviderCallError as e:
             _record(self.model, kind, usage, started, error=True, reason=str(e), provider=self.provider)
             raise

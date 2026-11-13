@@ -1,5 +1,5 @@
 # Stops what deploy\start-all.ps1 started: the Vite dev server (5173), the backend (8002) and the
-# hunter-postgres / hunter-objects containers. Rancher Desktop itself keeps running (other projects use it).
+# hunter-postgres container. Rancher Desktop itself keeps running (other projects use it).
 # Stopping the backend kills any running deck or tagging job, so the script refuses while jobs are
 # running or queued unless you pass -Force.
 # Usage (repo root):  powershell -ExecutionPolicy Bypass -File deploy\stop-all.ps1 [-Force]
@@ -8,7 +8,7 @@ param([switch]$Force)
 
 $BACKEND_PORT = 8002
 $FRONTEND_PORT = 5173
-$CONTAINERS = @("hunter-postgres", "hunter-objects")
+$CONTAINERS = @("hunter-postgres")
 
 function Stop-Port([int]$port, [string]$name) {
     $pids = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |

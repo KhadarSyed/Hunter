@@ -2,7 +2,7 @@
 
 Lookup order for a query (typically a brand/project name):
   1. pexels_images table — every lookup is cached and served first
-  2. Pexels Video Search API (PEXEL_API_KEY): first landscape-orientation video result
+  2. Pexels Video Search API (PEXELS_API_KEY): first landscape-orientation video result
   3. Falls back to Pexels Photo Search API when no video result exists
 
 Definite outcomes are saved, including "not found" (retried after NOT_FOUND_RETRY_S).
@@ -11,17 +11,17 @@ blocks a query — mirrors domains/research/brandfetch.py's caching contract.
 
 Pexels Photo Search API (developers.pexels.com/docs/#photos-search, 2026-09):
 `GET https://api.pexels.com/v1/search?query={q}&per_page=1&orientation=landscape`
-header `Authorization: {PEXEL_API_KEY}` → `{photos: [{src: {landscape, large2x, ...},
+header `Authorization: {PEXELS_API_KEY}` → `{photos: [{src: {landscape, large2x, ...},
 photographer, url}]}`.
 
 Pexels Video Search API (developers.pexels.com/docs/#videos-search, 2026-09):
 `GET https://api.pexels.com/videos/search?query={q}&per_page=1&orientation=landscape`
-header `Authorization: {PEXEL_API_KEY}` → `{videos: [{image: <poster url>,
+header `Authorization: {PEXELS_API_KEY}` → `{videos: [{image: <poster url>,
 video_files: [{link, quality, file_type}], user: {name}, url}]}`. Picks the "sd"
 quality mp4 file when available (keeps a looping header background lightweight),
 falling back to "hd", then the first file present.
 
-PEXEL_API_KEY is a secret: never log, cache, or return it.
+PEXELS_API_KEY is a secret: never log, cache, or return it.
 """
 from __future__ import annotations
 
@@ -50,8 +50,13 @@ def _env(name: str) -> str:
     return (os.getenv(name) or "").split("#")[0].strip().strip('"')
 
 
+def _key() -> str:
+    """PEXELS_API_KEY as in .env.example; PEXEL_API_KEY is the older name, still read."""
+    return _env("PEXELS_API_KEY") or _env("PEXEL_API_KEY")
+
+
 def is_reachable() -> bool:
-    return bool(_env("PEXEL_API_KEY"))
+    return bool(_key())
 
 
 def normalize_query(text: str) -> str:
@@ -78,7 +83,7 @@ def _search_photo(text: str) -> dict:
     try:
         r = requests.get(
             SEARCH_API_URL, timeout=REQUEST_TIMEOUT_S,
-            headers={"Authorization": _env("PEXEL_API_KEY")},
+            headers={"Authorization": _key()},
             params={"query": text, "per_page": 1, "orientation": "landscape"},
         )
     except requests.RequestException as e:
@@ -151,7 +156,7 @@ def resolve_background_video(query: str) -> dict:
     try:
         r = requests.get(
             VIDEO_SEARCH_API_URL, timeout=REQUEST_TIMEOUT_S,
-            headers={"Authorization": _env("PEXEL_API_KEY")},
+            headers={"Authorization": _key()},
             params={"query": text, "per_page": 1, "orientation": "landscape"},
         )
     except requests.RequestException as e:
