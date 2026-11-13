@@ -694,11 +694,16 @@ def run_engine(run_id: int, project_id: int, llm, resume_since: float | None = N
 
 def resume_interrupted_runs() -> list[int]:
     """At startup: every deck run a stopped server left 'running' continues in the background from its checkpoints."""
+    from ...core.llm_provider import get_llm_client
+    from ..usage.service import scope as usage_scope
     resumed = []
     for r in store.claim_interrupted_deliverable_runs():
         try:
-            from ...core.llm_provider import get_llm_client
-            llm = get_llm_client()
+            # in the project's scope: an org-model project has no client outside it (the platform model may be off)
+            with usage_scope(project_id=r["project_id"]):
+                llm = get_llm_client()
+            if llm is None:
+                raise RuntimeError("no AI model is configured for this project")
         except Exception as e:      # never leave a 'running' row behind: it would block Generate for good
             store.update_deliverable_run(r["id"], status="failed", error=f"could not resume: {e}", finished_at=time.time())
             continue

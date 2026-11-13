@@ -655,7 +655,9 @@ def resume_interrupted() -> list[int]:
             _busy.add(r["project_id"])
 
         def run(r=r):
-            with memory.replay(r["started_at"]):
+            from ..usage.service import scope as usage_scope
+            # the project's scope, as a request has: its org's models answer (none outside it when the platform is off)
+            with usage_scope(project_id=r["project_id"]), memory.replay(r["started_at"]):
                 _run_with_client(r["id"], r["project_id"])
         threading.Thread(target=run, daemon=True, name=f"latest24h-resume-{r['id']}").start()
         resumed.append(r["id"])
