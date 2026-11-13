@@ -112,7 +112,7 @@ changed and why. Open the code only for the files a note or the map points to.
 - Dead code removed (log 10): `core/llm_synthesis.py`, 13 unused functions. `domains/agent/qa_browser.py` deleted (log 30, user approved).
 - Local `.env` holds ~45 keys no code reads, and python-dotenv cannot parse its line 69 (not opened: may hold a secret).
 
-## Current state (2026-11-12, end of day; checked against the local database and code)
+## Current state (2026-11-13; checked against the local database and code)
 
 - **Production is down; local is the working environment.** Render Postgres `hunter-db` (free plan) expired
   2026-11-11 and is suspended; Render deletes it about 2026-11-25; no upgrade (user's decision, no budget). Work and
@@ -120,18 +120,27 @@ changed and why. Open the code only for the files a note or the map points to.
 - **Local stack:** Docker `hunter-postgres` (port 5433) + backend `uvicorn backend.main:app --port 8002` (serves the
   built SPA). Schema at Alembic revision `0001` (stamped 2026-11-12, log 40). Local Super Admin = the
   `SEED_SUPER_ADMIN_EMAIL` account (user 2); the `.env` seed password no longer matches it (changed at sign-in).
-- **Local data:** organisations 1 Default Organization, 2 InfoVision, 3 Test Organization; 0 projects (wiped on
-  request, log 27). Test Organization's chat models, in failover order: NVIDIA `nemotron-3-ultra-550b-a55b` (default),
-  `minimax-m3.1-flash`, `step-5-preview` (logs 34-35; GLM 5.3 Flash removed: NVIDIA does not serve it).
+- **Local data:** organisations 1 Default Organization, 2 InfoVision (`platform_llm` on), 3 Test Organization
+  (`platform_llm` off); 0 projects. Test Organization's chat models, in failover order: NVIDIA
+  `nemotron-3-ultra-550b-a55b` (default), `minimax-m3.1-flash`, `step-5-preview` (logs 34-35). It has a Starter plan
+  (+ one queued Starter from a test grant) and an Admin user at the seed address with `+testorg` (logs 2026-11-13-03/04).
+- **No GPT spend (finance limit, 2026-11-13):** the local backend runs with `AZURE_OPENAI_API_KEY`,
+  `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_MODEL` blanked in the launch command, so nothing can reach the platform
+  model; test only on an org's own NVIDIA models. The deck-insight batching A/B (`HUNTER_BATCH_INSIGHTS`) is paused
+  until GPT spend is approved; its harness is `tests/e2e_3org/infovision_compare.py casino_ab`.
+- **Billing (log 2026-11-13-03):** no payment in the app; a Super Admin applies every plan ("Apply plan" in the org view
+  on `/admin`). **Platform model (log 04):** only a Super Admin maps it to an org (LLM Providers switch).
+- **NVIDIA models (log 05):** OpenAI-compatible calls are capped at 16384 output tokens; an empty map-step reply is
+  asked once more. Tavily answered 432 (plan limit) on 2026-11-13; research continues on its other sources.
 - **Storage:** with the `AWS_*` keys set, decks, logos/favicons (linked by signed URL), uploads, avatars and QC files
   live in S3 under `HunterAgent/`; disk copies are throwaway (logs 28, 42, 43).
-- **Checks (2026-11-13):** `pytest tests --ignore=tests/e2e_3org` 635 passed; ruff clean; vulture only the
-  `deckstudio/creative.py` `handle_decl` false positive; frontend tsc/lint (0 errors)/Vitest 14/build ok; browser walk
-  21 pages 0 problems (scratchpad script, log 33).
+- **Checks (2026-11-13, end of day):** `pytest tests --ignore=tests/e2e_3org` 643 passed; ruff and vulture clean;
+  frontend tsc/lint (0 errors)/Vitest 14/build ok; Apply plan, read-only Subscription tab and the platform-model switch
+  checked in the browser (log 04).
 - **Deck/brands (2026-11-13, log 2026-11-13-01):** themes-over-time chart (`theme_trend`) added for questions about
   change; Brandfetch guarded (junk names skipped, leading-words match, saved domain reused, paid Brand API cached 30
   days). **All 6 SerpAPI keys reported "exhausted" on 2026-11-13**: Google logo/news/video fallbacks return nothing
   until they reset (user's account).
 - **Not verified:** pages that need a project (data set, deck run, strategy content) only in their empty state
   (standing rule: no projects created while testing); a real QC upload/export round trip through S3; `tests/e2e_3org`.
-- **Open questions for the user:** none.
+- **Open questions for the user:** when GPT spend is approved, re-enable the `AZURE_OPENAI_*` keys and re-run the A/B.
