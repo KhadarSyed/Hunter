@@ -257,6 +257,8 @@ def decide(project_id: ProjectId, req: DecisionRequest, user: Access):
         raise HTTPException(422, f"{req.rq_id} is not an approved research question of this project")
     # no rq_id: the article's matched RQ rows only; an article with none ("No RQ match") is left alone
     snapshot = repo.decide(project_id, req.article_ids, [req.rq_id] if req.rq_id else None, req.status, by, req.reason)
+    if req.status != "irrelevant":      # an Irrelevant article marked relevant joins the matched pool: Re-tag tags it
+        repo.promote_analyst_relevant(project_id)
     return {"changed": len(snapshot), "undo_token": _remember(project_id, snapshot)}
 
 

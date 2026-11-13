@@ -7,14 +7,19 @@ deck can show it on its own slides. An enrichment flag (brand_mention = "figurat
 """
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
 from dataclasses import dataclass
 from functools import lru_cache
 
+import numpy as np
+
 from ...agents import question_dimensions as qd
 from .analytics import _values_of
 from .engine_types import EngineRow
+
+logger = logging.getLogger(__name__)
 
 WINDOW = 40          # characters around a match read for an idiom
 _IDIOM_BEFORE = re.compile(r"(?:rip|ripping|ripped|tear|tearing|pull|pulling)\s+(?:it\s+)?(?:off\s+)?(?:the|a)\s+$|"
@@ -139,3 +144,49 @@ def for_question(rows: list[EngineRow], brands: list[Brand], dims: list[qd.Dimen
         return answered, bool(row_brands(r, brands)), matched, r.article.reach
 
     return sorted((r for r in rows if getattr(r, "brand_mention", "") != "figurative"), key=score, reverse=True)
+
+
+# ─── order by meaning too (stored article embeddings) ────────────────────────────────────────────────────────────
+# The keyword order above misses an article that discusses the question in other words. Its rank is fused with how
+# close the article's stored embedding is to the question (Reciprocal Rank Fusion: no score scales to tune). Only
+# the order changes, never the set: a brand deck still cites only articles naming the brand, and every number an
+# insight states is still checked against the computed facts. The vectors are the ones the Data set tagging job's
+# relations phase stored (kind "article"); only the question is embedded (NVIDIA, no chat model).
+RRF_K = 60      # the usual RRF constant: rank 1 and 5 differ a lot, rank 200 and 205 hardly
+
+
+def _unit(v: np.ndarray) -> np.ndarray:
+    return v / max(float(np.linalg.norm(v)), 1e-9)
+
+
+def fuse(rows: list[EngineRow], query: np.ndarray, vectors: dict[str, np.ndarray]) -> list[EngineRow]:
+    """rows (keyword order) re-ordered by keyword rank fused with similarity rank. A row without a vector keeps only
+    its keyword score."""
+    q = _unit(np.asarray(query, dtype=np.float32))
+    sims = {i: float(_unit(vectors[r.article.url]) @ q) for i, r in enumerate(rows)
+            if r.article.url in vectors and vectors[r.article.url].shape == q.shape}
+    if not sims:
+        return rows
+    by_meaning = {i: rank for rank, i in enumerate(sorted(sims, key=lambda i: -sims[i]), start=1)}
+    score = {i: 1 / (RRF_K + i + 1) + (1 / (RRF_K + by_meaning[i]) if i in by_meaning else 0.0)
+             for i in range(len(rows))}
+    return [rows[i] for i in sorted(score, key=lambda i: (-score[i], i))]
+
+
+def rerank_by_meaning(project_id: int, questions: dict[str, str], evidence_by_rq: dict[str, list[EngineRow]],
+                      llm) -> tuple[dict[str, list[EngineRow]], int]:
+    """(every question's evidence in fused order, article vectors used). Unchanged, with 0, when there are no stored
+    vectors or the embedding provider fails. Never raises."""
+    try:
+        from ...core.nvidia_embed_client import embed_model_name
+        from ..dataset import repository as dataset_repo
+        model = embed_model_name()
+        stored = dataset_repo.article_vectors(project_id, model) if model and llm is not None else {}
+        if not stored:
+            return evidence_by_rq, 0
+        vectors = {url: np.frombuffer(b, dtype=np.float32) for url, b in stored.items()}
+        return {rq_id: fuse(rows, llm.embed(questions[rq_id]), vectors) if rows and questions.get(rq_id) else rows
+                for rq_id, rows in evidence_by_rq.items()}, len(vectors)
+    except Exception as e:      # unconfigured or unreachable embeddings: the keyword order stands
+        logger.warning("ordering citations by meaning skipped: %s", type(e).__name__)
+        return evidence_by_rq, 0

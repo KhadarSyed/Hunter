@@ -182,13 +182,15 @@ def research_item_urls(project_id: int) -> list[str]:
         return list(conn.execute(select(I.c.url).where(I.c.project_id == project_id)).scalars())
 
 
-def get_item_vectors(item_ids: list[int], model: str) -> dict[int, bytes]:
-    """Stored embedding bytes (float32) per item id, only those made with `model`."""
+def get_item_vectors(item_ids: list[int], model: str, kind: str = "research") -> dict[int, bytes]:
+    """Stored embedding bytes (float32) per item id of one kind ("research" items or Data set "article"s), only
+    those made with `model`."""
     found: dict[int, bytes] = {}
     with sa.begin() as conn:
         for start in range(0, len(item_ids), VECTOR_LOOKUP_CHUNK):     # keeps each statement's IN list bounded
             chunk = item_ids[start:start + VECTOR_LOOKUP_CHUNK]
-            rows = conn.execute(select(V.c.item_id, V.c.vector).where(V.c.model == model, V.c.item_id.in_(chunk)))
+            rows = conn.execute(select(V.c.item_id, V.c.vector).where(V.c.kind == kind, V.c.model == model,
+                                                                      V.c.item_id.in_(chunk)))
             found.update({r.item_id: bytes(r.vector) for r in rows})
     return found
 
@@ -201,15 +203,15 @@ def save_item_classifications(rows: list[tuple[int, float, str, float, str]]) ->
                 about_brand=about, sentiment=sentiment, sentiment_confidence=confidence, classified_for=brand))
 
 
-def save_item_vectors(vectors: dict[int, bytes], model: str, dim: int) -> None:
+def save_item_vectors(vectors: dict[int, bytes], model: str, dim: int, kind: str = "research") -> None:
     if not vectors:
         return
     now = time.time()
     stmt = pg_insert(V)
     with sa.begin() as conn:            # no RETURNING: the rows hold the vector bytes
-        conn.execute(stmt.on_conflict_do_update(index_elements=[V.c.item_id], set_={
+        conn.execute(stmt.on_conflict_do_update(index_elements=[V.c.kind, V.c.item_id], set_={
             c: stmt.excluded[c] for c in ("model", "dim", "vector", "created_at")}),
-            [{"item_id": i, "model": model, "dim": dim, "vector": blob, "created_at": now}
+            [{"kind": kind, "item_id": i, "model": model, "dim": dim, "vector": blob, "created_at": now}
              for i, blob in vectors.items()])
 
 

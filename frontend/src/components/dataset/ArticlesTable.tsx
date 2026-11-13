@@ -38,6 +38,8 @@ type Props = {
   onKeep?: (row: ArticleRow) => void;
   /** false until tagging has run: no row decisions or selection yet */
   canDecide?: boolean;
+  /** false: rows can be selected but have no per-row Approve / Reject (the Irrelevant pool) */
+  rowActions?: boolean;
   onEdited: () => void;
 };
 
@@ -89,7 +91,7 @@ export function ArticlesTable(p: Props) {
                 <td {...pinned(PIN.status, "px-3 py-2.5 border-b border-slate-100 overflow-hidden")} style={{ left: PIN.status, width: STATUS_W, minWidth: STATUS_W, maxWidth: STATUS_W }}>
                   <div className="flex items-center gap-1.5">
                     <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap truncate ${STATUS_PILL[r.status]}`}>{r.status}</span>
-                    {p.canDecide !== false && <span className="invisible group-hover:visible group-focus-within:visible flex gap-0.5 shrink-0">
+                    {p.canDecide !== false && p.rowActions !== false && <span className="invisible group-hover:visible group-focus-within:visible flex gap-0.5 shrink-0">
                       <button type="button" aria-label="Approve this article" title="Approve" onClick={() => p.onDecide(r.id, "approved")}
                         className="w-5 h-5 rounded text-emerald-700 hover:bg-emerald-50 text-xs">✓</button>
                       <button type="button" aria-label="Reject this article" title="Reject" onClick={() => p.onDecide(r.id, "irrelevant")}

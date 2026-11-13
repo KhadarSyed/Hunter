@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 
 from ...core import config, object_store
+from ..exclusions import service as exclusions
 from ..execution.service import _load_dataset
 from . import normalize, repository as repo
 
@@ -32,9 +33,9 @@ def _read(name: str, data: bytes) -> list[dict]:
         tmp.unlink(missing_ok=True)
 
 
-def _one(project_id: int, name: str, data: bytes, user: str | None) -> dict:
+def _one(project_id: int, name: str, data: bytes, user: str | None, rules=None) -> dict:
     safe = _safe_name(name)
-    out = {"file_name": name, "rows_read": 0, "added": 0, "duplicates": 0, "error": None}
+    out = {"file_name": name, "rows_read": 0, "added": 0, "duplicates": 0, "blocked": 0, "error": None}
     fid = None
     try:
         if Path(safe).suffix.lower() not in ALLOWED_EXT:
@@ -52,7 +53,9 @@ def _one(project_id: int, name: str, data: bytes, user: str | None) -> dict:
             out["rows_read"] = len(raw)
             if recs:
                 unique = list({r["norm_url"]: r for r in reversed(recs)}.values())[::-1]     # first row per link wins
-                out["added"], out["duplicates"] = repo.insert_articles(project_id, fid, unique)
+                allowed = [r for r in unique if not (rules and exclusions.blocked_domain(rules, r["url"]))]
+                out["blocked"] = len(unique) - len(allowed)     # the org's blocked websites are never stored
+                out["added"], out["duplicates"] = repo.insert_articles(project_id, fid, allowed)
                 out["duplicates"] += len(recs) - len(unique)
     except Exception as e:                      # one bad file must not stop the others
         logger.warning("Upload of %s failed: %s", safe, e)
@@ -67,14 +70,15 @@ def _one(project_id: int, name: str, data: bytes, user: str | None) -> dict:
 
 
 def upload(project_id: int, files: list[tuple[str, bytes]], user: str | None) -> dict:
-    results = [_one(project_id, name, data, user) for name, data in files]
+    rules = exclusions.rules_for_project(project_id)
+    results = [_one(project_id, name, data, user, rules) for name, data in files]
     try:
         counts = repo.channel_counts(project_id)
     except Exception as e:                      # the per-file results are already saved; do not lose them
         logger.warning("Channel counts failed: %s", e)
         counts = {}
     return {"files": results, "added": sum(r["added"] for r in results),
-            "duplicates": sum(r["duplicates"] for r in results),
+            "duplicates": sum(r["duplicates"] for r in results), "blocked": sum(r["blocked"] for r in results),
             "traditional": counts.get("traditional", 0), "social": counts.get("social", 0)}
 
 
@@ -162,6 +166,9 @@ def match_rqs(project_id: int) -> dict:
     matches every article (nothing to filter on). Returns matched articles per question and the pool sizes."""
     from ..deliverable import rows
     arts = repo.match_texts(project_id)
+    dropped = _drop_blocked_domains(project_id, arts)       # a domain rule added after the upload
+    if dropped:
+        arts = [a for a in arts if a["id"] not in dropped]
     groups = _syndication_groups(arts)
     repo.save_copies(project_id, {c: g[0] for g in groups for c in g[1:]})
     group_of = {i: g for g in groups for i in g}
@@ -175,21 +182,36 @@ def match_rqs(project_id: int) -> dict:
     matched = set().union(*by_rq.values()) if by_rq else set()
     return {"per_rq": {k: len(v) for k, v in by_rq.items()}, "matched": len(matched),
             "irrelevant": len(arts) - len(matched), "blocked": len(blocked), "total": len(arts),
-            "copies": sum(len(g) - 1 for g in groups)}
+            "copies": sum(len(g) - 1 for g in groups), "dropped": len(dropped)}
+
+
+def _drop_blocked_domains(project_id: int, arts: list[dict]) -> set[int]:
+    """Deletes the project's articles from the organization's blocked websites (a rule added after the upload);
+    one an analyst kept relevant or decided on stays. Returns the deleted ids. Pure Python, no LLM."""
+    rules = exclusions.rules_for_project(project_id)
+    if not rules.domains:
+        return set()
+    ids = [a["id"] for a in arts if not a.get("keep_at") and exclusions.blocked_domain(rules, a.get("url") or "")]
+    gone = repo.delete_undecided_articles(project_id, ids)
+    if gone:
+        logger.info("project %s: %d articles from blocked websites removed", project_id, len(gone))
+    return gone
 
 
 def blocked_reasons(project_id: int, arts: list[dict]) -> dict[int, str]:
-    """{article id: why} for articles the organization's exclusion list blocks (Settings > Exclusions). An article an
-    analyst kept relevant is never blocked again. Blocked articles go to Irrelevant and are never tagged."""
-    from ..exclusions import service as exclusions
+    """{article id: why} for articles naming a keyword the organization's exclusion list blocks (Settings >
+    Exclusions). Blocked websites are dropped, not listed (upload / _drop_blocked_domains); one an analyst kept or
+    decided on is checked by keyword only. An article an analyst kept relevant is never blocked again. Blocked
+    articles go to Irrelevant and are never tagged until an analyst marks them relevant and runs Re-tag."""
     rules = exclusions.rules_for_project(project_id)
-    if not rules:
+    if not rules.keywords:
         return {}
+    by_keyword = exclusions.Rules(keywords=rules.keywords)
     out = {}
     for a in arts:
         if a.get("keep_at"):
             continue
-        why = exclusions.excluded(rules, a.get("url") or "", a.get("text") or "")
+        why = exclusions.excluded(by_keyword, "", a.get("text") or "")
         if why:
             out[a["id"]] = f"{repo.BLOCK_PREFIX} ({why})"
     return out
@@ -198,7 +220,6 @@ def blocked_reasons(project_id: int, arts: list[dict]) -> dict[int, str]:
 def keep_relevant(project_id: int, article_id: int, by: str, comment: str) -> dict | None:
     """An analyst keeps a blocked article relevant: the override is stored on the article, the organization remembers
     it (Settings > Exclusions shows it; its AI agents get it as context) and the Boolean match runs again (free)."""
-    from ..exclusions import service as exclusions
     art = repo.keep_relevant(project_id, article_id, by, comment)
     if art is None:
         return None

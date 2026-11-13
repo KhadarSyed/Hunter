@@ -121,8 +121,9 @@ changed and why. Open the code only for the files a note or the map points to.
   2026-11-11 and is suspended; Render deletes it about 2026-11-25; no upgrade (user's decision, no budget). Work and
   test locally only; never trigger Render/Vercel deploys or change Render env.
 - **Local stack:** Docker `hunter-postgres` (port 5433) + backend `uvicorn backend.main:app --port 8002` (serves the
-  built SPA). Schema at Alembic revision `0003` (0001 stamped 2026-11-12, log 40; 0002 renames `org_subscriptions.payment_ref`
-  to `source`, log 2026-11-13-10; 0003 stores author_type "Organization", log 2026-11-13-11). Local Super Admin = the
+  built SPA). Schema at Alembic revision `0004` (0001 stamped 2026-11-12, log 40; 0002 renames `org_subscriptions.payment_ref`
+  to `source`, log 2026-11-13-10; 0003 stores author_type "Organization", log 2026-11-13-11; 0004 keys
+  `intel_research_item_vectors` by (kind, item_id), log 2026-11-13-17). Local Super Admin = the
   `SEED_SUPER_ADMIN_EMAIL` account (user 2); the `.env` seed password no longer matches it (changed at sign-in).
 - **Local data:** organisations 1 Default Organization, 2 InfoVision (`platform_llm` on), 3 Test Organization
   (`platform_llm` off); 0 projects. Test Organization's chat models, in failover order: NVIDIA
@@ -132,6 +133,10 @@ changed and why. Open the code only for the files a note or the map points to.
   `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_MODEL` blanked in the launch command, so nothing can reach the platform
   model; test only on an org's own NVIDIA models. The deck-insight batching A/B (`HUNTER_BATCH_INSIGHTS`) is paused
   until GPT spend is approved; its harness is `tests/e2e_3org/infovision_compare.py casino_ab`.
+- **Exclusion list (log 2026-11-13-17):** blocked websites are dropped (Data set upload, a later rule at the next match,
+  web research) and never reach a deck; blocked keywords move Data set articles to Irrelevant. Irrelevant articles are
+  never tagged until an analyst marks them relevant for a question (Irrelevant view, bulk bar) and runs Re-tag; Re-tag
+  sends only untagged articles. Domain matching is pure Python (`exclusions.blocked_domain`), no LLM.
 - **Billing (log 2026-11-13-03):** no payment in the app; a Super Admin applies every plan ("Apply plan" in the org view
   on `/admin`). **Platform model (log 04):** only a Super Admin maps it to an org (LLM Providers switch).
 - **NVIDIA models (log 05):** OpenAI-compatible calls are capped at 16384 output tokens; an empty map-step reply is

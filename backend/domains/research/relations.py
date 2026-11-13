@@ -69,14 +69,16 @@ def _model() -> str:
     return embed_model_name()
 
 
-def ensure_vectors(items: list[dict], llm, limit: int | None = None) -> dict[int, np.ndarray] | None:
+def ensure_vectors(items: list[dict], llm, limit: int | None = None,
+                   kind: str = "research") -> dict[int, np.ndarray] | None:
     """Every item's stored vector, embedding (and storing) the ones not embedded yet -- at most `limit` new
-    ones. None when no embedding provider works. Called after a research fetch, so the table rarely waits."""
+    ones. None when no embedding provider works. Called after a research fetch, so the table rarely waits.
+    `kind` says whose ids these are ("research" items or Data set "article"s): the two id ranges overlap."""
     model = _model()
     if llm is None or not model:
         return None
     stored = {k: np.frombuffer(v, dtype=np.float32)
-              for k, v in repository.get_item_vectors([i["id"] for i in items], model).items()}
+              for k, v in repository.get_item_vectors([i["id"] for i in items], model, kind).items()}
     missing = [i for i in items if i["id"] not in stored][:limit]
     try:
         for start in range(0, len(missing), EMBED_BATCH):
@@ -84,7 +86,8 @@ def ensure_vectors(items: list[dict], llm, limit: int | None = None) -> dict[int
             made = [np.asarray(v, dtype=np.float32) for v in llm.embed_batch([_embed_text(i) for i in batch])]
             if len(made) != len(batch):
                 raise ValueError(f"{len(made)} vectors for {len(batch)} texts")
-            repository.save_item_vectors({i["id"]: v.tobytes() for i, v in zip(batch, made)}, model, len(made[0]))
+            repository.save_item_vectors({i["id"]: v.tobytes() for i, v in zip(batch, made)}, model, len(made[0]),
+                                         kind)
             stored.update({i["id"]: v for i, v in zip(batch, made)})
     except Exception as e:  # unconfigured, unreachable or rejected: fall back, never fail the table
         logger.warning("Research item embeddings unavailable (%s); using the title-matching fallback",
@@ -93,10 +96,10 @@ def ensure_vectors(items: list[dict], llm, limit: int | None = None) -> dict[int
     return stored
 
 
-def _vectors(items: list[dict], llm) -> tuple[np.ndarray | None, bool]:
+def _vectors(items: list[dict], llm, kind: str = "research") -> tuple[np.ndarray | None, bool]:
     """(unit vectors in item order, complete?). Items still unembedded past the per-call cap get a zero
     vector: they match nothing by meaning this time, only by headline, and are embedded on later calls."""
-    stored = ensure_vectors(items, llm, limit=MAX_EMBED_PER_CALL)
+    stored = ensure_vectors(items, llm, limit=MAX_EMBED_PER_CALL, kind=kind)
     if not stored:
         return None, True
     if len({v.shape[0] for v in stored.values()}) > 1:
@@ -129,9 +132,9 @@ def _codes(values: list[str]) -> np.ndarray:
     return np.array([index.setdefault(v, len(index)) if v else -n - 1 for n, v in enumerate(values)])
 
 
-def find_relations(items: list[dict], llm) -> tuple[dict[int, dict[str, list[int]]], str]:
+def find_relations(items: list[dict], llm, kind: str = "research") -> tuple[dict[int, dict[str, list[int]]], str]:
     """{item id: {"syndicated": [ids], "similar": [ids]}} (each list closest first), and the method used:
-    "embeddings" or "titles"."""
+    "embeddings" or "titles". `kind`: "research" items or Data set "article"s (see ensure_vectors)."""
     if not items:
         return {}, "embeddings"
     pubs = _codes([publisher_key(i) for i in items])
@@ -139,7 +142,7 @@ def find_relations(items: list[dict], llm) -> tuple[dict[int, dict[str, list[int
     same_pub = pubs[:, None] == pubs[None, :]
     same_title = titles[:, None] == titles[None, :]
 
-    vectors, complete = _vectors(items, llm)
+    vectors, complete = _vectors(items, llm, kind)
     if vectors is not None:
         scores = vectors @ vectors.T
         method = "embeddings" if complete else "embeddings_partial"

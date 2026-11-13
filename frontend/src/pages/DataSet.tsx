@@ -28,7 +28,7 @@ function UploadBanner({ result }: { result: UploadResult }) {
   return (
     <div className="space-y-1">
       <div role="status" className="rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
-        {result.added.toLocaleString("en-US")} articles uploaded ({result.traditional.toLocaleString("en-US")} traditional, {result.social.toLocaleString("en-US")} social, {result.duplicates.toLocaleString("en-US")} duplicates removed)
+        {result.added.toLocaleString("en-US")} articles uploaded ({result.traditional.toLocaleString("en-US")} traditional, {result.social.toLocaleString("en-US")} social, {result.duplicates.toLocaleString("en-US")} duplicates removed{result.blocked ? `, ${result.blocked.toLocaleString("en-US")} from blocked websites dropped` : ""})
       </div>
       {failed.map((f) => <div key={f.file_name} role="alert" className="rounded-lg border border-red-100 bg-red-50 px-4 py-2 text-sm text-red-700">{f.file_name}: {f.error}</div>)}
     </div>
@@ -238,6 +238,8 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
   const running = progress !== null;
   // Approve / Reject and the filters open once tagging has run and nothing is tagging now
   const reviewable = !running && tagged > 0 && filters.pool !== "irrelevant";
+  // Irrelevant articles are never tagged; an analyst may mark some relevant for a question, then Re-tag tags them
+  const markable = !running && filters.pool === "irrelevant" && page.rqs.length > 0;
   const allArticles = pools.matched + pools.irrelevant + pools.unmatched;
   const pct = progress && progress.total > 0 ? Math.round((progress.done * 100) / progress.total) : 0;
 
@@ -317,7 +319,7 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
         <FilterBar filters={filters} rqs={page.rqs} facets={facets} onChange={changeFilters} />
       ) : (
         <p role="status" className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500">
-          {filters.pool === "irrelevant" ? "No research question's Boolean query matches these articles, or your organization's exclusion list blocks them (marked Blocked), so they are not tagged. Edit a question's query above, or mark a blocked article relevant, to bring it in."
+          {filters.pool === "irrelevant" ? "No research question's Boolean query matches these articles, or a blocked keyword appears in them (marked Blocked), so they are not tagged. Articles from blocked websites are dropped, not listed. Select articles and mark them relevant for a question (then run Re-tag), or edit a question's query above, to bring them in."
             : running ? "Tagging is running. Review, filters and approval open when it finishes."
             : "Match the research questions, then tag the matched articles to review, filter and approve them."}
         </p>
@@ -330,12 +332,18 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
           onClear={() => setSelected(new Set())} />
       )}
 
+      {markable && selected.size > 0 && (
+        <BulkBar relevantOnly count={selected.size} rqs={page.rqs} defaultRq="" busy={busy}
+          onApprove={(rq) => void decide([...selected], rq, "approved")}
+          onReject={() => undefined} onClear={() => setSelected(new Set())} />
+      )}
+
       {projectId && (
         <ArticlesTable projectId={projectId} channel={filters.channel} rows={page.rows} brands={facets.brands} rqs={page.rqs}
           total={page.total} offset={offset} loading={loading} hidden={hidden} selected={selected}
           selectionComplete={page.total > 0 && selected.size === page.total}
           onToggle={toggleRow} onToggleAll={() => void toggleAll()} onPage={setOffset}
-          onDecide={(id, status) => void decide([id], filters.rq || null, status)} onEdited={reloadData} canDecide={reviewable}
+          onDecide={(id, status) => void decide([id], filters.rq || null, status)} onEdited={reloadData} canDecide={reviewable || markable} rowActions={reviewable}
           onKeep={running ? undefined : (row) => { setKeeping(row); setKeepNote(""); }} />
       )}
 

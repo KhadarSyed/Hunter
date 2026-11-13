@@ -726,6 +726,10 @@ def _run_engine(run_id: int, project_id: int, llm) -> None:
         evidence_by_rq = {q.id: evidence.for_question(rows_by_rq[q.id], brands, dims_by_rq.get(q.id, []),
                                                       answer_tags[q.id])
                           for q in rqs}
+        evidence_by_rq, n_vectors = evidence.rerank_by_meaning(project_id, {q.id: q.question for q in rqs},
+                                                               evidence_by_rq, llm)
+        if n_vectors:
+            run.log(f"Citable articles ordered by keywords and meaning ({n_vectors} stored article vectors)")
         for q in rqs:
             run.log(f"{q.id}: {len(evidence_by_rq[q.id])} articles name the brand and can be cited")
         # the brief's own words count too: "look at both social and editorial" asks for the split even when the

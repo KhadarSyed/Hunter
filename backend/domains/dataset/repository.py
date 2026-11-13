@@ -228,9 +228,15 @@ def set_dataset_approval(project_id: int, by: str | None) -> None:
                                                        dataset_approved_by=by))
 
 
+def _analyst_relevant():
+    """The article has a question row an analyst decided as relevant (approved or sent back to review)."""
+    return exists().where(R.c.article_id == A.c.id, R.c.decided_by.isnot(None), R.c.status != "irrelevant")
+
+
 def save_rq_matches(project_id: int, by_rq: dict[str, set[int]]) -> None:
     """The Boolean match, in one transaction: a "needs tagging" row per matched (article, question) pair (a row
-    already there is left as it is), and each article flagged matched (1) or Irrelevant (0)."""
+    already there is left as it is), and each article flagged matched (1) or Irrelevant (0). An article an analyst
+    marked relevant stays matched whatever its query says, so the next Re-tag tags it."""
     matched = set().union(*by_rq.values()) if by_rq else set()
     rows = [{"project_id": project_id, "article_id": aid, "rq_id": rq_id, "signature": "", "matched": 1,
              "status": "pending"} for rq_id, ids in by_rq.items() for aid in ids]
@@ -238,7 +244,37 @@ def save_rq_matches(project_id: int, by_rq: dict[str, set[int]]) -> None:
         for chunk in _chunks(rows):
             conn.execute(pg_insert(R).values(chunk).on_conflict_do_nothing(index_elements=[R.c.article_id, R.c.rq_id]))
         conn.execute(update(A).where(A.c.project_id == project_id).values(
-            rq_matched=case((A.c.id == _ids(matched), 1), else_=0)))
+            rq_matched=case((or_(A.c.id == _ids(matched), _analyst_relevant()), 1), else_=0)))
+
+
+def promote_analyst_relevant(project_id: int) -> int:
+    """Irrelevant articles an analyst just marked relevant move to the matched pool (tagged on the next Re-tag)."""
+    return _exec(update(A).where(A.c.project_id == project_id, A.c.rq_matched.is_distinct_from(1),
+                                 _analyst_relevant()).values(rq_matched=1))
+
+
+def article_vectors(project_id: int, model: str) -> dict[str, bytes]:
+    """{article url: stored embedding bytes (float32)} for the project's articles the tagging job's relations phase
+    embedded with `model` (intel_research_item_vectors, kind "article")."""
+    from ..research.models import intel_research_item_vectors as V
+    q = (select(A.c.url, V.c.vector).select_from(A.join(V, and_(V.c.kind == "article", V.c.item_id == A.c.id)))
+         .where(A.c.project_id == project_id, V.c.model == model))
+    with sa.begin() as conn:
+        return {r.url: bytes(r.vector) for r in conn.execute(q)}
+
+
+def delete_undecided_articles(project_id: int, article_ids: list[int]) -> set[int]:
+    """Deletes these articles and their question rows, except any an analyst decided on (a decision is final).
+    Returns the ids actually deleted."""
+    if not article_ids:
+        return set()
+    decided = select(R.c.article_id).where(R.c.project_id == project_id, R.c.decided_by.isnot(None))
+    with sa.begin() as conn:
+        gone = set(conn.execute(delete(A).where(A.c.project_id == project_id, A.c.id == _ids(article_ids),
+                                                A.c.id.notin_(decided)).returning(A.c.id)).scalars())
+        if gone:
+            conn.execute(delete(R).where(R.c.project_id == project_id, R.c.article_id == _ids(gone)))
+    return gone
 
 
 def save_theme_titles(project_id: int, mapping: dict[str, str]) -> None:

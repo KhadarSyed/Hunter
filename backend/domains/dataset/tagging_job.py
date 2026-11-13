@@ -212,7 +212,7 @@ def _themes_phase(pid: int, llm, prog: _Progress) -> None:
     mapping: dict[str, str] = {}
     if len(counts) >= 2:
         labels = [{"label": display[k], "articles": c, "sample_headlines": heads[k]}
-                  for k, c in counts.most_common(theme_synthesis.MAX_THEMES)]
+                  for k, c in counts.most_common()]       # the top go to GPT, the tail is grouped by embedding
         mapping = theme_synthesis.consolidate_labels(llm, _brand_context(pid)[2], labels)
     # a label GPT left out (or beyond the top 80) keeps its own wording, so it counts as titled on the next run
     repo.save_theme_titles(pid, {**display, **mapping})
@@ -253,7 +253,7 @@ def _relations_phase(pid: int, llm, prog: _Progress) -> None:
     if any(a["tag_status"] == "tagged" and a["syndicated_json"] is None for a in arts):
         items = [{"id": a["id"], "url": a["url"], "title": a["title"], "publication": a["outlet"],
                   "content": a["content"] or a["summary"] or ""} for a in arts]
-        found, _method = relations.find_relations(items, llm)
+        found, _method = relations.find_relations(items, llm, kind="article")
         repo.save_relations(pid, found)
     prog.advance()
 

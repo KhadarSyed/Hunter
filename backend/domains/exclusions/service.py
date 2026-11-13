@@ -26,9 +26,20 @@ class Rules:
 
 
 def normalize_domain(value: str) -> str:
-    """'https://www.Example.com/news' -> 'example.com'; '' when it is not a host name."""
+    """'https://www.Example.com/news', 'example.com/news', 'EXAMPLE.com.' -> 'example.com'; a non-ASCII host in its
+    IDNA (xn--) form; '' when it is not a host name. Rules and article URLs both go through here, so they compare
+    alike."""
     text = (value or "").strip().lower()
-    host = (urlparse(text if _SCHEME.match(text) else f"https://{text}").hostname or "").removeprefix("www.")
+    try:
+        host = urlparse(text if _SCHEME.match(text) else f"https://{text}").hostname or ""
+    except ValueError:                  # e.g. an unbalanced "[" in a pasted URL
+        return ""
+    host = host.rstrip(".").removeprefix("www.")
+    if host and not host.isascii():
+        try:
+            host = host.encode("idna").decode("ascii")
+        except UnicodeError:
+            return ""
     return host if "." in host and _HOST.fullmatch(host) else ""
 
 
@@ -142,8 +153,16 @@ def rules_for_project(project_id: int) -> Rules:
         return Rules()
 
 
-def _host(url: str) -> str:
-    return (urlparse(url).hostname or "").lower().removeprefix("www.") if url else ""
+def blocked_domain(rules: Rules, url: str) -> str | None:
+    """'domain example.com' when the URL's host is a blocked domain or one of its subdomains, else None. Pure
+    Python (urllib.parse + the idna codec), no LLM: a URL without a scheme ('example.com/a') counts too."""
+    host = normalize_domain(url) if url else ""
+    if not host:
+        return None
+    for d in rules.domains:
+        if host == d or host.endswith("." + d):
+            return f"domain {d}"
+    return None
 
 
 def excluded(rules: Rules, url: str = "", *texts: str) -> str | None:
@@ -151,10 +170,8 @@ def excluded(rules: Rules, url: str = "", *texts: str) -> str | None:
     a keyword matches as whole words, ignoring case."""
     if not rules:
         return None
-    host = _host(url)
-    for d in rules.domains:
-        if host and (host == d or host.endswith("." + d)):
-            return f"domain {d}"
+    if why := blocked_domain(rules, url):
+        return why
     blob = " ".join(t for t in texts if t)
     for k in rules.keywords:
         if blob and re.search(rf"(?<!\w){re.escape(k)}(?!\w)", blob, re.I):

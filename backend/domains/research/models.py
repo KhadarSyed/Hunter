@@ -90,7 +90,9 @@ intel_research_items = Table(
 
 intel_research_item_vectors = Table(
     "intel_research_item_vectors", metadata,
-    Column("item_id", BigInteger, primary_key=True),
+    # "research" = intel_research_items.id, "article" = intel_articles.id (migration 0004: the ids overlap)
+    Column("kind", Text, primary_key=True, server_default="research"),
+    Column("item_id", BigInteger, primary_key=True, autoincrement=False),
     Column("model", Text, nullable=False),
     Column("dim", BigInteger, nullable=False),
     Column("vector", LargeBinary, nullable=False),          # float32 bytes

@@ -17,7 +17,11 @@ from .labels import canon, theme_key
 
 logger = logging.getLogger(__name__)
 
-MAX_THEMES = 80          # labels sent in one call, most frequent first; the long tail keeps its own wording
+MAX_THEMES = 80          # labels sent in one call, most frequent first; the long tail is grouped by embedding
+# shortcut: 0.85 is a conservative guess (not measured on a project): a tail label joins a theme only when nearly
+# synonymous, so a minor label is not folded into a major theme; tune on a real project's labels.
+TAIL_MERGE_MIN = 0.85
+EMBED_BATCH = 50
 SAMPLE_TITLES = 2        # article titles shown per label so GPT judges substance, not just wording
 
 _RULES = """You are a senior media-research analyst consolidating article themes for a client presentation.
@@ -86,12 +90,49 @@ def title_map(groups: list[dict], display: dict[str, str]) -> dict[str, str]:
     return out
 
 
+def _embed(llm, texts: list[str]):
+    import numpy as np
+    out = []
+    for start in range(0, len(texts), EMBED_BATCH):
+        out += [np.asarray(v, dtype=np.float32) for v in llm.embed_batch(texts[start:start + EMBED_BATCH])]
+    m = np.stack(out)
+    return m / np.maximum(np.linalg.norm(m, axis=1, keepdims=True), 1e-9)
+
+
+def tail_map(llm, top: dict[str, str], tail: dict[str, str], mapping: dict[str, str]) -> dict[str, str]:
+    """{theme_key of a long-tail label: the theme title of its nearest top label} for tail labels whose embedding is
+    at least TAIL_MERGE_MIN similar to a top label; the rest keep their own wording. {} without embeddings."""
+    if not top or not tail:
+        return {}
+    try:
+        top_keys, tail_keys = list(top), list(tail)
+        vectors = _embed(llm, [top[k] for k in top_keys] + [tail[k] for k in tail_keys])
+        if len(vectors) != len(top_keys) + len(tail_keys):
+            return {}
+        scores = vectors[len(top_keys):] @ vectors[:len(top_keys)].T
+    except Exception as e:      # no embedding provider: the long tail keeps its own wording
+        logger.warning("long-tail theme grouping skipped: %s", type(e).__name__)
+        return {}
+    out = {}
+    for row, key in zip(scores, tail_keys):
+        best = int(row.argmax())
+        if row[best] >= TAIL_MERGE_MIN:
+            out[key] = mapping.get(top_keys[best], top[top_keys[best]])
+    return out
+
+
 def consolidate_labels(llm, context: str, labels: list[dict]) -> dict[str, str]:
-    """{theme_key(label): consolidated title} for labels [{"label", "articles", "sample_headlines"}], the top
-    MAX_THEMES by count. One guardrail prompt serves the deck and the data set; {} when GPT is unavailable."""
-    top = sorted(labels, key=lambda l: -l.get("articles", 0))[:MAX_THEMES]
-    display = {theme_key(l["label"]): l["label"] for l in top}
-    return title_map(_ask(llm, context, top), display)
+    """{theme_key(label): consolidated title} for labels [{"label", "articles", "sample_headlines"}]. GPT groups and
+    titles the top MAX_THEMES by count; a long-tail label joins the theme of its nearest top label by embedding
+    (tail_map) or keeps its own wording. One guardrail prompt serves the deck and the data set; {} when GPT is
+    unavailable."""
+    ranked = sorted(labels, key=lambda l: -l.get("articles", 0))
+    top = {theme_key(l["label"]): l["label"] for l in ranked[:MAX_THEMES]}
+    mapping = title_map(_ask(llm, context, ranked[:MAX_THEMES]), top)
+    if not mapping:
+        return {}
+    tail = {k: l["label"] for l in ranked[MAX_THEMES:] if (k := theme_key(l["label"])) not in top}
+    return {**tail_map(llm, top, tail, mapping), **mapping}
 
 
 def consolidate(llm, question: str, rows: list[EngineRow], log=None) -> list[EngineRow]:
@@ -101,7 +142,7 @@ def consolidate(llm, question: str, rows: list[EngineRow], log=None) -> list[Eng
     if llm is None or len(counts) < 2:
         return rows
     labels = [{"label": display[k], "articles": c, "sample_headlines": samples.get(k, [])}
-              for k, c in counts.most_common(MAX_THEMES)]
+              for k, c in counts.most_common()]
     mapping = consolidate_labels(llm, question, labels)
     if not mapping:
         return rows
