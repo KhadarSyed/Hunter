@@ -66,13 +66,12 @@ def _with_plan() -> Select:
             .join(plans, plans.c.id == subs.c.plan_id))
 
 
-def create_subscription(org_id: int, plan_id: int, status: str, created_by: int | None,
-                        starts_at: float | None = None, ends_at: float | None = None,
-                        payment_ref: str | None = None) -> int:
+def create_subscription(org_id: int, plan_id: int, status: str, created_by: int | None, starts_at: float,
+                        ends_at: float) -> int:
     with sa.begin() as conn:
         return conn.execute(insert(subs).values(
             org_id=org_id, plan_id=plan_id, status=status, starts_at=starts_at, ends_at=ends_at,
-            payment_ref=payment_ref, reminders="", created_by=created_by, created_at=time.time(),
+            payment_ref="granted", reminders="", created_by=created_by, created_at=time.time(),
         ).returning(subs.c.id)).scalar_one()
 
 

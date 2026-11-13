@@ -105,7 +105,8 @@ def resolve_brand_domain(brand_name: str) -> str | None:
     if not worth_looking_up(brand_name) or not is_reachable():
         return None
     saved = repository.get_brand_logo(normalize_brand(brand_name))       # the logo lookup's answer: no new search
-    if saved and saved["source"] == "brandfetch" and saved["domain"] and             _is_plausible_match(brand_name, "", saved["domain"]):
+    if (saved and saved["source"] == "brandfetch" and saved["domain"]
+            and _is_plausible_match(brand_name, "", saved["domain"])):
         return saved["domain"]
     if saved and not saved["domain"] and time.time() - (saved["fetched_at"] or 0) < NOT_FOUND_RETRY_S:
         return None                     # searched within the week: Brandfetch had no plausible match

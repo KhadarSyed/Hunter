@@ -104,7 +104,7 @@ def grant(org_id: int, plan_id: int, user_id: int | None, notify: bool = False) 
     renewal = current(org_id, now) is not None
     start = _paid_until(org_id, now)
     sub_id = repo.create_subscription(org_id, plan_id, "active" if start <= now else "queued", user_id, start,
-                                      add_months(start, plan["duration_months"]), "granted")
+                                      add_months(start, plan["duration_months"]))
     if notify:
         _notify_org(org_id, "renewed" if renewal else "activated", repo.get_subscription(sub_id))
     return sub_id
