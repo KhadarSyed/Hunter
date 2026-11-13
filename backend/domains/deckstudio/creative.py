@@ -93,7 +93,7 @@ class _Allowlist(HTMLParser):
     def handle_comment(self, data):
         self.ok = False
 
-    def handle_decl(self, decl):
+    def handle_decl(self, _decl):       # any <!DOCTYPE …> in a slide is refused; HTMLParser passes it positionally
         self.ok = False
 
     def unknown_decl(self, data):

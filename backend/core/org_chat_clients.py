@@ -59,7 +59,8 @@ class OpenAICompatClient:
         Cloudflare cuts a silent connection at ~100 s (HTTP 524/502), and some proxies (VyceAI) only serve streams.
         An error sent inside the stream raises. Usage comes from the last chunk."""
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-        body = {"model": self.model, **payload, "stream": True}
+        # same output cap as the Azure / Anthropic clients: a reasoning model left uncapped streamed one reply 30+ min
+        body = {"model": self.model, "max_tokens": MAX_OUTPUT_TOKENS, **payload, "stream": True}
         if usage_opt:
             body["stream_options"] = {"include_usage": True}
         started = time.time()

@@ -437,16 +437,19 @@ def _map_batch(llm_client, batch: list[dict], source_lookup: dict[str, str] | No
         '{"topic": "' + topic + '", "key_points": ["... [S1]", ...], "notable_sources": ["...", ...]}\n\n'
         + "\n".join(lines)
     )
-    try:
-        response = llm_client.chat(
-            [{"role": "system", "content": "Return only valid JSON."},
-             {"role": "user", "content": prompt}],
-            format_json=True,
-        )
-        return extract_json_object(response)
-    except Exception:
-        logger.exception("Map-step batch summary failed for topic=%r — skipping this batch", topic)
+    messages = [{"role": "system", "content": "Return only valid JSON."}, {"role": "user", "content": prompt}]
+    for attempt in (1, 2):      # a model sometimes answers with an empty or non-JSON reply: ask once more
+        try:
+            return extract_json_object(llm_client.chat(messages, format_json=True))
+        except ValueError:
+            if attempt == 1:
+                logger.info("Map-step batch for topic=%r gave no JSON — asking once more", topic)
+                continue
+            logger.warning("Map-step batch for topic=%r gave no JSON twice — skipping this batch", topic)
+        except Exception:
+            logger.exception("Map-step batch summary failed for topic=%r — skipping this batch", topic)
         return None
+    return None
 
 
 def _coerce_to_markdown(value) -> str:
