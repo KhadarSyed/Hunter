@@ -406,6 +406,12 @@ def apply_rematch(project_id: int, rq_id: str, old_signature: str, added: list[i
                          .values(matched=0, status="irrelevant", reason=reason))
             conn.execute(update(R).where(*scope, or_(R.c.decided_by.isnot(None), R.c.status == "approved"))
                          .values(query_changed=1))
+        if added or dropped:
+            # the article's own flag follows its question rows: an added one is matched (tagging takes only matched
+            # articles), one no question matches any more is Irrelevant (an analyst's relevant mark still holds)
+            matched_row = exists().where(R.c.article_id == A.c.id, R.c.matched == 1)
+            conn.execute(update(A).where(A.c.project_id == project_id, A.c.id == _ids(sorted(set(added) | set(dropped))))
+                         .values(rq_matched=case((or_(matched_row, _analyst_relevant()), 1), else_=0)))
 
 
 def deck_run_active(project_id: int) -> bool:
