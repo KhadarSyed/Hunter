@@ -1069,7 +1069,9 @@ export const intelApi = {
   usageCalls: (q: UsageQuery, offset = 0, limit = 50) =>
     get<UsageCallsPage>(`/usage/calls${usageQuery(q, { offset, limit })}`),
   usagePrices: () => get<UsagePrices>("/usage/prices"),
-  setUsagePrice: (body: UsagePriceRequest) => put<{ ok: boolean }>("/usage/prices", body),
+  /** a model's first price is back-dated to its first call, so its earlier calls are costed too */
+  setUsagePrice: (body: UsagePriceRequest) =>
+    put<{ ok: boolean; effective_from: string; recosted_calls: number }>("/usage/prices", body),
   setUsageSettings: (body: { deployment_type?: string; region?: string }) =>
     put<{ deployment_type: string; region: string }>("/usage/settings", body),
   projectUsageTotal: (projectId: number) =>

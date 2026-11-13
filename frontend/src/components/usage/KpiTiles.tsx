@@ -41,7 +41,8 @@ export function KpiTiles({ kpis, live = false }: { kpis: UsageKpis; live?: boole
       </div>
     )}
     <div className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-4">
-      <Tile accent icon="lucide:circle-dollar-sign" label="Total cost" value={money(kpis.cost_usd)} title={`$${kpis.cost_usd}`} />
+      <Tile accent icon="lucide:circle-dollar-sign" label="Total cost" value={money(kpis.cost_usd)} title={`$${kpis.cost_usd}`}
+        sub={kpis.unpriced_models ? `${kpis.unpriced_models} model${kpis.unpriced_models === 1 ? " has" : "s have"} no price set (not counted)` : undefined} />
       <Tile
         icon="lucide:binary" label="Tokens (input / output)" value={compact(kpis.total_tokens)}
         title={`${num(kpis.total_tokens)} tokens`}

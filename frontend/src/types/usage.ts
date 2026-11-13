@@ -13,6 +13,8 @@ export interface UsageKpis extends UsageTokens {
   cache_hits: number;
   nvidia_credits: number;
   saved_by_cache_usd: number;
+  /** models in range with no price row: their calls are counted but cost $0 until a price is set */
+  unpriced_models?: number;
 }
 
 /** The trend's bucket follows the range: under 7 days hourly, to ~3 months daily, to 3 years monthly, then yearly. */
@@ -26,6 +28,8 @@ export interface UsageModelRow extends UsageTokens {
   deployment_type: string | null;
   calls: number;
   cost_usd: number;
+  /** false: no price set for this model (Settings → LLM Providers → Set price) */
+  priced?: boolean;
 }
 
 export interface UsageSubStageRow extends UsageTokens {

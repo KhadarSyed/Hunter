@@ -68,7 +68,11 @@ export function SummaryTable({ rows, selectedModel, onPickModel }:
                 <td className="px-3 py-2.5 text-right">{num(r.cached_input_tokens)}</td>
                 <td className="px-3 py-2.5 text-right">{num(r.output_tokens)}</td>
                 <td className="px-3 py-2.5 text-right font-semibold">{num(r.total_tokens)}</td>
-                <td className="px-3 py-2.5 text-right font-semibold text-slate-900">{money(r.cost_usd)}</td>
+                <td className="px-3 py-2.5 text-right font-semibold text-slate-900">
+                  {r.priced === false
+                    ? <span className="font-medium text-amber-700" title="No price set for this model: Settings → LLM Providers → Set price (the first price also costs its earlier calls)">no price set</span>
+                    : money(r.cost_usd)}
+                </td>
               </tr>
             );
           })}

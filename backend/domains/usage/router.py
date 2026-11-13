@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
 
@@ -120,13 +121,17 @@ def usage_summary(user: UserDep, date_from: DateParam = None, date_to: DateParam
                    "top_stage": stages[p["project_id"]][0]["stage"],
                    "models": models[p["project_id"]], "stages": stages[p["project_id"]]}
                   for p in s["by_project"]]
+    now = time.time()
+    by_model = [{**_pick(m, "provider", "model", "deployment_type", "calls", *_TOK, "cost_usd"),
+                 # no price row: its cost shows "no price set", not a misleading $0 (Settings -> LLM Providers)
+                 "priced": repo.price_for(m["provider"], m["model"], m["deployment_type"] or "", now) is not None}
+                for m in s["by_model"]]
     return {
         "kpis": {**_pick(s["kpi"], "cost_usd", *_TOK, "calls", "cache_hits", "nvidia_credits"),
-                 "saved_by_cache_usd": saved},
+                 "saved_by_cache_usd": saved, "unpriced_models": sum(not m["priced"] for m in by_model)},
         "grain": grain,
         "trend": s["trend"],
-        "by_model": [_pick(m, "provider", "model", "deployment_type", "calls", *_TOK, "cost_usd")
-                     for m in s["by_model"]],
+        "by_model": by_model,
         "by_stage": _with_sub_stages(s["by_stage"], s["sub_stages"]),
         "by_project": by_project,
     }
@@ -175,9 +180,15 @@ def _may_price(user: dict, provider: str, model: str) -> bool:
 def usage_put_price(body: PriceRequest, user: UserDep) -> dict:
     if not _may_price(user, body.provider, body.model):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You can set prices only for your organization's own models")
+    first = repo.price_for(body.provider, body.model, body.deployment_type, time.time()) is None
+    # a model's first price also costs its earlier calls (they were stored at $0 for want of a price)
+    effective = min(body.effective_from, repo.first_use_day(body.provider, body.model) or body.effective_from) \
+        if first else body.effective_from
     repo.upsert_price(body.provider, body.model, body.deployment_type, body.input_per_m, body.cached_per_m,
-                      body.output_per_m, body.effective_from, "manual")
-    return {"ok": True}
+                      body.output_per_m, effective, "manual")
+    price = {"input_per_m": body.input_per_m, "cached_per_m": body.cached_per_m, "output_per_m": body.output_per_m}
+    n = repo.recost(body.provider, body.model, body.deployment_type, effective, price)
+    return {"ok": True, "effective_from": effective, "recosted_calls": n}
 
 
 @router.put("/settings")

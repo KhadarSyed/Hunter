@@ -66,7 +66,7 @@ export function ModelPrice({ provider, model, prices, canEdit, onSaved }: Props)
     return (
       <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
         <div className="mb-2 text-xs font-medium text-slate-700">
-          Price per 1M tokens for <span className="font-mono">{model}</span> (USD, applies to calls from today)
+          Price per 1M tokens for <span className="font-mono">{model}</span> (USD; {current ? "applies to calls from today" : "the first price also costs this model's earlier calls"})
         </div>
         <div className="flex flex-wrap items-end gap-2">
           {FIELDS.map(([k, label]) => (

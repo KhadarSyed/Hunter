@@ -2,6 +2,7 @@
 SQLAlchemy condition on llm_usage built by usage/router.py (role scope + filters)."""
 from __future__ import annotations
 
+import calendar
 import time
 from decimal import Decimal
 
@@ -82,6 +83,26 @@ def set_setting(key: str, value: str) -> None:
     stmt = pg_insert(settings).values(key=key, value=value)
     with sa.begin() as conn:
         conn.execute(stmt.on_conflict_do_update(index_elements=[settings.c.key], set_={"value": stmt.excluded.value}))
+
+
+def first_use_day(provider: str, model: str) -> str | None:
+    """The UTC day (YYYY-MM-DD) of this model's first recorded call, or None."""
+    ts = _first(select(func.min(U.c.ts).label("ts")).where(U.c.provider == provider, U.c.model == model))["ts"]
+    return time.strftime("%Y-%m-%d", time.gmtime(ts)) if ts else None
+
+
+def recost(provider: str, model: str, deployment_type: str, from_day: str, p: dict) -> int:
+    """Re-cost this model's stored calls from from_day (UTC) at price p (the newest price, so it governs every one of
+    them); cache hits stay free. Returns the rows updated."""
+    start = calendar.timegm(time.strptime(from_day, "%Y-%m-%d"))      # UTC midnight
+    fresh = func.greatest(U.c.input_tokens - U.c.cached_input_tokens, 0)
+    cost = (fresh * p["input_per_m"] + U.c.cached_input_tokens * p["cached_per_m"]
+            + U.c.output_tokens * p["output_per_m"]) / 1_000_000
+    cond = [U.c.provider == provider, U.c.model == model, U.c.cache_hit == 0, U.c.ts >= start]
+    if deployment_type:     # shortcut: a price with no deployment type re-costs every type of this model
+        cond.append(U.c.deployment_type == deployment_type)
+    with sa.begin() as conn:
+        return conn.execute(U.update().where(*cond).values(cost_usd=cost)).rowcount
 
 
 def has_price_row(provider: str, model: str) -> bool:
