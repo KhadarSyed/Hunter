@@ -182,7 +182,9 @@ def _tags_phase(pid: int, llm, prog: _Progress) -> int:
             repo.save_tags(a["id"], tags, None if tags is not None else "model returned no tags")
             saved += tags is not None
         prog.advance(len(batch))
-    _parallel(_fresh(lambda b: article_tagging.tag(llm, b, brand, competitors)), batches, _workers(), save,
+    from ..feedback import service as feedback
+    learned = lambda arts: feedback.guidance(pid, arts, feedback.ARTICLE_KINDS)  # noqa: E731  (analysts' edits)
+    _parallel(_fresh(lambda b: article_tagging.tag(llm, b, brand, competitors, hints=learned)), batches, _workers(), save,
               lambda batch: prog.advance(len(batch)))
     return saved
 
@@ -222,6 +224,7 @@ def _themes_phase(pid: int, llm, prog: _Progress) -> None:
 def _rq_phase(pid: int, llm, prog: _Progress, only_rq: str | None = None) -> None:
     from ...agents import rq_tagging
     from ..deliverable import rows
+    from ..feedback import service as feedback
     from ..strategy import tag_schemas
     schemas = tag_schemas.project_tag_schemas(pid, llm)
     for rq in rows.approved_rqs(pid):
@@ -242,7 +245,8 @@ def _rq_phase(pid: int, llm, prog: _Progress, only_rq: str | None = None) -> Non
                 conf = _tags_of(a).get("overall_sentiment_confidence")
                 repo.save_rq(a["id"], pid, rq.id, sig, result, rq_tagging.status_for(result, conf))
             prog.advance(len(batch))
-        _parallel(_fresh(lambda b, rq=rq, schema=schema: rq_tagging.tag(llm, rq, schema, b)), batches, _workers(),
+        _parallel(_fresh(lambda b, rq=rq, schema=schema: rq_tagging.tag(
+            llm, rq, schema, b, hints=lambda arts: feedback.guidance(pid, arts, feedback.RQ_KINDS))), batches, _workers(),
                   save, lambda batch: prog.advance(len(batch)))
 
 

@@ -88,8 +88,10 @@ def _result(rq, schema: TagSchema | None, article: dict, raw: dict) -> dict:
 
 
 @llm_effort.light_call(None)
-def _call(llm, rq, schema, batch: list[dict]) -> dict[int, dict]:
+def _call(llm, rq, schema, batch: list[dict], hints=None) -> dict[int, dict]:
+    learned = hints(batch) if hints else ""        # analysts' rejections / relevant marks on similar articles
     user = (f"Research question: {rq.question}\nBoolean query: {rq.query}\nTag definitions: {_schema_text(schema)}\n\n"
+            + (f"{learned}\n\n" if learned else "") +
             f"Articles to judge:\n{json.dumps([_payload(rq, a) for a in batch], ensure_ascii=False)}")
     try:
         raw = llm.chat([{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user}],
@@ -106,16 +108,17 @@ def _call(llm, rq, schema, batch: list[dict]) -> dict[int, dict]:
     return out
 
 
-def _pass(llm, rq, schema, articles: list[dict], scale: int) -> dict[int, dict]:
+def _pass(llm, rq, schema, articles: list[dict], scale: int, hints=None) -> dict[int, dict]:
     from ..domains.dataset import batching
     batches = batching.pack(articles, _body, out_per_item=OUT_PER_ARTICLE,
                             input_budget=batching.INPUT_BUDGET // scale, output_budget=batching.OUTPUT_BUDGET // scale)
     tagged: dict[int, dict] = {}
     for batch in batches:
-        tagged.update(_call(llm, rq, schema, batch))
+        tagged.update(_call(llm, rq, schema, batch, hints))
     return tagged
 
 
-def tag(llm, rq, schema: TagSchema | None, articles: list[dict]) -> dict[int, dict | None]:
-    """Per article id; None where the model still left it out after one retry at half budgets."""
-    return tag_with_retry(articles, lambda arts, scale: _pass(llm, rq, schema, arts, scale))
+def tag(llm, rq, schema: TagSchema | None, articles: list[dict], hints=None) -> dict[int, dict | None]:
+    """Per article id; None where the model still left it out after one retry at half budgets.
+    hints(batch) -> prompt text with analysts' decisions on similar articles ('' for none)."""
+    return tag_with_retry(articles, lambda arts, scale: _pass(llm, rq, schema, arts, scale, hints))

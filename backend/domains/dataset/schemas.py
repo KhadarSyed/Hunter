@@ -26,6 +26,7 @@ class ArticleEdit(BaseModel):
     sentiment: Literal["Positive", "Neutral", "Negative"] | None = None
     themes: list[str] | None = Field(default=None, max_length=3)
     brands: list[str] | None = Field(default=None, max_length=50)
+    comment: str | None = Field(default=None, max_length=1000)     # why: the AI learns from it for similar articles
 
 
 class RQQuery(BaseModel):

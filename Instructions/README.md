@@ -121,9 +121,10 @@ changed and why. Open the code only for the files a note or the map points to.
   2026-11-11 and is suspended; Render deletes it about 2026-11-25; no upgrade (user's decision, no budget). Work and
   test locally only; never trigger Render/Vercel deploys or change Render env.
 - **Local stack:** Docker `hunter-postgres` (port 5433) + backend `uvicorn backend.main:app --port 8002` (serves the
-  built SPA). Schema at Alembic revision `0004` (0001 stamped 2026-11-12, log 40; 0002 renames `org_subscriptions.payment_ref`
+  built SPA). Schema at Alembic revision `0005` (0001 stamped 2026-11-12, log 40; 0002 renames `org_subscriptions.payment_ref`
   to `source`, log 2026-11-13-10; 0003 stores author_type "Organization", log 2026-11-13-11; 0004 keys
-  `intel_research_item_vectors` by (kind, item_id), log 2026-11-13-17). Local Super Admin = the
+  `intel_research_item_vectors` by (kind, item_id), log 2026-11-13-17; 0005 adds `intel_tag_feedback`, log 2026-11-13-19).
+  Local Super Admin = the
   `SEED_SUPER_ADMIN_EMAIL` account (user 2); the `.env` seed password no longer matches it (changed at sign-in).
 - **Local data:** organisations 1 Default Organization, 2 InfoVision (`platform_llm` on), 3 Test Organization
   (`platform_llm` off); 0 projects. Test Organization's chat models, in failover order: NVIDIA
@@ -137,6 +138,11 @@ changed and why. Open the code only for the files a note or the map points to.
   web research) and never reach a deck; blocked keywords move Data set articles to Irrelevant. Irrelevant articles are
   never tagged until an analyst marks them relevant for a question (Irrelevant view, bulk bar) and runs Re-tag; Re-tag
   sends only untagged articles. Domain matching is pure Python (`exclusions.blocked_domain`), no LLM.
+- **Learning from analysts (log 2026-11-13-19):** tag edits (+ optional comment), rejections (+ reason), "Mark
+  relevant" and "Keep relevant" go to `intel_tag_feedback` with the article's NVIDIA embedding (`domains/feedback/`,
+  organization-wide, kept after a project is deleted). Article and RQ tagging get the closest past corrections
+  (cosine >= 0.62) in the prompt; verified on the synthetic project (similar article followed the correction, an
+  unrelated one got no hint).
 - **Billing (log 2026-11-13-03):** no payment in the app; a Super Admin applies every plan ("Apply plan" in the org view
   on `/admin`). **Platform model (log 04):** only a Super Admin maps it to an org (LLM Providers switch).
 - **NVIDIA models (log 05):** OpenAI-compatible calls are capped at 16384 output tokens; an empty map-step reply is

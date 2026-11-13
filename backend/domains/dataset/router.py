@@ -246,6 +246,7 @@ def keep_relevant(project_id: ProjectId, article_id: Annotated[int, PathParam(ge
     result = service.keep_relevant(project_id, article_id, _who(user), req.comment.strip())
     if result is None:
         raise HTTPException(404, "Article not found")
+    service.learn_keep(project_id, article_id, req.comment.strip(), _who(user))
     repo.set_dataset_approval(project_id, None)      # the data set changed: the analyst approves again
     return result
 
@@ -256,9 +257,12 @@ def decide(project_id: ProjectId, req: DecisionRequest, user: Access):
     if req.rq_id and req.rq_id not in {q.id for q in engine_rows.approved_rqs(project_id)}:
         raise HTTPException(422, f"{req.rq_id} is not an approved research question of this project")
     # no rq_id: the article's matched RQ rows only; an article with none ("No RQ match") is left alone
+    was_irrelevant = {i for i, a in repo.articles_by_ids(project_id, req.article_ids).items() if a["rq_matched"] == 0}
     snapshot = repo.decide(project_id, req.article_ids, [req.rq_id] if req.rq_id else None, req.status, by, req.reason)
     if req.status != "irrelevant":      # an Irrelevant article marked relevant joins the matched pool: Re-tag tags it
         repo.promote_analyst_relevant(project_id)
+    if snapshot:                        # the AI learns from it for similar articles (organization-wide)
+        service.learn_decision(project_id, req.article_ids, req.rq_id, req.status, req.reason, was_irrelevant, by)
     return {"changed": len(snapshot), "undo_token": _remember(project_id, snapshot)}
 
 
@@ -276,9 +280,13 @@ def undo(project_id: ProjectId, req: UndoRequest, _: Access):
 
 @router.patch("/articles/{project_id}/{article_id}")
 def edit(project_id: ProjectId, article_id: Annotated[int, PathParam(ge=1)], req: ArticleEdit, user: Access):
+    before = repo.articles_by_ids(project_id, [article_id]).get(article_id)
     matched = repo.edit_article(project_id, article_id, req.sentiment, req.themes, req.brands)
     if matched is None:
         raise HTTPException(404, "Article not found")
+    after = repo.articles_by_ids(project_id, [article_id]).get(article_id) or {}
+    service.learn_edit(project_id, article_id, (before or {}).get("tags_json"), after.get("tags_json"),
+                       (req.comment or "").strip() or None, _who(user))
     if matched:
         repo.decide(project_id, [article_id], matched, "approved", _who(user), "edited")
     return {"ok": True, "approved_rqs": matched}

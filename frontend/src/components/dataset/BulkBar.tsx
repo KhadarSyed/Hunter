@@ -6,7 +6,7 @@ type Props = {
   rqs: RqColumn[];
   defaultRq: string;     // "" = all matched RQs
   busy: boolean;
-  onApprove: (rqId: string | null) => void;
+  onApprove: (rqId: string | null, reason?: string) => void;
   onReject: (rqId: string | null, reason: string) => void;
   onClear: () => void;
   /** Irrelevant pool: only "Mark relevant for <RQ>" (an RQ is required; the next Re-tag tags the articles) */
@@ -27,7 +27,9 @@ export function BulkBar({ count, rqs, defaultRq, busy, onApprove, onReject, onCl
           {rqs.map((q) => <option key={q.id} value={q.id}>{q.id}</option>)}
         </select>
       </label>
-      <button type="button" disabled={busy || !target} onClick={() => onApprove(target)} className={btn} style={{ background: "#059669" }}>
+      <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why? (optional, the AI learns)" maxLength={1000}
+        aria-label="Why these are relevant" className="w-52 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs" />
+      <button type="button" disabled={busy || !target} onClick={() => { onApprove(target, reason.trim() || undefined); setReason(""); }} className={btn} style={{ background: "#059669" }}>
         Mark relevant{target ? ` for ${target}` : ""}
       </button>
       <span className="text-xs text-slate-500">Run Re-tag afterwards to tag them.</span>

@@ -335,7 +335,7 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
 
       {markable && selected.size > 0 && (
         <BulkBar relevantOnly count={selected.size} rqs={page.rqs} defaultRq="" busy={busy}
-          onApprove={(rq) => void decide([...selected], rq, "approved")}
+          onApprove={(rq, reason) => void decide([...selected], rq, "approved", reason)}
           onReject={() => undefined} onClear={() => setSelected(new Set())} />
       )}
 

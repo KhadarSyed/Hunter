@@ -253,6 +253,14 @@ def promote_analyst_relevant(project_id: int) -> int:
                                  _analyst_relevant()).values(rq_matched=1))
 
 
+def articles_by_ids(project_id: int, article_ids: list[int]) -> dict[int, dict]:
+    """{id: article} (title, summary, content, rq_matched, tags_json) for this project's articles among the ids."""
+    if not article_ids:
+        return {}
+    return {r["id"]: r for r in _all(select(A.c.id, A.c.title, A.c.summary, A.c.content, A.c.rq_matched, A.c.tags_json)
+                                     .where(A.c.project_id == project_id, A.c.id == _ids(article_ids)))}
+
+
 def article_vectors(project_id: int, model: str) -> dict[str, bytes]:
     """{article url: stored embedding bytes (float32)} for the project's articles the tagging job's relations phase
     embedded with `model` (intel_research_item_vectors, kind "article")."""

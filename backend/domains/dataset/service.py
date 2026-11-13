@@ -297,3 +297,47 @@ def estimate(project_id: int, rq) -> dict:
                           inp, 0, out, time.time())
     return {"articles": len(todo), "batches": len(batches), "input_tokens": inp, "output_tokens": out,
             "cost_usd": cost}
+
+
+# ---- learning from analysts: corrections recorded for later tagging (domains/feedback) -----------------------------
+def _tag_view(tags_json: str | None) -> dict:
+    """{sentiment, themes, brands} of stored article tags (what an analyst can edit)."""
+    import json
+    t = json.loads(tags_json or "{}")
+    themes = t.get("themes") or {}
+    return {"sentiment": t.get("overall_sentiment"),
+            "themes": [v for v in (themes.get(k) for k in ("primary", "secondary", "tertiary")) if v]
+            if isinstance(themes, dict) else [],
+            "brands": [b.get("brand") for b in t.get("brands") or [] if isinstance(b, dict) and b.get("brand")]}
+
+
+def learn_edit(project_id: int, article_id: int, before_tags: str | None, after_tags: str | None,
+               comment: str | None, by: str | None) -> None:
+    """An analyst's tag edit becomes an example for similar articles (only when something changed)."""
+    from ..feedback import service as feedback
+    before, after = _tag_view(before_tags), _tag_view(after_tags)
+    if before != after or comment:
+        feedback.record(project_id, [{"article_id": article_id, "kind": "edit", "before": before, "after": after,
+                                      "comment": comment}], by)
+
+
+def learn_decision(project_id: int, article_ids: list[int], rq_id: str | None, status: str, reason: str | None,
+                   was_irrelevant: set[int], by: str | None) -> None:
+    """A rejection teaches "not relevant to this question"; approving an Irrelevant article teaches "relevant".
+    Approving an article the AI already matched confirms it and is not recorded."""
+    from ..deliverable import rows
+    from ..feedback import service as feedback
+    question = next((q.question for q in rows.approved_rqs(project_id) if q.id == rq_id), None) if rq_id else None
+    if status == "irrelevant":
+        ids, kind = article_ids, "reject"
+    elif status == "approved":
+        ids, kind = [i for i in article_ids if i in was_irrelevant], "relevant"
+    else:
+        return
+    feedback.record(project_id, [{"article_id": i, "kind": kind, "rq_id": rq_id, "question": question,
+                                  "comment": reason} for i in ids], by)
+
+
+def learn_keep(project_id: int, article_id: int, comment: str, by: str | None) -> None:
+    from ..feedback import service as feedback
+    feedback.record(project_id, [{"article_id": article_id, "kind": "keep", "comment": comment}], by)

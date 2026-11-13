@@ -110,6 +110,10 @@ def route(org_id: int | None) -> list[dict] | None:
                            "Settings → LLM Providers")
 
 
+_CAPABILITY = re.compile(r"multimodal|\bvision\b|image[_ ](?:url|input|content)s?\b.*\bnot\b|"
+                         r"(?:does not|doesn't|do not) support (?:image|vision|multimodal)", re.I)
+
+
 def classify(e: BaseException) -> str | None:
     """'outage' (the provider is down: 5xx, 429, timeouts, dropped connections, an error inside a stream), 'config'
     (a rejected key, no credits or unknown model: 401/402/403/404) or None (not the provider's fault: a cut-off reply, a bad request,
@@ -122,6 +126,10 @@ def classify(e: BaseException) -> str | None:
     if isinstance(e, (requests.ConnectionError, requests.Timeout, TimeoutError, ConnectionError)):
         return "outage"
     msg = str(e)
+    # the model works but cannot take this kind of request (images to a text-only model): try the next model, never an
+    # outage (a text-only NVIDIA model answered photo checks with "Received multimodal data ...", log 2026-11-13-19)
+    if _CAPABILITY.search(msg):
+        return "capability"
     code = re.search(r"\b(?:HTTP |failed: )(\d{3})\b", msg)
     if code:
         n = int(code.group(1))
@@ -169,7 +177,7 @@ def call(org_id: int, rows: list[dict], invoke):
     from . import outage
     deadline = time.time() + _WAIT_CAP_S
     while True:
-        tried = False
+        tried, unable = False, None
         for row in rows:
             if not _claim(row["id"]):
                 continue
@@ -178,6 +186,12 @@ def call(org_id: int, rows: list[dict], invoke):
                 result = invoke(_client(row))
             except Exception as e:
                 kind = classify(e)
+                if kind == "capability":    # it works, but cannot take this request: the next model may (no email)
+                    _mark_up(row)
+                    unable = e
+                    logger.info("Org %s: model %s cannot take this request (%s); trying the next one", org_id,
+                                row["name"], str(e)[:120])
+                    continue
                 if kind is None:
                     _mark_up(row)           # it answered: the problem is the request or the reply, not the model
                     if isinstance(e, ReplyCutOff):
@@ -191,6 +205,8 @@ def call(org_id: int, rows: list[dict], invoke):
             _mark_up(row)
             outage.on_success(org_id, rows, row)
             return result
+        if unable is not None and not any(down_info(r["id"]) for r in rows):
+            raise OrgProviderError(f"No AI model of this organization can take this request: {unable}") from unable
         if all(down_info(r["id"]) for r in rows):
             outage.on_all_down(org_id, rows)
         if time.time() >= deadline:

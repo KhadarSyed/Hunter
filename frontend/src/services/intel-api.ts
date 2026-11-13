@@ -889,7 +889,8 @@ export const intelApi = {
   undoDecision: (projectId: number, undoToken: string) =>
     post<{ restored: number }>(`/articles/${projectId}/decisions/undo`, { undo_token: undoToken }),
 
-  editArticle: (projectId: number, articleId: number, edit: { sentiment?: string; themes?: string[]; brands?: string[] }) =>
+  /** comment: why (optional); the AI learns from the correction for similar articles of the organization */
+  editArticle: (projectId: number, articleId: number, edit: { sentiment?: string; themes?: string[]; brands?: string[]; comment?: string }) =>
     patch<{ ok: boolean; approved_rqs: string[] }>(`/articles/${projectId}/${articleId}`, edit),
 
   // Data set uploaded files: list, what removing one takes with it, remove (its articles and their RQ rows)

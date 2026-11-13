@@ -116,9 +116,11 @@ def _payload(article: dict) -> dict:
 
 
 @llm_effort.light_call(None)
-def _call(llm, batch: list[dict], brand: str, competitors: list[str]) -> dict[int, dict]:
+def _call(llm, batch: list[dict], brand: str, competitors: list[str], hints=None) -> dict[int, dict]:
+    learned = hints(batch) if hints else ""        # analysts' corrections of similar articles (domains/feedback)
     user = (f"Brand of interest: {brand or '(not specified)'}\n"
             f"Known competitors: {', '.join(competitors) if competitors else '(none specified)'}\n\n"
+            + (f"{learned}\n\n" if learned else "") +
             f"Articles to tag:\n{json.dumps([_payload(a) for a in batch], ensure_ascii=False)}")
     try:
         raw = llm.chat([{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user}],
@@ -135,13 +137,14 @@ def _call(llm, batch: list[dict], brand: str, competitors: list[str]) -> dict[in
     return out
 
 
-def _tag_pass(llm, articles: list[dict], brand: str, competitors: list[str], scale: int) -> dict[int, dict]:
+def _tag_pass(llm, articles: list[dict], brand: str, competitors: list[str], scale: int,
+              hints=None) -> dict[int, dict]:
     from ..domains.dataset import batching
     batches = batching.pack(articles, _body, out_per_item=OUT_PER_ARTICLE,
                             input_budget=batching.INPUT_BUDGET // scale, output_budget=batching.OUTPUT_BUDGET // scale)
     tagged: dict[int, dict] = {}
     for batch in batches:
-        tagged.update(_call(llm, batch, brand, competitors))
+        tagged.update(_call(llm, batch, brand, competitors, hints))
     return tagged
 
 
@@ -154,6 +157,7 @@ def tag_with_retry(articles: list[dict], run_pass) -> dict[int, dict | None]:
     return {a["id"]: tagged.get(a["id"]) for a in articles}
 
 
-def tag(llm, articles: list[dict], brand: str, competitors: list[str]) -> dict[int, dict | None]:
-    """Tags per article id; None where the model still left it out after one retry at half budgets."""
-    return tag_with_retry(articles, lambda arts, scale: _tag_pass(llm, arts, brand, competitors, scale))
+def tag(llm, articles: list[dict], brand: str, competitors: list[str], hints=None) -> dict[int, dict | None]:
+    """Tags per article id; None where the model still left it out after one retry at half budgets.
+    hints(batch) -> prompt text with analysts' corrections of similar articles ('' for none)."""
+    return tag_with_retry(articles, lambda arts, scale: _tag_pass(llm, arts, brand, competitors, scale, hints))

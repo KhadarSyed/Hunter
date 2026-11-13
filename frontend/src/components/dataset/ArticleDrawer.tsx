@@ -18,6 +18,7 @@ export function ArticleDrawer({ projectId, row, rqs, onClose, onSaved }: {
   const [sentiment, setSentiment] = useState(row.sentiment || "Neutral");
   const [themes, setThemes] = useState([t.themes?.primary, t.themes?.secondary, t.themes?.tertiary].map((x) => x ?? ""));
   const [brands, setBrands] = useState((t.brands ?? []).map((b) => b.brand).join(", "));
+  const [comment, setComment] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -27,6 +28,7 @@ export function ArticleDrawer({ projectId, row, rqs, onClose, onSaved }: {
       await intelApi.editArticle(projectId, row.id, {
         sentiment, themes: themes.map((x) => x.trim()).filter(Boolean),
         brands: brands.split(",").map((b) => b.trim()).filter(Boolean),
+        comment: comment.trim() || undefined,
       });
       onSaved();
     } catch (e) {
@@ -66,7 +68,9 @@ export function ArticleDrawer({ projectId, row, rqs, onClose, onSaved }: {
               ))}
               <label className="block text-xs text-slate-500">Brands (comma-separated)
                 <input value={brands} onChange={(e) => setBrands(e.target.value)} className={input} /></label>
-              {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
+              <label className="block text-xs text-slate-500">Why? (optional — the AI learns from your correction for similar articles)
+                <input value={comment} maxLength={1000} onChange={(e) => setComment(e.target.value)} className={input} /></label>
+              {error &&<p role="alert" className="text-xs text-red-600">{error}</p>}
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setEditing(false)} className="px-3 py-1.5 text-xs text-slate-500">Cancel</button>
                 <button type="button" disabled={saving} onClick={save} className="rounded-lg bg-[#5B2C9D] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">{saving ? "Saving…" : "Save changes"}</button>

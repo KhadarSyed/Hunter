@@ -12,10 +12,13 @@ the org entered, so its price row applies.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Callable, Optional
 
 from .azure_openai_client import MAX_OUTPUT_TOKENS, AzureOpenAIClient, ReplyCutOff, _http_reason, _post, _record
+
+logger = logging.getLogger(__name__)
 
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
 ANTHROPIC_BASE_URL = "https://api.anthropic.com"
@@ -135,6 +138,18 @@ class OpenAICompatClient:
             if not (format_json and "HTTP 400" in str(e)):
                 raise
             text, _, finish = self._stream({"messages": messages}, "chat", on_token)   # no JSON mode: the prompt asks
+        if finish == "length" or (format_json and not text.strip()):
+            # a reasoning model (NVIDIA Nemotron) can spend the whole output cap thinking: one more try with low
+            # reasoning (accepted by integrate.api.nvidia.com, log 2026-11-13-19); a server that refuses the field
+            # leaves today's outcome (the cut-off is raised, the empty reply returned for the caller's fallback)
+            try:
+                retry, _, again = self._stream({**payload, "reasoning_effort": "low"}, "chat")
+                if again != "length" and retry.strip():
+                    if on_token:
+                        on_token(retry)
+                    return retry
+            except ProviderCallError as e:
+                logger.info("low-reasoning retry not possible for %s: %s", self.model, str(e)[:120])
         if finish == "length":     # raised, not returned: a cut-off reply is never cached
             raise ReplyCutOff("Reply cut off at the provider's output limit")
         return text

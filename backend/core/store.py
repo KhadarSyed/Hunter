@@ -27,6 +27,7 @@ from ..domains.deckstudio.repository import *  # noqa: F401,F403
 from ..domains.agent.repository import *  # noqa: F401,F403
 from ..domains.exclusions.repository import *  # noqa: F401,F403
 from ..domains.memory.repository import *  # noqa: F401,F403
+from ..domains.feedback.repository import *  # noqa: F401,F403
 
 from ..domains.projects import repository as _projects  # noqa: E402
 
