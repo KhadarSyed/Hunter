@@ -11,7 +11,7 @@ from ...core import store
 from ...core.auth import require_project_access
 from ..deckstudio import data_tables, revise
 from ..projects import gates
-from . import deck_store, engine, latest24h, notify, repair_run
+from . import deck_store, engine, latest24h, notify, qc, repair_run
 from . import rows as engine_rows
 from .schemas import (DataCoverageResponse, DeckDesign, DeckDesignChange, DeckDesignResult, DeliverableRunPayload,
                       DeliverableRunStarted)
@@ -232,7 +232,7 @@ def reset_design(project_id: ProjectId, run_id: RunId, _: Access):
 def thumbnail(project_id: ProjectId, run_id: RunId, n: Annotated[int, PathParam(ge=1)], _: Access):
     run = _on_disk(_owned_run(project_id, run_id))
     folder = Path(run.get("thumbs_dir") or "")
-    pngs = sorted(folder.glob("*.png")) if folder.exists() else []
+    pngs = qc.by_slide_number(folder.glob("*.png")) if folder.exists() else []
     if n > len(pngs):
         raise HTTPException(404, "Thumbnail not available")
     return FileResponse(pngs[n - 1], media_type="image/png")

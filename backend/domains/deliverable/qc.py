@@ -109,4 +109,9 @@ def export_pngs(pptx_path: Path, out_dir: Path) -> list[Path]:
         "$p.Close();$pp.Quit()"
     )
     subprocess.run(["powershell", "-NoProfile", "-Command", script], check=True, timeout=EXPORT_TIMEOUT_S, env=env)
-    return sorted(out_dir.glob("slide_*.png"))
+    return by_slide_number(out_dir.glob("slide_*.png"))
+
+
+def by_slide_number(pngs) -> list[Path]:
+    """Slide images in slide order: names are padded to 2 digits, so by name slide_100 would sort after slide_10."""
+    return sorted(pngs, key=lambda p: (int("".join(filter(str.isdigit, Path(p).stem)) or 0), str(p)))
