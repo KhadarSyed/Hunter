@@ -105,7 +105,7 @@ export function AdminDashboard() {
       </section>
 
       {detail && (
-        <Modal title="Organization (review only)" onClose={() => { setDetail(null); load(); }} wide>
+        <Modal title="Organization" onClose={() => { setDetail(null); load(); }} wide>
           <div className="space-y-6">
             <ApplyPlan orgId={detail.org.id} onApplied={() => openOrg(detail.org.id)} />
             <OrgDetailView detail={detail} canEditTokens={false} />

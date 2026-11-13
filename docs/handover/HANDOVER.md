@@ -23,7 +23,7 @@ exclusions, usage and billing.
 | Backend | FastAPI, one process (`backend/main.py`), feature folders `backend/domains/<stage>/` |
 | Database | Postgres 16 + pgvector, `DATABASE_URL` required. Queries: SQLAlchemy Core (`core/sa.py` + each domain's `models.py`). Schema: Alembic (`backend/migrations/`, applied at startup by `core/migrate.py`) |
 | Files | S3 (`core/object_store.py`, `AWS_*`) for decks, logos/favicons, uploads, avatars and QC files; without S3 keys, Postgres/disk fallbacks |
-| LLM | Each organisation's own providers (Settings -> LLM Providers: OpenAI-compatible, Azure OpenAI, Anthropic, Gemini), tried in order; the platform Azure OpenAI (`AZURE_OPENAI_*`) only for organisations flagged to use it. Embeddings: `EMBEDDING_MODEL_*` / `NVIDIA_EMBED_*` |
+| LLM | Each organisation's own providers (Settings -> LLM Providers: OpenAI-compatible, Azure OpenAI, Anthropic, Gemini), tried in order; the platform Azure OpenAI (`AZURE_OPENAI_*`) only for organisations a Super Admin maps to it (Settings -> LLM Providers). Embeddings: `EMBEDDING_MODEL_*` / `NVIDIA_EMBED_*` |
 
 ## Run it locally
 

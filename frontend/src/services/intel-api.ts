@@ -1006,6 +1006,8 @@ export const intelApi = {
   updateLlmProvider: (id: number, body: ProviderFields & { api_key: string }) => put<LlmProvider>(`/llm-providers/${id}`, body),
   deleteLlmProvider: (id: number) => del<{ ok: boolean }>(`/llm-providers/${id}`),
   setDefaultLlmProvider: (id: number) => post<LlmProvider>(`/llm-providers/${id}/default`, {}),
+  setPlatformAccess: (orgId: number, enabled: boolean) =>
+    put<{ ok: boolean; platform_llm: boolean }>("/llm-providers/platform-access", { org_id: orgId, enabled }),
   usePlatformLlm: (orgId?: number) => post<{ ok: boolean }>(`/llm-providers/use-platform${orgId ? `?org_id=${orgId}` : ""}`, {}),
   testLlmProvider: (id: number) => post<ProviderTestResult>(`/llm-providers/${id}/test`, {}),
   testLlmProviderDraft: (body: ProviderFields & { org_id?: number; provider_id?: number; api_key: string }) =>

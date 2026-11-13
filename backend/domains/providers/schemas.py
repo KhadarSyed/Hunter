@@ -52,6 +52,12 @@ class ProviderTestRequest(ProviderFields):
     api_key: str = Field(default="", max_length=500)
 
 
+class PlatformAccess(ApiModel):
+    """Super Admin: may this org's calls use the platform model (GPT, billed to the platform)?"""
+    org_id: int | None = None
+    enabled: bool
+
+
 class ProviderRecord(ApiModel):
     id: int
     org_id: int

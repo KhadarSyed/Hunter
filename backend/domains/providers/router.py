@@ -16,8 +16,8 @@ from ...core.auth import get_current_user
 from . import outage
 from . import repository as repo
 from . import service
-from .schemas import (ProviderCreate, ProviderRecord, ProvidersResponse, ProviderTestRequest, ProviderUpdate,
-                      TestResult)
+from .schemas import (PlatformAccess, ProviderCreate, ProviderRecord, ProvidersResponse, ProviderTestRequest,
+                      ProviderUpdate, TestResult)
 
 router = APIRouter()
 UserDep = Annotated[dict, Depends(get_current_user)]
@@ -91,6 +91,17 @@ def create_provider(body: ProviderCreate, user: UserDep):
     repo.set_default(org, pid)          # the newest provider takes over: first priority
     service.invalidate(org)
     return ProviderRecord.from_row(repo.get(pid))
+
+
+@router.put("/llm-providers/platform-access")     # before /{provider_id}: that route would claim the path
+def set_platform_access(body: PlatformAccess, user: UserDep):
+    """Super Admin only: map (or unmap) the platform model to an org. Off, the org runs only on its own models."""
+    if user["role"] != "super_admin":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a Super Admin can give an organization the platform model")
+    org = _org(user, body.org_id)
+    store.set_platform_llm(org, body.enabled)
+    service.invalidate(org)
+    return {"ok": True, "platform_llm": store.org_uses_platform_llm(org)}
 
 
 @router.put("/llm-providers/{provider_id}", response_model=ProviderRecord)

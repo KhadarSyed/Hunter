@@ -40,9 +40,10 @@ def seed_super_admin_if_missing() -> None:
     from ..domains.auth import service  # local: avoids a circular import — see module docstring
     org = store.find_organization_by_name(SEED_ORGANIZATION)
     org_id = org["id"] if org else store.create_bare_organization(SEED_ORGANIZATION)
+    if not org:     # a new InfoVision starts on the platform model; afterwards only a Super Admin changes it
+        store.set_platform_llm(org_id, True)
     if org and org.get("archived_at"):
         store.reactivate_organization(org_id)
-    store.set_platform_llm(org_id, True)        # InfoVision's chat runs on the platform model (GPT-5)
     if store.has_super_admin():
         return
     email = (os.environ.get("SEED_SUPER_ADMIN_EMAIL") or "").strip().lower()

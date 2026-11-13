@@ -5,8 +5,8 @@ project is in scope, else the user's active org. An org with providers uses them
 newest one added, unless an admin picked another), then the others newest first. A model that is down (an outage or a
 rejected key, see classify) is skipped for 2 minutes and the next one answers; when every model is down the call waits,
 rechecking every 5 minutes, and continues the moment one answers, so the project resumes where it stopped. Its admins
-are emailed (outage.py). Never the platform model as a fallback: that serves only a platform-model org (InfoVision,
-organizations.platform_llm) with no provider of its own, and calls with no org in scope. Any other org with no model
+are emailed (outage.py). Never the platform model as a fallback: that serves only a platform-model org (organizations.platform_llm,
+set by a Super Admin) with no provider of its own, and calls with no org in scope. Any other org with no model
 gets OrgProviderError telling its admin to add one. Embeddings always stay on the platform.
 """
 from __future__ import annotations

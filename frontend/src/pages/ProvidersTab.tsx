@@ -228,6 +228,19 @@ export function ProvidersTab() {
       {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       {!data ? <p className="text-sm text-slate-400">Loading…</p> : (
         <>
+          {isSuper && (
+            <label className="flex items-start gap-2.5 rounded-xl border border-slate-200 px-4 py-3 text-sm">
+              <input type="checkbox" className="mt-0.5" checked={data.platform_llm} disabled={busy === -1}
+                     onChange={(e) => act(-1, () => intelApi.setPlatformAccess(data.org_id, e.target.checked))} />
+              <span>
+                <span className="font-medium text-slate-900">Allow the platform model ({data.platform_model})</span>
+                <span className="block text-xs text-slate-500">
+                  Super Admin only. Billed to the platform. Off: {data.org_name} runs only on its own models below and
+                  never falls back to the platform.
+                </span>
+              </span>
+            </label>
+          )}
           <div className={`flex items-center gap-3 rounded-xl border px-4 py-3 ${
             !current && !data.platform_llm ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-slate-50/60"}`}>
             <Icon icon={current ? PROVIDER_ICONS[current.provider_type] ?? "lucide:cpu" : data.platform_llm ? "logos:microsoft-azure" : "lucide:triangle-alert"}
