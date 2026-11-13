@@ -12,7 +12,7 @@ from ...core import store
 from ...core.api import OkResponse
 from ...core.auth import check_project_id_access, get_current_user, require_plan_access, require_project_access
 from ...core.events import broadcast as _broadcast
-from ...core.jobs import submit
+from ...core.jobs import launch, resumable
 from ..strategy.schemas import GenerateStrategyRequest
 from ..memory import service as memory
 from . import service as planner_service
@@ -29,6 +29,41 @@ from .schemas import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@resumable("research_plan")
+def _plan_job(job_id: str, project_id: int, *, fresh: bool = False) -> None:
+    """Generate the Research Plan; fresh (Regenerate) asks the AI again instead of recalling the last answer."""
+    logger.info("[plan:%s] Starting plan generation for project %s", job_id, project_id)
+    store.update_job(job_id, status="running", progress_pct=10,
+                     progress_message="Validating prerequisites")
+    _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
+                 "progress_pct": 10, "message": "Validating prerequisites"})
+
+    try:
+        def emit(event_type, payload):
+            _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
+                         "progress_pct": 50, "message": str(payload.get("status", event_type))})
+
+        with memory.fresh() if fresh else nullcontext():    # Regenerate asks GPT again
+            result = planner_service.generate_plan(project_id, emit=emit)
+
+        if result.get("status") == "completed":
+            store.update_job(job_id, status="completed", progress_pct=100,
+                             progress_message="Research plan generated",
+                             result={"plan_id": result["plan_id"], "project_id": project_id})
+            _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "completed",
+                         "progress_pct": 100, "message": "Research plan generated"})
+        else:
+            error = result.get("error", "Plan generation failed")
+            store.update_job(job_id, status="failed", error=error)
+            _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "failed",
+                         "error": error})
+
+    except Exception as e:
+        logger.error("[plan:%s] Unhandled error: %s", job_id, e, exc_info=True)
+        store.update_job(job_id, status="failed", error=str(e))
+        _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "failed", "error": str(e)})
 
 
 @router.post("/plan/generate", response_model=PlanJobStarted | PlanBlocked)
@@ -49,42 +84,7 @@ def generate_research_plan(req: GenerateStrategyRequest, user: Annotated[dict, D
             "prerequisites": prereqs["prerequisites"],
         }
 
-    job_id = f"plan_{uuid.uuid4().hex[:12]}"
-    store.create_job(job_id, req.project_id, "research_plan")
-
-    def worker():
-        logger.info("[plan:%s] Starting plan generation for project %s", job_id, req.project_id)
-        store.update_job(job_id, status="running", progress_pct=10,
-                         progress_message="Validating prerequisites")
-        _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
-                     "progress_pct": 10, "message": "Validating prerequisites"})
-
-        try:
-            def emit(event_type, payload):
-                _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
-                             "progress_pct": 50, "message": str(payload.get("status", event_type))})
-
-            with memory.fresh() if fresh else nullcontext():    # Regenerate asks GPT again
-                result = planner_service.generate_plan(req.project_id, emit=emit)
-
-            if result.get("status") == "completed":
-                store.update_job(job_id, status="completed", progress_pct=100,
-                                 progress_message="Research plan generated",
-                                 result={"plan_id": result["plan_id"], "project_id": req.project_id})
-                _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "completed",
-                             "progress_pct": 100, "message": "Research plan generated"})
-            else:
-                error = result.get("error", "Plan generation failed")
-                store.update_job(job_id, status="failed", error=error)
-                _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "failed",
-                             "error": error})
-
-        except Exception as e:
-            logger.error("[plan:%s] Unhandled error: %s", job_id, e, exc_info=True)
-            store.update_job(job_id, status="failed", error=str(e))
-            _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "failed", "error": str(e)})
-
-    submit(worker, name="plan:generate")
+    job_id = launch("research_plan", f"plan_{uuid.uuid4().hex[:12]}", req.project_id, fresh=fresh)
     return {"job_id": job_id, "project_id": req.project_id}
 
 

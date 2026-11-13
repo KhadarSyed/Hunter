@@ -46,9 +46,6 @@ GZIP_MIN_BYTES = 1024
 async def lifespan(app: FastAPI):
     store.init_intelligence_db()
     seed_super_admin_if_missing()
-    store.cancel_stale_running_jobs()
-    store.fail_interrupted_deliverable_runs()
-    store.fail_interrupted_latest24h_refreshes()
     from .domains.memory import service as memory
     memory.purge_expired()
     from .domains.guardrails import service as guardrails
@@ -59,6 +56,13 @@ async def lifespan(app: FastAPI):
     from .domains.billing import service as billing
     billing.start_sweeper()
     events.bind_loop(asyncio.get_running_loop())
+    # work a stopped server left unfinished continues from its checkpoints (every stage, the deck runs included)
+    from .domains.deliverable import engine as deck_engine, latest24h
+    resumed = jobs.resume_interrupted()
+    decks, refreshes = deck_engine.resume_interrupted_runs(), latest24h.resume_interrupted()
+    if resumed["resumed"] or resumed["cancelled"] or decks or refreshes:
+        logger.info("after restart: %d jobs resumed, %d canceled, %d deck runs and %d refreshes resumed",
+                    len(resumed["resumed"]), len(resumed["cancelled"]), len(decks), len(refreshes))
     from .domains.agent import autopilot
     autopilot.resume_all()
     try:

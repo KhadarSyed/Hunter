@@ -645,6 +645,23 @@ def start(project_id: int, *, llm=None, threaded: bool = True) -> int:
     return refresh_id
 
 
+def resume_interrupted() -> list[int]:
+    """At startup: a refresh a stopped server left running is fetched again on the same row (it is a few minutes of
+    news search; the AI summary it already got is replayed from memory)."""
+    from ..memory import service as memory
+    resumed = []
+    for r in store.claim_interrupted_latest24h_refreshes():
+        with _busy_lock:
+            _busy.add(r["project_id"])
+
+        def run(r=r):
+            with memory.replay(r["started_at"]):
+                _run_with_client(r["id"], r["project_id"])
+        threading.Thread(target=run, daemon=True, name=f"latest24h-resume-{r['id']}").start()
+        resumed.append(r["id"])
+    return resumed
+
+
 def _run_with_client(refresh_id: int, project_id: int, llm=None) -> None:
     """The background thread: the LLM client is resolved here (its reachability check is a network call)."""
     if llm is None:

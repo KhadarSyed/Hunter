@@ -23,7 +23,7 @@ from ...core.auth import (
 )
 from ...core.config import UPLOAD_DIR
 from ...core.events import broadcast as _broadcast
-from ...core.jobs import submit
+from ...core.jobs import launch, resumable
 from . import export as qc_export
 from . import files as qc_files
 from . import parser as qc_parser
@@ -161,6 +161,32 @@ def qc_save_mapping_route(report_id: IdPath, body: dict):
     return {"ok": True, "report_id": report_id}
 
 
+@resumable("qc_run")
+def _qc_job(job_id: str, project_id: int | None, *, report_id: int) -> None:
+    """Run the QC checks on a mapped report (a resumed job runs the checks again)."""
+    from ..usage.service import scope as usage_scope
+    with usage_scope(project_id=project_id, stage="qc"):
+        _qc_work(job_id, report_id)
+
+
+def _qc_work(job_id: str, report_id: int) -> None:
+    store.update_job(job_id, status="running", progress_pct=0,
+                     progress_message="Running QC checks")
+    try:
+        def _on_progress(msg, pct):
+            store.update_job(job_id, progress_pct=pct, progress_message=msg)
+            _broadcast({"type": "qc_progress", "report_id": report_id, "message": msg, "progress_pct": pct})
+
+        result = qc_service.run_qc(report_id, on_progress=_on_progress)
+        store.update_job(job_id, status="completed", progress_pct=100,
+                         progress_message="QC run complete", result=result)
+        _broadcast({"type": "qc_complete", "report_id": report_id, "result": result})
+    except Exception as e:
+        logger.error("QC run error for report %s: %s", report_id, e, exc_info=True)
+        store.update_job(job_id, status="failed", error=str(e))
+        _broadcast({"type": "qc_error", "report_id": report_id, "error": str(e)})
+
+
 @router.post("/qc/run/{report_id}", response_model=QCRunStartResponse, dependencies=[Depends(require_qc_report_access)])
 def qc_run_route(report_id: IdPath):
 
@@ -172,33 +198,8 @@ def qc_run_route(report_id: IdPath):
     if not report.get("field_mapping"):
         raise HTTPException(400, "No field mapping configured")
 
-    job_id = f"qc_run_{uuid.uuid4().hex[:12]}"
     project_id = report.get("project_id")
-    store.create_job(job_id, project_id, "qc_run")
-
-    def _run_bg():
-        from ..usage.service import scope as usage_scope
-        with usage_scope(project_id=project_id, stage="qc"):
-            _run_qc()
-
-    def _run_qc():
-        store.update_job(job_id, status="running", progress_pct=0,
-                         progress_message="Running QC checks")
-        try:
-            def _on_progress(msg, pct):
-                store.update_job(job_id, progress_pct=pct, progress_message=msg)
-                _broadcast({"type": "qc_progress", "report_id": report_id, "message": msg, "progress_pct": pct})
-
-            result = qc_service.run_qc(report_id, on_progress=_on_progress)
-            store.update_job(job_id, status="completed", progress_pct=100,
-                             progress_message="QC run complete", result=result)
-            _broadcast({"type": "qc_complete", "report_id": report_id, "result": result})
-        except Exception as e:
-            logger.error("QC run error for report %s: %s", report_id, e, exc_info=True)
-            store.update_job(job_id, status="failed", error=str(e))
-            _broadcast({"type": "qc_error", "report_id": report_id, "error": str(e)})
-
-    submit(_run_bg, name="qc:run")
+    job_id = launch("qc_run", f"qc_run_{uuid.uuid4().hex[:12]}", project_id, report_id=report_id)
     return {"status": "started", "report_id": report_id, "job_id": job_id}
 
 

@@ -202,7 +202,8 @@ def _evidence(rq: RQ, kicker: str, sections: list[Section], family: str,
         drill = {**sec.segment_urls, **sec.drill_urls}
         charts, tables = [{**c, "drill": drill} for c in charts], [{**t, "drill": drill} for t in tables]
         slide_type = TYPE_FOR_CHART.get((sec.chart or {}).get("kind", ""), "comparison_table")
-        cards = (summaries or {}).get(sec.id, [])[:SEGMENT_CARDS]   # its summary, or one card per segment
+        # its summary, or one card per segment (+1: a cited summary may lead count-only segment cards)
+        cards = (summaries or {}).get(sec.id, [])[:SEGMENT_CARDS + 1]
         out.append(SlideSpec(
             id=f"{sec.id}-{i}", type=slide_type,
             treatment="S" if charts and len(cards) > 1 else treatment("evidence", charts, tables), kicker=kicker,

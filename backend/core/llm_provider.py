@@ -107,6 +107,20 @@ def _build_embed_backend():
     return None, None
 
 
+def _has_images(messages: list[dict]) -> bool:
+    return any(isinstance(m.get("content"), list) and any(isinstance(part, dict) and part.get("type") == "image_url"
+                                                          for part in m["content"]) for m in messages)
+
+
+def _image_readers(rows: list[dict]) -> list[dict]:
+    """The org's models that may read images (marked yes or not known yet), in failover order."""
+    readers = [r for r in rows if r.get("reads_images") != 0]
+    if not readers:
+        from ..domains.providers.service import OrgProviderError
+        raise OrgProviderError("No AI model of this organization can read images: mark one in Settings → LLM Providers")
+    return readers
+
+
 class HybridLLMClient:
     def __init__(self):
         self._chat_backend, chat_name = _build_chat_backend()
@@ -153,6 +167,8 @@ class HybridLLMClient:
         format_json: bool = False,
     ) -> str:
         org, rows = self._route()
+        if rows is not None and _has_images(messages):
+            rows = _image_readers(rows)
         messages = self._guard(org, messages)
         backend = self._platform() if rows is None else None
         model = (f"{getattr(backend, 'deployment', '')}:{getattr(backend, 'reasoning_effort', '')}" if backend

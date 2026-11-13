@@ -12,13 +12,15 @@ from sqlalchemy import column, delete, func, insert, select, table, update
 
 from ...core import sa
 from .links import DECLARED_LINKS, PATH_COLUMNS
+from .models import intel_checkpoints as checkpoints
 from .models import intel_jobs as jobs
 from .models import intel_projects as projects
 
 # core/store.py star-imports this module: export only the repository functions and the card text limit
 __all__ = ["DESCRIPTION_MAX_CHARS", "create_project", "get_project", "list_projects", "set_project_owner",
            "update_project", "get_or_create_project", "create_job", "update_job", "get_job", "list_jobs",
-           "cancel_stale_running_jobs", "delete_project", "project_name_taken"]
+           "claim_interrupted_jobs", "save_checkpoint", "get_checkpoints",
+           "clear_checkpoints", "delete_project", "project_name_taken"]
 
 # ─── Projects ────────────────────────────────────────────────────────────────
 
@@ -150,13 +152,16 @@ def project_name_taken(org_id: int | None, name: str, exclude_id: int | None = N
 def _with_result(d: dict) -> dict:
     if d.get("result_json"):
         d["result"] = json.loads(d["result_json"])
+    d.pop("params_json", None)          # a job's inputs are read only by its resume (claim_interrupted_jobs)
     return d
 
 
-def create_job(job_id: str, project_id: int, job_type: str) -> str:
+def create_job(job_id: str, project_id: int, job_type: str, params: dict | None = None) -> str:
+    """params: what the job needs to be started again after a restart (core/jobs.launch); None = not resumable."""
     with sa.begin() as conn:
         conn.execute(insert(jobs).values(id=job_id, project_id=project_id, job_type=job_type, status="pending",
-                                         created_at=time.time()))
+                                         created_at=time.time(),
+                                         params_json=None if params is None else json.dumps(params, default=str)))
     return job_id
 
 
@@ -196,11 +201,40 @@ def list_jobs(project_id: int, job_type: str | None = None) -> list[dict]:
         return [_with_result(dict(r._mapping)) for r in conn.execute(q)]
 
 
-def cancel_stale_running_jobs():
+def claim_interrupted_jobs(booted_at: float) -> list[dict]:
+    """Jobs left running or queued by a stopped server, oldest first, each claimed once: it is set back to 'pending'
+    with started_at = now, and a second process booting at the same time skips rows touched after its boot."""
+    now = time.time()
     with sa.begin() as conn:
-        conn.execute(update(jobs).where(jobs.c.status.in_(("running", "pending")))     # queued jobs die with the process too
-                     .values(status="cancelled", finished_at=time.time(),
-                             error="Canceled: stale job from prior session"))
+        rows = [dict(r._mapping) for r in conn.execute(
+            select(jobs).where(jobs.c.status.in_(("running", "pending")),
+                               (jobs.c.started_at.is_(None)) | (jobs.c.started_at < booted_at))
+            .order_by(jobs.c.created_at).with_for_update(skip_locked=True))]
+        if rows:
+            conn.execute(update(jobs).where(jobs.c.id.in_([r["id"] for r in rows]))
+                         .values(status="pending", started_at=now, progress_message="Resuming after a server restart"))
+    return [{**_with_result(dict(r)), "params": json.loads(r["params_json"] or "null")} for r in rows]
+
+
+def save_checkpoint(owner: str, project_id: int, step: str, value) -> None:
+    """A finished step of a job or deck run (owner "job:<id>" / "deck:<run id>"); saving the same step again replaces it."""
+    payload = json.dumps(value, default=str)
+    with sa.begin() as conn:
+        conn.execute(delete(checkpoints).where(checkpoints.c.owner == owner, checkpoints.c.step == step))
+        conn.execute(insert(checkpoints).values(owner=owner, step=step, project_id=project_id, payload_json=payload,
+                                                created_at=time.time()))
+
+
+def get_checkpoints(owner: str) -> dict:
+    """{step: value} of what the owner already finished."""
+    with sa.begin() as conn:
+        return {r.step: json.loads(r.payload_json) for r in conn.execute(
+            select(checkpoints.c.step, checkpoints.c.payload_json).where(checkpoints.c.owner == owner))}
+
+
+def clear_checkpoints(owner: str) -> None:
+    with sa.begin() as conn:
+        conn.execute(delete(checkpoints).where(checkpoints.c.owner == owner))
 
 
 # ─── Project deletion ───────────────────────────────────────────────────────

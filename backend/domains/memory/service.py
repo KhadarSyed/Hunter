@@ -46,6 +46,20 @@ def fresh():
         _fresh.reset(token)
 
 
+_replay_since: contextvars.ContextVar[float | None] = contextvars.ContextVar("memory_replay_since", default=None)
+
+
+@contextmanager
+def replay(since: float):
+    """A job resumed after a restart: inside this block an answer saved since `since` (the interrupted job's own
+    answers) is recalled even under fresh(), so the steps finished before the restart cost no new AI call."""
+    token = _replay_since.set(since)
+    try:
+        yield
+    finally:
+        _replay_since.reset(token)
+
+
 def _safe(default):
     def wrap(fn):
         def inner(*args, **kwargs):
@@ -80,10 +94,13 @@ def llm_key(model: str, messages: list[dict], format_json: bool, org=None) -> st
 
 @_safe(None)
 def recall_llm(key: str) -> Optional[str]:
-    if _fresh.get():
+    since = _replay_since.get()
+    if _fresh.get() and since is None:
         return None
     item = store.get_memory_item("global", "", "llm_cache", key)
-    return item["value"] if item else None
+    if not item or (_fresh.get() and item["updated_at"] < since):
+        return None
+    return item["value"]
 
 
 @_safe(None)

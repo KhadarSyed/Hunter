@@ -36,7 +36,7 @@ from ...core.auth import (
     require_research_item_access,
 )
 from ...core.events import broadcast as _broadcast
-from ...core.jobs import submit
+from ...core.jobs import launch, resumable
 from . import article_extractor
 from . import brandfetch as brandfetch_client  # noqa: F401  (Brandfetch: first logo lookup, via logo_files)
 from . import logo_files
@@ -86,120 +86,118 @@ def _firecrawl_options(org_id: int | None) -> dict | None:
     return {"key": row["api_key"], "max_results": opts["max_results"], "full_content": opts["full_content"]}
 
 
-@router.post("/research/start", response_model=ResearchJobStarted)
-def start_background_research(req: StartResearchRequest, user: Annotated[dict, Depends(get_current_user)]):
-    """Start a live background research job."""
-    spec = req.spec
-    if req.project_id:
-        check_project_id_access(req.project_id, user)
-        gates.require(req.project_id, "background_research")
-    # a new project is the creator's (and gets its email); a matched one is never moved to the caller's org
-    project_id = req.project_id or store.get_or_create_project(spec, user["org_id"], user["id"])
-    job_id = f"research_{uuid.uuid4().hex[:12]}"
-    store.create_job(job_id, project_id, "background_research")
+@resumable("background_research")
+def _research_job(job_id: str, project_id: int, *, spec: dict) -> None:
+    """Web research, then the brand-intelligence enrichment. Checkpoint "web": the filtered web results are saved, so a
+    resumed job goes straight to the enrichment."""
+    from ..usage.service import scope as usage_scope
+    with usage_scope(project_id=project_id, stage="background_research"):
+        _research_work(job_id, project_id, spec, f"job:{job_id}")
 
-    def worker():
-        from ..usage.service import scope as usage_scope
-        with usage_scope(project_id=project_id, stage="background_research"):
-            _work()
 
-    def _work():
-        logger.info("[research:%s] Starting background research for project %s", job_id, project_id)
-        store.update_job(job_id, status="running", progress_pct=5,
-                         progress_message="Validating brand entity")
-        _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
-                     "progress_pct": 5, "message": "Validating brand entity"})
+def _research_work(job_id: str, project_id: int, spec: dict, owner: str) -> None:
+    logger.info("[research:%s] Starting background research for project %s", job_id, project_id)
+    store.update_job(job_id, status="running", progress_pct=5,
+                     progress_message="Validating brand entity")
+    _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
+                 "progress_pct": 5, "message": "Validating brand entity"})
 
-        try:
-            adapter = LiveWebResearchAdapter()
-            last_pct = 5
+    try:
+        adapter = LiveWebResearchAdapter()
+        last_pct = 5
 
-            def on_event(event_type: str, payload: dict):
-                nonlocal last_pct
-                msg_map = {
-                    "research_started": ("Searching official sources", 10),
-                    "research_queries_built": ("Search queries prepared", 15),
-                    "fetching_topic": (
-                        f"Searching: {payload.get('display_label') or payload.get('topic', '')}", None),
-                    "fetch_complete": (
-                        f"Fetch complete — {payload.get('items_fetched', 0)} items found", 58),
-                    "research_filtering": ("Filtering irrelevant results", 60),
-                    "research_deduplicating": ("Removing duplicates", 65),
-                    "research_validating_entities": ("Validating entity relevance", 70),
-                    "research_entity_validation_complete": ("Entity validation complete", 75),
-                    "research_validating_dates": ("Validating publication dates", 80),
-                    "research_classifying_sources": ("Classifying source quality", 85),
-                    "research_complete": ("Research complete", 95),
-                    # Brand/competitive intelligence — the LLM step that runs alongside web
-                    # research (collected in "Stage 3: LLM enrichment" below). Streamed like
-                    # brief_scope.py's agent so the UI shows real progress instead of
-                    # sitting frozen on a single static message during the LLM call.
-                    "brand_intelligence_started": ("Starting competitive/brand intelligence analysis", 90),
-                    "brand_intelligence_web_search": (
-                        f"Searching for {payload.get('brand', 'brand')} context", 90),
-                    "brand_intelligence_reasoning": ("LLM producing competitive intelligence briefing...", None),
-                    "brand_intelligence_validated": ("Competitive intelligence briefing validated", 97),
-                    "brand_intelligence_complete": ("Competitive intelligence briefing complete", 98),
-                    "brand_intelligence_error": (
-                        f"Competitive intelligence issue — retrying ({payload.get('error', '')})", None),
-                    "brand_intelligence_failed": (
-                        "Competitive intelligence briefing unavailable — web research data preserved", 98),
-                }
-                if event_type == "brand_intelligence_streaming":
-                    chars = payload.get("chars", 0)
-                    msg = f"Writing competitive intelligence briefing... ({chars:,} characters generated so far)"
-                    store.update_job(job_id, progress_pct=last_pct, progress_message=msg)
-                    _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
-                                "progress_pct": last_pct, "message": msg})
-                elif event_type in msg_map:
-                    msg, pct = msg_map[event_type]
-                    if event_type.startswith("brand_intelligence"):
-                        pct = None   # runs alongside web research now: its messages show, the bar follows the web stages
-                    if event_type == "fetching_topic":
-                        idx = payload.get("index", 0)
-                        total = payload.get("total", 1)
-                        pct = 15 + int(45 * idx / max(total, 1))
-                    if pct is not None:
-                        last_pct = pct
-                    store.update_job(job_id, progress_pct=last_pct, progress_message=msg)
-                    _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
-                                "progress_pct": last_pct, "message": msg})
+        def on_event(event_type: str, payload: dict):
+            nonlocal last_pct
+            msg_map = {
+                "research_started": ("Searching official sources", 10),
+                "research_queries_built": ("Search queries prepared", 15),
+                "fetching_topic": (
+                    f"Searching: {payload.get('display_label') or payload.get('topic', '')}", None),
+                "fetch_complete": (
+                    f"Fetch complete — {payload.get('items_fetched', 0)} items found", 58),
+                "research_filtering": ("Filtering irrelevant results", 60),
+                "research_deduplicating": ("Removing duplicates", 65),
+                "research_validating_entities": ("Validating entity relevance", 70),
+                "research_entity_validation_complete": ("Entity validation complete", 75),
+                "research_validating_dates": ("Validating publication dates", 80),
+                "research_classifying_sources": ("Classifying source quality", 85),
+                "research_complete": ("Research complete", 95),
+                # Brand/competitive intelligence — the LLM step that runs alongside web
+                # research (collected in "Stage 3: LLM enrichment" below). Streamed like
+                # brief_scope.py's agent so the UI shows real progress instead of
+                # sitting frozen on a single static message during the LLM call.
+                "brand_intelligence_started": ("Starting competitive/brand intelligence analysis", 90),
+                "brand_intelligence_web_search": (
+                    f"Searching for {payload.get('brand', 'brand')} context", 90),
+                "brand_intelligence_reasoning": ("LLM producing competitive intelligence briefing...", None),
+                "brand_intelligence_validated": ("Competitive intelligence briefing validated", 97),
+                "brand_intelligence_complete": ("Competitive intelligence briefing complete", 98),
+                "brand_intelligence_error": (
+                    f"Competitive intelligence issue — retrying ({payload.get('error', '')})", None),
+                "brand_intelligence_failed": (
+                    "Competitive intelligence briefing unavailable — web research data preserved", 98),
+            }
+            if event_type == "brand_intelligence_streaming":
+                chars = payload.get("chars", 0)
+                msg = f"Writing competitive intelligence briefing... ({chars:,} characters generated so far)"
+                store.update_job(job_id, progress_pct=last_pct, progress_message=msg)
+                _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
+                            "progress_pct": last_pct, "message": msg})
+            elif event_type in msg_map:
+                msg, pct = msg_map[event_type]
+                if event_type.startswith("brand_intelligence"):
+                    pct = None   # runs alongside web research now: its messages show, the bar follows the web stages
+                if event_type == "fetching_topic":
+                    idx = payload.get("index", 0)
+                    total = payload.get("total", 1)
+                    pct = 15 + int(45 * idx / max(total, 1))
+                if pct is not None:
+                    last_pct = pct
+                store.update_job(job_id, progress_pct=last_pct, progress_message=msg)
+                _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
+                            "progress_pct": last_pct, "message": msg})
 
-            # ── Stage 1: Web research (single execution) ──
-            # Use the org's own configured Tavily/SerpAPI keys when set (domains/datasources/),
-            # falling back to the global env var keys otherwise; either way, each real call's
-            # result reactively updates that key's status — "validate it every stage" it's used.
-            project_for_org = store.get_project(project_id)
-            org_id = project_for_org.get("org_id") if project_for_org else None
-            api_keys = {"tavily": ds_repo.get_key(org_id, "tavily") if org_id else None,
-                        "serpapi": ds_repo.get_key(org_id, "serpapi") if org_id else None,
-                        "firecrawl": _firecrawl_options(org_id)}
+        # ── Stage 1: Web research (single execution) ──
+        # Use the org's own configured Tavily/SerpAPI keys when set (domains/datasources/),
+        # falling back to the global env var keys otherwise; either way, each real call's
+        # result reactively updates that key's status — "validate it every stage" it's used.
+        project_for_org = store.get_project(project_id)
+        org_id = project_for_org.get("org_id") if project_for_org else None
+        api_keys = {"tavily": ds_repo.get_key(org_id, "tavily") if org_id else None,
+                    "serpapi": ds_repo.get_key(org_id, "serpapi") if org_id else None,
+                    "firecrawl": _firecrawl_options(org_id)}
 
-            def on_source_result(source: str, ok: bool, error: str | None) -> None:
-                if source == "firecrawl" and not ok and error and "credits" in error:
-                    ds_repo.mark_status(org_id, source, "quota", error)     # out of credits: not a bad key
-                    return
-                ds_service.record_result(org_id, source, ok, error)
+        def on_source_result(source: str, ok: bool, error: str | None) -> None:
+            if source == "firecrawl" and not ok and error and "credits" in error:
+                ds_repo.mark_status(org_id, source, "quota", error)     # out of credits: not a bad key
+                return
+            ds_service.record_result(org_id, source, ok, error)
 
-            # The brand-intelligence LLM step reads only the specification (web_adapter=None), so it starts now and
-            # runs alongside web research instead of after it; its result is still collected after the web results
-            # are saved (Stage 3), with the full timeout from then on, so it never gets less time than before.
-            llm_client = writing_locale.with_locale(get_llm_client(), writing_locale.project_geography(project_for_org))
-            llm_pool = llm_future = None
-            if llm_client and llm_client.is_reachable():
-                def _run_llm():
-                    loop = asyncio.new_event_loop()
-                    try:
-                        bi_result = loop.run_until_complete(
-                            run_bi(spec, emit=on_event, llm_client=llm_client, web_adapter=None)
-                        )
-                    finally:
-                        loop.close()
-                    return bi_result.get("brand_intelligence")
+        # The brand-intelligence LLM step reads only the specification (web_adapter=None), so it starts now and
+        # runs alongside web research instead of after it; its result is still collected after the web results
+        # are saved (Stage 3), with the full timeout from then on, so it never gets less time than before.
+        llm_client = writing_locale.with_locale(get_llm_client(), writing_locale.project_geography(project_for_org))
+        llm_pool = llm_future = None
+        if llm_client and llm_client.is_reachable():
+            def _run_llm():
+                loop = asyncio.new_event_loop()
+                try:
+                    bi_result = loop.run_until_complete(
+                        run_bi(spec, emit=on_event, llm_client=llm_client, web_adapter=None)
+                    )
+                finally:
+                    loop.close()
+                return bi_result.get("brand_intelligence")
 
-                llm_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-                llm_future = llm_pool.submit(contextvars.copy_context().run, _run_llm)
+            llm_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            llm_future = llm_pool.submit(contextvars.copy_context().run, _run_llm)
 
+        done = store.get_checkpoints(owner)
+        if "web" in done:     # resumed after a restart: the web results were already searched, filtered and saved
+            research_id = done["web"]["research_id"]
+            web_result = (store.get_research_by_id(research_id) or {}).get("research") or {}
+            logger.info("[research:%s] Resumed: web results already saved as research_id=%s", job_id, research_id)
+        else:
             logger.info("[research:%s] Stage 1 — executing web research", job_id)
             web_result = adapter.run_full_research(
                 spec, project_id=project_id, emit=on_event,
@@ -220,60 +218,73 @@ def start_background_research(req: StartResearchRequest, user: Annotated[dict, D
             logger.info("[research:%s] Stage 2 — persisting validated web results (pre-LLM)", job_id)
             research_id = store.save_background_research(project_id, web_result, None)
             logger.info("[research:%s] Web results persisted as research_id=%s", job_id, research_id)
+            store.save_checkpoint(owner, project_id, "web", {"research_id": research_id})
 
-            # ── Stage 3: LLM enrichment (bounded, non-blocking) ──
-            store.update_job(job_id, progress_pct=90,
-                             progress_message="LLM enrichment (optional)")
-            _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
-                         "progress_pct": 90, "message": "LLM enrichment (optional)"})
+        # ── Stage 3: LLM enrichment (bounded, non-blocking) ──
+        store.update_job(job_id, progress_pct=90,
+                         progress_message="LLM enrichment (optional)")
+        _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
+                     "progress_pct": 90, "message": "LLM enrichment (optional)"})
 
-            llm_output = None
-            enrichment_status = "web_only"
+        llm_output = None
+        enrichment_status = "web_only"
 
-            if llm_future is not None:
-                logger.info("[research:%s] LLM reachable — collecting enrichment (timeout=%ss)", job_id, LLM_ENRICHMENT_TIMEOUT)
-                try:
-                    llm_output = llm_future.result(timeout=LLM_ENRICHMENT_TIMEOUT)
-                    if llm_output and not isinstance(llm_output, dict):
-                        llm_output = None
-                        enrichment_status = "web_only"
-                    elif llm_output and "_error" not in llm_output:
-                        enrichment_status = "enriched"
-                        logger.info("[research:%s] LLM enrichment succeeded", job_id)
-                    else:
-                        enrichment_status = "partially_enriched"
-                        logger.warning("[research:%s] LLM returned error dict: %s", job_id, llm_output)
-                except concurrent.futures.TimeoutError:
-                    llm_output = {"_error": f"LLM enrichment timed out ({LLM_ENRICHMENT_TIMEOUT}s) — web research data preserved"}
+        if llm_future is not None:
+            logger.info("[research:%s] LLM reachable — collecting enrichment (timeout=%ss)", job_id, LLM_ENRICHMENT_TIMEOUT)
+            try:
+                llm_output = llm_future.result(timeout=LLM_ENRICHMENT_TIMEOUT)
+                if llm_output and not isinstance(llm_output, dict):
+                    llm_output = None
                     enrichment_status = "web_only"
-                    logger.warning("[research:%s] LLM enrichment timed out after %ss", job_id, LLM_ENRICHMENT_TIMEOUT)
-                except Exception as e:
-                    llm_output = {"_error": str(e)}
-                    enrichment_status = "web_only"
-                    logger.error("[research:%s] LLM enrichment failed: %s", job_id, e)
-                llm_pool.shutdown(wait=False)
-            else:
-                logger.warning("[research:%s] LLM not reachable — completing with web_only", job_id)
+                elif llm_output and "_error" not in llm_output:
+                    enrichment_status = "enriched"
+                    logger.info("[research:%s] LLM enrichment succeeded", job_id)
+                else:
+                    enrichment_status = "partially_enriched"
+                    logger.warning("[research:%s] LLM returned error dict: %s", job_id, llm_output)
+            except concurrent.futures.TimeoutError:
+                llm_output = {"_error": f"LLM enrichment timed out ({LLM_ENRICHMENT_TIMEOUT}s) — web research data preserved"}
+                enrichment_status = "web_only"
+                logger.warning("[research:%s] LLM enrichment timed out after %ss", job_id, LLM_ENRICHMENT_TIMEOUT)
+            except Exception as e:
+                llm_output = {"_error": str(e)}
+                enrichment_status = "web_only"
+                logger.error("[research:%s] LLM enrichment failed: %s", job_id, e)
+            llm_pool.shutdown(wait=False)
+        else:
+            logger.warning("[research:%s] LLM not reachable — completing with web_only", job_id)
 
-            # ── Stage 4: Update persisted research with LLM output + enrichment status ──
-            web_result["_enrichment_status"] = enrichment_status
-            store.save_background_research_update(research_id, web_result, llm_output)
-            logger.info("[research:%s] Research updated — enrichment_status=%s", job_id, enrichment_status)
+        # ── Stage 4: Update persisted research with LLM output + enrichment status ──
+        web_result["_enrichment_status"] = enrichment_status
+        store.save_background_research_update(research_id, web_result, llm_output)
+        logger.info("[research:%s] Research updated — enrichment_status=%s", job_id, enrichment_status)
 
-            store.update_job(job_id, status="completed", progress_pct=100,
-                             progress_message=f"Background research complete ({enrichment_status})",
-                             result={"research_id": research_id, "project_id": project_id,
-                                     "enrichment_status": enrichment_status})
-            _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "completed",
-                         "progress_pct": 100, "message": f"Background research complete ({enrichment_status})"})
+        store.clear_checkpoints(owner)
+        store.update_job(job_id, status="completed", progress_pct=100,
+                         progress_message=f"Background research complete ({enrichment_status})",
+                         result={"research_id": research_id, "project_id": project_id,
+                                 "enrichment_status": enrichment_status})
+        _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "completed",
+                     "progress_pct": 100, "message": f"Background research complete ({enrichment_status})"})
 
-        except Exception as e:
-            logger.error("[research:%s] Unhandled error: %s", job_id, e, exc_info=True)
-            store.update_job(job_id, status="failed", error=str(e))
-            _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "failed",
-                         "error": str(e)})
+    except Exception as e:
+        logger.error("[research:%s] Unhandled error: %s", job_id, e, exc_info=True)
+        store.clear_checkpoints(owner)
+        store.update_job(job_id, status="failed", error=str(e))
+        _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "failed",
+                     "error": str(e)})
 
-    submit(worker, name="research:background")
+
+@router.post("/research/start", response_model=ResearchJobStarted)
+def start_background_research(req: StartResearchRequest, user: Annotated[dict, Depends(get_current_user)]):
+    """Start a live background research job."""
+    spec = req.spec
+    if req.project_id:
+        check_project_id_access(req.project_id, user)
+        gates.require(req.project_id, "background_research")
+    # a new project is the creator's (and gets its email); a matched one is never moved to the caller's org
+    project_id = req.project_id or store.get_or_create_project(spec, user["org_id"], user["id"])
+    job_id = launch("background_research", f"research_{uuid.uuid4().hex[:12]}", project_id, spec=spec)
     return {"job_id": job_id, "project_id": project_id}
 
 

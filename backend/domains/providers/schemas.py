@@ -18,6 +18,7 @@ class ProviderFields(BaseModel):
     base_url: str = Field(default="", max_length=500)
     model: str = Field(min_length=1, max_length=200)
     api_version: str = Field(default="", max_length=40)
+    reads_images: bool | None = None    # can it read images (photo checks)? None = not known; learned on first refusal
 
     @model_validator(mode="after")
     def _check(self) -> "ProviderFields":
@@ -68,6 +69,7 @@ class ProviderRecord(ApiModel):
     api_version: str
     key_hint: str
     is_default: bool
+    reads_images: bool | None = None
     status: str
     last_error: str
     last_tested_at: float | None = None
@@ -76,7 +78,9 @@ class ProviderRecord(ApiModel):
 
     @classmethod
     def from_row(cls, row: dict) -> "ProviderRecord":
-        return cls(**{**{k: row[k] for k in cls.model_fields if k in row}, "is_default": bool(row["is_default"])})
+        images = row.get("reads_images")
+        return cls(**{**{k: row[k] for k in cls.model_fields if k in row}, "is_default": bool(row["is_default"]),
+                      "reads_images": None if images is None else bool(images)})
 
 
 class ProvidersResponse(ApiModel):

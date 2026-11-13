@@ -46,7 +46,9 @@ def _owned(user: dict, provider_id: int) -> dict:
 
 
 def _fields(body) -> dict:
-    return {f: getattr(body, f) for f in repo.FIELDS}
+    fields = {f: getattr(body, f) for f in repo.FIELDS}
+    fields["reads_images"] = None if body.reads_images is None else int(body.reads_images)
+    return fields
 
 
 def _saved_key(row: dict) -> str:

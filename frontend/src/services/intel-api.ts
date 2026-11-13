@@ -1138,7 +1138,9 @@ export type AgentState ={ autopilot: { status: string; note: string; updated_at:
 export type CopilotReply = { reply: string; actions: { tool: string; ok: boolean; error?: string }[];
   pending: { id: string; tool: string; args: Record<string, unknown>; summary: string } | null };
 export type ProviderType = "openai_compatible" | "azure_openai" | "anthropic" | "gemini";
-export type ProviderFields = { name: string; provider_type: ProviderType; base_url: string; model: string; api_version: string };
+export type ProviderFields = { name: string; provider_type: ProviderType; base_url: string; model: string; api_version: string;
+  /** can it read images (photo checks)? null = not known yet: learned when it first refuses one */
+  reads_images?: boolean | null };
 export type LlmProvider = ProviderFields & { id: number; org_id: number; key_hint: string; is_default: boolean;
   status: "untested" | "ok" | "failed"; last_error: string; last_tested_at: number | null; last_latency_ms: number | null;
   updated_at: number };

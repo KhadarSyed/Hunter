@@ -124,11 +124,22 @@ LIVE_PCT: dict[int, int] = {}
 
 
 class _Run:
-    def __init__(self, run_id: int, project_id: int):
+    def __init__(self, run_id: int, project_id: int, resume: bool = False):
         self.run_id, self.project_id, self.stages, self.lines = run_id, project_id, {}, []
         self.started_at, self.pct, self.current = time.time(), 0, "gate"
         self.timings: dict[str, list[float]] = {}
         self.typical = _typical_seconds()
+        self.owner = f"deck:{run_id}"           # this run's checkpoints (store.save_checkpoint)
+        self.done: dict = {}                    # what the run finished before a restart: {step: value}
+        if resume:                              # continue the same log; the analysis sections are written again
+            saved = {sec.get("id"): sec for sec in store.list_deliverable_sections(run_id)}
+            self.lines = list((saved.get("log") or {}).get("lines") or [])
+            store.clear_run_content_sections(run_id)
+            self.done = store.get_checkpoints(self.owner)
+
+    def checkpoint(self, step: str, value) -> None:
+        """Keep a finished step, so a restart resumes after it."""
+        store.save_checkpoint(self.owner, self.project_id, step, value)
 
     def progress(self, pct: float, label: str) -> None:
         """Overall % (never goes back) and what is happening right now; kept with the run for page reloads."""
@@ -667,19 +678,45 @@ def _brands(project: dict, rqs) -> list:
                               [q.query for q in rqs], [e["name"] for e in entities if e.get("type") == "product"])
 
 
-def run_engine(run_id: int, project_id: int, llm) -> None:
+def run_engine(run_id: int, project_id: int, llm, resume_since: float | None = None) -> None:
+    """resume_since: the interrupted run's start; finished steps come from its checkpoints and the AI answers it got
+    before the restart are replayed from memory, so nothing finished is paid for or waited on again."""
+    from contextlib import nullcontext
     from ..usage.service import scope as usage_scope
     from ..memory import service as memory
     # every deck run is a user-asked (re)generation: no cached AI answer is replayed (new answers are still saved)
-    with usage_scope(project_id=project_id, stage="deck_engine"), memory.fresh():
-        _run_engine(run_id, project_id, llm)
+    with usage_scope(project_id=project_id, stage="deck_engine"), memory.fresh(),             (memory.replay(resume_since) if resume_since else nullcontext()):
+        try:
+            _run_engine(run_id, project_id, llm, resume=resume_since is not None)
+        finally:
+            store.clear_checkpoints(f"deck:{run_id}")
 
 
-def _run_engine(run_id: int, project_id: int, llm) -> None:
+def resume_interrupted_runs() -> list[int]:
+    """At startup: every deck run a stopped server left 'running' continues in the background from its checkpoints."""
+    resumed = []
+    for r in store.claim_interrupted_deliverable_runs():
+        try:
+            from ...core.llm_provider import get_llm_client
+            llm = get_llm_client()
+        except Exception as e:      # never leave a 'running' row behind: it would block Generate for good
+            store.update_deliverable_run(r["id"], status="failed", error=f"could not resume: {e}", finished_at=time.time())
+            continue
+        logger.info("[deliverable:%s] resuming after a server restart", r["id"])
+        threading.Thread(target=run_engine, args=(r["id"], r["project_id"], llm, r["created_at"]), daemon=True,
+                         name=f"deck-resume-{r['id']}").start()
+        resumed.append(r["id"])
+    return resumed
+
+
+def _run_engine(run_id: int, project_id: int, llm, resume: bool = False) -> None:
     current, run = "gate", None
     try:        # a setup read failing here must still mark the run failed, or it stays 'running' (409) for good
-        run = _Run(run_id, project_id)
+        run = _Run(run_id, project_id, resume)
         runlog.bind(run.log)            # fallbacks anywhere in this run show in its log
+        if resume:
+            kept = sorted(k for k in run.done)
+            run.log("Resumed after a server restart" + (f"; already finished: {', '.join(kept)}" if kept else ""))
         # every drafting call writes in the project's country/region language (Global: US English)
         llm = writing_locale.with_locale(llm, writing_locale.project_geography(store.get_project(project_id)))
         run.stage("gate", "running")
@@ -791,9 +828,22 @@ def _run_engine(run_id: int, project_id: int, llm) -> None:
 
         current = "insights"
         run.stage("insights", "running")
-        registry = CitationRegistry()
+        # questions drafted before a restart keep their cards; their citation numbers continue (the registry only
+        # grows, so the longest saved snapshot holds every number given out)
+        saved_registry = max((v["registry"] for k, v in run.done.items() if k.startswith("insights:")), key=len,
+                             default=[])
+        registry = CitationRegistry.seeded(saved_registry) if saved_registry else CitationRegistry()
         insights_by_rq = {}
         summaries_by_section: dict[str, list[dict]] = {}
+        for q in rqs:
+            kept = run.done.get(f"insights:{q.id}")
+            if kept:
+                insights_by_rq[q.id] = kept["insights"]
+                summaries_by_section.update(kept["summaries"])
+                run.section({"id": f"{q.id.lower()}-insights", "rq_id": q.id, "module": "insights",
+                             "title": "Insights", "insights": insights_by_rq[q.id]})
+                run.log(f"{_rq_label(q)}: {len(insights_by_rq[q.id])} insights kept from before the restart")
+        todo = [q for q in rqs if q.id not in insights_by_rq]
 
         def draft_question(q):
             # a question's chart and theme summaries follow its insights (each is told what was already said);
@@ -807,20 +857,29 @@ def _run_engine(run_id: int, project_id: int, llm) -> None:
             return found, summaries
 
         with ThreadPoolExecutor(max_workers=INSIGHT_WORKERS) as pool:
-            futures = {pool.submit(contextvars.copy_context().run, draft_question, q): q for q in rqs}
-            for k, done in enumerate(as_completed(futures), start=1):
+            futures = {pool.submit(contextvars.copy_context().run, draft_question, q): q for q in todo}
+            for k, done in enumerate(as_completed(futures), start=len(rqs) - len(todo) + 1):
                 q = futures[done]
                 insights_by_rq[q.id], summaries = done.result()
                 summaries_by_section.update(summaries)
+                run.checkpoint(f"insights:{q.id}", {"insights": insights_by_rq[q.id], "summaries": summaries,
+                                                    "registry": registry.entries()})
                 run.within("insights", k / len(rqs), f"Drafted cited insights for {k} of {len(rqs)} questions")
                 run.section({"id": f"{q.id.lower()}-insights", "rq_id": q.id, "module": "insights",
                              "title": "Insights", "insights": insights_by_rq[q.id]})
                 run.log(f"{_rq_label(q)}: {len(insights_by_rq[q.id])} insights drafted")
         brand_evidence = (evidence.rank(rows, brands, [], "primary")[:CITE_POOL]
                           + evidence.rank(rows, brands, [], "competitor")[:CITE_POOL])
-        summaries_by_section.update(engine_insights.section_summaries(
-            RQ(BRAND_KEY, f"How does {brands[0].name if brands else 'the brand'} compare with its competitors?"),
-            brand_secs, rows, registry, llm, evidence=brand_evidence))
+        kept = run.done.get("insights:_brand")
+        if kept:
+            registry = CitationRegistry.seeded(kept["registry"])
+            summaries_by_section.update(kept["summaries"])
+        else:
+            brand_summaries = engine_insights.section_summaries(
+                RQ(BRAND_KEY, f"How does {brands[0].name if brands else 'the brand'} compare with its competitors?"),
+                brand_secs, rows, registry, llm, evidence=brand_evidence)
+            summaries_by_section.update(brand_summaries)
+            run.checkpoint("insights:_brand", {"summaries": brand_summaries, "registry": registry.entries()})
         answers = engine_insights.executive_answers(rqs, sections_by_rq, base)
         takeaways = [i for q in rqs for i in insights_by_rq[q.id][:1]]
         run.section({"id": "executive-summary", "rq_id": None, "module": "executive_summary",
@@ -829,7 +888,12 @@ def _run_engine(run_id: int, project_id: int, llm) -> None:
 
         current = "template"
         run.stage("template", "running")
-        template, why = templates_index.choose_template_explained(_scope_text(project), llm)
+        kept = run.done.get("template")
+        if kept and Path(kept["path"]).exists():
+            template, why = Path(kept["path"]), kept["why"]
+        else:
+            template, why = templates_index.choose_template_explained(_scope_text(project), llm)
+            run.checkpoint("template", {"path": str(template), "why": why})
         run.log(f"Template: {template.stem} - {why}")
         run.stage("template", "done", template.stem)
 
@@ -840,8 +904,15 @@ def _run_engine(run_id: int, project_id: int, llm) -> None:
         inp = _deck_input(project, rows, rqs, overview, sections_by_rq, insights_by_rq, answers, takeaways,
                           methodology, registry, base, out_dir, {q.id: plans[q.id]["title"] for q in rqs}, llm=llm)
         safe = "".join(ch for ch in inp.title if ch.isalnum() or ch in " -_").strip() or "Deliverable"
-        pptx_path, appendix = generic_deck.build_generic_deck(inp, template, out_dir / "work",
-                                                              out_dir / f"{safe} - Deliverable.pptx")
+        kept = run.done.get("render")      # the classic deck, brief and fact check were finished before a restart
+        if kept and not all(Path(kept[k]).exists() for k in ("pptx", "docx")):
+            kept = None
+        if kept:
+            pptx_path, appendix = Path(kept["pptx"]), kept["appendix"]
+            run.log("Classic deck, Word brief and fact check kept from before the restart")
+        else:
+            pptx_path, appendix = generic_deck.build_generic_deck(inp, template, out_dir / "work",
+                                                                  out_dir / f"{safe} - Deliverable.pptx")
         run.section({"id": "citations", "rq_id": None, "module": "citations", "title": "Citations",
                      "citations": _deck_citations(registry.entries())})
         run.section(_page_visuals(project, sections_by_rq, inp.logos))
@@ -851,15 +922,20 @@ def _run_engine(run_id: int, project_id: int, llm) -> None:
 
         current = "qc"
         run.stage("qc", "running")
-        facts = overview.facts + [f for secs in sections_by_rq.values() for s in secs for f in s.facts] + methodology
-        report = factcheck.run_qc(pptx_path, facts, set(appendix), out_dir / "thumbs")
-        pngs = [Path(p) for p in report["pngs"]]
-        first = generic_deck.rq_first_slides(pptx_path, [q.id for q in rqs])
-        rq_pngs = [pngs[first[q.id] - 1] if q.id in first and first[q.id] <= len(pngs) else None for q in rqs]
-        docx_path = word_brief.build_word_brief(inp, out_dir / f"{safe} - Brief.docx", rq_pngs)
-        run.log(f"Fact check: {len(report['facts'])} issues; layout: {len(report['layout'])} issues; "
-                f"{report['fixed']} auto-fixed; {len(pngs)} thumbnails")
-        run.log("Word brief saved")
+        if kept:
+            report, docx_path = kept["report"], Path(kept["docx"])
+        else:
+            facts = overview.facts + [f for secs in sections_by_rq.values() for s in secs for f in s.facts] + methodology
+            report = factcheck.run_qc(pptx_path, facts, set(appendix), out_dir / "thumbs")
+            pngs = [Path(p) for p in report["pngs"]]
+            first = generic_deck.rq_first_slides(pptx_path, [q.id for q in rqs])
+            rq_pngs = [pngs[first[q.id] - 1] if q.id in first and first[q.id] <= len(pngs) else None for q in rqs]
+            docx_path = word_brief.build_word_brief(inp, out_dir / f"{safe} - Brief.docx", rq_pngs)
+            run.log(f"Fact check: {len(report['facts'])} issues; layout: {len(report['layout'])} issues; "
+                    f"{report['fixed']} auto-fixed; {len(pngs)} thumbnails")
+            run.log("Word brief saved")
+            run.checkpoint("render", {"pptx": str(pptx_path), "docx": str(docx_path), "appendix": list(appendix),
+                                      "report": report})
         run.section({"id": "qc", "rq_id": None, "module": "qc", "title": "Quality check", "report": report})
         n_facts, n_layout = len(report["facts"]), len(report["layout"])
         run.stage("qc", "done", "ready" if report["ready"] else f"{n_facts} fact / {n_layout} layout issues")

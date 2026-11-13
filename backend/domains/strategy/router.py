@@ -40,7 +40,7 @@ from ...core.auth import (
 )
 from ...core.config import UPLOAD_DIR
 from ...core.events import broadcast as _broadcast
-from ...core.jobs import submit
+from ...core.jobs import launch, resumable
 from ...core.tabular import decode_text, sniff_delimiter
 from ..research.schemas import ApproveRequest
 from ..research.web_research import COMPETITOR_PATTERNS
@@ -515,6 +515,168 @@ def _quoted_phrases(strategy: dict) -> dict:
     return strategy
 
 
+@resumable("search_strategy")
+def _strategy_job(job_id: str, project_id: int) -> None:
+    """Draft the Meltwater query strategy from the spec and the latest background research (a single AI step: a job
+    resumed after a restart gets that answer back from memory if it had already arrived)."""
+    from ..usage.service import scope as usage_scope
+    with usage_scope(project_id=project_id, stage="search_strategy"):
+        _strategy_work(job_id, project_id)
+
+
+def _strategy_work(job_id: str, project_id: int) -> None:
+    project = store.get_project(project_id)
+    research = store.get_latest_research(project_id)
+    if not project or not research:
+        store.update_job(job_id, status="failed", error="Project or background research not found")
+        return
+    logger.info("[strategy:%s] Starting strategy generation for project %s", job_id, project_id)
+    store.update_job(job_id, status="running", progress_pct=10,
+                     progress_message="Building Meltwater query modules")
+    _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
+                 "progress_pct": 10, "message": "Building Meltwater query modules"})
+
+    try:
+        spec = project["spec"]
+        web_research = research["research"]
+        llm_output = research.get("llm_output")
+
+        # Fetch raw brief text for competitor extraction fallback
+        latest_spec_row = store.get_latest_spec(project_id)
+        raw_brief_text = (latest_spec_row or {}).get("raw_brief_text", "") or ""
+
+        # Select brand context: use LLM output only if it succeeded (no _error key)
+        if isinstance(llm_output, dict) and "_error" not in llm_output and llm_output:
+            brand_context = llm_output
+            logger.info("[strategy:%s] Using LLM-enriched brand context", job_id)
+        else:
+            brand_context = web_research
+            logger.info("[strategy:%s] Using web-only brand context (llm_output unavailable or errored)", job_id)
+
+        llm_client = get_llm_client()
+
+        # Maps meltwater_query_builder's internal lifecycle events to the
+        # progress_pct/progress_message the frontend polls via GET /jobs/{id} —
+        # _broadcast alone only reaches WebSocket listeners, and this page polls.
+        _event_messages = {
+            "query_builder_started": (32, "Preparing query generation request"),
+            "query_builder_attempt": (35, "LLM generating Boolean queries"),
+            "query_builder_reasoning": (45, "LLM generating Boolean queries..."),
+            "query_builder_validated": (60, "Validating Boolean query syntax"),
+            "query_builder_error": (45, "Retrying after an LLM error"),
+            "query_builder_complete": (65, "Query strategy drafted — finalizing"),
+        }
+
+        def on_event(event_type: str, payload: dict):
+            if event_type == "query_builder_streaming":
+                pct, message = 45, f"LLM generating Boolean queries... ({payload.get('chars', 0):,} characters so far)"
+            else:
+                default_pct, default_message = _event_messages.get(event_type, (50, event_type))
+                pct = payload.get("progress_pct", default_pct)
+                message = payload.get("message", default_message)
+            store.update_job(job_id, progress_pct=pct, progress_message=message)
+            _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
+                         "progress_pct": pct, "message": message})
+
+        strategy_result = None
+
+        if not llm_client or not llm_client.is_reachable():
+            logger.warning("[strategy:%s] No LLM reachable — falling back to deterministic strategy", job_id)
+            store.update_job(job_id, progress_pct=70,
+                             progress_message="No LLM available — building deterministic strategy")
+            _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
+                         "progress_pct": 70, "message": "No LLM available — building deterministic strategy"})
+            strategy_result = _build_deterministic_strategy(spec, raw_brief_text)
+        else:
+            store.update_job(job_id, progress_pct=30,
+                             progress_message="LLM generating query strategy")
+            _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
+                         "progress_pct": 30, "message": "LLM generating query strategy"})
+
+            logger.info("[strategy:%s] Submitting LLM strategy generation (timeout=%ss)", job_id, STRATEGY_LLM_TIMEOUT)
+
+            def _run_strategy_llm():
+                loop = asyncio.new_event_loop()
+                mqb_result = loop.run_until_complete(
+                    run_mqb(spec, brand_context, emit=on_event, llm_client=llm_client)
+                )
+                loop.close()
+                return mqb_result.get("queries")
+
+            pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            future = pool.submit(contextvars.copy_context().run, _run_strategy_llm)
+            try:
+                strategy_result = future.result(timeout=STRATEGY_LLM_TIMEOUT)
+            except concurrent.futures.TimeoutError:
+                logger.warning("[strategy:%s] LLM timed out after %ss — falling back to deterministic strategy",
+                               job_id, STRATEGY_LLM_TIMEOUT)
+                pool.shutdown(wait=False)
+                store.update_job(job_id, progress_pct=70,
+                                 progress_message="LLM timed out — building deterministic strategy")
+                _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
+                             "progress_pct": 70, "message": "LLM timed out — building deterministic strategy"})
+                strategy_result = _build_deterministic_strategy(spec, raw_brief_text)
+            except Exception as e:
+                logger.warning("[strategy:%s] LLM strategy generation failed: %s — falling back to deterministic", job_id, e)
+                store.update_job(job_id, progress_pct=70,
+                                 progress_message="LLM failed — building deterministic strategy")
+                _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
+                             "progress_pct": 70, "message": "LLM failed — building deterministic strategy"})
+                strategy_result = _build_deterministic_strategy(spec, raw_brief_text)
+            pool.shutdown(wait=False)
+
+            if not strategy_result:
+                logger.warning("[strategy:%s] LLM returned empty — falling back to deterministic strategy", job_id)
+                store.update_job(job_id, progress_pct=70,
+                                 progress_message="Building deterministic strategy")
+                _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
+                             "progress_pct": 70, "message": "Building deterministic strategy"})
+                strategy_result = _build_deterministic_strategy(spec, raw_brief_text)
+
+        strategy_result = _no_geographic_exclusions(
+            _only_brief_questions(_brand_wide_queries(_quoted_phrases(strategy_result), spec), spec))
+        source = (strategy_result or {}).get("_strategy_source", "llm") if isinstance(strategy_result, dict) else "llm"
+        logger.info("[strategy:%s] %s strategy ready — validating Boolean syntax", job_id,
+                    "Rule-based (deterministic)" if source == "deterministic" else "LLM")
+        store.update_job(job_id, progress_pct=80,
+                         progress_message="Validating Boolean syntax")
+
+        validation_issues = []
+        if isinstance(strategy_result, dict):
+            for qv in strategy_result.get("query_versions", {}).values():
+                if isinstance(qv, dict) and qv.get("query"):
+                    issues = validate_boolean_syntax(qv["query"])
+                    if issues:
+                        validation_issues.extend(issues)
+
+        strategy_result["_validation_issues"] = validation_issues
+        strategy_result["_validation_status"] = (
+            "structurally_valid" if not validation_issues
+            else "requires_meltwater_validation"
+        )
+
+        if isinstance(strategy_result, dict):
+            for module in strategy_result.get("query_modules", []):
+                if isinstance(module, dict):
+                    for term in module.get("terms", []):
+                        if isinstance(term, dict) and not term.get("provenance"):
+                            term["provenance"] = "llm_generated"
+
+        strategy_id = store.save_search_strategy(project_id, strategy_result)
+        logger.info("[strategy:%s] Strategy saved as strategy_id=%s", job_id, strategy_id)
+
+        store.update_job(job_id, status="completed", progress_pct=100,
+                         progress_message="Search strategy generated",
+                         result={"strategy_id": strategy_id, "project_id": project_id})
+        _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "completed",
+                     "progress_pct": 100, "message": "Search strategy generated"})
+
+    except Exception as e:
+        logger.error("[strategy:%s] Unhandled error: %s", job_id, e, exc_info=True)
+        store.update_job(job_id, status="failed", error=str(e))
+        _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "failed", "error": str(e)})
+
+
 @router.post("/strategy/generate", response_model=StrategyJobStarted)
 def generate_search_strategy(req: GenerateStrategyRequest, user: Annotated[dict, Depends(get_current_user)]):
     check_project_id_access(req.project_id, user)
@@ -527,162 +689,7 @@ def generate_search_strategy(req: GenerateStrategyRequest, user: Annotated[dict,
     if not research:
         raise HTTPException(400, "No background research found — run background research first")
 
-    job_id = f"strategy_{uuid.uuid4().hex[:12]}"
-    store.create_job(job_id, req.project_id, "search_strategy")
-
-    def worker():
-        from ..usage.service import scope as usage_scope
-        with usage_scope(project_id=req.project_id, stage="search_strategy"):
-            _work()
-
-    def _work():
-        logger.info("[strategy:%s] Starting strategy generation for project %s", job_id, req.project_id)
-        store.update_job(job_id, status="running", progress_pct=10,
-                         progress_message="Building Meltwater query modules")
-        _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
-                     "progress_pct": 10, "message": "Building Meltwater query modules"})
-
-        try:
-            spec = project["spec"]
-            web_research = research["research"]
-            llm_output = research.get("llm_output")
-
-            # Fetch raw brief text for competitor extraction fallback
-            latest_spec_row = store.get_latest_spec(req.project_id)
-            raw_brief_text = (latest_spec_row or {}).get("raw_brief_text", "") or ""
-
-            # Select brand context: use LLM output only if it succeeded (no _error key)
-            if isinstance(llm_output, dict) and "_error" not in llm_output and llm_output:
-                brand_context = llm_output
-                logger.info("[strategy:%s] Using LLM-enriched brand context", job_id)
-            else:
-                brand_context = web_research
-                logger.info("[strategy:%s] Using web-only brand context (llm_output unavailable or errored)", job_id)
-
-            llm_client = get_llm_client()
-
-            # Maps meltwater_query_builder's internal lifecycle events to the
-            # progress_pct/progress_message the frontend polls via GET /jobs/{id} —
-            # _broadcast alone only reaches WebSocket listeners, and this page polls.
-            _event_messages = {
-                "query_builder_started": (32, "Preparing query generation request"),
-                "query_builder_attempt": (35, "LLM generating Boolean queries"),
-                "query_builder_reasoning": (45, "LLM generating Boolean queries..."),
-                "query_builder_validated": (60, "Validating Boolean query syntax"),
-                "query_builder_error": (45, "Retrying after an LLM error"),
-                "query_builder_complete": (65, "Query strategy drafted — finalizing"),
-            }
-
-            def on_event(event_type: str, payload: dict):
-                if event_type == "query_builder_streaming":
-                    pct, message = 45, f"LLM generating Boolean queries... ({payload.get('chars', 0):,} characters so far)"
-                else:
-                    default_pct, default_message = _event_messages.get(event_type, (50, event_type))
-                    pct = payload.get("progress_pct", default_pct)
-                    message = payload.get("message", default_message)
-                store.update_job(job_id, progress_pct=pct, progress_message=message)
-                _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
-                             "progress_pct": pct, "message": message})
-
-            strategy_result = None
-
-            if not llm_client or not llm_client.is_reachable():
-                logger.warning("[strategy:%s] No LLM reachable — falling back to deterministic strategy", job_id)
-                store.update_job(job_id, progress_pct=70,
-                                 progress_message="No LLM available — building deterministic strategy")
-                _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
-                             "progress_pct": 70, "message": "No LLM available — building deterministic strategy"})
-                strategy_result = _build_deterministic_strategy(spec, raw_brief_text)
-            else:
-                store.update_job(job_id, progress_pct=30,
-                                 progress_message="LLM generating query strategy")
-                _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
-                             "progress_pct": 30, "message": "LLM generating query strategy"})
-
-                logger.info("[strategy:%s] Submitting LLM strategy generation (timeout=%ss)", job_id, STRATEGY_LLM_TIMEOUT)
-
-                def _run_strategy_llm():
-                    loop = asyncio.new_event_loop()
-                    mqb_result = loop.run_until_complete(
-                        run_mqb(spec, brand_context, emit=on_event, llm_client=llm_client)
-                    )
-                    loop.close()
-                    return mqb_result.get("queries")
-
-                pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-                future = pool.submit(contextvars.copy_context().run, _run_strategy_llm)
-                try:
-                    strategy_result = future.result(timeout=STRATEGY_LLM_TIMEOUT)
-                except concurrent.futures.TimeoutError:
-                    logger.warning("[strategy:%s] LLM timed out after %ss — falling back to deterministic strategy",
-                                   job_id, STRATEGY_LLM_TIMEOUT)
-                    pool.shutdown(wait=False)
-                    store.update_job(job_id, progress_pct=70,
-                                     progress_message="LLM timed out — building deterministic strategy")
-                    _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
-                                 "progress_pct": 70, "message": "LLM timed out — building deterministic strategy"})
-                    strategy_result = _build_deterministic_strategy(spec, raw_brief_text)
-                except Exception as e:
-                    logger.warning("[strategy:%s] LLM strategy generation failed: %s — falling back to deterministic", job_id, e)
-                    store.update_job(job_id, progress_pct=70,
-                                     progress_message="LLM failed — building deterministic strategy")
-                    _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
-                                 "progress_pct": 70, "message": "LLM failed — building deterministic strategy"})
-                    strategy_result = _build_deterministic_strategy(spec, raw_brief_text)
-                pool.shutdown(wait=False)
-
-                if not strategy_result:
-                    logger.warning("[strategy:%s] LLM returned empty — falling back to deterministic strategy", job_id)
-                    store.update_job(job_id, progress_pct=70,
-                                     progress_message="Building deterministic strategy")
-                    _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
-                                 "progress_pct": 70, "message": "Building deterministic strategy"})
-                    strategy_result = _build_deterministic_strategy(spec, raw_brief_text)
-
-            strategy_result = _no_geographic_exclusions(
-                _only_brief_questions(_brand_wide_queries(_quoted_phrases(strategy_result), spec), spec))
-            source = (strategy_result or {}).get("_strategy_source", "llm") if isinstance(strategy_result, dict) else "llm"
-            logger.info("[strategy:%s] %s strategy ready — validating Boolean syntax", job_id,
-                        "Rule-based (deterministic)" if source == "deterministic" else "LLM")
-            store.update_job(job_id, progress_pct=80,
-                             progress_message="Validating Boolean syntax")
-
-            validation_issues = []
-            if isinstance(strategy_result, dict):
-                for qv in strategy_result.get("query_versions", {}).values():
-                    if isinstance(qv, dict) and qv.get("query"):
-                        issues = validate_boolean_syntax(qv["query"])
-                        if issues:
-                            validation_issues.extend(issues)
-
-            strategy_result["_validation_issues"] = validation_issues
-            strategy_result["_validation_status"] = (
-                "structurally_valid" if not validation_issues
-                else "requires_meltwater_validation"
-            )
-
-            if isinstance(strategy_result, dict):
-                for module in strategy_result.get("query_modules", []):
-                    if isinstance(module, dict):
-                        for term in module.get("terms", []):
-                            if isinstance(term, dict) and not term.get("provenance"):
-                                term["provenance"] = "llm_generated"
-
-            strategy_id = store.save_search_strategy(req.project_id, strategy_result)
-            logger.info("[strategy:%s] Strategy saved as strategy_id=%s", job_id, strategy_id)
-
-            store.update_job(job_id, status="completed", progress_pct=100,
-                             progress_message="Search strategy generated",
-                             result={"strategy_id": strategy_id, "project_id": req.project_id})
-            _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "completed",
-                         "progress_pct": 100, "message": "Search strategy generated"})
-
-        except Exception as e:
-            logger.error("[strategy:%s] Unhandled error: %s", job_id, e, exc_info=True)
-            store.update_job(job_id, status="failed", error=str(e))
-            _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "failed", "error": str(e)})
-
-    submit(worker, name="strategy:generate")
+    job_id = launch("search_strategy", f"strategy_{uuid.uuid4().hex[:12]}", req.project_id)
     return {"job_id": job_id, "project_id": req.project_id}
 
 
@@ -1100,9 +1107,9 @@ def _parse_and_analyze(file_path: str) -> tuple[list[str], list[dict], int, dict
     return headers, preview, total_count, column_mapping, stats
 
 
-def _process_dataset_bg(dataset_id: int, file_path: str, file_name: str, project_id: int,
-                        job_id: str):
-    """Background thread: parse file and update the dataset record."""
+@resumable("dataset_upload")
+def _process_dataset_bg(job_id: str, project_id: int, *, dataset_id: int, file_path: str, file_name: str) -> None:
+    """Parse the uploaded file and update the dataset record (no AI call; a resumed job parses it again)."""
     store.update_job(job_id, status="running", progress_pct=10,
                      progress_message="Parsing dataset")
     _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
@@ -1152,11 +1159,8 @@ async def upload_dataset(
         research_question_id=research_question_id,
     )
 
-    job_id = str(uuid.uuid4())
-    store.create_job(job_id, project_id, "dataset_upload")
-
-    submit(_process_dataset_bg, dataset_id, str(dest), file.filename or safe_name, project_id, job_id,
-           name="strategy:dataset-parse")
+    job_id = launch("dataset_upload", str(uuid.uuid4()), project_id, dataset_id=dataset_id, file_path=str(dest),
+                    file_name=file.filename or safe_name)
 
     return {
         "dataset_id": dataset_id,
@@ -1191,6 +1195,40 @@ def delete_dataset(dataset_id: IdPath):
     return {"ok": True}
 
 
+@resumable("sample_evaluation")
+def _sample_evaluation_job(job_id: str, project_id: int, *, eval_id: int, file_path: str) -> None:
+    """Score an uploaded Meltwater sample against the latest strategy (no AI call; a resumed job simply runs again)."""
+    store.update_job(job_id, status="running", progress_pct=10,
+                     progress_message="Detecting Meltwater export structure")
+    _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
+                 "progress_pct": 10, "message": "Detecting Meltwater export structure"})
+
+    try:
+        project = store.get_project(project_id)
+        strategy = store.get_latest_strategy(project_id)
+
+        if not project or not strategy:
+            store.update_job(job_id, status="failed", error="Project or strategy not found")
+            return
+
+        evaluation = evaluate_sample(
+            file_path,
+            project["spec"],
+            strategy["strategy"],
+        )
+
+        store.update_evaluation(eval_id, evaluation)
+        store.update_job(job_id, status="completed", progress_pct=100,
+                         progress_message="Evaluation complete",
+                         result={"eval_id": eval_id, "evaluation": evaluation})
+        _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "completed",
+                     "progress_pct": 100, "message": "Evaluation complete"})
+
+    except Exception as e:
+        store.update_job(job_id, status="failed", error=str(e))
+        _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "failed", "error": str(e)})
+
+
 @router.post("/evaluation/upload", response_model=EvaluationUploadResponse)
 async def upload_sample_dataset(
     project_id: int,
@@ -1213,41 +1251,8 @@ async def upload_sample_dataset(
 
     eval_id = store.save_sample_evaluation(project_id, strategy_id, file.filename or safe_name, str(dest))
 
-    job_id = f"eval_{uuid.uuid4().hex[:12]}"
-    store.create_job(job_id, project_id, "sample_evaluation")
-
-    def worker():
-        store.update_job(job_id, status="running", progress_pct=10,
-                         progress_message="Detecting Meltwater export structure")
-        _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "running",
-                     "progress_pct": 10, "message": "Detecting Meltwater export structure"})
-
-        try:
-            project = store.get_project(project_id)
-            strategy = store.get_latest_strategy(project_id)
-
-            if not project or not strategy:
-                store.update_job(job_id, status="failed", error="Project or strategy not found")
-                return
-
-            evaluation = evaluate_sample(
-                str(dest),
-                project["spec"],
-                strategy["strategy"],
-            )
-
-            store.update_evaluation(eval_id, evaluation)
-            store.update_job(job_id, status="completed", progress_pct=100,
-                             progress_message="Evaluation complete",
-                             result={"eval_id": eval_id, "evaluation": evaluation})
-            _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "completed",
-                         "progress_pct": 100, "message": "Evaluation complete"})
-
-        except Exception as e:
-            store.update_job(job_id, status="failed", error=str(e))
-            _broadcast({"type": "intel_job_update", "job_id": job_id, "status": "failed", "error": str(e)})
-
-    submit(worker, name="strategy:sample-evaluation")
+    job_id = launch("sample_evaluation", f"eval_{uuid.uuid4().hex[:12]}", project_id, eval_id=eval_id,
+                    file_path=str(dest))
     return {"job_id": job_id, "eval_id": eval_id}
 
 

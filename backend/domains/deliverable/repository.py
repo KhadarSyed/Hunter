@@ -20,12 +20,13 @@ from .models import intel_reference_decks as reference_decks
 
 # core/store.py star-imports this module: export only the repository functions and the cache age
 __all__ = ["create_deliverable_run", "update_deliverable_run", "get_deliverable_run", "recent_run_durations",
-           "get_latest_deliverable_run", "fail_interrupted_deliverable_runs", "get_active_deliverable_run",
+           "get_latest_deliverable_run", "claim_interrupted_deliverable_runs", "get_active_deliverable_run",
+           "clear_run_content_sections",
            "save_deliverable_section", "replace_deliverable_section", "list_deliverable_sections",
            "CLASSIFICATION_MAX_AGE_S", "get_cached_classification", "save_cached_classification",
            "save_reference_deck", "list_reference_decks", "get_deliverable_plans", "save_deliverable_plan",
            "create_latest24h_refresh", "finish_latest24h_refresh", "get_latest_latest24h_refresh",
-           "fail_interrupted_latest24h_refreshes", "save_deck_files", "deck_file_names", "project_deck_s3_keys",
+           "claim_interrupted_latest24h_refreshes", "save_deck_files", "deck_file_names", "project_deck_s3_keys",
            "deck_file_s3_key", "deck_file_parts"]
 
 _RUN_FIELDS = {"status", "stage", "pptx_path", "docx_path", "thumbs_dir", "error", "finished_at",
@@ -81,16 +82,23 @@ def get_latest_deliverable_run(project_id: int) -> Optional[dict]:
                                .order_by(runs.c.created_at.desc(), runs.c.id.desc()).limit(1)))
 
 
-def fail_interrupted_deliverable_runs() -> int:
-    """Runs still 'running' at startup died with the previous process; without this they block Generate."""
+def claim_interrupted_deliverable_runs() -> list[dict]:
+    """Runs still 'running' at startup were stopped with the previous process: returned to be resumed (engine.py).
+    shortcut: claims without a per-process marker; correct for the single uvicorn process we run, add one before
+    running several workers."""
     with sa.begin() as conn:
         # a Fix on a finished deck (its deck_dir is set only once the run has finished) was interrupted, not the run:
         # the deck as last saved is still the deliverable
-        repaired = conn.execute(update(runs).where(runs.c.status == "running", runs.c.stage == "repair",
-                                                   runs.c.deck_dir.is_not(None)).values(status="completed")).rowcount
-        failed = conn.execute(update(runs).where(runs.c.status == "running").values(
-            status="failed", error="interrupted by a server restart", finished_at=time.time())).rowcount
-    return failed + repaired
+        conn.execute(update(runs).where(runs.c.status == "running", runs.c.stage == "repair",
+                                        runs.c.deck_dir.is_not(None)).values(status="completed"))
+        return [dict(r._mapping) for r in conn.execute(select(runs.c.id, runs.c.project_id, runs.c.created_at)
+                                                       .where(runs.c.status == "running").order_by(runs.c.id))]
+
+
+def clear_run_content_sections(run_id: int, keep: tuple[str, ...] = ("log", "timings", "progress")) -> None:
+    """A resumed run writes its sections again: drop the ones it will rewrite, keep its log and timings."""
+    with sa.begin() as conn:
+        conn.execute(delete(sections).where(sections.c.run_id == run_id, sections.c.section_key.not_in(keep)))
 
 
 def get_active_deliverable_run(project_id: int) -> Optional[dict]:
@@ -216,11 +224,11 @@ def get_latest_latest24h_refresh(project_id: int) -> Optional[dict]:
     return d
 
 
-def fail_interrupted_latest24h_refreshes() -> int:
-    """A server restart ends any refresh mid-flight; mark it so the page never waits on it forever."""
+def claim_interrupted_latest24h_refreshes() -> list[dict]:
+    """Refreshes still 'running' at startup were stopped with the previous process: returned to be run again."""
     with sa.begin() as conn:
-        return conn.execute(update(refreshes).where(refreshes.c.status == "running").values(
-            status="failed", error="Interrupted by a server restart", finished_at=time.time())).rowcount
+        return [dict(r._mapping) for r in conn.execute(select(refreshes.c.id, refreshes.c.project_id, refreshes.c.started_at)
+                                                       .where(refreshes.c.status == "running").order_by(refreshes.c.id))]
 
 
 # ─── A finished deck's files (deck_store.py) ────────────────────────────────

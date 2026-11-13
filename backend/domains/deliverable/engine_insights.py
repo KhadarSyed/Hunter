@@ -128,7 +128,7 @@ def section_summaries(rq: RQ, sections: list[Section], rows: list[EngineRow], re
                                 avoid=said)
             summary = [c for c in why if not c.get("fact_only")][:1] or summary
         if summary:
-            out[s.id] = (cards if len(cards) >= 2 else []) or summary[:1]
+            out[s.id] = _every_segment(rq, s, inp, cards, summary, registry, llm, said)
             said += [f"{c.get('headline', '')}: {c.get('text', '')}" for c in out[s.id]]
     return out
 
@@ -164,7 +164,47 @@ def _batched_summaries(rq: RQ, sections: list[Section], rows: list[EngineRow], r
             cards[i] = [found[g.lower()] for g in inputs[i]["segments"] if g.lower() in found]
         else:
             first[i] = [c for c in more if not c.get("fact_only")][:1] or first[i]
-    return {s.id: (cards[i] if len(cards[i]) >= 2 else []) or first[i][:1] for i, s in enumerate(secs) if first[i]}
+    return {s.id: _every_segment(rq, s, inputs[i], cards[i], first[i], registry, llm, said)
+            for i, s in enumerate(secs) if first[i]}
+
+
+def _every_segment(rq: RQ, s: Section, inp: dict, cards: list[dict], summary: list[dict], registry: CitationRegistry,
+                   llm, said: list[str]) -> list[dict]:
+    """The slide's cards: one per chart category. A category still without its card is drafted from its own
+    articles only; one no article explains gets a reading of its number from the chart (count_only), so every
+    category is explained here instead of by the deck's repair round. Not a breakdown: the single summary."""
+    segments = inp["segments"] or []
+    if len(segments) < 2:
+        return (cards if len(cards) >= 2 else []) or summary[:1]
+    have = _by_headline(cards)
+    found: dict[str, dict] = {}
+    by_url = {a.norm_url: a for a in inp["candidates"]}
+    owned = inp["article_segments"] or {}
+    for g in [g for g in segments if g.lower() not in have]:
+        own = [by_url[u] for u, segs in owned.items() if g in segs and u in by_url]
+        if own and llm is not None:
+            more = draft_section(inp["section"], s.facts, own, registry, llm, 1,
+                                 avoid=said + [f"{c.get('headline')}: {c.get('text')}" for c in cards],
+                                 segments=[g], article_segments={u: [g] for u in (a.norm_url for a in own)},
+                                 related_segments=inp["related"])
+            card = _by_headline(more or []).get(g.lower())
+            if card and not card.get("fact_only"):
+                found[g.lower()] = card
+    unread = [g for g in segments if g.lower() not in have and g.lower() not in found]
+    if unread and s.chart:
+        from ..deckstudio import count_reading
+        cats = [str(c) for c in s.chart.get("categories") or []]
+        values = [float(v or 0) for v in s.chart.get("values") or []]
+        texts = count_reading.readings(llm, rq.question or rq.id, s.title, cats, values,
+                                       s.chart.get("unit") == "percent", unread)
+        found.update({g.lower(): {"headline": g, "count_only": True, "citations": [], "text": texts[g]} for g in unread})
+    every = {**found, **have}
+    out = [every[g.lower()] for g in segments if g.lower() in every]
+    if len(out) < 2:
+        return (cards if len(cards) >= 2 else []) or summary[:1]
+    if not any(c.get("citations") for c in out) and summary[:1] and summary[0].get("citations"):
+        out = summary[:1] + out           # the slide keeps a cited summary beside its counts (as the repair does)
+    return out
 
 
 # brand, outlet and people charts: their cards name brands and people by design (see deckstudio.validate)

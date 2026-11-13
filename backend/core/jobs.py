@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextvars
 import logging
 import threading
+import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Callable
 
@@ -54,3 +55,56 @@ class JobRunner:
 
 runner = JobRunner()
 submit = runner.submit
+
+# ─── Jobs that survive a restart ─────────────────────────────────────────────
+# A stage registers its job function once (fn(job_id, project_id, **params)); launch() saves the job's inputs with
+# its intel_jobs row, and at startup resume_interrupted() starts every job a stopped server left running or queued
+# again with the same inputs. The job itself skips what it already finished (its checkpoints, see core/store
+# save_checkpoint), and the AI answers it got before the restart are replayed from memory instead of asked again.
+
+_RESUMABLE: dict[str, Callable[..., Any]] = {}
+_BOOTED_AT = time.time()
+_SCOPE_FIELDS = ("org_id", "user_id")
+
+
+def resumable(job_type: str):
+    """Decorator: fn(job_id, project_id, **params) is the job body for job_type, also used to resume it."""
+    def register(fn: Callable[..., Any]) -> Callable[..., Any]:
+        _RESUMABLE[job_type] = fn
+        return fn
+    return register
+
+
+def launch(job_type: str, job_id: str, project_id: int, **params: Any) -> str:
+    """Create the job row with its inputs (JSON-able) and the caller's org/user, then run it in the background."""
+    from . import store
+    from ..domains.usage import service as usage
+    scope = {k: v for k, v in usage.current().items() if k in _SCOPE_FIELDS and v is not None}
+    store.create_job(job_id, project_id, job_type, params={"args": params, "scope": scope})
+    runner.submit(_RESUMABLE[job_type], job_id, project_id, name=f"{job_type}:{project_id}", **params)
+    return job_id
+
+
+def _resume(fn: Callable[..., Any], job: dict) -> None:
+    from ..domains.memory import service as memory
+    from ..domains.usage import service as usage
+    params = job["params"]
+    with usage.scope(**params.get("scope", {})), memory.replay(job["created_at"]):
+        fn(job["id"], job["project_id"], **params.get("args", {}))
+
+
+def resume_interrupted() -> dict[str, list[str]]:
+    """At startup: every job left running or queued is started again (or cancelled when it cannot be)."""
+    from . import store
+    out: dict[str, list[str]] = {"resumed": [], "cancelled": []}
+    for job in store.claim_interrupted_jobs(_BOOTED_AT):
+        fn = _RESUMABLE.get(job["job_type"])
+        if fn is None or not isinstance(job["params"], dict):
+            store.update_job(job["id"], status="cancelled", error="Canceled: stopped by a server restart")
+            store.clear_checkpoints(f"job:{job['id']}")
+            out["cancelled"].append(job["id"])
+            continue
+        logger.info("Resuming %s job %s for project %s after a restart", job["job_type"], job["id"], job["project_id"])
+        runner.submit(_resume, fn, job, name=f"resume:{job['job_type']}:{job['project_id']}")
+        out["resumed"].append(job["id"])
+    return out

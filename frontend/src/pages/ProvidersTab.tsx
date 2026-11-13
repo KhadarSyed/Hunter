@@ -26,8 +26,12 @@ const TYPE_LABEL: Record<ProviderType, string> = {
 type Draft = ProviderFields & { api_key: string };
 const emptyDraft = (p: Preset): Draft => ({
   name: p.id === "custom" ? "" : p.label, provider_type: p.type, base_url: p.baseUrl, model: p.model,
-  api_version: p.apiVersion, api_key: "",
+  api_version: p.apiVersion, reads_images: null, api_key: "",
 });
+const IMAGES: { value: string; label: string; v: boolean | null }[] = [
+  { value: "", label: "Not known (learned on first photo check)", v: null },
+  { value: "yes", label: "Yes", v: true }, { value: "no", label: "No", v: false },
+];
 const errText = (e: unknown, fallback: string) => (e instanceof Error ? e.message : fallback);
 
 function StatusBadge({ p }: { p: LlmProvider }) {
@@ -51,14 +55,14 @@ function ProviderForm({ orgId, editing, onDone, onCancel }:
   const [presetId, setPresetId] = useState(editing ? "" : "openai");
   const [draft, setDraft] = useState<Draft>(editing
     ? { name: editing.name, provider_type: editing.provider_type, base_url: editing.base_url, model: editing.model,
-        api_version: editing.api_version, api_key: "" }
+        api_version: editing.api_version, reads_images: editing.reads_images ?? null, api_key: "" }
     : emptyDraft(PRESETS[0]));
   const [busy, setBusy] = useState<"" | "test" | "save">("");
   const [result, setResult] = useState<ProviderTestResult | null>(null);
   const [error, setError] = useState("");
   const set = (patch: Partial<Draft>) => { setDraft((d) => ({ ...d, ...patch })); setResult(null); };
   const fields: ProviderFields = { name: draft.name, provider_type: draft.provider_type, base_url: draft.base_url,
-    model: draft.model, api_version: draft.api_version };
+    model: draft.model, api_version: draft.api_version, reads_images: draft.reads_images ?? null };
   const isAzure = draft.provider_type === "azure_openai";
   const urlOptional = draft.provider_type === "anthropic" || draft.provider_type === "gemini";
   const canSubmit = draft.name.trim() && draft.model.trim() && (urlOptional || draft.base_url.trim())
@@ -120,6 +124,13 @@ function ProviderForm({ orgId, editing, onDone, onCancel }:
           <input className={input} type="password" autoComplete="off" value={draft.api_key}
                  onChange={(e) => set({ api_key: e.target.value })}
                  placeholder={editing ? `Saved key ${editing.key_hint}: leave blank to keep it` : "Paste the key"} />
+        </label>
+        <label className="space-y-1 text-xs font-medium text-slate-600 sm:col-span-2">Reads images
+          <select className={input} value={IMAGES.find((o) => o.v === (draft.reads_images ?? null))?.value ?? ""}
+                  onChange={(e) => set({ reads_images: IMAGES.find((o) => o.value === e.target.value)?.v ?? null })}>
+            {IMAGES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <span className="block font-normal text-slate-400">Photo checks in decks go only to models that can read images (GPT-4o, GPT-5 can).</span>
         </label>
       </div>
       {!editing && <p className="text-xs text-slate-500">Saved, it becomes this organization's model straight away: the newest provider always comes first.</p>}
@@ -279,6 +290,8 @@ export function ProvidersTab() {
                     <span className="text-sm font-semibold text-slate-900">{p.name}</span>
                     {p.is_default && <span className="rounded bg-[#5B2C9D]/10 px-1.5 py-0.5 text-[11px] font-semibold text-[#5B2C9D]">Default</span>}
                     <StatusBadge p={p} />
+                    {p.reads_images === false && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500">No images</span>}
+                    {p.reads_images === true && <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[11px] font-medium text-sky-700">Reads images</span>}
                   </div>
                   <div className="mt-0.5 truncate text-xs text-slate-500">
                     {TYPE_LABEL[p.provider_type]} · <span className="font-mono">{p.model}</span>

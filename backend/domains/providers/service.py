@@ -189,6 +189,9 @@ def call(org_id: int, rows: list[dict], invoke):
                 if kind == "capability":    # it works, but cannot take this request: the next model may (no email)
                     _mark_up(row)
                     unable = e
+                    if row.get("reads_images") is None:    # learned once: image requests skip it from now on
+                        repo.set_reads_images(row["id"], 0)
+                        invalidate(org_id)
                     logger.info("Org %s: model %s cannot take this request (%s); trying the next one", org_id,
                                 row["name"], str(e)[:120])
                     continue

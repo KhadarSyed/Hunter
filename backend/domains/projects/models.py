@@ -35,4 +35,14 @@ intel_jobs = Table(
     Column("started_at", Double),
     Column("finished_at", Double),
     Column("created_at", Double, nullable=False),
+    Column("params_json", Text),                            # inputs + scope, to start it again after a restart
+)
+
+intel_checkpoints = Table(                                  # migration 0006: finished steps of a job or deck run
+    "intel_checkpoints", metadata,
+    Column("owner", Text, primary_key=True),                # "job:<id>" | "deck:<run id>"
+    Column("step", Text, primary_key=True),
+    Column("project_id", BigInteger, nullable=False),
+    Column("payload_json", Text, nullable=False),
+    Column("created_at", Double, nullable=False),
 )

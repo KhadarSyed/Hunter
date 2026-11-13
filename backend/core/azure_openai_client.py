@@ -20,6 +20,9 @@ import requests
 logger = logging.getLogger(__name__)
 
 
+LOW_EFFORTS = ("low", "minimal")     # a cut-off at these is not retried
+
+
 class AzureOpenAIError(RuntimeError):
     pass
 
@@ -181,9 +184,12 @@ class AzureOpenAIClient:
         messages: list[dict],
         on_token: Optional[Callable[[str], None]] = None,
         format_json: bool = False,
+        _effort: str | None = None,
     ) -> str:
         headers = {"api-key": self.api_key, "Content-Type": "application/json"}
         payload = self._payload(messages)
+        if _effort and self.reasoning_params:
+            payload["reasoning_effort"] = _effort
         if format_json:
             payload["response_format"] = {"type": "json_object"}
 
@@ -201,6 +207,10 @@ class AzureOpenAIClient:
             _record(body.get("model") or self.deployment, "chat", body.get("usage"), started)
             choice = body["choices"][0]
             if choice.get("finish_reason") == "length":     # raised, not returned: a cut-off reply is never cached
+                if self.reasoning_params and payload.get("reasoning_effort") not in LOW_EFFORTS:
+                    # GPT-5 spent the budget thinking: ask once more with less thinking (the same fix as org models)
+                    logger.warning("Azure %s reply cut off; retrying with reasoning_effort=low", self.deployment)
+                    return self.chat(messages, format_json=format_json, _effort="low")
                 raise ReplyCutOff(f"Azure OpenAI reply cut off at max_completion_tokens={MAX_OUTPUT_TOKENS}")
             return choice["message"]["content"]
 

@@ -13,7 +13,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ...core import events, store
-from ...core.jobs import runner
+from ...core.jobs import launch, resumable
 from ..deliverable.labels import theme_key
 from ..memory import service as memory
 from . import batching, repository as repo
@@ -54,8 +54,7 @@ def start_tagging(project_id: int, user: str | None = None, only_rq: str | None 
         _RUNNING.add(project_id)
     job_id = uuid.uuid4().hex
     try:
-        store.create_job(job_id, project_id, "dataset_tagging")
-        runner.submit(run_job, project_id, job_id, None, only_rq, name=f"dataset_tagging_{project_id}")
+        launch("dataset_tagging", job_id, project_id, only_rq=only_rq)
     except Exception:
         with _LOCK:
             _RUNNING.discard(project_id)
@@ -260,6 +259,12 @@ def _relations_phase(pid: int, llm, prog: _Progress) -> None:
         found, _method = relations.find_relations(items, llm, kind="article")
         repo.save_relations(pid, found)
     prog.advance()
+
+
+@resumable("dataset_tagging")
+def _tagging_job(job_id: str, project_id: int, *, only_rq: str | None = None) -> None:
+    """The registered job: each phase picks only the articles still needing it, so a resumed job continues there."""
+    run_job(project_id, job_id, None, only_rq)
 
 
 def run_job(project_id: int, job_id: str, llm=None, only_rq: str | None = None) -> None:

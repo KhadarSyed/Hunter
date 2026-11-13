@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from ...core import sa
 from .models import intel_projects, org_llm_providers as p, org_llm_state as st
 
-FIELDS = ("name", "provider_type", "base_url", "model", "api_version")
+FIELDS = ("name", "provider_type", "base_url", "model", "api_version", "reads_images")
 _OUTAGE = ("acting_provider_id", "down_since", "failed_calls", "notified", "paused", "last_error")
 
 
@@ -79,6 +79,11 @@ def set_default(org_id: int, provider_id: int | None) -> None:
         conn.execute(sql_update(p).where(p.c.org_id == org_id).values(is_default=0))
         if provider_id is not None:
             conn.execute(sql_update(p).where(p.c.id == provider_id, p.c.org_id == org_id).values(is_default=1))
+
+
+def set_reads_images(provider_id: int, value: int | None) -> None:
+    with sa.begin() as conn:
+        conn.execute(sql_update(p).where(p.c.id == provider_id).values(reads_images=value))
 
 
 def record_test(provider_id: int, ok: bool, error: str, latency_ms: int) -> None:
