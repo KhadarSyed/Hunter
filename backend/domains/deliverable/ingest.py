@@ -1,13 +1,10 @@
 """Load theme coverage files into de-duplicated Article records."""
 from __future__ import annotations
 
-import csv
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from pathlib import Path
 
-import openpyxl
 
 _TEXT_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%b. %d, %Y", "%b %d, %Y", "%B %d, %Y", "%m/%d/%Y")
 
@@ -95,23 +92,6 @@ def parse_date(value, order: str = "ymd") -> date | None:
         except ValueError:
             continue
     return None
-
-
-def _read_rows(spec: dict) -> list[dict]:
-    path = Path(spec["path"])
-    if path.suffix.lower() == ".csv":
-        raw = path.read_bytes()
-        try:
-            text = raw.decode("utf-8-sig")
-        except UnicodeDecodeError:
-            text = raw.decode("cp1252")
-        return list(csv.DictReader(text.lstrip("﻿").splitlines()))
-    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    ws = wb[spec["sheet"]] if spec.get("sheet") else wb.worksheets[0]
-    rows = list(ws.iter_rows(values_only=True))
-    wb.close()
-    header = ["" if h is None else str(h) for h in rows[0]]
-    return [dict(zip(header, r)) for r in rows[1:] if any(v is not None for v in r)]
 
 
 def _to_float(v) -> float:

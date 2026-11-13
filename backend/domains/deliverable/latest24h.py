@@ -295,13 +295,6 @@ def known_country(article: dict) -> str | None:
     return named or next((code for word, code in _HOST_COUNTRY.items() if label.startswith(word)), None)
 
 
-def outlet_country(article: dict) -> str | None:
-    """The outlet's ISO country when it can be told: known_country, else its site's address (page_signals).
-    None when unknown — an undecoded news.google.com link names no publisher."""
-    site = _site(article)
-    return known_country(article) or (publisher_country(site) if site else None)
-
-
 def outlet_countries(articles: list[dict]) -> list[str | None]:
     """outlet_country for each article. The offline answers (script, ccTLD) come first and always count: queued
     behind slow site fetches they used to miss the budget, so 조선일보 was kept. Site lookups get COUNTRY_BUDGET_S;

@@ -195,7 +195,7 @@ def logo_colors(path, limit: int = 2) -> list[str]:
     except Exception:
         return []
     counts: dict[tuple, int] = {}
-    for r, g, b, a in img.getdata():
+    for r, g, b, a in img.get_flattened_data():
         if a < 200:
             continue
         h, l, s = colorsys.rgb_to_hls(r / 255, g / 255, b / 255)

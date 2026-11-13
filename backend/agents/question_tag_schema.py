@@ -22,7 +22,6 @@ MAX_ALLOWED = 12
 MAX_ENTITIES = 10
 MAX_EVIDENCE = 300
 MIN_ALLOWED = 2
-FROM_REVIEW_TABLE = "READ_FROM_REVIEW_TABLE"
 
 _PROMPT = (
     "You are a question-driven dynamic tagging engine for media intelligence. Read the research QUESTION and derive "
@@ -124,29 +123,6 @@ def derive(llm, rq_id: str, question: str, query: str, review_columns: list[dict
         return fallback
     intent = _snake(data.get("question_intent")) or "answer_question"
     return TagSchema(rq_id, question, intent, tags, tuple(columns.items())), "llm"
-
-
-# Review-table columns that are not question dimensions but record what a tag of that name asks
-BUILT_IN_COLUMNS = {"sentiment": "Sentiment", "overall_sentiment": "Sentiment"}
-
-
-def _review_column(tag: TagDef, labels: dict[str, str]) -> tuple[str, str]:
-    """(key, label) of the Review column recording the tag: the one it was mapped to, a question column or built-in
-    column of the same name, else the column the Review table draws for the tag itself."""
-    for key in (tag.review_column, tag.tag_name):
-        if key in labels:
-            return key, labels[key]
-    if tag.tag_name in BUILT_IN_COLUMNS:
-        return tag.tag_name, BUILT_IN_COLUMNS[tag.tag_name]
-    return tag.tag_name, tag.tag_name.replace("_", " ").capitalize()
-
-
-def review_mapping(schema: TagSchema) -> list[dict]:
-    """Each tag against the Review table and its column. Points and weights are read there, never made up."""
-    labels = dict(schema.review_columns)
-    return [{"question_id": schema.question_id, "tag_name": t.tag_name, "review_column": key, "review_criterion": label,
-             "mapping_status": "MAPPED", "points": FROM_REVIEW_TABLE, "weight": FROM_REVIEW_TABLE}
-            for t in schema.tags for key, label in [_review_column(t, labels)]]
 
 
 def to_json(schema: TagSchema) -> dict:

@@ -28,8 +28,6 @@ from ...core import store
 
 logger = logging.getLogger(__name__)
 
-TYPES = ("short_term", "episodic", "semantic", "procedural", "long_term", "entity", "relationship", "reflection",
-         "user", "llm_cache")
 LLM_CACHE_TTL = 7 * 86400          # an identical prompt within a week gets the same answer without a GPT call
 GROUNDING_TTL = 14 * 86400         # web-grounded executives/launches go stale, so they are re-searched after this
 MAX_LESSONS = 6

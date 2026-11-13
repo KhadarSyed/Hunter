@@ -118,7 +118,8 @@ changed and why. Open the code only for the files a note or the map points to.
   2026-11-11 and is suspended; Render deletes it about 2026-11-25; no upgrade (user's decision, no budget). Work and
   test locally only; never trigger Render/Vercel deploys or change Render env.
 - **Local stack:** Docker `hunter-postgres` (port 5433) + backend `uvicorn backend.main:app --port 8002` (serves the
-  built SPA). Schema at Alembic revision `0001` (stamped 2026-11-12, log 40). Local Super Admin = the
+  built SPA). Schema at Alembic revision `0002` (0001 stamped 2026-11-12, log 40; 0002 renames `org_subscriptions.payment_ref`
+  to `source`, log 2026-11-13-10). Local Super Admin = the
   `SEED_SUPER_ADMIN_EMAIL` account (user 2); the `.env` seed password no longer matches it (changed at sign-in).
 - **Local data:** organisations 1 Default Organization, 2 InfoVision (`platform_llm` on), 3 Test Organization
   (`platform_llm` off); 0 projects. Test Organization's chat models, in failover order: NVIDIA

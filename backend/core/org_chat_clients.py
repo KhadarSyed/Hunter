@@ -20,7 +20,6 @@ from .azure_openai_client import MAX_OUTPUT_TOKENS, AzureOpenAIClient, ReplyCutO
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
 ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 ANTHROPIC_VERSION = "2023-06-01"
-PROVIDER_TYPES = ("openai_compatible", "azure_openai", "anthropic", "gemini")
 
 
 class ProviderCallError(RuntimeError):

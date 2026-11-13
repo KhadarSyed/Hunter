@@ -330,7 +330,10 @@ def build_pptx(pngs: list[Path], spec: DeckSpec, out: Path, builds: list[Shot] |
 
 
 def build_pdf(pngs: list[Path], out: Path) -> Path:
-    images = [Image.open(p).convert("RGB") for p in pngs]
+    images = []
+    for p in pngs:                      # convert() copies: close each PNG, or Windows keeps every slide locked
+        with Image.open(p) as im:
+            images.append(im.convert("RGB"))
     out.parent.mkdir(parents=True, exist_ok=True)
     images[0].save(out, "PDF", save_all=True, append_images=images[1:], resolution=144)
     return out

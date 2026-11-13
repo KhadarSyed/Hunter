@@ -23,7 +23,6 @@ from PIL import Image
 from . import config
 
 logger = logging.getLogger(__name__)
-SUPPORT_EMAIL = "support@alphametricx.com"
 WORDMARK_KEY = "HunterAgent/assets/house/alphametricx-logo.png"
 _ENV = Environment(loader=FileSystemLoader(config.BACKEND_DIR / "core" / "templates"),
                    autoescape=select_autoescape(["html", "j2"]))
@@ -171,7 +170,7 @@ def _text(ctx: dict) -> str:
         lines += ["", f"{ctx['button']['text']}: {ctx['button']['href']}"]
     if ctx["org"].get("rows"):
         lines += ["", "ORGANIZATION"] + [f"{k}: {v}" for k, v in ctx["org"]["rows"]]
-    lines += ["", plain(ctx.get("footer", "")), "", f"Questions? {SUPPORT_EMAIL}",
+    lines += ["", plain(ctx.get("footer", "")), "", f"Questions? {config.get_app_settings().support_email}",
               f"AlphaMetricx © {time.localtime().tm_year} · Never share your password or codes."]
     return "\n".join(lines) + "\n"
 
@@ -191,7 +190,7 @@ def render(subject: str, ctx: dict, *, inline: bool = True) -> dict:
     ctx["models"] = [{**m, "logo": attach(f"model{i}", m.get("logo"))} for i, m in enumerate(ctx.get("models") or [])]
     ctx["projects"] = [{**p, "logo": attach(f"project{i}", p.get("logo"))} for i, p in enumerate(ctx.get("projects") or [])]
     html = _ENV.get_template("email.html.j2").render(
-        **ctx, subject=subject, wordmark=attach("wordmark", _wordmark()), support=SUPPORT_EMAIL,
+        **ctx, subject=subject, wordmark=attach("wordmark", _wordmark()), support=config.get_app_settings().support_email,
         year=time.localtime().tm_year)
     return {"subject": subject, "html": html, "text": _text(ctx), "inline_images": images}
 

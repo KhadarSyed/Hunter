@@ -71,7 +71,7 @@ def create_subscription(org_id: int, plan_id: int, status: str, created_by: int 
     with sa.begin() as conn:
         return conn.execute(insert(subs).values(
             org_id=org_id, plan_id=plan_id, status=status, starts_at=starts_at, ends_at=ends_at,
-            payment_ref="granted", reminders="", created_by=created_by, created_at=time.time(),
+            source="granted", reminders="", created_by=created_by, created_at=time.time(),
         ).returning(subs.c.id)).scalar_one()
 
 

@@ -57,7 +57,6 @@ class Photo:
 # ─── licence policy (Instructions/image-licensing-legal-note.md) ──────────────────────────────────────────────────
 # Client decks use licence-safe photos only, unless the organization turned on "editorial images" (Settings >
 # Guardrails); IMAGE_SOURCE=legacy restores the earlier behaviour (article + web images allowed) as a rollback.
-LICENSED = ("licensed", "brand")
 OPENVERSE_URL = "https://api.openverse.org/v1/images/"
 PIXABAY_URL = "https://pixabay.com/api/"
 BREAKER_FAILS, BREAKER_PAUSE_S, SEARCH_CACHE_S = 3, 600, 24 * 3600

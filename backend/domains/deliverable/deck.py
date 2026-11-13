@@ -6,13 +6,11 @@ from pptx.opc.packuri import PackURI
 from pptx.util import Inches
 
 from . import blocks
-from .metrics import month_label
 
 CITES_PER_PAGE = 18
 
 
-LOGO_MAX_W, LOGO_MAX_H = 0.9, 0.45
-BRAND_PLOT_TOP, BRAND_PLOT_H = 1.6, 5.3   # bar plot area inside the 1.45in/5.6in brands chart (measured from render)
+LOGO_MAX_W = 0.9
 
 
 def _add_logo(slide, path, x: float, centre_y: float, max_h: float) -> None:
@@ -43,13 +41,6 @@ def _move_to_end(prs, index: int) -> None:
     el = list(ids)[index]
     ids.remove(el)
     ids.append(el)
-
-
-def _source(cfg, theme_metrics=None) -> str:
-    if theme_metrics and theme_metrics.get("date_min"):
-        return (f"{month_label(theme_metrics['date_min'][:7])} – "
-                f"{month_label(theme_metrics['date_max'][:7])}")
-    return cfg["period_label"]
 
 
 def _summary(ins: list[dict]) -> str:

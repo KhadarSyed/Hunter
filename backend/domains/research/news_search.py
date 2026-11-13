@@ -26,7 +26,7 @@ import logging
 import os
 import re
 import xml.etree.ElementTree as ET
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from typing import Callable, TypedDict
 from urllib.parse import quote, urlparse, urlunparse
@@ -615,7 +615,7 @@ def _recency_hours_for_range(date_range: tuple | None) -> int:
     if not date_range:
         return DEFAULT_RSS_RECENCY_HOURS
     start = _coerce_datetime(date_range[0])
-    hours = int((datetime.utcnow() - start).total_seconds() // 3600)
+    hours = int((datetime.now(timezone.utc).replace(tzinfo=None) - start).total_seconds() // 3600)
     return max(1, min(hours, MAX_RSS_RECENCY_HOURS))
 
 

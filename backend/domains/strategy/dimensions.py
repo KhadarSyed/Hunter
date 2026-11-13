@@ -115,15 +115,3 @@ def _project_dimensions(project_id: int, llm=None) -> dict[str, list[qd.Dimensio
     return out
 
 
-def _union(dim_lists: list[list[qd.Dimension]]) -> list[qd.Dimension]:
-    """Dimensions of several questions as one list: the same key merges its values."""
-    merged: dict[str, qd.Dimension] = {}
-    for dims in dim_lists:
-        for d in dims:
-            have = merged.get(d.key)
-            if have is None:
-                merged[d.key] = d
-                continue
-            names = {v.name for v in have.values}
-            merged[d.key] = qd.Dimension(have.key, have.label, have.values + tuple(v for v in d.values if v.name not in names))
-    return list(merged.values())

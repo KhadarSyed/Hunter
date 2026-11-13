@@ -110,7 +110,7 @@ Copy `.env.example` to `.env` and fill it in. **Never commit `.env`.**
 | `BRANDFETCH_API_KEY`, `BRANDFETCH_CLIENT_ID` | Recommended | Brand logos and colours |
 | `SERP_API_KEY` (or `SERP_API_KEYS`) | Optional | Google News and Google Images (logo fallback) |
 | `TAVILY_API_KEY` | Optional | Additional news search |
-| `PEXEL_API_KEY` | Optional | Licensed photos for slides and page headers |
+| `PEXELS_API_KEY` (older name `PEXEL_API_KEY` still read) | Optional | Licensed photos for slides and page headers |
 
 ---
 

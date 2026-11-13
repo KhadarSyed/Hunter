@@ -33,7 +33,7 @@ def is_light(img: Image.Image) -> bool:
     small = img.convert("RGBA").resize(SAMPLE_SIZE)
     if small.getchannel("A").getextrema()[0] == 255:    # an opaque logo carries its own background
         return False
-    lumas = [0.299 * r + 0.587 * g + 0.114 * b for r, g, b, a in small.getdata() if a > ALPHA_VISIBLE]
+    lumas = [0.299 * r + 0.587 * g + 0.114 * b for r, g, b, a in small.get_flattened_data() if a > ALPHA_VISIBLE]
     return bool(lumas) and sum(v >= LIGHT_LUMA for v in lumas) / len(lumas) >= LIGHT_SHARE
 
 

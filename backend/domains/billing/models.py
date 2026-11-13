@@ -30,7 +30,7 @@ org_subscriptions = Table(
     Column("status", Text, nullable=False),                 # active | queued | expired (pending_payment / cancelled: old checkouts)
     Column("starts_at", Double),
     Column("ends_at", Double),
-    Column("payment_ref", Text),
+    Column("source", Text),                                 # "granted" (Super Admin) or "checkout" (old test checkout)
     Column("reminders", Text, nullable=False),
     Column("created_by", BigInteger),
     Column("created_at", Double, nullable=False),

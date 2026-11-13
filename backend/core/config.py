@@ -62,8 +62,6 @@ class AppSettings(BaseSettings):
     # Shared secret for /api/* (header X-API-Key, or ?api_key= for the WebSocket).
     # Empty = auth disabled, which is only allowed when environment != production.
     api_key: str = ""
-    brandfetch_api_key: str = ""
-    brandfetch_client_id: str = ""
     # Transactional mail (ZeptoMail SMTP, ZEPTO_* in .env). No server, password or sender = mail is skipped.
     zepto_server: str = ""               # smtp.zeptomail.com (or a regional host)
     zepto_smtp_port: int = 587           # 587 STARTTLS, 465 SSL
@@ -71,12 +69,9 @@ class AppSettings(BaseSettings):
     zepto_passwd_key: str = ""           # the Send Mail token
     zepto_from: str = ""                 # verified sender address
     mail_from_name: str = "Hunter"
+    support_email: str = "support@alphametricx.com"   # the "Questions?" address in every email footer
     # The frontend's base URL, for links in emails: APP_URL, else the address Render gives the service, else local Vite.
     app_url: str = os.getenv("RENDER_EXTERNAL_URL") or "http://localhost:5173"
-    # Chat model price in USD per million tokens, for the tagging cost estimate (gpt-5 list price; set your Azure rate).
-    # gpt-5's hidden reasoning is billed as output, so a call costs more output than its visible reply.
-    llm_price_input_per_1m: float = 1.25
-    llm_price_output_per_1m: float = 10.0
 
     @field_validator("cors_origins", mode="before")
     @classmethod
