@@ -424,8 +424,8 @@ def save_rq(article_id: int, project_id: int, rq_id: str, signature: str, result
         project_id=project_id, article_id=article_id, rq_id=rq_id, signature=signature,
         matched=int(bool(result.get("matched"))), match_confidence=result.get("match_confidence"),
         keywords_json=json.dumps(result.get("keywords") or []), tags_json=json.dumps(result.get("tags") or {}, default=str),
-        evidence_json=json.dumps(result.get("evidence") or {}, default=str), summary=result.get("summary", ""),
-        reason=result.get("reason", ""), status=status, tagged_at=time.time())
+        evidence_json=json.dumps(result.get("evidence") or {}, default=str), summary=result.get("summary") or "",
+        reason=result.get("reason") or "", status=status, tagged_at=time.time())    # a model's null is no text
     new = stmt.excluded
     _exec(stmt.on_conflict_do_update(index_elements=[R.c.article_id, R.c.rq_id], set_={
         "signature": new.signature, "matched": new.matched, "match_confidence": new.match_confidence,
