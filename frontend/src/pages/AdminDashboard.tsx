@@ -10,7 +10,7 @@ import {
 type Dialog = "org" | "user" | "plans" | null;
 
 /** Super Admin landing page: every organization's plan, seats, projects and token use, read-only (projects are
- * reviewed here, never opened). New organizations, users and plans are created from here. */
+ * reviewed here, never opened). New organizations, users and plans are created, and plans applied, from here. */
 export function AdminDashboard() {
   const [data, setData] = useState<AdminOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -105,14 +105,58 @@ export function AdminDashboard() {
       </section>
 
       {detail && (
-        <Modal title="Organization (review only)" onClose={() => setDetail(null)} wide>
-          <OrgDetailView detail={detail} canEditTokens={false} />
+        <Modal title="Organization (review only)" onClose={() => { setDetail(null); load(); }} wide>
+          <div className="space-y-6">
+            <ApplyPlan orgId={detail.org.id} onApplied={() => openOrg(detail.org.id)} />
+            <OrgDetailView detail={detail} canEditTokens={false} />
+          </div>
         </Modal>
       )}
       {dialog === "org" && <Modal title="New organization" onClose={close} wide><NewOrgForm onCreated={close} onCancel={close} /></Modal>}
       {dialog === "user" && <Modal title="Users" onClose={close} wide><ManageUsersTab /></Modal>}
       {dialog === "plans" && <Modal title="Subscription plans" onClose={close} wide><PlansEditor /></Modal>}
     </div>
+  );
+}
+
+/** Super Admin applies a plan to one organization: new, renewal, upgrade or top-up. There is no payment in the app;
+ * a plan applied while one is running is queued to start when it ends. The org's admins are emailed. */
+function ApplyPlan({ orgId, onApplied }: { orgId: number; onApplied: () => void }) {
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [planId, setPlanId] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => {
+    intelApi.listPlans().then((p) => { setPlans(p); setPlanId(p[0]?.id ?? 0); })
+      .catch(() => setMsg({ ok: false, text: "Could not load plans" }));
+  }, []);
+
+  const apply = async () => {
+    if (!planId) return;
+    setBusy(true); setMsg(null);
+    try {
+      const sub = await intelApi.grantPlan(orgId, planId);
+      setMsg({ ok: true, text: sub.status === "queued"
+        ? `${sub.plan_name} queued: starts ${fmtDate(sub.starts_at)}, when the current plan ends.`
+        : `${sub.plan_name} active until ${fmtDate(sub.ends_at)}.` });
+      onApplied();
+    } catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message : "Could not apply the plan" }); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <section className="rounded-xl border border-slate-200 p-4">
+      <label className={labelCls} htmlFor="apply-plan">Apply a plan (new, renewal, upgrade or top-up)</label>
+      <div className="flex flex-wrap items-center gap-2">
+        <select id="apply-plan" value={planId} onChange={(e) => setPlanId(Number(e.target.value))} className={`${inputCls} max-w-sm`}>
+          {plans.map((p) => (
+            <option key={p.id} value={p.id}>{p.name}: {p.max_users} users · {p.max_projects} projects · {p.duration_months} months</option>
+          ))}
+        </select>
+        <button className={primaryBtn} onClick={apply} disabled={busy || !planId}>{busy ? "Applying…" : "Apply plan"}</button>
+      </div>
+      {msg && <div role={msg.ok ? "status" : "alert"} className={`mt-2 text-sm ${msg.ok ? "text-emerald-700" : "text-red-600"}`}>{msg.text}</div>}
+    </section>
   );
 }
 

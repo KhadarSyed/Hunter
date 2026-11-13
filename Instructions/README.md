@@ -86,9 +86,11 @@ changed and why. Open the code only for the files a note or the map points to.
   Only a Super Admin creates orgs (form: name, logo data-URI ≤1 MB, procurement name/email/phone, address, country,
   PIN, first plan); the procurement email becomes the org's Admin.
 - **Subscriptions:** `domains/billing/` (migration 50). Plans limit users + projects only (orgs buy their own models).
-  `service.current()` is computed from dates; renewal paid before expiry is queued to start at the current end, after
-  expiry starts now. Test gateway only (`TestGateway`; swap behind `PaymentGateway`). Limits → HTTP 402 on user/project
-  create. Sweeper thread every 6 h: queued→active, active→expired, 30/7-day reminders. Emails to Org Admins +
+  `service.current()` is computed from dates. No payment in the app (gateway + checkout removed 2026-11-13): a Super
+  Admin applies every plan with `service.grant` (`POST /billing/orgs/{id}/grant`, "Apply plan" in the org view on
+  `/admin`); one applied before expiry is queued to start at the current end, after expiry starts now; the org's admins
+  get the activated / renewed email. The Org Admin's Settings → Subscription is read-only. Limits → HTTP 402 on
+  user/project create. Sweeper thread every 6 h: queued→active, active→expired, 30/7-day reminders. Emails to Org Admins +
   procurement contact (activated / renewed / reminder / expired).
 - **Token allowance:** `user_token_limits` (Org Admin sets per user on `/org-dashboard`). Spend = `llm_usage` this
   month (user's calls + projects they own). Over → `TokenLimitReached` (a `NoChatProviderError`, so stages fall to

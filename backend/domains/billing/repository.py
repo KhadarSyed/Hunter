@@ -85,7 +85,7 @@ def update_subscription(sub_id: int, **fields) -> None:
 
 
 def org_subscriptions(org_id: int) -> list[dict]:
-    """Every paid or running subscription of the org, newest first (abandoned checkouts left out)."""
+    """Every applied subscription of the org (active, queued or expired), newest first."""
     return _all(_with_plan().where(subs.c.org_id == org_id, subs.c.status.in_(_PAID_STATUSES))
                 .order_by(subs.c.starts_at.desc(), subs.c.id.desc()))
 

@@ -673,9 +673,7 @@ export const intelApi = {
   listPlans: (all = false) => get<Plan[]>(`/billing/plans${all ? "?all=true" : ""}`),
   savePlan: (plan: PlanInput, id?: number) => (id ? put<Plan>(`/billing/plans/${id}`, plan) : post<Plan>("/billing/plans", plan)),
   subscription: (orgId?: number) => get<SubscriptionSummary>(`/billing/subscription${orgId ? `?org_id=${orgId}` : ""}`),
-  startCheckout: (planId: number) => post<{ subscription_id: number; gateway: string }>("/billing/checkout", { plan_id: planId }),
-  getCheckout: (subId: number) => get<Subscription & { org_name: string; gateway: string }>(`/billing/checkout/${subId}`),
-  payCheckout: (subId: number, success: boolean) => post<Subscription>(`/billing/checkout/${subId}/pay`, { success }),
+  grantPlan: (orgId: number, planId: number) => post<Subscription>(`/billing/orgs/${orgId}/grant`, { plan_id: planId }),
   adminOverview: () => get<AdminOverview>("/billing/overview"),
   orgDetail: (orgId: number) => get<OrgDetail>(`/billing/orgs/${orgId}`),
   setTokenLimit: (userId: number, monthlyTokens: number | null) =>

@@ -27,7 +27,7 @@ org_subscriptions = Table(
     Column("id", BigInteger, primary_key=True),
     Column("org_id", BigInteger, nullable=False),
     Column("plan_id", BigInteger, nullable=False),
-    Column("status", Text, nullable=False),                 # pending_payment | active | queued | expired | cancelled
+    Column("status", Text, nullable=False),                 # active | queued | expired (pending_payment / cancelled: old checkouts)
     Column("starts_at", Double),
     Column("ends_at", Double),
     Column("payment_ref", Text),

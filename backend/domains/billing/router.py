@@ -1,4 +1,5 @@
-"""Plans, subscriptions + test checkout, token allowances, and the Super Admin / Org Admin dashboards."""
+"""Plans, subscriptions (applied by a Super Admin; no payment in the app), token allowances, and the Super Admin /
+Org Admin dashboards."""
 from __future__ import annotations
 
 from typing import Annotated
@@ -9,7 +10,7 @@ from ...core import store
 from ...core.auth import get_current_user
 from . import repository as repo
 from . import service
-from .schemas import CheckoutRequest, PayRequest, PlanRequest, TokenLimitRequest
+from .schemas import GrantRequest, PlanRequest, TokenLimitRequest
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 User = Annotated[dict, Depends(get_current_user)]
@@ -54,53 +55,21 @@ def update_plan_route(plan_id: int, req: PlanRequest, user: User):
     return repo.get_plan(plan_id)
 
 
-# ─── subscription + test checkout ───────────────────────────────────────────────────────────────────────────
+# ─── subscription ───────────────────────────────────────────────────────────────────────────────────────────
 
 @router.get("/subscription")
 def subscription_route(user: User, org_id: int | None = None):
     return service.summary(_admin_org(user, org_id))
 
 
-@router.post("/checkout")
-def checkout_route(req: CheckoutRequest, user: User):
-    if user["role"] != "admin":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an organization Admin can buy a subscription")
-    try:
-        return service.start_checkout(_admin_org(user), req.plan_id, user["id"])
-    except service.LimitError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
-
-
-def _own_checkout(sub_id: int, user: dict) -> dict:
-    sub = repo.get_subscription(sub_id)
-    if not sub or user["role"] != "admin" or sub["org_id"] != user.get("org_id"):
-        raise HTTPException(404, "Checkout not found")
-    return sub
-
-
-@router.get("/checkout/{sub_id}")
-def get_checkout_route(sub_id: int, user: User):
-    sub = _own_checkout(sub_id, user)
-    org = repo.org_profile(sub["org_id"]) or {}
-    return {**sub, "org_name": org.get("name"), "gateway": service.gateway.name}
-
-
-@router.post("/checkout/{sub_id}/pay")
-def pay_route(sub_id: int, req: PayRequest, user: User):
-    _own_checkout(sub_id, user)
-    if req.success and not service.payments_live():
-        raise HTTPException(status.HTTP_403_FORBIDDEN, service.PAYMENTS_OFF)
-    return service.complete_checkout(sub_id, req.success)
-
-
 @router.post("/orgs/{org_id}/grant")
-def grant_route(org_id: int, req: CheckoutRequest, user: User):
-    """Super Admin activates or renews an org's plan without payment (queued after any paid time)."""
+def grant_route(org_id: int, req: GrantRequest, user: User):
+    """Super Admin applies a plan: new, renewal, upgrade or top-up (queued after the org's current time)."""
     _super(user)
     if not store.get_organization_by_id(org_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Organization not found")
     try:
-        sub_id = service.grant(org_id, req.plan_id, user["id"])
+        sub_id = service.grant(org_id, req.plan_id, user["id"], notify=True)
     except service.LimitError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
     return repo.get_subscription(sub_id)

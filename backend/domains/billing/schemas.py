@@ -15,12 +15,8 @@ class PlanRequest(ApiModel):
     active: bool = True
 
 
-class CheckoutRequest(ApiModel):
+class GrantRequest(ApiModel):
     plan_id: int
-
-
-class PayRequest(ApiModel):
-    success: bool
 
 
 class TokenLimitRequest(ApiModel):

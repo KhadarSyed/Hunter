@@ -1,9 +1,9 @@
 """Subscriptions, plan limits and per-user token allowances.
 
-A plan limits an org's users and projects for a number of months. A renewal paid before the current plan ends is
-queued and starts the moment it ends; one paid after expiry starts at once. The current plan is computed from the
-dates (see current()), so limits hold even before the daily sweep has updated statuses. Payment goes through a
-PaymentGateway; only the test gateway exists today (Stripe/Razorpay plug in behind the same two methods)."""
+A plan limits an org's users and projects for a number of months. A renewal applied before the current plan ends is
+queued and starts the moment it ends; one applied after expiry starts at once. The current plan is computed from the
+dates (see current()), so limits hold even before the daily sweep has updated statuses. There is no payment in the
+app: a Super Admin applies every plan (grant), a new one, a renewal or a top-up, and is billed outside the app."""
 from __future__ import annotations
 
 import calendar
@@ -12,8 +12,6 @@ import logging
 import math
 import threading
 import time
-import uuid
-from typing import Protocol
 
 from ...core import email_layout as layout
 from ...core import store
@@ -28,38 +26,6 @@ _TOKEN_CACHE_S = 60
 
 class LimitError(Exception):
     """A plan limit or an expired plan; the message is shown to the user as is."""
-
-
-# ─── payment gateway ────────────────────────────────────────────────────────────────────────────────────────
-
-class PaymentGateway(Protocol):
-    name: str
-
-    def create_checkout(self, sub: dict) -> dict: ...      # {"ref", "checkout_url"}
-
-    def confirm(self, ref: str, success: bool) -> bool: ...  # True when the payment went through
-
-
-class TestGateway:
-    """No money moves: the in-app checkout page's Pay button confirms, Cancel abandons."""
-    name = "test"
-
-    def create_checkout(self, sub: dict) -> dict:
-        return {"ref": f"test_{uuid.uuid4().hex[:16]}", "checkout_url": f"/checkout/{sub['id']}"}
-
-    def confirm(self, ref: str, success: bool) -> bool:
-        return bool(ref) and success
-
-
-gateway: PaymentGateway = TestGateway()
-PAYMENTS_OFF = "Online payment is not available yet. Ask the platform team to activate or renew your plan."
-
-
-def payments_live() -> bool:
-    """shortcut: the test gateway moves no money, so in production plans come only from a Super Admin grant;
-    plug a real gateway in to open self-service checkout there."""
-    from ...core.config import get_app_settings
-    return gateway.name != "test" or not get_app_settings().is_production
 
 
 # ─── dates and current plan ─────────────────────────────────────────────────────────────────────────────────
@@ -106,8 +72,7 @@ def summary(org_id: int) -> dict:
 def _require_plan(org_id: int) -> dict:
     cur = current(org_id)
     if not cur:
-        raise LimitError("Your organization's subscription has expired. An Admin can renew it in "
-                         "Settings → Subscription.")
+        raise LimitError("Your organization's subscription has expired. Ask the platform team to renew it.")
     return cur
 
 
@@ -117,7 +82,7 @@ def require_seat(org_id: int | None) -> None:
     cur = _require_plan(org_id)
     if repo.org_user_count(org_id) >= cur["max_users"]:
         raise LimitError(f"Your {cur['plan_name']} plan allows {cur['max_users']} users. "
-                         "Upgrade in Settings → Subscription to add more.")
+                         "Ask the platform team to upgrade it to add more.")
 
 
 def require_project_slot(org_id: int | None) -> None:
@@ -126,55 +91,23 @@ def require_project_slot(org_id: int | None) -> None:
     cur = _require_plan(org_id)
     if repo.org_project_count(org_id) >= cur["max_projects"]:
         raise LimitError(f"Your {cur['plan_name']} plan allows {cur['max_projects']} projects. "
-                         "Upgrade in Settings → Subscription to add more.")
+                         "Ask the platform team to upgrade it to add more.")
 
 
-# ─── checkout ───────────────────────────────────────────────────────────────────────────────────────────────
-
-def start_checkout(org_id: int, plan_id: int, user_id: int) -> dict:
-    if not payments_live():
-        raise LimitError(PAYMENTS_OFF)
-    plan = repo.get_plan(plan_id)
-    if not plan or not plan["active"]:
-        raise LimitError("That plan is not available")
-    sub_id = repo.create_subscription(org_id, plan_id, "pending_payment", user_id)
-    checkout = gateway.create_checkout({"id": sub_id, **plan})
-    repo.update_subscription(sub_id, payment_ref=checkout["ref"])
-    return {"subscription_id": sub_id, "checkout_url": checkout["checkout_url"], "gateway": gateway.name}
-
-
-_pay_lock = threading.Lock()
-
-
-def complete_checkout(sub_id: int, success: bool) -> dict:
-    """Pay or cancel a pending checkout. Idempotent: a second confirm returns the subscription unchanged."""
-    with _pay_lock:
-        sub = repo.get_subscription(sub_id)
-        if not sub or sub["status"] != "pending_payment":
-            return sub or {}
-        if not gateway.confirm(sub["payment_ref"], success):
-            repo.update_subscription(sub_id, status="cancelled")
-            return repo.get_subscription(sub_id)
-        now = time.time()
-        renewal = current(sub["org_id"], now) is not None
-        start = _paid_until(sub["org_id"], now)
-        repo.update_subscription(sub_id, status="active" if start <= now else "queued", starts_at=start,
-                                 ends_at=add_months(start, sub["duration_months"]))
-    paid = repo.get_subscription(sub_id)
-    _notify_org(sub["org_id"], "renewed" if renewal else "activated", paid)
-    return paid
-
-
-def grant(org_id: int, plan_id: int, user_id: int | None) -> int:
-    """A plan with no payment (Super Admin): a new org's first plan, or a renewal/upgrade, which starts when the
-    org's paid time ends (active now when nothing is paid, else queued)."""
+def grant(org_id: int, plan_id: int, user_id: int | None, notify: bool = False) -> int:
+    """Super Admin applies a plan: a new org's first plan, or a renewal / upgrade / top-up, which starts when the
+    org's current time ends (active now when nothing is running, else queued). notify emails the org's admins."""
     plan = repo.get_plan(plan_id)
     if not plan:
         raise LimitError("Unknown plan")
     now = time.time()
+    renewal = current(org_id, now) is not None
     start = _paid_until(org_id, now)
-    return repo.create_subscription(org_id, plan_id, "active" if start <= now else "queued", user_id, start,
-                                    add_months(start, plan["duration_months"]), "granted")
+    sub_id = repo.create_subscription(org_id, plan_id, "active" if start <= now else "queued", user_id, start,
+                                      add_months(start, plan["duration_months"]), "granted")
+    if notify:
+        _notify_org(org_id, "renewed" if renewal else "activated", repo.get_subscription(sub_id))
+    return sub_id
 
 
 # ─── token allowance ────────────────────────────────────────────────────────────────────────────────────────
@@ -290,22 +223,22 @@ def _org_mail(org_id: int, kind: str, sub: dict, days_left: int = 0) -> dict:
     lines = [f"Plan: {plan}", f"Valid {_date(sub['starts_at'])} – {ends}" if sub.get("starts_at") else ""]
     button = {"text": "Open Subscription", "href": layout.app_link("settings?tab=subscription")}
     variants = {
-        "activated": (f"{name}: {plan} subscription active", "Payment received", layout.PILL_GREEN,
+        "activated": (f"{name}: {plan} subscription active", "Plan applied", layout.PILL_GREEN,
                       layout.CALLOUT_GREEN, f"Your {plan} subscription is active",
-                      "Thank you. We received your payment and your subscription is now active."),
+                      "The platform team applied your plan and your subscription is now active."),
         "renewed": (f"{name}: {plan} subscription renewed", "Renewal confirmed", layout.PILL_GREEN,
                     layout.CALLOUT_GREEN, f"Your {plan} subscription is renewed",
-                    "Thank you. We received your renewal. It starts as soon as your current plan ends, so there is "
-                    "no gap in service." if sub.get("status") == "queued" else
-                    "Thank you. We received your renewal and it is active now."),
+                    "The platform team applied your renewal. It starts as soon as your current plan ends, so "
+                    "there is no gap in service." if sub.get("status") == "queued" else
+                    "The platform team applied your renewal and it is active now."),
         "reminder": (f"{name}: subscription ends in {days_left} days", "Renewal reminder", layout.PILL_AMBER,
                      layout.CALLOUT_AMBER, f"Your {plan} subscription ends on {ends}",
-                     f"Your subscription ends in {days_left} days. Renew now and the new plan starts the day the "
-                     "current one ends."),
+                     f"Your subscription ends in {days_left} days. Ask the platform team to renew it; the new plan "
+                     "starts the day the current one ends."),
         "expired": (f"{name}: subscription expired", "Subscription expired", layout.PILL_RED, layout.CALLOUT_RED,
                     f"Your {plan} subscription has expired",
                     "Your projects are kept and stay readable, but new users and projects are paused until you "
-                    "renew."),
+                    "the platform team renews it."),
     }
     subject, pill, pill_c, callout_c, heading, intro = variants[kind]
     return layout.render(subject, {

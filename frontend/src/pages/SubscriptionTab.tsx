@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { intelApi, type Plan, type Subscription, type SubscriptionSummary } from "../services/intel-api";
-import { Meter, Modal, Tile, fmtDate, ghostBtn, primaryBtn } from "../components/admin/adminUi";
+import { intelApi, type Plan, type SubscriptionSummary } from "../services/intel-api";
+import { Meter, Tile, fmtDate } from "../components/admin/adminUi";
 
-/** Settings → Subscription (Org Admin): current plan, queued renewal, and Upgrade / Renew through the checkout.
- * Bought before the current plan ends, the new one starts the day it ends; bought after expiry, it starts now. */
+/** Settings → Subscription (Org Admin): current plan, queued renewal, the plans on offer and history. Read-only: there is
+ * no payment in the app; the platform team (Super Admin) applies every plan, renewal and top-up. */
 export function SubscriptionTab() {
   const [summary, setSummary] = useState<SubscriptionSummary | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
-  const [checkout, setCheckout] = useState<(Subscription & { org_name: string; gateway: string }) | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -17,37 +15,15 @@ export function SubscriptionTab() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const buy = async (planId: number) => {
-    setError(null); setNotice(null);
-    try {
-      const { subscription_id } = await intelApi.startCheckout(planId);
-      setCheckout(await intelApi.getCheckout(subscription_id));
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not start the checkout"); }
-  };
-
-  const finish = async (success: boolean) => {
-    if (!checkout) return;
-    try {
-      const sub = await intelApi.payCheckout(checkout.id, success);
-      setCheckout(null);
-      if (sub.status === "queued") setNotice(`Paid. ${sub.plan_name} starts on ${fmtDate(sub.starts_at)}, when your current plan ends. A confirmation email is on its way.`);
-      else if (sub.status === "active") setNotice(`Paid. ${sub.plan_name} is active until ${fmtDate(sub.ends_at)}. A confirmation email is on its way.`);
-      else setNotice("Checkout cancelled. Nothing was charged and your current plan is unchanged.");
-      load();
-    } catch (e) { setError(e instanceof Error ? e.message : "The payment could not be completed"); }
-  };
-
   if (!summary) return <div className="text-sm text-slate-500">{error ?? "Loading…"}</div>;
   const cur = summary.current;
-  const action = cur ? "Renew / upgrade" : "Buy";
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-base font-semibold text-slate-900">Subscription</h2>
-        <p className="text-sm text-slate-500">Plans limit how many users and projects your organization can have. Your AI models are your own and are not part of the plan.</p>
+        <p className="text-sm text-slate-500">Plans limit how many users and projects your organization can have. Your AI models are your own and are not part of the plan. To renew, upgrade or top up, contact the platform team: they apply it for you.</p>
       </div>
-      {notice && <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">{notice}</div>}
       {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">{error}</div>}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -74,9 +50,6 @@ export function SubscriptionTab() {
             <ul className="mt-2 space-y-1 text-sm text-slate-600 flex-1">
               <li>{p.max_users} users</li><li>{p.max_projects} projects</li><li>{p.duration_months} months</li>
             </ul>
-            <button className={`${cur?.plan_id === p.id ? ghostBtn : primaryBtn} mt-3`} onClick={() => buy(p.id)}>
-              {cur?.plan_id === p.id ? "Renew" : action}
-            </button>
           </div>
         ))}
       </div>
@@ -100,26 +73,6 @@ export function SubscriptionTab() {
         </section>
       )}
 
-      {checkout && (
-        <Modal title="Checkout" onClose={() => finish(false)}>
-          <div className="space-y-4">
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              Test payment gateway: no card is charged. The real gateway plugs in here later.
-            </div>
-            <dl className="grid grid-cols-2 gap-y-2 text-sm">
-              <dt className="text-slate-500">Organization</dt><dd className="font-medium">{checkout.org_name}</dd>
-              <dt className="text-slate-500">Plan</dt><dd className="font-medium">{checkout.plan_name}</dd>
-              <dt className="text-slate-500">Includes</dt><dd>{checkout.max_users} users · {checkout.max_projects} projects · {checkout.duration_months} months</dd>
-              <dt className="text-slate-500">Starts</dt><dd>{cur ? `When your current plan ends (${fmtDate(cur.ends_at)})` : "Today"}</dd>
-              <dt className="text-slate-500">Amount</dt><dd className="text-lg font-bold">{checkout.price.toLocaleString()} {checkout.currency}</dd>
-            </dl>
-            <div className="flex justify-end gap-2">
-              <button className={ghostBtn} onClick={() => finish(false)}>Cancel</button>
-              <button className={primaryBtn} onClick={() => finish(true)}>Pay {checkout.price.toLocaleString()} {checkout.currency}</button>
-            </div>
-          </div>
-        </Modal>
-      )}
     </div>
   );
 }
