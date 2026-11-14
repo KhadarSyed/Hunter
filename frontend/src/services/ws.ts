@@ -12,8 +12,10 @@ class AgentSocket {
   private retryTimer: number | null = null;
   private retries = 0;
   private connecting = false;
+  private stopped = false;                   // signed out: no socket and no retries until connect() again
 
   connect() {
+    this.stopped = false;
     if (this.ws || this.connecting) return;
     if (this.retryTimer !== null) {          // a direct connect() replaces any pending retry
       window.clearTimeout(this.retryTimer);
@@ -26,6 +28,7 @@ class AgentSocket {
       .then((r) => (r.ok ? r.json() : null))
       .then((body: { ticket?: string } | null) => {
         this.connecting = false;
+        if (this.stopped) return;
         if (body?.ticket) this.open(body.ticket);
         else this.scheduleRetry();           // not signed in yet: try again later
       })
@@ -69,7 +72,17 @@ class AgentSocket {
     };
   }
 
+  /** Close the socket and stop retrying (signed out: a ticket request would only answer 401). */
+  disconnect() {
+    this.stopped = true;
+    if (this.retryTimer !== null) window.clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    this.retries = 0;
+    this.ws?.close();                        // its onclose sees `stopped` and does not retry
+  }
+
   private scheduleRetry() {
+    if (this.stopped) return;
     // back off while the server is down or restarting: a fixed 2s retry gets the browser rate-limited (429)
     if (this.retryTimer !== null) window.clearTimeout(this.retryTimer);
     const delay = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** this.retries++);

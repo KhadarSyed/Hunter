@@ -35,6 +35,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => { off(); window.removeEventListener(SESSION_ENDED_EVENT, ended); };
   }, []);
 
+  // signed in: keep the live socket open on every page, so "sessions_revoked" (and progress) always reaches this tab;
+  // signed out: close it, so it stops asking for a ticket
+  useEffect(() => {
+    if (user) agentSocket.connect();
+    else agentSocket.disconnect();
+  }, [user]);
+
   const login = async (email: string, password: string, remember = false) => {
     const me = await intelApi.login(email, password, remember);
     setUser(me);
