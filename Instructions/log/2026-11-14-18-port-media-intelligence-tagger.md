@@ -78,3 +78,15 @@ then)". Also: events and campaigns need "what it is about", and campaigns their 
   old tagger (flag off).
 - The new per-RQ table, drawer and Map pipeline are NOT built yet. Only the sample artifact exists; the spec and plan
   come next.
+
+## Dead code (user: "make sure to remove old unused code")
+- `vulture backend --min-confidence 80`: no findings.
+- At 60%: routes and Pydantic fields (false positives), plus `projects/gates.progress()`, which no app code called
+  (tests only). Deleted. `tests/projects/test_gates.py` now checks the same numbers through `gates._summary()`
+  (uncached; what the project list and /gates show). tests/projects: 20 passed; ruff clean.
+- Code that becomes unused only when the new Data set page ships is deleted in that change, not before (it is still
+  called):
+  - `_without_disambiguations`/`_own_level` (replaced by the Boolean evaluator);
+  - the old `article_tagging` path (after the tagger switch-over);
+  - DataSet's separate Tag button flow (replaced by Map).
+- Sample artifact: "copy of #N" labels removed (user); syndicated shows the count and the list only.

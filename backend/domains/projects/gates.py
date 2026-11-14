@@ -140,11 +140,6 @@ def _progress_from(f: dict, g: dict) -> tuple[float, str]:
     return round(done * _SHARE + _fraction(f, current) * _SHARE, 2), current
 
 
-def progress(project_id: int) -> tuple[float, str]:
-    f = _facts(project_id)
-    return _progress_from(f, _gates_from(f))
-
-
 def summary(project_id: int) -> dict:
     """Gates plus progress, for the /gates route and the project list; never raises. Cached for a few seconds
     (display only: require() always reads fresh)."""
