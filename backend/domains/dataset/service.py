@@ -143,9 +143,46 @@ def match_terms(query: str) -> list[str]:
     return rq_tagging._terms(query or "") or _plain_terms(_split_not(query or "")[0])
 
 
+def _own_level(text: str) -> str:
+    """The text with its quoted phrases and bracketed groups blanked out (what sits at this bracket level)."""
+    out, i = [], 0
+    while i < len(text):
+        if text[i] in '"(':
+            i = max(_clause_end(text, i), i + 1)
+            out.append(" ")
+            continue
+        out.append(text[i])
+        i += 1
+    return "".join(out)
+
+
+def _without_disambiguations(text: str) -> str:
+    """Drops every bracketed group that has its own NOT, e.g. ("Foxwoods" NOT (casino OR resort)) inside a NOT
+    block: it excludes off-topic uses of a name, which keyword hits cannot express, and read as plain terms it
+    excluded the brand itself (project 41: five RQs matched 0 of 614 articles)."""
+    out, i = [], 0
+    while i < len(text):
+        if text[i] in '"(':
+            end = max(_clause_end(text, i), i + 1)
+            part = text[i:end]
+            if text[i] == "(":
+                inner = part[1:-1] if part.endswith(")") else part[1:]
+                if _NOT.search(_own_level(inner)):
+                    i = end
+                    continue
+                part = "(" + _without_disambiguations(inner) + ")"
+            out.append(part)
+            i = end
+            continue
+        out.append(text[i])
+        i += 1
+    return "".join(out)
+
+
 def not_terms(query: str) -> list[str]:
-    """The terms of the query's NOT clauses (the term, phrase or bracketed group right after each NOT)."""
-    return _plain_terms(_split_not(query or "")[1])
+    """The terms of the query's NOT clauses (the term, phrase or bracketed group right after each NOT), leaving out
+    nested name-disambiguation groups (_without_disambiguations)."""
+    return _plain_terms(_without_disambiguations(_split_not(query or "")[1]))
 
 
 def query_errors(query: str) -> list[str]:
