@@ -22,7 +22,21 @@ export const faviconUrl = (domain: string): string => `${API_BASE}/favicon?domai
 // the session cookie to the request. Harmless same-origin too, so always set it.
 export const CREDENTIALS: RequestCredentials = "include";
 
+/** Fired on any 401: the session ended (expired, signed out elsewhere, Super Admin "Sign everyone out"). */
+export const SESSION_ENDED_EVENT = "hunter:session-ended";
+// backend core/auth.get_current_user's two 401s; an API-key 401 (core/api.require_api_key) is not a session ending
+const SESSION_401 = new Set(["Not authenticated", "Session expired or invalid"]);
+const noteSessionEnded = (res: Response) => {
+  if (res.status !== 401) return;
+  res.clone().json()
+    .then((b: { detail?: unknown }) => {
+      if (typeof b?.detail === "string" && SESSION_401.has(b.detail)) window.dispatchEvent(new Event(SESSION_ENDED_EVENT));
+    })
+    .catch(() => { /* not JSON: not a session answer */ });
+};
+
 async function json<T>(res: Response): Promise<T> {
+  noteSessionEnded(res);
   const ct = res.headers.get("content-type") || "";
   if (!ct.includes("application/json")) {
     throw new Error("Backend not reachable — restart the backend server");
@@ -86,6 +100,7 @@ function articleQuery(f: ArticleFilters, extra: Record<string, number> = {}): st
 const AUTH_BASE = `${API_ORIGIN}/api/auth`;
 
 async function authJson<T>(res: Response): Promise<T> {
+  noteSessionEnded(res);
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new Error(body?.detail || res.statusText || "Request failed");
