@@ -15,7 +15,7 @@ from .service import FAILED_LOGIN_LIMIT, LOCKOUT_SECONDS, SESSION_TTL_SECONDS
 # core/store.py star-imports this module: export only the repository functions, not SQLAlchemy helpers or tables
 __all__ = [
     "create_user", "get_user_by_id", "get_user_by_email", "create_session", "get_session_user", "set_session_org",
-    "delete_session", "record_failed_login", "clear_failed_logins", "is_locked_out", "update_user_password",
+    "delete_session", "delete_other_sessions", "record_failed_login", "clear_failed_logins", "is_locked_out", "update_user_password",
     "reset_user_password", "create_organization_for_member", "create_organization", "get_organization_by_id",
     "list_organizations", "get_organization", "delete_user", "delete_organization", "archive_organization",
     "reactivate_organization", "list_users", "archive_user", "reactivate_user", "reassign_projects",
@@ -103,6 +103,12 @@ def set_session_org(token: str, org_id: int | None) -> None:
 
 def delete_session(token: str) -> None:
     _run(delete(S).where(S.c.token == token))
+
+
+def delete_other_sessions(keep_token: str) -> int:
+    """Sign every session out except `keep_token` (the Super Admin who asked). Returns how many were ended."""
+    with sa.begin() as conn:
+        return conn.execute(delete(S).where(S.c.token != keep_token)).rowcount
 
 
 def record_failed_login(email: str) -> None:

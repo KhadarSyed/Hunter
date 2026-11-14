@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { intelApi, type AuthUser } from "../services/intel-api";
+import { agentSocket } from "../services/ws";
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -26,6 +27,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     refreshMe().finally(() => setLoading(false));
+    // a Super Admin signed everyone out: re-check, so an ended session lands on the sign-in page
+    const off = agentSocket.onMessage((m) => { if (m.type === "sessions_revoked") void refreshMe(); });
+    return () => { off(); };
   }, []);
 
   const login = async (email: string, password: string, remember = false) => {

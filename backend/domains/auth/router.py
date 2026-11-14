@@ -11,6 +11,7 @@ from ...core import object_store, store
 from ...core import ws_tickets
 from ...core.auth import SESSION_COOKIE_NAME, clear_session_cookie, get_current_user, set_session_cookie
 from ...core.config import UPLOAD_DIR
+from ...core.events import broadcast
 from ..billing import repository as billing_repo
 from ..billing import service as billing
 from . import recovery, service
@@ -216,6 +217,19 @@ def reactivate_organization_route(org_id: int, user: Annotated[dict, Depends(get
     if result is None:
         raise HTTPException(404, "Organization not found")
     return {"ok": True}
+
+
+@router.post("/sessions/sign-out-everyone")
+def sign_out_everyone_route(user: Annotated[dict, Depends(get_current_user)],
+                            session_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE_NAME)] = None):
+    """Super Admin: end every other session (e.g. after a security change); the caller stays signed in. Open tabs
+    hear "sessions_revoked" on the live socket, re-check their session and land on the sign-in page."""
+    _require_role(user, "super_admin")
+    if not session_token:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not signed in")
+    ended = store.delete_other_sessions(session_token)
+    broadcast({"type": "sessions_revoked"})
+    return {"signed_out": ended}
 
 
 @router.get("/archived")

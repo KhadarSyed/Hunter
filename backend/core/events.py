@@ -81,9 +81,15 @@ def _project_of(message: dict) -> dict | None:
     return store.get_project(int(project_id)) if project_id else None
 
 
+# message types with no data in them, meant for every signed-in tab (auth/router.sign_out_everyone_route)
+_EVERYONE = frozenset({"sessions_revoked"})
+
+
 def audience_for(message: dict) -> Audience:
     """Who may receive `message`: a function of the receiving socket's user."""
     from .auth import can_access_project
+    if message.get("type") in _EVERYONE:
+        return lambda user: True
     try:
         project = _project_of(message)
     except Exception as e:  # a lookup failure never widens delivery

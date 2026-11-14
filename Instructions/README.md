@@ -140,6 +140,9 @@ changed and why. Open the code only for the files a note or the map points to.
   web research) and never reach a deck; blocked keywords move Data set articles to Irrelevant. Irrelevant articles are
   never tagged until an analyst marks them relevant for a question (Irrelevant view, bulk bar) and runs Re-tag; Re-tag
   sends only untagged articles. Domain matching is pure Python (`exclusions.blocked_domain`), no LLM.
+- **Sign everyone out (log 2026-11-14-09):** Super Admin, Settings → Manage Organization; ends every other session
+  and broadcasts `sessions_revoked` (allowlisted for every socket in `core/events._EVERYONE`). Deleting a project
+  now also deletes its S3 files and its decks' asset-library rows.
 - **New-version banner (log 2026-11-14-08):** each build writes `version.json` with the id baked into the bundle;
   an open tab compares them on socket reconnect, focus and every 5 min, then offers Reload (the session survives:
   it is server-side). `index.html`/`version.json` are served `no-cache`.

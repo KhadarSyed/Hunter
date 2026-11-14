@@ -688,6 +688,8 @@ export const intelApi = {
     post<{ issues: GuardrailIssue[]; error?: string | null }>(`/deliverable/${projectId}/runs/${runId}/guardrails/ai`, {}),
   getContentPolicy: () => get<{ allow_editorial_images: boolean }>("/guardrails/policy"),
   setContentPolicy: (allow: boolean) => put<{ allow_editorial_images: boolean }>("/guardrails/policy", { allow_editorial_images: allow }),
+  /** Super Admin: end every other session; open tabs return to the sign-in page. */
+  signOutEveryone: () => authPost<{ signed_out: number }>("/sessions/sign-out-everyone"),
   archiveOrganization: (orgId: number) => authPost<{ ok: boolean }>(`/organizations/${orgId}/archive`),
   deleteOrganization: (orgId: number) => authDelete<{ ok: boolean }>(`/organizations/${orgId}`),
   deleteUser: (userId: number) => authDelete<{ ok: boolean }>(`/users/${userId}`),

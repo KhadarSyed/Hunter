@@ -10,7 +10,18 @@ export function ManageOrganizationTab() {
   const [error, setError] = useState<string | null>(null);
   const [credential, setCredential] = useState<{ email: string; tempPassword: string } | null>(null);
 
+  const [signOutNote, setSignOutNote] = useState<string | null>(null);
+
   const load = () => intelApi.listOrganizations().then(setOrgs);
+  const handleSignOutEveryone = async () => {
+    if (!window.confirm("Sign out every user in every organization? You stay signed in; everyone else must sign in again.")) return;
+    try {
+      const r = await intelApi.signOutEveryone();
+      setSignOutNote(`${r.signed_out} session${r.signed_out === 1 ? "" : "s"} ended. Everyone else must sign in again.`);
+    } catch (err) {
+      setSignOutNote(err instanceof Error ? err.message : "Could not sign everyone out");
+    }
+  };
   useEffect(() => { load(); }, []);
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -53,6 +64,16 @@ export function ManageOrganizationTab() {
         </button>
       </form>
       {error && <div className="text-sm text-red-600">{error}</div>}
+      <div className="flex items-center justify-between gap-4 rounded-xl border border-red-100 bg-red-50/50 px-4 py-3">
+        <div className="text-sm">
+          <div className="font-semibold text-slate-900">Sign everyone out</div>
+          <div className="text-slate-500">{signOutNote ?? "Ends every other session, for example after a security change. You stay signed in."}</div>
+        </div>
+        <button type="button" onClick={handleSignOutEveryone}
+                className="shrink-0 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50">
+          Sign everyone out
+        </button>
+      </div>
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide">

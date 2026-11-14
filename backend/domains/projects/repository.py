@@ -321,7 +321,13 @@ def delete_project(project_id: int) -> dict[str, int] | None:
         collect(_ROOT, [project_id])
         plan.append((_ROOT, [project_id]))
         files = _referenced_files(conn, plan)
+        s3_keys = _s3_keys(conn, columns, project_id)
         deleted: dict[str, int] = {}
+        # its decks' entries in the shared asset library point at those S3 files (deliverable/deck_store._index_deck)
+        run_ids = next((ids for name, ids in plan if name == "intel_deliverable_runs"), [])
+        library = table("intel_asset_library", column("kind"), column("key"))
+        deleted["intel_asset_library"] = conn.execute(delete(library).where(
+            library.c.kind == "deck", library.c.key.in_([f"run-{r}" for r in run_ids]))).rowcount if run_ids else 0
         for name, col, ids in keyed:
             t = table(name, column(col))
             for chunk in _chunks(ids):
@@ -336,9 +342,22 @@ def delete_project(project_id: int) -> dict[str, int] | None:
                                                                     memory.c.scope_id == str(project_id))).rowcount
     # its files go with its rows, after the commit (a failed delete keeps both): what the rows pointed at, the
     # project's deliverables folder
-    from ...core import config
+    from ...core import config, object_store
     deleted["files"] = _remove_files(files + [config.DELIVERABLE_DIR / f"project_{project_id}"], config.DATA_DIR)
+    deleted["s3_objects"] = sum(object_store.delete(k) for k in dict.fromkeys(s3_keys))
     return deleted
+
+
+def _s3_keys(conn, columns: dict[str, set[str]], project_id: int) -> list[str]:
+    """The S3 objects of the project's rows: every table with both a project_id and an s3_key column (uploaded data
+    set files, stored deck files). Shared tables (the asset library) have no project_id, so they are never read."""
+    out: list[str] = []
+    for name, cols in sorted(columns.items()):
+        if {"project_id", "s3_key"} <= cols:
+            t = table(name, column("project_id"), column("s3_key"))
+            out += [k for k in conn.execute(select(t.c.s3_key).where(t.c.project_id == project_id,
+                                                                     t.c.s3_key.is_not(None))).scalars() if k]
+    return out
 
 
 def _referenced_files(conn, plan: list[tuple[str, list]]) -> list[Path]:
