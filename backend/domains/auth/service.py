@@ -8,6 +8,7 @@ import string
 import bcrypt
 
 SESSION_TTL_SECONDS = 7 * 24 * 3600  # 7 days
+REMEMBER_TTL_SECONDS = 30 * 24 * 3600   # "Keep me signed in for 30 days" on the sign-in page
 FAILED_LOGIN_LIMIT = 5
 LOCKOUT_SECONDS = 15 * 60  # 15 minutes
 MIN_PASSWORD_LENGTH = 12

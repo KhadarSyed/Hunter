@@ -261,7 +261,8 @@ export function MatchingLabel({ onNavigate }: { onNavigate: (page: string) => vo
         {loading ? <p className="text-sm text-slate-400">Loading…</p> : (
           <>
             {rqs.length === 0 && <p className="text-sm text-slate-500">No research questions yet. Approve a search strategy or add one.</p>}
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-stretch">
+            {/* every question in one row: they share the width, each at least 20rem; more than fit scroll sideways */}
+            <div className="grid grid-flow-col auto-cols-[minmax(20rem,1fr)] gap-4 items-stretch overflow-x-auto pb-3">
             {rqs.map((rq) => (
               <Card key={rq.question_id} rq={rq} busy={busy} error={error} schema={schemas[rq.question_id]}
                 onStatus={(s) => void run((sid) => intelApi.setResearchQuestionStatus(sid, rq.question_id, s), "Failed to update status")}

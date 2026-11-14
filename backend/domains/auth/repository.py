@@ -68,10 +68,10 @@ def get_user_by_email(email: str) -> dict | None:
     return _one(select(U).where(U.c.email == _norm(email)))
 
 
-def create_session(user_id: int) -> tuple[str, float]:
+def create_session(user_id: int, ttl_seconds: int = SESSION_TTL_SECONDS) -> tuple[str, float]:
     token = secrets.token_urlsafe(32)
     now = time.time()
-    expires_at = now + SESSION_TTL_SECONDS
+    expires_at = now + ttl_seconds
     _run(insert(S).values(token=token, user_id=user_id, created_at=now, expires_at=expires_at))
     return token, expires_at
 

@@ -9,6 +9,7 @@ from ...core.api import ApiModel
 class LoginRequest(ApiModel):
     email: str
     password: str
+    remember: bool = False      # keep me signed in for 30 days (else the usual 7)
 
 
 class LoginResponse(ApiModel):

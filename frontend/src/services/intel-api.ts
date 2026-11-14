@@ -637,7 +637,7 @@ export interface Guardrail extends Omit<GuardrailInput, "active"> {
 
 export const intelApi = {
   // Auth
-  login: (email: string, password: string) => authPost<AuthUser>("/login", { email, password }),
+  login: (email: string, password: string, remember = false) => authPost<AuthUser>("/login", { email, password, remember }),
   me: () => authGet<AuthUser>("/me"),
   logout: () => authPost<{ ok: boolean }>("/logout"),
   changePassword: (current_password: string, new_password: string) =>

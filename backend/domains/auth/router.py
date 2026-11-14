@@ -64,12 +64,13 @@ def login_route(req: LoginRequest, response: Response):
             store.record_failed_login(req.email)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, GENERIC_LOGIN_ERROR)
     store.clear_failed_logins(req.email)
-    token, expires_at = store.create_session(user["id"])
+    ttl = service.REMEMBER_TTL_SECONDS if req.remember else service.SESSION_TTL_SECONDS
+    token, expires_at = store.create_session(user["id"], ttl)
     set_session_cookie(response, token, expires_at)
     return _to_response(user)
 
 
-LOGIN_BACKGROUND_KEY = "branding/login-background.jpg"     # S3: HunterAgent/branding/login-background.jpg
+LOGIN_BACKGROUND_KEY = "branding/login-background.avif"    # S3: HunterAgent/branding/login-background.avif
 LOGIN_BACKGROUND_TTL_S = 3600
 
 
