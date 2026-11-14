@@ -94,6 +94,8 @@ class ProjectListItem(ApiModel):
     brief_source: dict | None = None  # {type: pdf|docx|pptx|xlsx|doc|ppt|xls|txt|text, file_name}
     progress_pct: float = 0
     current_stage: str = ""
+    owner_user_id: int | None = None
+    owner_name: str | None = None     # the owner's display name (first + last), shown on every card
 
 
 class GatesResponse(ApiModel):

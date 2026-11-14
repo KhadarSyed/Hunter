@@ -32,6 +32,7 @@ from ...core.auth import (
     get_current_user,
     require_job_access,
     require_project_access,
+    require_project_org,
     require_research_access,
     require_research_item_access,
 )
@@ -283,7 +284,7 @@ def start_background_research(req: StartResearchRequest, user: Annotated[dict, D
         check_project_id_access(req.project_id, user)
         gates.require(req.project_id, "background_research")
     # a new project is the creator's (and gets its email); a matched one is never moved to the caller's org
-    project_id = req.project_id or store.get_or_create_project(spec, user["org_id"], user["id"])
+    project_id = req.project_id or store.get_or_create_project(spec, require_project_org(user), user["id"])
     job_id = launch("background_research", f"research_{uuid.uuid4().hex[:12]}", project_id, spec=spec)
     return {"job_id": job_id, "project_id": project_id}
 

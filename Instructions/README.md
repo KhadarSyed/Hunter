@@ -87,7 +87,9 @@ changed and why. Open the code only for the files a note or the map points to.
   Button links use `APP_URL`, else Render's `RENDER_EXTERNAL_URL`, else `http://localhost:5173` (`core/config.py`).
 - **Auth:** forgot password = 6-digit code → reset link; 12-character policy (`domains/auth/service.py`).
 - **Roles / homes:** `App.tsx homeFor()` — Super Admin → `/admin`, Org Admin → `/org-dashboard`, Analyser → landing.
-  A Super Admin can NOT open projects (`core/auth.can_access_project` returns False); they review them on `/admin`.
+  Projects (log 2026-11-14-15): every member of an org sees, opens and edits all its projects (owner name on each
+  card); only the owner deletes. A Super Admin does the same, and creates projects, only in orgs they are a member
+  of (session `org_member`, `core/auth.can_access_project` / `require_project_org`); other orgs on `/admin`.
   Only a Super Admin creates orgs (form: name, logo data-URI ≤1 MB, procurement name/email/phone, address, country,
   PIN, first plan); the procurement email becomes the org's Admin.
 - **Subscriptions:** `domains/billing/` (migration 50). Plans limit users + projects only (orgs buy their own models).

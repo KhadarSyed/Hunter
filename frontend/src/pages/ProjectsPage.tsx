@@ -99,7 +99,7 @@ interface ProjectCardProps {
   project: ProjectSummary;
   onOpen: () => void;
   onEdit: () => void;
-  onDelete: () => void;
+  onDelete: (() => void) | null;   // null: not the owner, so no Delete
   selected: boolean;
   onToggleSelect: () => void;
   onUsage: () => void;
@@ -240,13 +240,15 @@ function ProjectCard({ project, onOpen, onEdit, onDelete, selected, onToggleSele
                   >
                     <Icon icon="lucide:pencil" width={18} className="text-slate-500" /> Edit project
                   </button>
-                  <button
-                    role="menuitem"
-                    onClick={() => { setMenuOpen(false); onDelete(); }}
-                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-semibold text-red-600 hover:bg-red-50"
-                  >
-                    <Icon icon="lucide:trash-2" width={18} /> Delete
-                  </button>
+                  {onDelete && (
+                    <button
+                      role="menuitem"
+                      onClick={() => { setMenuOpen(false); onDelete(); }}
+                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-semibold text-red-600 hover:bg-red-50"
+                    >
+                      <Icon icon="lucide:trash-2" width={18} /> Delete
+                    </button>
+                  )}
                 </div>
               </>,
               document.body
@@ -264,6 +266,12 @@ function ProjectCard({ project, onOpen, onEdit, onDelete, selected, onToggleSele
           </button>
         </div>
         {showPipeline && <PipelineModal projectId={project.id} title={project.project_name} onClose={() => setShowPipeline(false)} />}
+        {project.owner_name && (
+          <p className="mt-3 inline-flex items-center gap-1.5 truncate text-xs font-medium text-slate-600" title={`Owner: ${project.owner_name}`}>
+            <Icon icon="lucide:user-round" width={14} className="shrink-0 text-slate-400" aria-hidden />
+            <span className="truncate">{project.owner_name}</span>
+          </p>
+        )}
         <div className="mt-auto flex items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs text-slate-500">
           <span>{editedAgo(project.updated_at)}</span>
           <CountryFlag country={project.geography} size={16} showLabel className="truncate" />
@@ -278,7 +286,6 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
   const { user } = useAuth();
   const { activeProject, setActiveProject, clearProject } = useProject();
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
-  const [ownerNames, setOwnerNames] = useState<Record<number, string>>({});
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [pendingDelete, setPendingDelete] = useState<ProjectSummary[] | null>(null);
@@ -308,16 +315,6 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
     }).catch(() => {});
   });
 
-  // Admins see every project in their org grouped by owning Analyser — resolve
-  // owner ids to display names once (the project list itself is already scoped
-  // server-side by role/org, see intelApi.listProjects's backend).
-  useEffect(() => {
-    if (user?.role !== "admin") return;
-    intelApi.listUsers().then((users) => {
-      setOwnerNames(Object.fromEntries(users.map((u) => [u.id, u.display_name])));
-    }).catch(() => {});
-  }, [user?.role]);
-
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
@@ -337,19 +334,8 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
     );
   }, [projects, query]);
 
-  // Grouped by owning Analyser, Admin-only (Super Admin and Analyser keep the flat grid —
-  // an Analyser only ever sees their own projects anyway, so grouping adds nothing there).
-  const ownerGroups = useMemo(() => {
-    if (user?.role !== "admin") return null;
-    const groups = new Map<number, ProjectSummary[]>();
-    for (const p of filtered) {
-      const ownerId = p.owner_user_id ?? 0;
-      const bucket = groups.get(ownerId);
-      if (bucket) bucket.push(p);
-      else groups.set(ownerId, [p]);
-    }
-    return groups;
-  }, [filtered, user?.role]);
+  // Everyone in the org sees every project; only its owner may delete it (the server enforces this too)
+  const isOwner = (p: ProjectSummary) => p.owner_user_id != null && p.owner_user_id === user?.id;
 
   // Usage & cost reads ?project= on mount; App carries the query over to /usage
   const openUsage = (projectId: number) => {
@@ -469,12 +455,15 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
               <button onClick={clearSelection} className="rounded-lg px-2.5 py-1 text-sm font-medium text-slate-600 hover:bg-white">
                 Clear
               </button>
-              <button
-                onClick={() => setPendingDelete((projects ?? []).filter((p) => selected.has(p.id)))}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-2.5 py-1 text-sm font-semibold text-white hover:bg-red-700"
-              >
-                <Icon icon="lucide:trash-2" width={14} /> Delete selected
-              </button>
+              {(projects ?? []).some((p) => selected.has(p.id) && isOwner(p)) && (
+                <button
+                  onClick={() => setPendingDelete((projects ?? []).filter((p) => selected.has(p.id) && isOwner(p)))}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-2.5 py-1 text-sm font-semibold text-white hover:bg-red-700"
+                  title="Deletes only the selected projects you own"
+                >
+                  <Icon icon="lucide:trash-2" width={14} /> Delete selected
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -506,30 +495,6 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
         </div>
       ) : filtered.length === 0 ? (
         <p className="mt-10 text-sm text-slate-500">No projects match “{query}”.</p>
-      ) : ownerGroups ? (
-        <div className="mt-8 space-y-10">
-          {Array.from(ownerGroups.entries()).map(([ownerId, group]) => (
-            <div key={ownerId}>
-              <h2 className="mb-3 text-sm font-semibold text-slate-700">
-                {ownerNames[ownerId] ?? "Unassigned"}
-              </h2>
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-6">
-                {group.map((p) => (
-                  <ProjectCard
-                    key={p.id}
-                    project={p}
-                    onOpen={() => select(p, landingPage(p.current_stage))}
-                    onEdit={() => select(p, editPage)}
-                    onDelete={() => setPendingDelete([p])}
-                    selected={selected.has(p.id)}
-                    onToggleSelect={() => toggleSelected(p.id)}
-                    onUsage={() => openUsage(p.id)}
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
       ) : (
         <div className="mt-8 grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-6">
           {filtered.map((p) => (
@@ -538,7 +503,7 @@ export function ProjectsPage({ onNavigate, projectType = "research" }: Props) {
               project={p}
               onOpen={() => select(p, landingPage(p.current_stage))}
               onEdit={() => select(p, editPage)}
-              onDelete={() => setPendingDelete([p])}
+              onDelete={isOwner(p) ? () => setPendingDelete([p]) : null}
               selected={selected.has(p.id)}
               onToggleSelect={() => toggleSelected(p.id)}
               onUsage={() => openUsage(p.id)}

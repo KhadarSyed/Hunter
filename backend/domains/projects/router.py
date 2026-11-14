@@ -10,7 +10,7 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 
 from ...core import store
-from ...core.auth import get_current_user, require_job_access, require_project_access
+from ...core.auth import get_current_user, require_job_access, require_project_access, require_project_org
 from ...core.events import broadcast as _broadcast
 from ..billing import service as billing
 from .schemas import (
@@ -61,15 +61,16 @@ def project_gates_route(project_id: Annotated[int, Path(ge=1)],
 def create_project_route(
     req: CreateProjectRequest, user: Annotated[dict, Depends(get_current_user)],
 ):
+    org_id = require_project_org(user)
     try:
-        billing.require_project_slot(user["org_id"])
+        billing.require_project_slot(org_id)
     except billing.LimitError as e:
         raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, str(e)) from e
-    if store.project_name_taken(user["org_id"], req.project_name):
+    if store.project_name_taken(org_id, req.project_name):
         raise HTTPException(status.HTTP_409_CONFLICT,
                             f"A project named '{req.project_name.strip()}' already exists in this organization")
     pid = store.create_project(req.project_name, req.spec, project_type=req.project_type, brand=req.brand)
-    store.set_project_owner(pid, user["org_id"], user["id"])
+    store.set_project_owner(pid, org_id, user["id"])
     project = store.get_project(pid)
     _broadcast({"type": "project_created", "project_id": pid})
     return project
@@ -118,9 +119,11 @@ def update_project_route(project_id: Annotated[int, Path(ge=1)], req: UpdateProj
 
 @router.delete("/projects/{project_id}", response_model=DeleteProjectResponse)
 def delete_project_route(project_id: Annotated[int, Path(ge=1)],
-                          _access: Annotated[dict, Depends(require_project_access)]):
+                          user: Annotated[dict, Depends(require_project_access)]):
     """Delete a project for good: every row that belongs to it, the files those rows point at, its deliverables
-    folder (store.delete_project). The dialog says so: this cannot be undone."""
+    folder (store.delete_project). The dialog says so: this cannot be undone. Only its owner may delete it."""
+    if (store.get_project(project_id) or {}).get("owner_user_id") != user["id"]:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the project's owner can delete it")
     deleted = store.delete_project(project_id)
     if deleted is None:
         raise HTTPException(404, "Project not found")

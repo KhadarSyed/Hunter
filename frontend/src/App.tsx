@@ -114,7 +114,7 @@ function AppShell() {
   useEffect(() => {
     const parsed = parseUrl(window.location.pathname);
     if (parsed.page) setPageState(parsed.page === "landing" ? home : parsed.page);
-    if (parsed.projectId && user?.role !== "super_admin") hydrateProjectFromUrl(parsed.projectId);
+    if (parsed.projectId) hydrateProjectFromUrl(parsed.projectId);   // the server decides access (403 is caught)
     setHydrated(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -602,6 +602,7 @@ export interface ProjectSummary {
   current_stage?: string;
   org_id?: number | null;
   owner_user_id?: number | null;
+  owner_name?: string | null;
   archived_at?: number | null;
 }
 

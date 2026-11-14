@@ -116,13 +116,19 @@ def get_current_user(request: Request,
 
 
 def can_access_project(project: dict, user: dict) -> bool:
-    """The one project-access rule, shared by the REST dependencies and the /ws event filter. A Super Admin reviews
-    projects on the admin dashboard (domains/billing) but cannot open them."""
-    if user["role"] == "super_admin":
-        return False
+    """The one project-access rule, shared by the REST dependencies and the /ws event filter: every member of the
+    project's org (any role) may open and edit it; a Super Admin only in an org they are a member of (session
+    `org_member`). Deleting is the owner's alone (projects/router.delete_project_route)."""
     if user["org_id"] is None or project.get("org_id") != user["org_id"]:
         return False
-    return not (user["role"] == "analyser" and project.get("owner_user_id") != user["id"])
+    return user["role"] != "super_admin" or bool(user.get("org_member"))
+
+
+def require_project_org(user: dict) -> int:
+    """The org a new project goes into: the user's (active) org, which a Super Admin must be a member of."""
+    if user["org_id"] is None or (user["role"] == "super_admin" and not user.get("org_member")):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Projects can only be created in an organization you belong to")
+    return user["org_id"]
 
 
 def _check_project_access(project: dict, user: dict) -> None:

@@ -93,6 +93,9 @@ def get_session_user(token: str) -> dict | None:
                 live_org = live_org.where(exists().where(M.c.user_id == user["id"], M.c.org_id == O.c.id))
             if conn.execute(live_org).first():
                 user["org_id"] = active
+        # A Super Admin may view any org but works on its projects only where a member (core/auth.can_access_project)
+        user["org_member"] = user["org_id"] is not None and (user["role"] != "super_admin" or bool(conn.execute(
+            select(M.c.id).where(M.c.user_id == user["id"], M.c.org_id == user["org_id"])).first()))
     user["active_org_id"] = user["org_id"] if active is not None else None
     return user
 

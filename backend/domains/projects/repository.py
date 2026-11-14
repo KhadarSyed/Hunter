@@ -73,8 +73,10 @@ def list_projects(project_type: str | None = None, org_id: int | None = None,
     org_id/owner_user_id scope the list to the caller's role (see projects/router.py);
     archived projects are excluded unless include_archived is True."""
     p = projects.c
-    q = select(p.id, p.project_name, p.project_type, p.brand, p.spec_json, p.created_at, p.updated_at, p.org_id,
-               p.owner_user_id, p.archived_at).order_by(p.updated_at.desc())
+    users = table("users", column("id"), column("display_name"))
+    q = (select(p.id, p.project_name, p.project_type, p.brand, p.spec_json, p.created_at, p.updated_at, p.org_id,
+                p.owner_user_id, p.archived_at, users.c.display_name.label("owner_name"))
+         .select_from(projects.outerjoin(users, users.c.id == p.owner_user_id)).order_by(p.updated_at.desc()))
     if project_type:
         q = q.where(p.project_type == project_type)
     if org_id is not None:
