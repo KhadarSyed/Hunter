@@ -55,11 +55,19 @@ SettingsDep = Annotated[AppSettings, Depends(get_app_settings)]
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
-def require_api_key(settings: SettingsDep, key: Annotated[str | None, Depends(_api_key_header)] = None) -> None:
-    """Reject requests without the configured API key. No-op when API_KEY is unset (dev)."""
-    if settings.api_key and not (key and secrets.compare_digest(key, settings.api_key)):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or missing API key",
-                            headers={"WWW-Authenticate": "APIKey"})
+def require_api_key(settings: SettingsDep, request: Request,
+                    key: Annotated[str | None, Depends(_api_key_header)] = None) -> None:
+    """Reject requests that carry neither the configured API key (scripts) nor a live session cookie (the app's own
+    pages, which never send the key). No-op when API_KEY is unset (dev)."""
+    if not settings.api_key or (key and secrets.compare_digest(key, settings.api_key)):
+        return
+    from . import store                       # local: store imports every domain
+    from .auth import SESSION_COOKIE_NAME
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    if token and store.get_session_user(token):
+        return
+    raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or missing API key",
+                        headers={"WWW-Authenticate": "APIKey"})
 
 
 # ─── Middleware + error handlers ─────────────────────────────────────────────

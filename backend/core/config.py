@@ -59,8 +59,8 @@ class AppSettings(BaseSettings):
     # Browser origins (other than this server's own) allowed to call the API with the session cookie: CORS_ORIGINS,
     # a comma list or JSON array of exact http(s) origins. Default: the local Vite dev server.
     cors_origins: Annotated[list[str], NoDecode] = DEV_ORIGINS
-    # Shared secret for /api/* (header X-API-Key, or ?api_key= for the WebSocket).
-    # Empty = auth disabled, which is only allowed when environment != production.
+    # The app's own shared secret for /api/intel/* scripts (header X-API-Key; not an LLM key). A request with a live
+    # session cookie needs no key (core/api.require_api_key). Empty = no check; required when environment=production.
     api_key: str = ""
     # Transactional mail (ZeptoMail SMTP, ZEPTO_* in .env). No server, password or sender = mail is skipped.
     zepto_server: str = ""               # smtp.zeptomail.com (or a regional host)
