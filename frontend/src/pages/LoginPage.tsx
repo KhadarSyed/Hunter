@@ -3,11 +3,11 @@ import { useAuth } from "../context/auth-context";
 import { intelApi } from "../services/intel-api";
 
 type Mode = "login" | "email" | "code" | "sent";
-const label = "block text-sm font-semibold text-slate-800 mb-2";
-const input = "w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-[15px] text-slate-900 placeholder:text-slate-400 focus:border-[#5B2C9D] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5B2C9D]/15";
-const primary = "w-full rounded-xl bg-[#5B2C9D] py-3 text-[15px] font-semibold text-white shadow-lg shadow-[#5B2C9D]/25 hover:bg-[#4a2380] disabled:opacity-50";
-const link = "text-sm font-semibold text-[#5B2C9D] hover:underline";
-// a signed link to the photo in S3 (backend auth/router.login_background); without one the panel stays dark
+const label = "block text-sm font-semibold text-white mb-2";
+const input = "w-full rounded-xl border border-white/40 bg-white/90 px-4 py-3 text-[15px] text-slate-900 placeholder:text-slate-500 focus:border-white focus:bg-white focus:outline-none focus:ring-2 focus:ring-white/40";
+const primary = "w-full rounded-xl bg-[#5B2C9D] py-3 text-[15px] font-semibold text-white shadow-lg shadow-black/30 hover:bg-[#6a36b3] disabled:opacity-50";
+const link = "text-sm font-semibold text-violet-200 hover:text-white hover:underline";
+// a signed link to the photo in S3 (backend auth/router.login_background); without one the page stays dark
 const BACKGROUND = "/api/auth/login-background";
 const SLIDE_MS = 6000;
 
@@ -29,7 +29,7 @@ const SLIDES = [
     text: "Your organization's models with automatic failover, guardrails on every prompt, and cost tracked per project." },
 ];
 
-/** The photo with the AlphaMetricx mark and the feature slider: wide screens only, beside the sign-in form. */
+/** The AlphaMetricx mark and the feature slider over the photo: wide screens only, beside the sign-in card. */
 function Showcase() {
   const [i, setI] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -41,10 +41,8 @@ function Showcase() {
   }, [paused]);
   const slide = SLIDES[i];
   return (
-    <aside className="relative hidden overflow-hidden bg-slate-950 bg-cover bg-center lg:flex lg:flex-col lg:justify-between"
-           style={{ backgroundImage: `url(${BACKGROUND})` }}
+    <aside className="relative hidden lg:flex lg:flex-col lg:justify-between"
            onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-slate-950/70 via-slate-950/40 to-slate-950/90" aria-hidden="true" />
       <div className="relative flex items-center gap-3 p-12">
         <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-white shadow-lg">
           <img src="/alphametricx-mark.png" alt="" className="h-8 w-8 object-contain" />
@@ -113,18 +111,22 @@ export function LoginPage() {
   };
 
   return (
-    <div className="grid min-h-screen bg-white lg:grid-cols-2">
+    <div className="relative min-h-screen bg-slate-950 bg-cover bg-center" style={{ backgroundImage: `url(${BACKGROUND})` }}>
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-slate-950/80 via-slate-950/45 to-slate-950/60" aria-hidden="true" />
+      <div className="relative grid min-h-screen lg:grid-cols-2">
       <Showcase />
       <main className="flex items-center justify-center px-6 py-12">
-        <div className="w-full max-w-md">
+        <div className="w-full max-w-md rounded-3xl border border-white/25 bg-white/10 p-8 shadow-2xl shadow-black/40 backdrop-blur-xl sm:p-10">
           <div className="mb-10 flex items-center gap-3 lg:hidden">
-            <img src="/alphametricx-mark.png" alt="" className="h-9 w-9 object-contain" />
-            <span className="text-xl font-bold tracking-tight text-slate-900">AlphaMetricx</span>
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white">
+              <img src="/alphametricx-mark.png" alt="" className="h-7 w-7 object-contain" />
+            </span>
+            <span className="text-xl font-bold tracking-tight text-white">AlphaMetricx</span>
           </div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
+          <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
             {mode === "login" ? "Sign in to your account" : "Reset your password"}
           </h1>
-          <p className="mt-3 text-base text-slate-600">
+          <p className="mt-3 text-base text-slate-200">
             {mode === "login" ? "Welcome back. Access your executive media intelligence command center."
               : "We will confirm it is you before you choose a new password."}
           </p>
@@ -138,7 +140,7 @@ export function LoginPage() {
                 <input id="li-email" type="email" autoComplete="username" placeholder="name@company.com" value={email}
                        onChange={(e) => setEmail(e.target.value)} required className={`${input} mb-6`} />
                 <div className="mb-2 flex items-baseline justify-between">
-                  <label htmlFor="li-pw" className="text-sm font-semibold text-slate-800">Password</label>
+                  <label htmlFor="li-pw" className="text-sm font-semibold text-white">Password</label>
                   <button type="button" onClick={() => go("email")} className={link}>Forgot password?</button>
                 </div>
                 <div className="relative mb-5">
@@ -154,7 +156,7 @@ export function LoginPage() {
                     </svg>
                   </button>
                 </div>
-                <label className="mb-7 flex cursor-pointer items-center gap-3 text-[15px] text-slate-700">
+                <label className="mb-7 flex cursor-pointer items-center gap-3 text-[15px] text-slate-100">
                   <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)}
                          className="h-5 w-5 rounded border-slate-300 accent-[#5B2C9D]" />
                   Keep me signed in for 30 days
@@ -165,7 +167,7 @@ export function LoginPage() {
 
             {mode === "email" && (
               <form onSubmit={handleSendCode}>
-                <p className="mb-5 text-sm text-slate-600">Enter your registered email. We will send a 6-digit code to confirm it.</p>
+                <p className="mb-5 text-sm text-slate-200">Enter your registered email. We will send a 6-digit code to confirm it.</p>
                 <label htmlFor="fp-email" className={label}>Work Email Address</label>
                 <input id="fp-email" type="email" autoComplete="username" placeholder="name@company.com" value={email}
                        onChange={(e) => setEmail(e.target.value)} required className={`${input} mb-6`} />
@@ -192,13 +194,14 @@ export function LoginPage() {
 
             {mode === "sent" && (
               <>
-                <p className="mb-6 text-sm text-slate-600">Open the link in the email to choose a new password. It works once and expires in 30 minutes.</p>
+                <p className="mb-6 text-sm text-slate-200">Open the link in the email to choose a new password. It works once and expires in 30 minutes.</p>
                 <button type="button" onClick={() => go("login")} className={primary}>Back to sign in</button>
               </>
             )}
           </div>
         </div>
       </main>
+      </div>
     </div>
   );
 }
