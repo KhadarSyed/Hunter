@@ -140,6 +140,9 @@ changed and why. Open the code only for the files a note or the map points to.
   web research) and never reach a deck; blocked keywords move Data set articles to Irrelevant. Irrelevant articles are
   never tagged until an analyst marks them relevant for a question (Irrelevant view, bulk bar) and runs Re-tag; Re-tag
   sends only untagged articles. Domain matching is pure Python (`exclusions.blocked_domain`), no LLM.
+- **New-version banner (log 2026-11-14-08):** each build writes `version.json` with the id baked into the bundle;
+  an open tab compares them on socket reconnect, focus and every 5 min, then offers Reload (the session survives:
+  it is server-side). `index.html`/`version.json` are served `no-cache`.
 - **Resume after a restart (log 2026-11-14-01):** every stage job is started through `core/jobs.launch` (inputs saved
   in `intel_jobs.params_json`); at startup `jobs.resume_interrupted()` starts each running/queued job again,
   `deliverable/engine.resume_interrupted_runs()` continues each deck run on the same run id and log, and

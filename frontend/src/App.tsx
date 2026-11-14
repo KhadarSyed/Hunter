@@ -27,6 +27,7 @@ import { DeliverablesPage } from "./pages/DeliverablesPage";
 import { UsagePage } from "./pages/UsagePage";
 import { AdminDashboard } from "./pages/AdminDashboard";
 import { OrgDashboard } from "./pages/OrgDashboard";
+import { NewVersionBanner } from "./components/NewVersionBanner";
 
 type PageProps = { onNavigate: (page: string) => void };
 
@@ -236,6 +237,7 @@ export default function App() {
   return (
     <AuthProvider>
       <AuthGate />
+      <NewVersionBanner />
     </AuthProvider>
   );
 }

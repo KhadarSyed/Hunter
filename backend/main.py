@@ -108,14 +108,17 @@ def _mount_spa(app: FastAPI) -> None:
         return
     app.mount("/assets", StaticFiles(directory=str(STATIC_DIR / "assets")), name="static-assets")
 
+    _NO_CACHE = {"Cache-Control": "no-cache"}
+
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_fallback(request: Request, full_path: str):
         if full_path.startswith(("api/", "ws")):
             return JSONResponse({"detail": "Not found"}, status_code=404)
         file = (STATIC_DIR / full_path).resolve()
         if file.is_file() and STATIC_DIR.resolve() in file.parents:  # no path traversal
-            return FileResponse(str(file))
-        return FileResponse(str(STATIC_DIR / "index.html"))
+            # index.html and version.json must be re-checked after a deploy; hashed /assets/* files may cache
+            return FileResponse(str(file), headers=_NO_CACHE if file.name in ("index.html", "version.json") else None)
+        return FileResponse(str(STATIC_DIR / "index.html"), headers=_NO_CACHE)
 
 
 # Stage of an LLM call made while serving a request; first match wins. Matching label's RQ routes live under
