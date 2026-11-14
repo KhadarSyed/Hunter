@@ -27,5 +27,11 @@
 - So either Render's real env differs from render.yaml, or the hosted SPA's `/api/intel` calls get 401. Not checked:
   production is down, and Render env is not to be read or changed without the user.
 
+- Follow-up evidence: `require_api_key` and the "API_KEY must be set" check date back to at least d7a425e
+  (2026-10-13), and production served the SPA until its database expired (2026-11-11).
+  - So Render's real env did not block the SPA: most likely `API_KEY` unset with `ENVIRONMENT` not "production".
+    render.yaml's `ENVIRONMENT: production` is then not what runs.
+  - Render logs were not read: the Render tool asks which workspace to use, and that is the user's choice.
+
 ## Not verified / open
 - The "Sign everyone out" button is still not pressed for real (it would end the user's 24 local sessions).
