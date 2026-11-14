@@ -68,3 +68,13 @@ then)". Also: events and campaigns need "what it is about", and campaigns their 
   - Competitors = validated competitor entities + `included_scope.competitors`, deduplicated.
   - Test: `tests/enrichment/test_tagger.py::test_brand_context_skips_category_standin_and_merges_competitors`.
 - Verified: ruff clean; `pytest tests/enrichment tests/dataset tests/spec`: 173 passed.
+
+## Restart and live check (13:50 UTC)
+- Backend restarted (0 active jobs, port checked free before the new start). GPT keys blanked. Health 200. Frontend
+  rebuilt.
+- In Chrome as Khadar, `/41/data-set` (the existing page): Matched 593, Irrelevant 21, both files listed; RQ1 shows
+  584 matched (0 before the NOT fix).
+- Re-tag pressed to finish the run my duplicate server had failed: dataset_tagging running ("article tags: 75 to do"),
+  old tagger (flag off).
+- The new per-RQ table, drawer and Map pipeline are NOT built yet. Only the sample artifact exists; the spec and plan
+  come next.
