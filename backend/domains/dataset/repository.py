@@ -180,8 +180,13 @@ def tagging_counts(project_id: int) -> dict:
                 out[key][s] = int(n)
         pools = {m: int(n) for m, n in conn.execute(
             select(pool, func.count()).where(A.c.project_id == project_id).group_by(pool))}
+        aside = {k: int(conn.execute(select(func.count()).where(A.c.project_id == project_id,
+                                                                A.c.excluded_reason.like(p + "%"))).scalar() or 0)
+                 for k, p in (("blocked", BLOCK_PREFIX), ("out_of_scope", OUT_OF_SCOPE_PREFIX))}
     out["total"] = sum(out["tags"].values())
-    out["matched"], out["irrelevant"], out["unmatched"] = pools.get(1, 0), pools.get(0, 0), pools.get(-1, 0)
+    out["matched"], out["unmatched"] = pools.get(1, 0), pools.get(-1, 0)
+    out["irrelevant"] = max(pools.get(0, 0) - aside["blocked"] - aside["out_of_scope"], 0)
+    out.update(aside)
     return out
 
 
@@ -335,12 +340,17 @@ def rq_counts(project_id: int, rq_id: str, signature: str) -> dict:
 
 def match_texts(project_id: int) -> list[dict]:
     """Every article's id, title and the text a Boolean query is matched on (title, summary, content)."""
-    return _all(select(A.c.id, A.c.title, A.c.url, A.c.keep_at,
+    return _all(select(A.c.id, A.c.title, A.c.url, A.c.keep_at, A.c.published, A.c.country,
                        func.concat_ws(func.chr(10), A.c.title, A.c.summary, A.c.content).label("text"))
                 .where(A.c.project_id == project_id).order_by(A.c.id))
 
 
 BLOCK_PREFIX = "Blocked by the organization's exclusion list"
+OUT_OF_SCOPE_PREFIX = "Out of scope"        # the Data set scope filter (country, date range); never tagged
+
+
+def _set_aside(col):
+    return or_(col.like(BLOCK_PREFIX + "%"), col.like(OUT_OF_SCOPE_PREFIX + "%"))
 
 
 def save_blocked(project_id: int, reasons: dict[int, str]) -> None:
@@ -350,7 +360,7 @@ def save_blocked(project_id: int, reasons: dict[int, str]) -> None:
     Irrelevant with that reason. An analyst's decision is final: decided rows are never touched."""
     with sa.begin() as conn:
         conn.execute(delete(R).where(R.c.project_id == project_id, R.c.decided_by.is_(None),
-                                     R.c.reason.like(BLOCK_PREFIX + "%"), not_(R.c.article_id == _ids(reasons))))
+                                     _set_aside(R.c.reason), not_(R.c.article_id == _ids(reasons))))
         conn.execute(update(A).where(A.c.project_id == project_id, A.c.excluded_reason.isnot(None))
                      .values(excluded_reason=None))
         for aid, why in reasons.items():
@@ -520,8 +530,12 @@ def _where(project_id: int, f: dict) -> list:
             .table_valued(column("value", JSONB)).alias("b")
         cond.append(exists(select(literal(1)).select_from(b)
                            .where(func.lower(b.c.value["brand"].astext) == func.lower(f["brand"]))))
-    if f.get("pool") == "irrelevant":
-        cond.append(A.c.rq_matched == 0)
+    if f.get("pool") == "irrelevant":       # matched no question; blocked and out-of-scope have their own pools
+        cond.append(and_(A.c.rq_matched == 0, or_(A.c.excluded_reason.is_(None), not_(_set_aside(A.c.excluded_reason)))))
+    elif f.get("pool") == "blocked":
+        cond.append(A.c.excluded_reason.like(BLOCK_PREFIX + "%"))
+    elif f.get("pool") == "outscope":
+        cond.append(A.c.excluded_reason.like(OUT_OF_SCOPE_PREFIX + "%"))
     elif f.get("pool") == "matched":
         cond.append(A.c.rq_matched.is_distinct_from(0))
     if f.get("ids"):

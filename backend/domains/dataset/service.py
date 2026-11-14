@@ -8,7 +8,7 @@ import time
 import uuid
 from pathlib import Path
 
-from ...core import config, object_store
+from ...core import config, object_store, store
 from ..exclusions import service as exclusions
 from ..execution.service import _load_dataset
 from . import normalize, repository as repo
@@ -173,7 +173,7 @@ def match_rqs(project_id: int) -> dict:
     groups = _syndication_groups(arts)
     repo.save_copies(project_id, {c: g[0] for g in groups for c in g[1:]})
     group_of = {i: g for g in groups for i in g}
-    blocked = blocked_reasons(project_id, arts)
+    blocked = {**scope_reasons(project_id, arts), **blocked_reasons(project_id, arts)}   # a block wins over scope
     by_rq = {}
     for q in rows.approved_rqs(project_id):
         hits = _matching(q.query, arts) if match_terms(q.query) else {a["id"] for a in arts}
@@ -181,8 +181,10 @@ def match_rqs(project_id: int) -> dict:
     repo.save_blocked(project_id, blocked)          # first: frees rows of articles no longer blocked
     repo.save_rq_matches(project_id, by_rq)
     matched = set().union(*by_rq.values()) if by_rq else set()
+    out_of_scope = sum(1 for why in blocked.values() if why.startswith(repo.OUT_OF_SCOPE_PREFIX))
     return {"per_rq": {k: len(v) for k, v in by_rq.items()}, "matched": len(matched),
-            "irrelevant": len(arts) - len(matched), "blocked": len(blocked), "total": len(arts),
+            "irrelevant": len(arts) - len(matched) - len(blocked), "blocked": len(blocked) - out_of_scope,
+            "out_of_scope": out_of_scope, "total": len(arts),
             "copies": sum(len(g) - 1 for g in groups), "dropped": len(dropped)}
 
 
@@ -197,6 +199,50 @@ def _drop_blocked_domains(project_id: int, arts: list[dict]) -> set[int]:
     if gone:
         logger.info("project %s: %d articles from blocked websites removed", project_id, len(gone))
     return gone
+
+
+SCOPE_KEY = "data_set_scope"     # in the project's spec: {"country", "from", "to"} chosen on the Data set page
+
+
+def scope(project_id: int, arts: list[dict] | None = None) -> dict:
+    """The Data set scope filter: the analyst's choice, else the uploaded data's own date range and the Brief &
+    Scope country (a single scope country, else every country). Dates are ISO days; '' means no bound."""
+    project = store.get_project(project_id) or {}
+    spec = project.get("spec") or {}
+    arts = repo.match_texts(project_id) if arts is None else arts
+    days = sorted(d for d in ((a.get("published") or "")[:10] for a in arts) if d)
+    countries = (spec.get("included_scope") or {}).get("countries") or []
+    saved = spec.get(SCOPE_KEY) or {}
+    default = {"country": countries[0] if len(countries) == 1 else "", "from": days[0] if days else "",
+               "to": days[-1] if days else ""}
+    pick = {k: saved[k] if k in saved else default[k] for k in default}     # a saved '' (every country) wins too
+    return {**pick,
+            "data_from": days[0] if days else "", "data_to": days[-1] if days else "",
+            "countries": sorted({a["country"] for a in arts if a.get("country")})}
+
+
+def scope_reasons(project_id: int, arts: list[dict]) -> dict[int, str]:
+    """{article id: why} for articles outside the scope filter. An article with no date or no country is kept for
+    that part (nothing to judge it on); one an analyst kept relevant is never set aside."""
+    s = scope(project_id, arts)
+    out = {}
+    for a in arts:
+        if a.get("keep_at"):
+            continue
+        day, country = (a.get("published") or "")[:10], (a.get("country") or "").strip()
+        if day and ((s["from"] and day < s["from"]) or (s["to"] and day > s["to"])):
+            out[a["id"]] = f"{repo.OUT_OF_SCOPE_PREFIX}: published {day}, outside {s['from']} to {s['to']}"
+        elif country and s["country"] and country.lower() != s["country"].lower():
+            out[a["id"]] = f"{repo.OUT_OF_SCOPE_PREFIX}: {country}, the scope is {s['country']}"
+    return out
+
+
+def set_scope(project_id: int, country: str, day_from: str, day_to: str) -> dict:
+    """Save the analyst's scope filter in the project's spec and re-run the free match (no model call)."""
+    project = store.get_project(project_id) or {}
+    spec = {**(project.get("spec") or {}), SCOPE_KEY: {"country": country.strip(), "from": day_from, "to": day_to}}
+    store.update_project(project_id, spec=spec)
+    return match_rqs(project_id)
 
 
 def blocked_reasons(project_id: int, arts: list[dict]) -> dict[int, str]:

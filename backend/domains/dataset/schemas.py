@@ -18,6 +18,13 @@ class KeepRequest(BaseModel):
     comment: str = Field(min_length=3, max_length=1000, pattern=r"\S")
 
 
+class ScopeRequest(BaseModel):
+    """The Data set scope filter: an outlet country ('' = every country) and an ISO date range ('' = no bound)."""
+    country: str = Field(default="", max_length=80)
+    day_from: str = Field(default="", alias="from", pattern=r"^(\d{4}-\d{2}-\d{2})?$")
+    day_to: str = Field(default="", alias="to", pattern=r"^(\d{4}-\d{2}-\d{2})?$")
+
+
 class UndoRequest(BaseModel):
     undo_token: str
 

@@ -17,7 +17,7 @@ from ..projects import gates
 from ..deliverable import rows as engine_rows
 from ..deliverable.labels import theme_key
 from . import repository as repo, service
-from .schemas import ArticleEdit, DecisionRequest, KeepRequest, RQQuery, UndoRequest
+from .schemas import ArticleEdit, DecisionRequest, KeepRequest, RQQuery, ScopeRequest, UndoRequest
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ class Filters:
                  rq: str | None = Query(None, max_length=40), sentiment: str | None = Query(None, max_length=20),
                  theme: str | None = Query(None, max_length=200), brand: str | None = Query(None, max_length=200),
                  content_status: str | None = Query(None, max_length=40), q: str | None = Query(None, max_length=200),
-                 pool: Literal["matched", "irrelevant", "all"] = "matched"):
+                 pool: Literal["matched", "irrelevant", "blocked", "outscope", "all"] = "matched"):
         self.kw = dict(channel=channel, status=None if status == "all" else status, rq_id=rq, sentiment=sentiment,
                        theme=theme, brand=brand, content_status=content_status, q=q,
                        pool=None if pool == "all" else pool)
@@ -117,6 +117,24 @@ def match(project_id: ProjectId, _: Access):
     _guard(project_id)
     repo.set_dataset_approval(project_id, None)
     return service.match_rqs(project_id)
+
+
+@router.get("/articles/{project_id}/scope")
+def get_scope(project_id: ProjectId, _: Access):
+    """The scope filter (country, date range) and the uploaded data's own range and countries."""
+    return service.scope(project_id)
+
+
+@router.put("/articles/{project_id}/scope")
+def put_scope(project_id: ProjectId, req: ScopeRequest, _: Access):
+    """Save the scope filter and re-match (free): articles outside it move to Out of scope and are never tagged."""
+    if req.day_from and req.day_to and req.day_from > req.day_to:
+        raise HTTPException(422, "The start date is after the end date")
+    gates.require(project_id, "data_set")
+    _guard(project_id)
+    repo.set_dataset_approval(project_id, None)
+    result = service.set_scope(project_id, req.country, req.day_from, req.day_to)
+    return {"scope": service.scope(project_id), **result}
 
 
 @router.post("/articles/{project_id}/approve")
