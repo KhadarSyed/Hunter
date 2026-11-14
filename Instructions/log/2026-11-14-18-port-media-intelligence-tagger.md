@@ -52,3 +52,19 @@ then)". Also: events and campaigns need "what it is about", and campaigns their 
 - The 60-article side-by-side with batched calls (speed and theme spread); the flag stays off until then.
 - The per-RQ record and table changes (Steps 1-5 of the plan) are not built yet. The sample artifact was updated
   for sign-off.
+
+## Follow-up (same day): competitors "none", primary brand
+- Cause: the brief names "Resort World Catskills"; the scope wrote "Resorts World Catskills". `brief_scope._named_in_brief`
+  then judged it LLM-added, and `_split_suggested_competitors` moved it to `suggested_competitors`, leaving Mohegan Sun
+  as the only competitor (the RQ queries still name both).
+  - Fix: `_plural_tolerant()` lets each word of the name drop or gain a final "s".
+  - Test: `tests/spec/test_scope_competitors_clarifications.py::test_brief_named_competitor_with_plural_typo_stays_in_scope`.
+- Data: project 41 spec repaired in place. Resorts World Catskills moved from `suggested_competitors` to
+  `validated_entities` (competitor) and `included_scope.competitors`. A backup of the old spec is in the session
+  scratchpad (`spec41_backup.json`). The Brief & Scope page's stored spec version was not changed.
+- `dataset/tagging_job._brand_context`:
+  - The primary brand is Brief & Scope's `commissioning_brand`, unless it is a category stand-in
+    (`entity_grounding.is_placeholder_brand`); then it is the project's Client field.
+  - Competitors = validated competitor entities + `included_scope.competitors`, deduplicated.
+  - Test: `tests/enrichment/test_tagger.py::test_brand_context_skips_category_standin_and_merges_competitors`.
+- Verified: ruff clean; `pytest tests/enrichment tests/dataset tests/spec`: 173 passed.

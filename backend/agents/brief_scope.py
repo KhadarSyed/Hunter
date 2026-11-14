@@ -393,10 +393,19 @@ def _named_in_brief(name: str, brief_text: str) -> bool:
     name = (name or "").strip()
     if not name:
         return False
-    if re.search(rf"(?<!\w){re.escape(name)}(?!\w)", brief_text, re.IGNORECASE):
+    if re.search(rf"(?<!\w){_plural_tolerant(name)}(?!\w)", brief_text, re.IGNORECASE):
         return True
     first = name.split()[0]
-    return len(first) >= 3 and bool(re.search(rf"(?<!\w){re.escape(first)}(?!\w)", brief_text))
+    return len(first) >= 3 and bool(re.search(rf"(?<!\w){_plural_tolerant(first)}(?!\w)", brief_text))
+
+
+def _plural_tolerant(name: str) -> str:
+    """A pattern for the name where each word may drop or gain a final "s": the brief's 'Resort World Catskills'
+    is the scope's 'Resorts World Catskills' (that typo moved a named competitor to the suggestions)."""
+    def word(w: str) -> str:
+        stem = w[:-1] if w.lower().endswith("s") and not w.lower().endswith("ss") else w
+        return re.escape(stem) + "s?"
+    return r"\s+".join(word(w) for w in name.split())
 
 
 def _split_suggested_competitors(spec: dict, brief_text: str) -> None:

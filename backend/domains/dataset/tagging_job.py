@@ -145,8 +145,14 @@ def _labels_of(article: dict) -> set[str]:
 def _brand_context(project_id: int) -> tuple[str, list[str], str]:
     project = store.get_project(project_id) or {}
     spec = project.get("spec") or {}
-    brand = (spec.get("commissioning_brand") or {}).get("name") or project.get("brand") or ""
-    competitors = [e["name"] for e in spec.get("validated_entities") or [] if e.get("type") == "competitor"]
+    from ...agents.entity_grounding import is_placeholder_brand
+    # The primary brand is Brief & Scope's (inferred from the brief); a category brief's stand-in ("Baby Skincare
+    # Category") is not a brand, so the project's Client field (required on New Project) is used instead.
+    scoped = (spec.get("commissioning_brand") or {}).get("name") or ""
+    brand = scoped if not is_placeholder_brand(scoped) else (project.get("brand") or "")
+    competitors = list(dict.fromkeys(
+        [e["name"] for e in spec.get("validated_entities") or [] if e.get("type") == "competitor" and e.get("name")]
+        + [c for c in (spec.get("included_scope") or {}).get("competitors") or [] if isinstance(c, str) and c]))
     context = " ".join(filter(None, [project.get("project_name"), str(spec.get("objective") or "")[:600]]))
     return brand, competitors, context
 
