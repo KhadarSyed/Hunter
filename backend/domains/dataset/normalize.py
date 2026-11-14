@@ -64,6 +64,19 @@ def _iso(v, order: str = "ymd") -> str | None:
     return d.isoformat() if d else None
 
 
+# A site's country domain names the outlet's country (same names as New Project's Geography list). A .com site says
+# nothing: its country stays empty, and the scope filter keeps such articles.
+_TLD_COUNTRY = {"uk": "United Kingdom", "us": "United States", "ca": "Canada", "in": "India", "au": "Australia",
+                "de": "Germany", "fr": "France", "es": "Spain", "it": "Italy", "nl": "Netherlands", "sg": "Singapore",
+                "jp": "Japan", "ae": "United Arab Emirates", "br": "Brazil", "mx": "Mexico", "ie": "Ireland",
+                "nz": "New Zealand", "za": "South Africa"}
+
+
+def outlet_country(url: str) -> str:
+    host = _host(url).lower()
+    return _TLD_COUNTRY.get(host.rsplit(".", 1)[-1], "") if "." in host else ""
+
+
 def _record(r: dict, order: str = "ymd") -> dict | None:
     url = str(r.get("url") or "").strip()
     title = str(r.get("headline") or r.get("title") or "").strip()
@@ -76,7 +89,8 @@ def _record(r: dict, order: str = "ymd") -> dict | None:
     return {"norm_url": link_key(url) or "title:" + title.lower(), "url": url, "channel": chan, "title": title,
             "summary": str(r.get("content") or r.get("snippet") or "").strip(),
             "outlet": str(r.get("source") or r.get("source_name") or _host(url)).strip(),
-            "published": _iso(r.get("date"), order), "country": str(r.get("country") or "").strip(),
+            "published": _iso(r.get("date"), order),
+            "country": str(r.get("country") or "").strip() or (outlet_country(url) if chan != "social" else ""),
             "reach": _reach(r.get("reach")), "author_name": name, "author_id": handle or from_url,
             "post_id": str(r.get("post_id") or r.get("post_id_") or "").strip() or post_id(url), "raw": r}
 
