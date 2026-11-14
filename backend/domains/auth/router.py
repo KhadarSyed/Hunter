@@ -5,6 +5,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Cookie, Depends, File, HTTPException, Response, UploadFile, status
+from fastapi.responses import RedirectResponse
 
 from ...core import object_store, store
 from ...core import ws_tickets
@@ -66,6 +67,20 @@ def login_route(req: LoginRequest, response: Response):
     token, expires_at = store.create_session(user["id"])
     set_session_cookie(response, token, expires_at)
     return _to_response(user)
+
+
+LOGIN_BACKGROUND_KEY = "branding/login-background.jpg"     # S3: HunterAgent/branding/login-background.jpg
+LOGIN_BACKGROUND_TTL_S = 3600
+
+
+@router.get("/login-background", include_in_schema=False)
+def login_background():
+    """The sign-in page's background photo: a 1-hour signed link to the private S3 copy (public: the page shows it
+    before anyone signs in). No S3: 404 and the page keeps its plain background."""
+    url = object_store.presigned_url(LOGIN_BACKGROUND_KEY, LOGIN_BACKGROUND_TTL_S) if object_store.enabled() else None
+    if not url:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No sign-in background")
+    return RedirectResponse(url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 
 @router.get("/me", response_model=MeResponse)

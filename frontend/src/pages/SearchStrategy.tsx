@@ -35,9 +35,11 @@ export function tokenizeBooleanQuery(query: string): { text: string; type: "oper
 
 const V = "#5B2C9D";
 
-export function BooleanDisplay({ query, label, description, onCopy, editable, onEdit }: {
+export function BooleanDisplay({ query, label, description, onCopy, editable, onEdit, maxLines }: {
   query: string; label: string; description?: string; onCopy: () => void;
   editable?: boolean; onEdit?: (text: string) => void;
+  /** show at most this many lines; the rest scrolls inside the panel */
+  maxLines?: number;
 }) {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(query);
@@ -80,7 +82,9 @@ export function BooleanDisplay({ query, label, description, onCopy, editable, on
           </div>
         </div>
       ) : (
-        <div className="p-4 font-mono text-[13px] leading-relaxed text-slate-700 overflow-x-auto whitespace-pre-wrap" style={{ wordBreak: "break-word" }}>
+        <div className="p-4 font-mono text-[13px] leading-relaxed text-slate-700 overflow-x-auto whitespace-pre-wrap"
+             style={{ wordBreak: "break-word", ...(maxLines ? { maxHeight: `calc(${maxLines} * 1.625em + 2rem)`, overflowY: "auto" } : {}) }}
+             tabIndex={maxLines ? 0 : undefined} aria-label={maxLines ? `${label}, scrollable` : undefined}>
           {tokens.map((t, i) => {
             if (t.type === "operator") return <span key={i} className="font-bold" style={{ color: t.text === "NOT" ? "#dc2626" : t.text === "AND" ? "#2563eb" : "#059669" }}>{t.text}</span>;
             if (t.type === "near") return <span key={i} className="font-bold text-purple-600">{t.text}</span>;

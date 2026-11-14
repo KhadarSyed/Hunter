@@ -7,6 +7,8 @@ const label = "block text-xs font-semibold text-slate-500 uppercase tracking-wid
 const input = "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm";
 const primary = "w-full rounded-lg bg-[#5B2C9D] text-white font-semibold py-2 text-sm disabled:opacity-50";
 const link = "text-xs font-medium text-[#5B2C9D] hover:underline";
+// a signed link to the photo in S3 (backend auth/router.login_background); without one the page stays plain
+const BACKGROUND = "/api/auth/login-background";
 
 /** Sign in, plus Forgot password: email → 6-digit code → a one-time reset link is emailed (see auth/recovery.py). */
 export function LoginPage() {
@@ -44,8 +46,11 @@ export function LoginPage() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-slate-50 px-4">
-      <div className="w-full max-w-sm bg-white rounded-xl border border-slate-200 p-8 shadow-sm">
+    <div className="relative min-h-screen bg-slate-200 bg-cover bg-center" style={{ backgroundImage: `url(${BACKGROUND})` }}>
+      {/* the card sits on the right over the photo; a soft shade behind it keeps it readable */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-l from-slate-900/45 via-slate-900/10 to-transparent" aria-hidden="true" />
+      <div className="relative flex min-h-screen items-center justify-center px-4 md:justify-end md:pr-[8vw]">
+      <div className="w-full max-w-sm bg-white/95 backdrop-blur rounded-xl border border-slate-200 p-8 shadow-xl">
         <h1 className="text-xl font-bold text-slate-900 mb-6">{mode === "login" ? "Sign in" : "Reset your password"}</h1>
         {error && <div className="mb-4 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2" role="alert">{error}</div>}
         {note && <div className="mb-4 text-sm text-emerald-800 bg-emerald-50 rounded-lg px-3 py-2" role="status">{note}</div>}
@@ -98,6 +103,7 @@ export function LoginPage() {
             <button type="button" onClick={() => go("login")} className={primary}>Back to sign in</button>
           </>
         )}
+      </div>
       </div>
     </div>
   );

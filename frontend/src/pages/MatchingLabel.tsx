@@ -1,15 +1,91 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { intelApi } from "../services/intel-api";
 import { useActiveProjectId } from "../context/project-context";
 import { TagSchemaModal } from "../components/dataset/TagSchemaView";
 import type { TagSchemaField } from "../types/dataset";
 import { BooleanDisplay } from "./SearchStrategy";
+import { Modal } from "../components/admin/adminUi";
 
 type RQ = { question_id: string; question: string; query: string; status?: "draft" | "approved" };
 
 const V = "#5B2C9D";
 const isApproved = (r: RQ) => (r.status ?? "approved") === "approved";
 const errMsg = (e: unknown, fallback: string) => (e instanceof Error ? e.message : fallback);
+const QUERY_LINES = 15;           // a card shows this many lines of its query; the rest scrolls
+
+/** The question in at most 3 lines; when it is longer, hovering (or focusing) it shows the whole text. */
+function ClampedQuestion({ text }: { text: string }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [clamped, setClamped] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => setClamped(el.scrollHeight > el.clientHeight + 1);
+    check();
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(check);
+    ro?.observe(el);
+    return () => ro?.disconnect();
+  }, [text]);
+  return (
+    <div className="group relative min-w-0 flex-1">
+      <p ref={ref} tabIndex={clamped ? 0 : undefined}
+         className="line-clamp-3 rounded text-sm font-semibold text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-violet-200">
+        {text}
+      </p>
+      {clamped && (
+        <div role="tooltip"
+             className="invisible absolute left-0 top-full z-30 mt-1 w-[min(32rem,80vw)] rounded-lg border border-slate-200 bg-white p-3 text-sm font-semibold text-slate-800 opacity-0 shadow-lg transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+          {text}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The whole question and its query in a pop-up; it closes once the change is saved. */
+function EditModal({ rq, busy, error, onSave, onClose }: {
+  rq: RQ; busy: boolean; error: string | null;
+  onSave: (question: string, query: string) => Promise<boolean>; onClose: () => void;
+}) {
+  const [q, setQ] = useState(rq.question);
+  const [query, setQuery] = useState(rq.query);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !busy) onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [busy, onClose]);
+  const save = async () => {
+    setFailed(false);
+    if (await onSave(q.trim(), query.trim())) onClose();
+    else setFailed(true);
+  };
+  return (
+    <Modal title={"Edit " + rq.question_id} onClose={() => { if (!busy) onClose(); }} wide>
+      <div className="space-y-4">
+        <label className="block text-xs font-semibold text-slate-600">Research question
+          <textarea autoFocus aria-label={rq.question_id + " question"} value={q} onChange={(e) => setQ(e.target.value)}
+            rows={4} maxLength={1000}
+            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800 focus:border-[#5B2C9D] focus:outline-none" />
+        </label>
+        <label className="block text-xs font-semibold text-slate-600">Boolean query
+          <textarea aria-label={rq.question_id + " Boolean query"} value={query} onChange={(e) => setQuery(e.target.value)}
+            rows={12} maxLength={20000}
+            className="mt-1 max-h-[45vh] w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-xs leading-relaxed text-slate-800 focus:border-[#5B2C9D] focus:outline-none" />
+        </label>
+        {failed && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error || "Could not save the change"}</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" disabled={busy} onClick={onClose}
+            className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
+          <button type="button" disabled={!q.trim() || busy} onClick={save}
+            className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" style={{ background: V }}>
+            {busy ? "Saving…" : "Save changes"}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
 
 function AddForm({ onAdd, onClose }: { onAdd: (question: string, query: string) => Promise<boolean>; onClose: () => void }) {
   const [question, setQuestion] = useState("");
@@ -43,8 +119,8 @@ function AddForm({ onAdd, onClose }: { onAdd: (question: string, query: string) 
   );
 }
 
-function Card({ rq, busy, schema, onStatus, onEdit, onDelete }: {
-  rq: RQ; busy: boolean; schema?: TagSchemaField[];
+function Card({ rq, busy, error, schema, onStatus, onEdit, onDelete }: {
+  rq: RQ; busy: boolean; error: string | null; schema?: TagSchemaField[];
   onStatus: (s: "draft" | "approved") => void;
   onEdit: (question: string, query: string) => Promise<boolean>;
   onDelete: () => void;
@@ -52,12 +128,8 @@ function Card({ rq, busy, schema, onStatus, onEdit, onDelete }: {
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [showSchema, setShowSchema] = useState(false);
-  const [q, setQ] = useState(rq.question);
-  const [query, setQuery] = useState(rq.query);
   const approved = isApproved(rq);
   const btn = "text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50";
-
-  const save = async () => { if (await onEdit(q.trim(), query.trim())) setEditing(false); };
 
   return (
     <div className={`h-full flex flex-col bg-white border rounded-xl shadow-sm ${approved ? "border-emerald-200" : "border-slate-200"}`}>
@@ -74,23 +146,15 @@ function Card({ rq, busy, schema, onStatus, onEdit, onDelete }: {
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-3 min-w-0 flex-1">
             <span className="text-xs font-bold px-2 py-1 rounded shrink-0 tabular-nums" style={{ color: V, background: "#f5f3ff" }}>{rq.question_id}</span>
-            {editing ? (
-              <textarea aria-label={`${rq.question_id} question`} value={q} onChange={(e) => setQ(e.target.value)} rows={2}
-                className="flex-1 text-sm font-semibold text-slate-800 border border-slate-200 rounded-lg px-3 py-2" />
-            ) : (
-              <p className="text-sm font-semibold text-slate-800">{rq.question}</p>
-            )}
+            <ClampedQuestion text={rq.question} />
           </div>
           <span className={`text-[11px] font-semibold px-2 py-1 rounded-full shrink-0 ${approved ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
             {approved ? "Approved" : "Draft"}
           </span>
         </div>
 
-        {editing ? (
-          <textarea aria-label={`${rq.question_id} Boolean query`} value={query} onChange={(e) => setQuery(e.target.value)} rows={3}
-            className="w-full font-mono text-xs text-slate-800 border border-slate-200 rounded-lg px-3 py-2" />
-        ) : rq.query ? (
-          <BooleanDisplay query={rq.query} label={`${rq.question_id} Query`} onCopy={() => { void navigator.clipboard?.writeText(rq.query); }} />
+        {rq.query ? (
+          <BooleanDisplay query={rq.query} label={`${rq.question_id} Query`} maxLines={QUERY_LINES} onCopy={() => { void navigator.clipboard?.writeText(rq.query); }} />
         ) : (
           <p className="text-xs text-slate-400">No Boolean query yet.</p>
         )}
@@ -104,22 +168,14 @@ function Card({ rq, busy, schema, onStatus, onEdit, onDelete }: {
           <TagSchemaModal title={`${rq.question_id} · ${rq.question}`} fields={schema} onClose={() => setShowSchema(false)} />
         )}
 
+        {editing && <EditModal rq={rq} busy={busy} error={error} onSave={onEdit} onClose={() => setEditing(false)} />}
+
         <div className="flex flex-wrap gap-2 justify-end mt-auto pt-1">
-          {editing ? (
-            <>
-              <button type="button" className={btn} onClick={() => { setQ(rq.question); setQuery(rq.query); setEditing(false); }}>Cancel</button>
-              <button type="button" disabled={!q.trim() || busy} onClick={save}
-                className="text-xs font-medium px-3 py-1.5 rounded-lg text-white disabled:opacity-50" style={{ background: V }}>Save</button>
-            </>
-          ) : (
-            <>
-              <button type="button" className={btn} disabled={busy} onClick={() => onStatus(approved ? "draft" : "approved")}>
-                {approved ? `Un-approve ${rq.question_id}` : `Approve ${rq.question_id}`}
-              </button>
-              <button type="button" className={btn} onClick={() => setEditing(true)}>Edit {rq.question_id}</button>
-              <button type="button" className={`${btn} text-red-600`} onClick={() => setConfirming(true)}>Delete {rq.question_id}</button>
-            </>
-          )}
+          <button type="button" className={btn} disabled={busy} onClick={() => onStatus(approved ? "draft" : "approved")}>
+            {approved ? `Un-approve ${rq.question_id}` : `Approve ${rq.question_id}`}
+          </button>
+          <button type="button" className={btn} onClick={() => setEditing(true)}>Edit {rq.question_id}</button>
+          <button type="button" className={`${btn} text-red-600`} onClick={() => setConfirming(true)}>Delete {rq.question_id}</button>
         </div>
       </div>
     </div>
@@ -207,7 +263,7 @@ export function MatchingLabel({ onNavigate }: { onNavigate: (page: string) => vo
             {rqs.length === 0 && <p className="text-sm text-slate-500">No research questions yet. Approve a search strategy or add one.</p>}
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-stretch">
             {rqs.map((rq) => (
-              <Card key={`${rq.question_id}|${rq.question}|${rq.query}`} rq={rq} busy={busy} schema={schemas[rq.question_id]}
+              <Card key={rq.question_id} rq={rq} busy={busy} error={error} schema={schemas[rq.question_id]}
                 onStatus={(s) => void run((sid) => intelApi.setResearchQuestionStatus(sid, rq.question_id, s), "Failed to update status")}
                 onEdit={(question, query) => edit(rq, question, query)}
                 onDelete={() => void run((sid) => intelApi.deleteResearchQuestion(sid, rq.question_id), "Failed to delete")} />
