@@ -147,6 +147,9 @@ changed and why. Open the code only for the files a note or the map points to.
   results; deck: insights per question, template, classic deck + brief + fact check) and AI answers received before
   the restart are replayed (`memory.replay`), so nothing finished is paid for again. Tagging, plans, classifications
   and photos were already stored per item.
+- **Test Organization prices (log 2026-11-14-02):** its three NVIDIA chat models are priced $2.00 input / $0.50 cached /
+  $8.00 output per 1M tokens (user's figures for testing), back-dated to 2026-11-12. Test projects 38 and 39
+  (synthetic) are kept for review; delete them with the scratch cleanup when the user says so.
 - **Models and images (log 2026-11-14-01):** `org_llm_providers.reads_images` (Settings → LLM Providers, "Reads
   images"); image requests skip models marked No; a model that refuses an image is marked No automatically.
 - **Learning from analysts (log 2026-11-13-19):** tag edits (+ optional comment), rejections (+ reason), "Mark
