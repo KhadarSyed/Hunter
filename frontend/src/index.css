@@ -43,3 +43,53 @@ body {
 .animate-fade-in-2 { animation: fade-in 0.3s ease-out 0.1s both; }
 .animate-pulse-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
 .animate-step-check { animation: step-check 0.3s ease-out both; }
+
+/* Glass shell: the login page's photo behind every signed-in page, under a translucent white layer,
+   and white surfaces turned to frosted glass. Scoped to .app-glass so the login page is untouched. */
+.app-glass {
+  position: relative;
+  background: #f8fafc url("/api/auth/login-background") center / cover no-repeat fixed;
+}
+.app-glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.84), rgba(248, 250, 252, 0.74));
+  backdrop-filter: blur(2px);
+}
+.app-glass > * { position: relative; }
+
+.app-glass .bg-white,
+.app-glass .bg-white\/80,
+.app-glass .bg-white\/90,
+.app-glass .bg-white\/95 {
+  background-color: rgba(255, 255, 255, 0.62);
+}
+/* blur only where no fixed layer sits inside: a backdrop-filter would pin that modal to the card, not the screen */
+.app-glass .bg-white:not(:has(.fixed)),
+.app-glass .bg-white\/80:not(:has(.fixed)),
+.app-glass .bg-white\/90:not(:has(.fixed)),
+.app-glass .bg-white\/95:not(:has(.fixed)) {
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+}
+.app-glass .bg-white.border,
+.app-glass .bg-white.rounded-xl,
+.app-glass .bg-white.rounded-2xl {
+  border-color: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 8px 32px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+/* table rows and cells: tint only, a blur per row is slow on long tables */
+.app-glass tr.bg-white, .app-glass td.bg-white, .app-glass th.bg-white {
+  background-color: rgba(255, 255, 255, 0.45);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+/* floating layers (menus, drawers, modals, sticky headers) stay nearly opaque so text over them reads */
+.app-glass .fixed.bg-white, .app-glass .absolute.bg-white, .app-glass .sticky.bg-white,
+.app-glass [role="dialog"] .bg-white, .app-glass [role="menu"].bg-white {
+  background-color: rgba(255, 255, 255, 0.9);
+}
+.app-glass .bg-slate-50 { background-color: rgba(248, 250, 252, 0.55); }
+.app-glass aside.bg-white { background-color: rgba(255, 255, 255, 0.55); border-color: rgba(255, 255, 255, 0.6); }
