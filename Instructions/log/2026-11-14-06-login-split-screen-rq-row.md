@@ -48,8 +48,15 @@
   - The new image loads at 1920x1080 through the route.
 - Playwright, `/39/matching-label`: RQ1-RQ4 share one top (one row), 320 px each.
 
+## Follow-up: "Keep me signed in for 30 days ... make sure it is working"
+- Verified end to end in the browser.
+  - A throwaway analyser (Test Organization, `+remembertest` address, random password kept in a local file the browser
+    read, never in a tool call) signed in through the real form twice.
+  - Checked: the page sent `remember: true`, the login answered 200, the stored session lasts 30.0 days and the cookie
+    30 days, and the app opened.
+  - Unchecked: `remember: false`, 7.0 days, a 7-day cookie, signed in.
+- The temp user was deleted afterwards (sessions 0), and so was the password file.
+
 ## Not verified / open
-- Signing in with "Keep me signed in" was not done in a browser; a real password is needed. The route is covered by
-  the test.
 - The deck logo change waits for approval. On dark slides the white wordmark also turns the purple swoosh white.
 - `power-bi-ai.avif` and the old JPEG stay untracked in the repo root.
