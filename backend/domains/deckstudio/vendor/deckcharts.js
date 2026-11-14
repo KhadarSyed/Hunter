@@ -11,6 +11,21 @@
 
   function c(v) { return am5.color(v); }
 
+  // fn(target) on a click on any part of the list: the template covers parts made later, the parts already made get the
+  // handler themselves (amCharts copies a template's listener only to parts made after it is added); one click runs
+  // fn once
+  function clickable(list, fn) {
+    function handle(ev) {
+      var e = ev.originalEvent || {};
+      if (e.deckPicked) return;
+      e.deckPicked = true;
+      fn(ev.target);
+    }
+    list.template.setAll({ cursorOverStyle: "pointer" });
+    list.template.events.on("click", handle);
+    list.each(function (sprite) { sprite.set("cursorOverStyle", "pointer"); sprite.events.on("click", handle); });
+  }
+
   function rootFor(el, cfg) {
     var root = am5.Root.new(el);
     var theme = am5.Theme.new(root);
@@ -214,6 +229,7 @@
     series.set("colors", am5.ColorSet.new(root, { colors: cfg.data.map(function (d) { return c(d.color); }) }));
     series.rectangles.template.setAll({ cornerRadiusTL: 6, cornerRadiusTR: 6, cornerRadiusBL: 6, cornerRadiusBR: 6, strokeOpacity: 0, tooltipText: "{category}: [bold]{sum}[/]" });
     series.labels.template.setAll({ text: "[fontWeight:600]{category}[/]\n{sum}", fontSize: 21, oversizedBehavior: "truncate", templateField: "ink" });
+    series.nodes.template.setAll({ toggleKey: "none", cursorOverStyle: cfg.drill && !exportMode ? "pointer" : "default" });
     series.data.setAll([{ category: "All", children: cfg.data.map(function (d) { return Object.assign({}, d, { ink: { fill: c(d.ink) } }); }) }]);
     series.set("selectedDataItem", series.dataItems[0]);
     return [series, series];
@@ -325,14 +341,26 @@
           .filter(function (f) { return f.properties.STATE === code; }) };
         // affectsBounds false: the map stays fitted to the states, so the zoom to the state frames its counties
         if (counties) counties.set("geoJSON", geo);
-        else counties = polygons(geo, { visible: false, affectsBounds: false });
+        else {
+          counties = polygons(geo, { visible: false, affectsBounds: false });
+          clickable(counties.mapPolygons, pickArea);
+        }
         counties.data.setAll(cfg.counties.filter(function (k) { return k.state === "US-" + code; }));
         counties.show();
         states.hide(100);
         back.show();
       });
     }
-    states.mapPolygons.template.events.on("click", function (ev) { drillTo(ev.target.dataItem); });
+    // a state's click zooms to its counties and lists the state's articles; a county's click lists its own (the
+    // polygons exist already, so the template alone never reached them: a click did nothing)
+    function pickArea(target) {
+      var d = target.dataItem;
+      if (d) cfg.pick(String(d.get("id")), (d.dataContext && d.dataContext.name) || String(d.get("id")));
+    }
+    clickable(states.mapPolygons, function (target) {
+      if (target.dataItem) drillTo(target.dataItem);
+      pickArea(target);
+    });
     back.events.on("click", function () {
       chart.goHome();
       states.show();
@@ -463,22 +491,18 @@
     // the list's template covers parts made later; parts made already (a hierarchy or flow builds them as its data
     // is set) get the handler themselves; one click opens one list either way
     function on(list, key) {
-      function handle(ev) {
-        var e = ev.originalEvent || {};
-        if (e.deckPicked) return;
-        e.deckPicked = true;
-        var d = ev.target.dataItem && ev.target.dataItem.dataContext;
-        if (d) cfg.pick.apply(null, key(d, ev.target));
-      }
-      list.template.setAll({ cursorOverStyle: "pointer" });
-      list.template.events.on("click", handle);
-      list.each(function (sprite) { sprite.set("cursorOverStyle", "pointer"); sprite.events.on("click", handle); });
+      clickable(list, function (target) {
+        var d = target.dataItem && target.dataItem.dataContext;
+        if (d) cfg.pick.apply(null, key(d, target));
+      });
     }
     var cat = function (d) { return [d.category, d.category]; };
     var s = made[1];
     if (cfg.kind === "bar" || cfg.kind === "column") on(s.columns, cat);
     else if (cfg.kind === "doughnut") on(s.slices, cat);
-    else if (cfg.kind === "treemap") on(s.rectangles, cat);
+    // a tile is its node (rectangle + label): series.rectangles' template never reaches the tiles, so a click listed
+    // nothing; the node takes the click wherever on the tile it lands, as the bubble chart's
+    else if (cfg.kind === "treemap") on(s.nodes, cat);
     else if (cfg.kind === "bubble") on(s.nodes, cat);          // the node: its circle and its label
     else if (cfg.kind === "stacked") s.forEach(function (x) {
       on(x.columns, function (d) {

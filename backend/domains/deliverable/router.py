@@ -165,6 +165,8 @@ _DECK_HEADERS = {
                                 "script-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'; "
                                 "frame-ancestors 'self'"),
     "X-Content-Type-Options": "nosniff",
+    # a deck is rendered again (Restyle, Fix, a script fix): the browser checks its copy every time (304 if unchanged)
+    "Cache-Control": "no-cache",
 }
 
 
