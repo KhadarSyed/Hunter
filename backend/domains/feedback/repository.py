@@ -8,7 +8,17 @@ from sqlalchemy import func, insert, select
 from ...core import sa
 from .models import intel_tag_feedback as F
 
-__all__ = ["save_feedback", "count_feedback", "nearest_feedback"]
+__all__ = ["save_feedback", "count_feedback", "nearest_feedback", "article_feedback"]
+
+
+def article_feedback(project_id: int, article_id: int, limit: int = 100) -> list[dict]:
+    """One article's recorded corrections and comments in this project, newest first (the drawer's history)."""
+    q = (select(F.c.id, F.c.kind, F.c.rq_id, F.c.comment, F.c.before_json, F.c.after_json, F.c.created_by,
+                F.c.created_at)
+         .where(F.c.source_project_id == project_id, F.c.article_id == article_id)
+         .order_by(F.c.created_at.desc(), F.c.id.desc()).limit(limit))
+    with sa.begin() as conn:
+        return [dict(r._mapping) for r in conn.execute(q)]
 
 
 def save_feedback(rows: list[dict]) -> int:

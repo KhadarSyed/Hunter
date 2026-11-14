@@ -2,6 +2,8 @@
 same organization is shown the closest past corrections as examples to follow.
 
 Kinds:  edit      sentiment / themes / brands changed by an analyst (before and after kept), with an optional comment
+        comment   an analyst's note on how to tag an article (article tagging is shown it)
+        rq_comment an analyst's note on tagging an article for one research question (that RQ's tagging is shown it)
         reject    an article rejected for a research question, with the analyst's reason
         relevant  an Irrelevant article an analyst marked relevant for a question
         keep      an article the exclusion list blocked (by keyword) that an analyst kept, with their comment
@@ -19,8 +21,8 @@ from ...core import store
 
 logger = logging.getLogger(__name__)
 
-ARTICLE_KINDS = ("edit",)
-RQ_KINDS = ("reject", "relevant", "keep")
+ARTICLE_KINDS = ("edit", "comment")
+RQ_KINDS = ("reject", "relevant", "keep", "rq_comment")
 # Article-to-article cosine (title + opening, NVIDIA embed). Measured 2026-11-13 on the synthetic project (log
 # 2026-11-13-19): same kind of story 0.68-0.70 (solar vs EV chargers, expansion vs new slots / hiring), different
 # stories 0.39-0.53. shortcut: 0.62 rests on 10 pairs; re-measure on a real project's corrections.
@@ -108,6 +110,8 @@ def _line(f: dict) -> str:
         "reject": lambda: f"analysts judged it NOT relevant to {q}",
         "relevant": lambda: f"analysts judged it relevant to {q} although the AI / query left it out",
         "keep": lambda: "analysts kept it relevant although a blocked keyword appears in it",
+        "comment": lambda: "an analyst left a note about how to tag this article",
+        "rq_comment": lambda: f"an analyst left a note about tagging it for {q}",
     }[f["kind"]]()
     why = f' Analyst comment: "{f["comment"]}"' if f.get("comment") else ""
     return f'- "{title}" (similarity {f["score"]:.2f}): {what}.{why}'
@@ -137,3 +141,9 @@ def guidance(project_id: int, articles: list[dict], kinds: tuple[str, ...]) -> s
     except Exception as e:
         logger.warning("analyst feedback not recalled: %s", type(e).__name__)
         return ""
+
+
+def history(project_id: int, article_id: int) -> list[dict]:
+    """The drawer's history: this article's comments and corrections, newest first (who, when, kind, question)."""
+    return [{"id": r["id"], "kind": r["kind"], "rq_id": r["rq_id"], "comment": r["comment"], "by": r["created_by"],
+             "at": r["created_at"]} for r in store.article_feedback(project_id, article_id)]

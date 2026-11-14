@@ -262,6 +262,20 @@ def promote_analyst_relevant(project_id: int) -> int:
                                  _analyst_relevant()).values(rq_matched=1))
 
 
+def rq_row(project_id: int, article_id: int, rq_id: str) -> dict | None:
+    return _first(select(*_RQ_COLS).where(R.c.project_id == project_id, R.c.article_id == article_id, R.c.rq_id == rq_id))
+
+
+def edit_rq_row(project_id: int, article_id: int, rq_id: str, by: str, **values) -> bool:
+    """An analyst's edit of one research-question row (match confidence, reason, tags): it is then theirs, so a
+    Re-tag never overwrites it (decided_by set). Returns False when the article has no row for that question."""
+    values = {k: (json.dumps(v, default=str) if k == "tags_json" else v) for k, v in values.items() if v is not None}
+    with sa.begin() as conn:
+        return bool(conn.execute(update(R).where(R.c.project_id == project_id, R.c.article_id == article_id,
+                                                 R.c.rq_id == rq_id)
+                                 .values(**values, decided_by=by, decided_at=time.time())).rowcount)
+
+
 def articles_by_ids(project_id: int, article_ids: list[int]) -> dict[int, dict]:
     """{id: article} (title, summary, content, rq_matched, tags_json) for this project's articles among the ids."""
     if not article_ids:

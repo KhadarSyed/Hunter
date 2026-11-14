@@ -17,7 +17,8 @@ from ..projects import gates
 from ..deliverable import rows as engine_rows
 from ..deliverable.labels import theme_key
 from . import repository as repo, service
-from .schemas import ArticleEdit, DecisionRequest, KeepRequest, RQQuery, ScopeRequest, UndoRequest
+from .schemas import (ArticleEdit, CommentRequest, DecisionRequest, EnrichmentEdit, KeepRequest, RQQuery, RqRowEdit,
+                      ScopeRequest, UndoRequest)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -223,7 +224,18 @@ def page(project_id: ProjectId, _: Access, f: Annotated[Filters, Depends()],
     for r in rows:     # raw label -> the consolidated title the deck uses
         labels = [v for v in (r["tags"].get("themes") or {}).values() if v]
         r["theme_titles"] = {v: titles.get(theme_key(v), v) for v in labels}
-    return {"rows": rows, "total": total, "rqs": _rq_columns(project_id)}
+    return {"rows": rows, "total": total, "rqs": _rq_columns(project_id), **_brand_context(project_id)}
+
+
+def _brand_context(project_id: int) -> dict:
+    """Main brand (Brief & Scope, else the Client field), tracked competitors and, per question, the ones its Boolean
+    query names: the table's brand columns and the drill-down's 'brands in query vs found in content'."""
+    from .tagging_job import _brand_context as brands
+    brand, competitors, _ = brands(project_id)
+    names = [n for n in [brand, *competitors] if n]
+    return {"brand": brand, "competitors": competitors,
+            "rq_brands": {q.id: [n for n in names if n.lower() in (q.query or "").lower()]
+                          for q in engine_rows.approved_rqs(project_id)}}
 
 
 @router.get("/articles/{project_id}/facets")
@@ -308,6 +320,70 @@ def edit(project_id: ProjectId, article_id: Annotated[int, PathParam(ge=1)], req
     if matched:
         repo.decide(project_id, [article_id], matched, "approved", _who(user), "edited")
     return {"ok": True, "approved_rqs": matched}
+
+
+@router.get("/articles/{project_id}/{article_id}/comments")
+def comments(project_id: ProjectId, article_id: Annotated[int, PathParam(ge=1)], _: Access):
+    """The drill-down's history: this article's comments and corrections (who, when, article / question)."""
+    from ..feedback import service as feedback
+    return feedback.history(project_id, article_id)
+
+
+@router.post("/articles/{project_id}/{article_id}/comments")
+def add_comment(project_id: ProjectId, article_id: Annotated[int, PathParam(ge=1)], req: CommentRequest, user: Access):
+    """An analyst's note for the agent. 'article' notes are shown to article tagging for similar articles, 'rq'
+    notes to that question's tagging (domains/feedback, kinds comment / rq_comment)."""
+    from ..feedback import service as feedback
+    if not repo.articles_by_ids(project_id, [article_id]):
+        raise HTTPException(404, "Article not found")
+    rq = _approved_rq(project_id, req.rq_id) if req.scope == "rq" else None
+    if req.scope == "rq" and rq is None:
+        raise HTTPException(422, "Choose the research question this note is about")
+    feedback.record(project_id, [{"article_id": article_id, "kind": "rq_comment" if rq else "comment",
+                                  "rq_id": rq.id if rq else None, "question": rq.question if rq else None,
+                                  "comment": req.text.strip()}], _who(user))
+    return {"ok": True}
+
+
+@router.patch("/articles/{project_id}/{article_id}/enrichment")
+def edit_enrichment(project_id: ProjectId, article_id: Annotated[int, PathParam(ge=1)], req: EnrichmentEdit,
+                    user: Access):
+    """Save the drill-down's edited rich tags: validated against the format, the flat fields every reader uses are
+    rebuilt from it, and the change (with the optional comment) becomes an example for similar articles."""
+    from pydantic import ValidationError
+    from ...agents.enrichment import tagger
+    from ...agents.enrichment.model import ContentEnrichment
+    before = repo.articles_by_ids(project_id, [article_id]).get(article_id)
+    if before is None:
+        raise HTTPException(404, "Article not found")
+    try:
+        enrichment = ContentEnrichment.model_validate(req.enrichment)
+    except ValidationError as e:
+        raise HTTPException(422, "; ".join(f"{'.'.join(map(str, x['loc']))}: {x['msg']}" for x in e.errors()[:5])) from e
+    old = json.loads(before.get("tags_json") or "{}")
+    quality = {**(old.get("quality") or {}), "edited_by": _who(user)}
+    tags = tagger.stored(enrichment, quality, req.author_type or old.get("author_type"))
+    repo.save_tags(article_id, tags, None)
+    service.learn_edit(project_id, article_id, before.get("tags_json"), json.dumps(tags),
+                       (req.comment or "").strip() or None, _who(user))
+    return {"ok": True, "tags": tags}
+
+
+@router.patch("/articles/{project_id}/{article_id}/rqs/{rq_id}")
+def edit_rq_row(project_id: ProjectId, article_id: Annotated[int, PathParam(ge=1)], rq_id: RqId, req: RqRowEdit,
+                user: Access):
+    """Save the drill-down's edited question row (confidence, reason, the question's tags). The row is then the
+    analyst's: a Re-tag never overwrites it. A comment is kept as a note for that question's tagging."""
+    from ..feedback import service as feedback
+    rq = _approved_rq(project_id, rq_id)
+    ok = repo.edit_rq_row(project_id, article_id, rq.id, _who(user), match_confidence=req.match_confidence,
+                          reason=req.reason, tags_json=req.tags)
+    if not ok:
+        raise HTTPException(404, f"This article has no {rq.id} row")
+    if (req.comment or "").strip():
+        feedback.record(project_id, [{"article_id": article_id, "kind": "rq_comment", "rq_id": rq.id,
+                                      "question": rq.question, "comment": req.comment.strip()}], _who(user))
+    return {"ok": True, "row": repo.rq_row(project_id, article_id, rq.id)}
 
 
 # ---- query panel ---------------------------------------------------------------------------------------------------
