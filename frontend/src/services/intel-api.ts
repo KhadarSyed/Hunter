@@ -1,4 +1,4 @@
-import type { ArticleFacets, ArticleFilters, ArticlePage, ArticleRow, Channel, RqCounts, RqEstimate, RqPreview, RqStatus, RqSummary, UploadResult, UploadedFile } from "../types/dataset";
+import type { ArticleComment, ArticleFacets, ArticleFilters, ArticlePage, ArticleRow, Channel, DataSetScope, RqCounts, RqEstimate, RqPreview, RqStatus, RqSummary, UploadResult, UploadedFile } from "../types/dataset";
 import type { UsageCallsPage, UsagePriceRequest, UsagePrices, UsageQuery, UsageSummary } from "../types/usage";
 
 // Empty by default (relative paths), matching same-origin deploys where the backend
@@ -865,7 +865,7 @@ export const intelApi = {
   taggingState: (projectId: number) =>
     get<{ running: boolean; phase: string | null; done: number; total: number; minutes_left: number | null;
           counts: { total: number; content: Record<string, number>; tags: Record<string, number>;
-                    matched?: number; irrelevant?: number; unmatched?: number };
+                    matched?: number; irrelevant?: number; unmatched?: number; blocked?: number; out_of_scope?: number };
           approval?: { at: number; by: string | null } | null }>(
       `/articles/${projectId}/tagging`),
 
@@ -885,8 +885,6 @@ export const intelApi = {
   /** The analyst's sign-off on the tagged data set; the server starts the deck run from it. */
   approveDataset: (projectId: number) =>
     post<{ approved: boolean; run_id: number | null; note?: string }>(`/articles/${projectId}/approve`, {}),
-  matchRqs: (projectId: number) =>
-    post<{ per_rq: Record<string, number>; matched: number; irrelevant: number; total: number; copies: number }>(`/articles/${projectId}/match`, {}),
 
   listArticles: (projectId: number, f: ArticleFilters, offset = 0, limit = 100) =>
     get<ArticlePage>(`/articles/${projectId}?${articleQuery(f, { offset, limit })}`),
@@ -910,6 +908,21 @@ export const intelApi = {
   /** comment: why (optional); the AI learns from the correction for similar articles of the organization */
   editArticle: (projectId: number, articleId: number, edit: { sentiment?: string; themes?: string[]; brands?: string[]; comment?: string }) =>
     patch<{ ok: boolean; approved_rqs: string[] }>(`/articles/${projectId}/${articleId}`, edit),
+  /** The rich tags (media-intelligence format) edited in the drill-down; validated on the server. */
+  editEnrichment: (projectId: number, articleId: number, enrichment: Record<string, unknown>, comment?: string) =>
+    patch<{ ok: boolean }>(`/articles/${projectId}/${articleId}/enrichment`, { enrichment, comment }),
+  /** One research question's row edited in the drill-down (approve / reject go through decideArticles). */
+  editRqRow: (projectId: number, articleId: number, rqId: string, edit: { match_confidence?: number; reason?: string; tags?: Record<string, unknown>; comment?: string }) =>
+    patch<{ ok: boolean }>(`/articles/${projectId}/${articleId}/rqs/${encodeURIComponent(rqId)}`, edit),
+  /** Notes for the agent: about the article, or about one question; kept and shown to later tagging. */
+  articleComments: (projectId: number, articleId: number) =>
+    get<ArticleComment[]>(`/articles/${projectId}/${articleId}/comments`),
+  addArticleComment: (projectId: number, articleId: number, text: string, rqId: string | null) =>
+    post<{ ok: boolean }>(`/articles/${projectId}/${articleId}/comments`, { scope: rqId ? "rq" : "article", rq_id: rqId, text }),
+  /** The scope filter (outlet country + date range) applied after upload and before matching / tagging. */
+  dataSetScope: (projectId: number) => get<DataSetScope>(`/articles/${projectId}/scope`),
+  setDataSetScope: (projectId: number, country: string, from: string, to: string) =>
+    put<{ scope: DataSetScope; matched: number; out_of_scope: number }>(`/articles/${projectId}/scope`, { country, from, to }),
 
   // Data set uploaded files: list, what removing one takes with it, remove (its articles and their RQ rows)
   listDatasetFiles: (projectId: number) => get<UploadedFile[]>(`/articles/${projectId}/files`),

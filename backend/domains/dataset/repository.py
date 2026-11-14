@@ -350,10 +350,14 @@ def rq_counts(project_id: int, rq_id: str, signature: str) -> dict:
         row = conn.execute(select(
             func.coalesce(func.sum(R.c.matched), 0).label("matched"), func.count(R.c.tagged_at).label("tagged"),
             func.coalesce(func.sum(case((R.c.status == "approved", 1), else_=0)), 0).label("approved"),
+            func.coalesce(func.sum(case((and_(R.c.status == "irrelevant", R.c.decided_by.isnot(None)), 1), else_=0)), 0)
+            .label("rejected"),
+            func.coalesce(func.sum(case((and_(R.c.status == "pending", R.c.matched == 1), 1), else_=0)), 0).label("pending"),
             func.coalesce(func.sum(R.c.query_changed), 0).label("query_changed"))
             .where(R.c.project_id == project_id, R.c.rq_id == rq_id)).one()._mapping
         need = conn.execute(select(func.count()).select_from(joined).where(cond)).scalar()
-    return {**{k: int(row[k]) for k in ("matched", "tagged", "approved", "query_changed")}, "needs_tagging": int(need)}
+    keys = ("matched", "tagged", "approved", "rejected", "pending", "query_changed")
+    return {**{k: int(row[k]) for k in keys}, "needs_tagging": int(need)}
 
 
 def match_texts(project_id: int) -> list[dict]:

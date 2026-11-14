@@ -41,6 +41,10 @@ type Props = {
   /** false: rows can be selected but have no per-row Approve / Reject (the Irrelevant pool) */
   rowActions?: boolean;
   onEdited: () => void;
+  /** main brand, tracked competitors and the question tab open ('' = all questions) */
+  brand?: string;
+  competitors?: string[];
+  activeRq?: string;
 };
 
 export function ArticlesTable(p: Props) {
@@ -50,9 +54,10 @@ export function ArticlesTable(p: Props) {
     { syndicated: (r.syndicated ?? []).map(String), similar: (r.similar ?? []).map(String) } as RowRelations])), [p.rows]);
   const [related, setRelated] = useState<ArticleRow[]>([]);
   const cols = useMemo(
-    () => buildColumns({ brands: p.brands.length ? p.brands : brandNames(p.rows), rqs: p.rqs, relations, openRelation: (row, kind) => setRelation({ row, kind }) }, p.channel)
+    () => buildColumns({ brands: p.brands.length ? p.brands : brandNames(p.rows), rqs: p.rqs, relations, openRelation: (row, kind) => setRelation({ row, kind }),
+                         brand: p.brand ?? "", competitors: p.competitors ?? [], activeRq: p.activeRq ?? "" }, p.channel)
       .filter((c) => !p.hidden.includes(c.group)),
-    [p.rows, p.brands, p.rqs, relations, p.channel, p.hidden]);
+    [p.rows, p.brands, p.rqs, relations, p.channel, p.hidden, p.brand, p.competitors, p.activeRq]);
   // Syndicated / Similar articles may sit on other pages: fetch them by id when the drawer opens.
   useEffect(() => {
     setRelated([]);
@@ -91,11 +96,11 @@ export function ArticlesTable(p: Props) {
                 <td {...pinned(PIN.status, "px-3 py-2.5 border-b border-slate-100 overflow-hidden")} style={{ left: PIN.status, width: STATUS_W, minWidth: STATUS_W, maxWidth: STATUS_W }}>
                   <div className="flex items-center gap-1.5">
                     <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap truncate ${STATUS_PILL[r.status]}`}>{r.status}</span>
-                    {p.canDecide !== false && p.rowActions !== false && <span className="invisible group-hover:visible group-focus-within:visible flex gap-0.5 shrink-0">
-                      <button type="button" aria-label="Approve this article" title="Approve" onClick={() => p.onDecide(r.id, "approved")}
-                        className="w-5 h-5 rounded text-emerald-700 hover:bg-emerald-50 text-xs">✓</button>
-                      <button type="button" aria-label="Reject this article" title="Reject" onClick={() => p.onDecide(r.id, "irrelevant")}
-                        className="w-5 h-5 rounded text-red-700 hover:bg-red-50 text-xs">✕</button>
+                    {p.canDecide !== false && p.rowActions !== false && <span className="flex gap-0.5 shrink-0">
+                      <button type="button" aria-label="Approve this article" title={p.activeRq ? `Approve for ${p.activeRq}` : "Approve for every question it matched"} onClick={() => p.onDecide(r.id, "approved")}
+                        className="w-5 h-5 rounded border border-emerald-200 text-emerald-700 hover:bg-emerald-50 text-xs">✓</button>
+                      <button type="button" aria-label="Reject this article" title={p.activeRq ? `Reject for ${p.activeRq}` : "Reject for every question it matched"} onClick={() => p.onDecide(r.id, "irrelevant")}
+                        className="w-5 h-5 rounded border border-red-200 text-red-700 hover:bg-red-50 text-xs">✕</button>
                     </span>}
                   </div>
                   {r.excluded_reason && (
@@ -132,7 +137,9 @@ export function ArticlesTable(p: Props) {
           <button type="button" disabled={last >= p.total} onClick={() => p.onPage(p.offset + PAGE_SIZE)} className="px-3 py-1 rounded-lg border border-slate-200 disabled:opacity-40">Next</button>
         </span>
       </div>
-      {drawer && <ArticleDrawer projectId={p.projectId} row={drawer} rqs={p.rqs} onClose={() => setDrawer(null)} onSaved={() => { setDrawer(null); p.onEdited(); }} />}
+      {drawer && <ArticleDrawer projectId={p.projectId} row={drawer} rqs={p.rqs} activeRq={p.activeRq} onClose={() => setDrawer(null)}
+        onSaved={() => { setDrawer(null); p.onEdited(); }}
+        onDecide={p.canDecide !== false && p.rowActions !== false ? (status) => { p.onDecide(drawer.id, status); setDrawer(null); } : undefined} />}
       {relation && (
         <RelatedArticlesDrawer kind={relation.kind} source={{ title: relation.row.title, publisher: relation.row.outlet }}
           related={related

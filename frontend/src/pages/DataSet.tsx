@@ -11,7 +11,25 @@ import { ArticlesTable, PAGE_SIZE } from "../components/dataset/ArticlesTable";
 import { BulkBar } from "../components/dataset/BulkBar";
 import { ColumnPicker, loadHidden, saveHidden, type GroupId } from "../components/dataset/ColumnPicker";
 import { FilterBar } from "../components/dataset/FilterBar";
-import type { ArticleFacets, ArticleFilters, ArticlePage, ArticleRow, Channel, RqStatus, UploadResult } from "../types/dataset";
+import { ScopeBar } from "../components/dataset/ScopeBar";
+import type { ArticleFacets, ArticleFilters, ArticlePage, ArticleRow, Channel, Pool, RqStatus, RqSummary, UploadResult } from "../types/dataset";
+
+// The tagging job's phases, in order: the strip names the step ("Step 4 of 5 · RQ3 tags: 115 of 258")
+const PHASES = ["content", "article tags", "themes", "rq", "relations"];
+const STEP_NAME = ["Reading full articles", "Article tags", "Themes", "Research question tags", "Similar articles"];
+function stepOf(phase: string): [number, string] {
+  const i = phase.endsWith(" tags") && phase.startsWith("RQ") ? 3 : PHASES.indexOf(phase);
+  return i < 0 ? [0, phase] : [i + 1, STEP_NAME[i]];
+}
+
+function Kpi({ value, label, tone = "" }: { value: number | string; label: string; tone?: string }) {
+  return (
+    <div className={`rounded-xl border border-slate-200 border-t-4 bg-white px-4 py-2.5 ${tone}`}>
+      <p className="text-xl font-bold tabular-nums text-slate-900">{typeof value === "number" ? value.toLocaleString("en-US") : value}</p>
+      <p className="text-xs text-slate-500">{label}</p>
+    </div>
+  );
+}
 
 const V = "#5B2C9D";
 const UNDO_MS = 10_000;
@@ -52,11 +70,12 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
   const [upload, setUpload] = useState<UploadResult | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [tagged, setTagged] = useState(0);
-  const [pools, setPools] = useState({ matched: 0, irrelevant: 0, unmatched: 0 });
-  const [matching, setMatching] = useState(false);
+  const [pools, setPools] = useState({ matched: 0, irrelevant: 0, unmatched: 0, blocked: 0, outscope: 0 });
+  const [staged, setStaged] = useState<File[]>([]);
+  const [rqSummaries, setRqSummaries] = useState<RqSummary[]>([]);
+  const [confirmAll, setConfirmAll] = useState<RqStatus | null>(null);
   const [approval, setApproval] = useState<{ at: number; by: string | null } | null>(null);
   const [approving, setApproving] = useState(false);
-  const [matchNote, setMatchNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -105,7 +124,8 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
       const t = await intelApi.taggingState(projectId);
       setTagged(t.counts.tags.tagged ?? 0);
       setApproval(t.approval ?? null);
-      setPools({ matched: t.counts.matched ?? 0, irrelevant: t.counts.irrelevant ?? 0, unmatched: t.counts.unmatched ?? 0 });
+      setPools({ matched: t.counts.matched ?? 0, irrelevant: t.counts.irrelevant ?? 0, unmatched: t.counts.unmatched ?? 0,
+                 blocked: t.counts.blocked ?? 0, outscope: t.counts.out_of_scope ?? 0 });
       setProgress(t.running ? { phase: t.phase ?? "", done: t.done, total: t.total, minutesLeft: t.minutes_left } : null);
       // Seed the phase clock from the server's ETA (left = elapsed / done * remaining) so a page opened mid-run keeps counting.
       const remaining = t.total - t.done;
@@ -137,34 +157,31 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
 
   useEffect(() => () => window.clearTimeout(toastTimer.current), []);
 
-  const onFiles = async (files: FileList | File[]) => {
-    const list = Array.from(files);
-    if (!projectId || list.length === 0 || uploading) return;
+  // Files are attached first; "Map" uploads them (the server drops blocked websites, applies the scope filter and
+  // matches every question's Boolean query), then starts tagging the matched articles.
+  const attach = (files: FileList | File[]) => setStaged((s) => [...s, ...Array.from(files).filter((f) => !s.some((x) => x.name === f.name && x.size === f.size))]);
+
+  const map = async () => {
+    if (!projectId || staged.length === 0 || uploading) return;
     setUploading(true);
     setError(null);
     try {
-      setUpload(await intelApi.uploadArticles(projectId, list));
+      setUpload(await intelApi.uploadArticles(projectId, staged));
+      setStaged([]);
       reloadData();
-      void syncTagging();
+      await syncTagging();
+      await startTagging();
     } catch (e) { setError(errMsg(e, "Upload failed")); }
     finally { setUploading(false); }
   };
 
-  // Step 1 (free): each approved question's Boolean query maps the articles; no match -> Irrelevant, never tagged
-  const matchRqs = async () => {
+  // The question tabs' counts (matched / approved / rejected / pending), for the KPI tiles
+  useEffect(() => {
     if (!projectId) return;
-    setMatching(true);
-    setError(null);
-    try {
-      const r = await intelApi.matchRqs(projectId);
-      const per = Object.entries(r.per_rq).map(([q, n]) => `${q} ${n.toLocaleString("en-US")}`).join(" · ");
-      setMatchNote(`${per} — ${r.matched.toLocaleString("en-US")} matched, ${r.irrelevant.toLocaleString("en-US")} irrelevant`
-        + (r.copies ? `, ${r.copies.toLocaleString("en-US")} syndicated copies (tagged once, through their original)` : ""));
-      reloadData();
-      void syncTagging();
-    } catch (e) { setError(errMsg(e, "Could not match the research questions")); }
-    finally { setMatching(false); }
-  };
+    let stale = false;
+    intelApi.datasetRqs(projectId).then((r) => { if (!stale) setRqSummaries(r); }).catch(() => { /* tiles show the pools only */ });
+    return () => { stale = true; };
+  }, [projectId, reloadKey]);
 
   // Step 3: the analyst signs off; Deliverables opens and the deck starts building at once
   const approveDataset = async () => {
@@ -238,11 +255,24 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
   const setHidden = (h: GroupId[]) => { setHiddenState(h); saveHidden(h); };
   const running = progress !== null;
   // Approve / Reject and the filters open once tagging has run and nothing is tagging now
-  const reviewable = !running && tagged > 0 && filters.pool !== "irrelevant";
-  // Irrelevant articles are never tagged; an analyst may mark some relevant for a question, then Re-tag tags them
-  const markable = !running && filters.pool === "irrelevant" && page.rqs.length > 0;
-  const allArticles = pools.matched + pools.irrelevant + pools.unmatched;
+  const pool: Pool = filters.pool ?? "matched";
+  const reviewable = !running && tagged > 0 && pool === "matched";
+  // Irrelevant / blocked / out-of-scope articles are never tagged; an analyst may mark some relevant for a question
+  const markable = !running && pool !== "matched" && page.rqs.length > 0;
+  const relevant = pools.matched + pools.unmatched;
+  const allArticles = relevant + pools.irrelevant + pools.blocked + pools.outscope;
   const pct = progress && progress.total > 0 ? Math.round((progress.done * 100) / progress.total) : 0;
+  const [stepNo, stepName] = progress ? stepOf(progress.phase) : [0, ""];
+  const active = rqSummaries.filter((q) => !filters.rq || q.rq_id === filters.rq);
+  const sum = (k: "approved" | "rejected" | "pending") => active.reduce((n, q) => n + (q.counts[k] ?? 0), 0);
+
+  // Approve all / Reject all: every article the current tab, pool and filters show (all pages), after a confirm
+  const decideAll = async (status: RqStatus) => {
+    if (!projectId) return;
+    setConfirmAll(null);
+    try { await decide(await intelApi.articleIds(projectId, filters), filters.rq || null, status); }
+    catch (e) { setError(errMsg(e, "Could not select the articles")); }
+  };
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-4 px-6 py-8">
@@ -252,15 +282,15 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
       </button>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-4">
-          <button type="button" onClick={() => void matchRqs()} disabled={running || matching || allArticles === 0}
-            title="Free: runs each research question's Boolean query over the articles; no match goes to Irrelevant"
-            className="rounded-lg border px-4 py-2 text-sm font-medium disabled:opacity-50" style={{ borderColor: V, color: V }}>
-            {matching ? "Matching…" : "1 · Match research questions"}
-          </button>
-          <button type="button" onClick={startTagging} disabled={running || pools.matched + pools.unmatched === 0}
-            title="Tags only the articles a research question matched (new uploads are matched first)"
+          <button type="button" onClick={() => void map()} disabled={running || uploading || staged.length === 0}
+            title="Uploads the attached files, drops blocked websites, applies the scope filter, matches every question's Boolean query, then tags the matched articles"
             className="rounded-lg px-5 py-2 text-sm font-medium text-white disabled:opacity-50" style={{ background: V }}>
-            {tagged > 0 ? "2 · Re-tag matched" : `2 · Tag ${(pools.matched + pools.unmatched).toLocaleString("en-US")} matched`}
+            {uploading ? "Mapping…" : `Map${staged.length ? ` ${staged.length} file${staged.length === 1 ? "" : "s"}` : ""}`}
+          </button>
+          <button type="button" onClick={startTagging} disabled={running || relevant === 0}
+            title="Tags only what is not tagged yet: new matches, edited questions, articles marked relevant"
+            className="rounded-lg border px-4 py-2 text-sm font-medium disabled:opacity-50" style={{ borderColor: V, color: V }}>
+            {tagged > 0 ? "Re-tag matched" : `Tag ${relevant.toLocaleString("en-US")} matched`}
           </button>
           {approval ? (
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700"
@@ -271,23 +301,33 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
             <button type="button" onClick={() => void approveDataset()} disabled={running || approving || tagged === 0}
               title="Your sign-off: Deliverables opens and the deck is built from the approved articles"
               className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
-              {approving ? "Approving…" : "3 · Approve data set & build deck"}
+              {approving ? "Approving…" : "Approve data set & build deck"}
             </button>
           )}
           <div>
             <h1 className="text-xl font-bold text-slate-900">Data set</h1>
-            <p className="text-sm text-slate-500">Upload article files, match them to the research questions' Boolean queries, tag only the matched ones, then approve or reject per question.</p>
+            <p className="text-sm text-slate-500">Attach article files and press Map: guardrails, the scope filter and each question's Boolean query run first, then only the matched articles are tagged. Review and approve per question.</p>
           </div>
         </div>
       </div>
 
-      <label onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); if (!uploading) void onFiles(e.dataTransfer.files); }}
+      <label onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); if (!uploading) attach(e.dataTransfer.files); }}
         className="flex cursor-pointer flex-col items-center gap-1 rounded-xl border-2 border-dashed px-6 py-6 text-center hover:bg-[#f5f3ff]" style={{ borderColor: "#c4b5fd" }}>
-        <span className="text-sm font-medium" style={{ color: V }}>{uploading ? "Uploading…" : "Drop article files here or click to choose"}</span>
+        <span className="text-sm font-medium" style={{ color: V }}>{uploading ? "Mapping…" : "Drop article files here or click to choose, then press Map"}</span>
         <span className="text-xs text-slate-500">.csv, .xlsx, .xls or .json — several files at once; a link already uploaded is counted once</span>
-        <input type="file" multiple accept=".csv,.xlsx,.xls,.json" className="sr-only" disabled={uploading} aria-label="Upload article files"
-          onChange={(e) => { void onFiles(e.target.files ?? []); e.target.value = ""; }} />
+        <input type="file" multiple accept=".csv,.xlsx,.xls,.json" className="sr-only" disabled={uploading} aria-label="Attach article files"
+          onChange={(e) => { attach(e.target.files ?? []); e.target.value = ""; }} />
       </label>
+      {staged.length > 0 && (
+        <ul aria-label="Attached files" className="flex flex-wrap gap-2">
+          {staged.map((f) => (
+            <li key={f.name + f.size} className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-800">
+              ✓ {f.name} <span className="text-emerald-600">({Math.max(1, Math.round(f.size / 1024)).toLocaleString("en-US")} KB) attached</span>
+              <button type="button" aria-label={`Remove ${f.name}`} onClick={() => setStaged((s) => s.filter((x) => x !== f))} className="text-emerald-700 hover:text-red-600">✕</button>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {projectId && <UploadedFiles projectId={projectId} files={files} onRemoved={() => { reloadData(); void syncTagging(); }} />}
       {upload && <UploadBanner result={upload} />}
@@ -297,24 +337,64 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
         <div role="status" aria-label="Tagging progress" className="flex items-center gap-3 rounded-lg border border-violet-100 bg-violet-50 px-4 py-2">
           <Donut value={pct} size={40} track="#EDE9FE" title={`Tagging ${pct}%`} />
           <div className="flex flex-1 flex-wrap justify-between gap-2 text-xs font-medium text-violet-900">
-            <span>Tagging: {progress.phase} — {progress.done.toLocaleString("en-US")} of {progress.total.toLocaleString("en-US")}</span>
+            <span>{stepNo ? `Step ${stepNo} of ${PHASES.length} · ${stepName}${progress.phase.startsWith("RQ") ? ` · ${progress.phase.replace(" tags", "")}` : ""}` : `Tagging: ${progress.phase}`} — {progress.done.toLocaleString("en-US")} of {progress.total.toLocaleString("en-US")}</span>
             <span>{progress.minutesLeft != null ? `about ${progress.minutesLeft} min left` : "estimating time…"}</span>
           </div>
         </div>
       )}
 
-      {matchNote && <div role="status" className="rounded-lg border border-violet-100 bg-violet-50 px-4 py-2 text-sm text-violet-900">{matchNote}</div>}
+      {projectId && <ScopeBar projectId={projectId} refreshKey={dataKey} disabled={running} onChanged={() => { reloadData(); void syncTagging(); }} />}
+
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(130px,1fr))] gap-3" aria-live="polite">
+        <Kpi value={allArticles} label="Overall articles" />
+        <Kpi value={relevant} label="Relevant (matched)" tone="border-t-[#5B2C9D]" />
+        <Kpi value={sum("approved")} label={filters.rq ? `Approved for ${filters.rq}` : "Approved (article × question)"} tone="border-t-emerald-500" />
+        <Kpi value={sum("rejected")} label="Rejected" tone="border-t-red-500" />
+        <Kpi value={sum("pending")} label="Pending review" tone="border-t-amber-500" />
+      </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Tabs<"matched" | "irrelevant"> label="Pool" active={filters.pool ?? "matched"} onChange={(pool) => changeFilters({ pool })}
-          tabs={[{ id: "matched", label: `Matched (${(pools.matched + pools.unmatched).toLocaleString("en-US")})`, icon: "mdi:check-decagram-outline" },
-                 { id: "irrelevant", label: `Irrelevant (${pools.irrelevant.toLocaleString("en-US")})`, icon: "mdi:filter-remove-outline" }]} />
         <Tabs<Channel> label="Channel" active={filters.channel} onChange={(c) => changeFilters({ ...EMPTY, pool: filters.pool, channel: c })}
           tabs={[{ id: "traditional", label: "Traditional", icon: "mdi:newspaper-variant-outline" }, { id: "social", label: "Social media", icon: "mdi:account-group-outline" }]} />
-        <ColumnPicker hidden={hidden} onChange={setHidden} />
+        <div className="flex flex-wrap items-center gap-3">
+          <ColumnPicker hidden={hidden} onChange={setHidden} />
+          <Tabs<Pool> label="Pool" active={pool} onChange={(p) => changeFilters({ pool: p })}
+            tabs={[{ id: "matched", label: `Relevant (${relevant.toLocaleString("en-US")})`, icon: "mdi:check-decagram-outline" },
+                   { id: "irrelevant", label: `Irrelevant (${pools.irrelevant.toLocaleString("en-US")})`, icon: "mdi:filter-remove-outline" },
+                   { id: "outscope", label: `Out of scope (${pools.outscope.toLocaleString("en-US")})`, icon: "mdi:calendar-remove-outline" },
+                   { id: "blocked", label: `Blocked (${pools.blocked.toLocaleString("en-US")})`, icon: "mdi:shield-off-outline" }]} />
+        </div>
       </div>
 
       {projectId && <RqPanel projectId={projectId} refreshKey={dataKey} disabled={running} onChanged={() => { reloadData(); void syncTagging(); }} />}
+
+      {page.rqs.length > 0 && (
+        <div role="tablist" aria-label="Research questions" className="flex gap-1 overflow-x-auto border-b border-slate-200">
+          {[{ id: "", label: "All questions", n: relevant }, ...rqSummaries.map((q) => ({ id: q.rq_id, label: q.rq_id, n: q.counts.matched }))].map((t) => (
+            <button key={t.id || "all"} type="button" role="tab" aria-selected={filters.rq === t.id} onClick={() => changeFilters({ rq: t.id })}
+              className={`-mb-px shrink-0 border-b-2 px-3 py-2 text-sm font-semibold ${filters.rq === t.id ? "border-[#5B2C9D] text-[#5B2C9D]" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+              {t.label} <span className="ml-1 rounded-full bg-slate-100 px-1.5 text-[11px] font-medium tabular-nums">{t.n.toLocaleString("en-US")}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {filters.rq && <p className="text-sm text-slate-600"><b>{filters.rq}</b> · {page.rqs.find((q) => q.id === filters.rq)?.question}</p>}
+
+      {reviewable && page.total > 0 && (
+        confirmAll ? (
+          <div role="alertdialog" aria-label="Confirm" className="flex flex-wrap items-center gap-3 rounded-lg border border-violet-200 bg-violet-50 px-4 py-2 text-sm text-violet-900">
+            <b>{confirmAll === "approved" ? "Approve" : "Reject"} all {page.total.toLocaleString("en-US")} articles shown{filters.rq ? ` for ${filters.rq}` : " for every question they matched"}?</b>
+            <span className="text-xs">Decisions already made by an analyst stay as they are; you can undo for a few seconds.</span>
+            <button type="button" disabled={busy} onClick={() => void decideAll(confirmAll)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold text-white ${confirmAll === "approved" ? "bg-emerald-600" : "bg-red-600"}`}>Yes, {confirmAll === "approved" ? "approve" : "reject"} all</button>
+            <button type="button" onClick={() => setConfirmAll(null)} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs">Cancel</button>
+          </div>
+        ) : (
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setConfirmAll("approved")} className="rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50">Approve all</button>
+            <button type="button" onClick={() => setConfirmAll("irrelevant")} className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50">Reject all</button>
+          </div>
+        )
+      )}
 
       {reviewable ? (
         <FilterBar filters={filters} rqs={page.rqs} facets={facets} onChange={changeFilters} />
@@ -345,6 +425,7 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
           selectionComplete={page.total > 0 && selected.size === page.total}
           onToggle={toggleRow} onToggleAll={() => void toggleAll()} onPage={setOffset}
           onDecide={(id, status) => void decide([id], filters.rq || null, status)} onEdited={reloadData} canDecide={reviewable || markable} rowActions={reviewable}
+          brand={page.brand} competitors={page.competitors} activeRq={filters.rq}
           onKeep={running ? undefined : (row) => { setKeeping(row); setKeepNote(""); }} />
       )}
 

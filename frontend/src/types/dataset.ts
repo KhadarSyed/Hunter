@@ -15,6 +15,10 @@ export interface ArticleTags {
   signals?: string[];
   author_type?: string | null;
   brands?: BrandTag[];
+  /** format 2 (agents/enrichment): the rich tags with reasons, quoted evidence and the quality check */
+  format?: number;
+  enrichment?: Record<string, unknown>;
+  quality?: { status?: string; errors?: string[]; edited_by?: string };
 }
 
 export interface RqRow {
@@ -78,14 +82,27 @@ export interface ArticleFilters {
   brand: string;
   content_status: string;
   q: string;
-  /** matched (default): articles a question's Boolean query matched (or not matched yet); irrelevant: none did */
-  pool?: "matched" | "irrelevant";
+  /** matched (default): a question's Boolean query matched it (or not matched yet); irrelevant: none did;
+   * blocked: a keyword on the organization's exclusion list; outscope: outside the scope filter (country, dates) */
+  pool?: Pool;
 }
+
+export type Pool = "matched" | "irrelevant" | "blocked" | "outscope";
+
+/** A note for the agent (or a recorded correction) on one article, newest first. */
+export interface ArticleComment { id: number; kind: string; rq_id: string | null; comment: string | null; by: string | null; at: number }
+
+/** The Data set scope filter; dates are ISO days, '' = no bound; data_from / data_to = the uploaded data's range. */
+export interface DataSetScope { country: string; from: string; to: string; data_from: string; data_to: string; countries: string[] }
 
 /** The filter dropdowns' values for one channel (GET /articles/{id}/facets). */
 export interface ArticleFacets { themes: { label: string; title: string }[]; brands: string[]; content_statuses: string[] }
 
-export interface ArticlePage { rows: ArticleRow[]; total: number; rqs: RqColumn[] }
+export interface ArticlePage {
+  rows: ArticleRow[]; total: number; rqs: RqColumn[];
+  /** Brief & Scope's brand (else the Client field), tracked competitors, and the ones each question's query names */
+  brand?: string; competitors?: string[]; rq_brands?: Record<string, string[]>;
+}
 
 /** blocked = rows from the organization's blocked websites, dropped before saving */
 export interface UploadFileResult { file_name: string; rows_read: number; added: number; duplicates: number; blocked: number; error: string | null }
@@ -95,7 +112,7 @@ export interface UploadResult { files: UploadFileResult[]; added: number; duplic
 
 /** The research-question panel on the Data set page (GET /articles/{id}/rqs and the per-RQ routes). */
 export interface TagSchemaField { name: string; type: string; definition?: string; values: string[] }
-export interface RqCounts { matched: number; tagged: number; approved: number; needs_tagging: number; query_changed: number }
+export interface RqCounts { matched: number; tagged: number; approved: number; rejected: number; pending: number; needs_tagging: number; query_changed: number }
 export interface RqSummary { rq_id: string; question: string; query: string; status: string; counts: RqCounts; schema: { fields: TagSchemaField[] } }
 export interface RqArticleRef { id: number; title: string }
 export interface RqPreview { valid: boolean; errors: string[]; current: number; edited: number; added: RqArticleRef[]; dropped: RqArticleRef[] }

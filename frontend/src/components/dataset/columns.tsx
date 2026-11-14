@@ -15,7 +15,46 @@ export type ColCtx = {
   rqs: RqColumn[];
   relations: Record<string, RowRelations>;
   openRelation: (row: ArticleRow, kind: RelationKind) => void;
+  brand?: string;              // Brief & Scope's brand (else the Client field)
+  competitors?: string[];      // the project's tracked competitors
+  activeRq?: string;           // the question tab open ('' = all)
 };
+
+const ACCESS: Record<string, [string, string]> = {
+  full_text: ["Full text", "bg-emerald-50 text-emerald-700"], summary_only: ["Subscription required", "bg-amber-50 text-amber-700"],
+  blocked: ["Blocked by site", "bg-red-50 text-red-700"], not_reachable: ["Not reachable", "bg-slate-100 text-slate-600"],
+  pending: ["Not fetched yet", "bg-slate-100 text-slate-600"],
+};
+
+function accessCell(r: ArticleRow) {
+  if (r.channel === "social") return <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">Social post</span>;
+  const [label, tone] = ACCESS[r.content_status] ?? (r.content_status === "not_needed" ? ["Uses original", "bg-slate-100 text-slate-600"] : [r.content_status, "bg-slate-100 text-slate-600"]);
+  return <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded whitespace-nowrap ${tone}`}>{label}</span>;
+}
+
+const sameBrand = (a: string, b: string) => {
+  const n = (s: string) => s.toLowerCase().replace(/\b(resort|casino|the)\b/g, "").trim();
+  const x = n(a), y = n(b);
+  return Boolean(x && y && (x.includes(y) || y.includes(x)));
+};
+const DOT: Record<string, string> = { Positive: "bg-emerald-500", Negative: "bg-red-500", Neutral: "bg-amber-500" };
+
+function brandCell(r: ArticleRow, names: string[]) {
+  const found = (r.tags.brands ?? []).filter((b) => names.some((n) => sameBrand(n, b.brand)));
+  if (found.length === 0) return <span className="text-[11px] text-slate-400" title={`Tracked: ${names.join(", ") || "none"}`}>Not mentioned</span>;
+  return <div className="flex flex-wrap gap-1">{found.map((b) => (
+    <span key={b.brand} title={`${b.sentiment ?? "No sentiment"}${b.confidence != null ? ` ${Math.round(b.confidence * 100)}%` : ""}${b.summary ? ` · ${b.summary}` : ""}`}
+      className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-medium text-slate-700">
+      <span className={`h-1.5 w-1.5 rounded-full ${DOT[b.sentiment ?? ""] ?? "bg-slate-400"}`} />{b.brand}
+    </span>))}</div>;
+}
+
+/** The question tab's match confidence, else the article's relevancy to the main brand (rich tags). */
+function relevancyOf(r: ArticleRow, activeRq: string, brand: string): number | null {
+  if (activeRq && r.rq[activeRq]?.match_confidence != null) return r.rq[activeRq].match_confidence;
+  const rel = (r.tags.enrichment as { relevancy?: { assessments?: { brand: string; relevancy_score: number }[] } } | undefined)?.relevancy;
+  return rel?.assessments?.find((a) => sameBrand(a.brand, brand))?.relevancy_score ?? null;
+}
 
 const dash = <span className="text-slate-300 text-xs">—</span>;
 const text = (v: string | null | undefined) => (v ? <span className="text-xs text-slate-700">{v}</span> : dash);
@@ -63,7 +102,12 @@ export function buildColumns(ctx: ColCtx, channel: Channel): Col[] {
   const asRecord = (r: ArticleRow) => ({ url: r.url, source_name: r.outlet ?? "" }) as unknown as EnrichedRecord;
   const cols: Col[] = [
     { id: "content", group: "details", w: 300, head: "Content", cell: (r) => <ContentCell row={r} /> },
-    { id: "cstatus", group: "details", w: 100, head: "Content status", cell: (r) => text(r.content_status.replace("_", " ")) },
+    { id: "access", group: "details", w: 130, head: "Access", cell: accessCell },
+    { id: "mainbrand", group: "details", w: 150, head: "Main brand", cell: (r) => brandCell(r, ctx.brand ? [ctx.brand] : []) },
+    { id: "competitors", group: "details", w: 180, head: "Competitor brands", cell: (r) => brandCell(r, ctx.competitors ?? []) },
+    { id: "relevancy", group: "details", w: 90, head: "Relevancy", cell: (r) => {
+      const v = relevancyOf(r, ctx.activeRq ?? "", ctx.brand ?? "");
+      return v == null ? dash : <span className="text-xs font-semibold tabular-nums text-slate-700" title={ctx.activeRq ? `${ctx.activeRq} match confidence` : `Relevancy to ${ctx.brand}`}>{Math.round(v * 100)}%</span>; } },
     { id: "outlet", group: "details", w: 150, head: "Outlet", cell: (r) => <PublisherCell record={asRecord(r)} /> },
     { id: "date", group: "details", w: 100, head: "Date", cell: (r) => text(formatDate(r.published)) },
     { id: "country", group: "details", w: 130, head: "Country", cell: (r) => (r.country ? <CountryFlag country={r.country} showLabel className="text-xs text-slate-700" /> : dash) },

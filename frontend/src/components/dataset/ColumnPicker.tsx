@@ -12,11 +12,16 @@ export type GroupId = (typeof COLUMN_GROUPS)[number]["id"];
 
 const KEY = "hunter.dataset.hiddenGroups";
 
+// The table opens compact (source, country, access, brands, sentiment, relevancy, counts, status); every other tagged
+// point is in the article's drill-down, and these groups can be shown again from the picker.
+const DEFAULT_HIDDEN: GroupId[] = ["themes", "other", "rq"];
+
 export function loadHidden(): GroupId[] {
   try {
-    const v = JSON.parse(window.localStorage.getItem(KEY) || "[]");
-    return Array.isArray(v) ? v : [];
-  } catch { return []; }
+    const stored = window.localStorage.getItem(KEY);
+    const v = stored === null ? DEFAULT_HIDDEN : JSON.parse(stored);
+    return Array.isArray(v) ? v : DEFAULT_HIDDEN;
+  } catch { return DEFAULT_HIDDEN; }
 }
 
 export function saveHidden(hidden: GroupId[]) {
