@@ -86,3 +86,36 @@
   endpoint starts tagging. The frontend button calls both. Step names come from the tagging job's phases.
 - Next: the frontend (DataSet.tsx, columns, ArticleDrawer, scope bar with the two-month calendar, KPIs, pools,
   per-RQ tabs, Map + live pipeline), then the restart and a live check in Chrome.
+
+## Part 6: frontend (`b96c76d`) and live check (14:40 UTC)
+- `DataSet.tsx`:
+  - Files are attached first (chips), then "Map" uploads them and starts tagging. The old "1 · Match" button and
+    `intelApi.matchRqs` are deleted (upload and the scope filter re-match).
+  - Step-named progress ("Step 2 of 5 · Article tags"); scope bar; KPI tiles (overall, relevant, approved / rejected /
+    pending per tab); Relevant · Irrelevant · Out of scope · Blocked switch; per-question tab strip; Approve all /
+    Reject all with an on-page confirm (all pages, through `/decisions` with undo).
+- New components: `DateRangePicker` (two months side by side, bounded by the uploaded data's range), `ScopeBar`,
+  `CommentsPanel`.
+- `columns.tsx`: Access, Main brand, Competitor brands, Relevancy (question tab: match confidence; else relevancy to
+  the brand from the rich tags). `ArticlesTable`: per-row Approve / Reject always visible.
+  `ColumnPicker` opens compact by default (themes / other / rq groups hidden).
+- `ArticleDrawer`:
+  - Source line (author or account, country, access) and the full text with a paywall / blocked note.
+  - The rich tags shown with reasons and quotes, editable as JSON (validated on save via `/enrichment`); the old tags
+    keep the field editor.
+  - Question cards with edit (`/rqs/{rq}`); comments; Approve / Reject footer.
+- `repository.rq_counts` gains `rejected` (analyst-decided irrelevant) and `pending`.
+- Checks: tsc clean, lint 0 errors (32 warnings), `npm test` 15 passed, build done.
+- Project 41 re-matched (backend stopped): 602 relevant, 12 irrelevant; per RQ 601 / 495 / 8 / 248 / 18 / 155 / 542 /
+  84 / 137. Approved rows from the old loose match keep their status, so some tab counts are higher (e.g. RQ8 237).
+- Restart (port checked free first): the resumed re-tag runs ("article tags: 8 to do").
+- In Chrome as Khadar:
+  - Columns, KPIs (614 / 602 / 1,302 approved / 0 rejected / 1,219 pending), scope bar, four pools and the RQ tabs
+    render.
+  - The calendar opens on Sep–Oct 2026.
+  - The drawer shows Full article, Tags, RQ cards and Comments.
+  - A comment POST then GET round-trip works (an RQ4 note by khadar.syed is now in Testing Org's memory).
+- Not verified:
+  - The Map flow end to end with a new file (it would add data to project 41).
+  - Editing the rich tags in the UI (project 41 has no format-2 tags; the new tagger stays off).
+  - Approve all on the live page (review is locked while the re-tag runs).
