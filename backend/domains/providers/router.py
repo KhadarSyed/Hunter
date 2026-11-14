@@ -16,7 +16,7 @@ from ...core.auth import get_current_user
 from . import outage
 from . import repository as repo
 from . import service
-from .schemas import (PlatformAccess, ProviderCreate, ProviderRecord, ProvidersResponse, ProviderTestRequest,
+from .schemas import (PlatformAccess, ProviderCreate, ProviderEnabled, ProviderRecord, ProvidersResponse, ProviderTestRequest,
                       ProviderUpdate, TestResult)
 
 router = APIRouter()
@@ -156,7 +156,20 @@ def test_draft(body: ProviderTestRequest, user: UserDep):
 @router.post("/llm-providers/{provider_id}/default", response_model=ProviderRecord)
 def make_default(provider_id: int, user: UserDep):
     row = _owned(user, provider_id)
+    if not row.get("enabled", 1):
+        raise HTTPException(400, "Switch this model on before making it the default")
     repo.set_default(row["org_id"], provider_id)
+    service.invalidate(row["org_id"])
+    return ProviderRecord.from_row(repo.get(provider_id))
+
+
+@router.put("/llm-providers/{provider_id}/enabled", response_model=ProviderRecord)
+def set_enabled(provider_id: int, body: ProviderEnabled, user: UserDep):
+    """Switch a saved model on or off. Off, it is never called, not even as a fallback; the default stays on."""
+    row = _owned(user, provider_id)
+    if not body.enabled and row["is_default"]:
+        raise HTTPException(400, "This is the default model: make another model the default before switching it off")
+    repo.set_enabled(provider_id, body.enabled)
     service.invalidate(row["org_id"])
     return ProviderRecord.from_row(repo.get(provider_id))
 

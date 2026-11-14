@@ -53,6 +53,11 @@ class ProviderTestRequest(ProviderFields):
     api_key: str = Field(default="", max_length=500)
 
 
+class ProviderEnabled(ApiModel):
+    """Switch a saved model on or off (off: never called, not even as a fallback)."""
+    enabled: bool
+
+
 class PlatformAccess(ApiModel):
     """Super Admin: may this org's calls use the platform model (GPT, billed to the platform)?"""
     org_id: int | None = None
@@ -69,6 +74,7 @@ class ProviderRecord(ApiModel):
     api_version: str
     key_hint: str
     is_default: bool
+    enabled: bool = True
     reads_images: bool | None = None
     status: str
     last_error: str
@@ -80,6 +86,7 @@ class ProviderRecord(ApiModel):
     def from_row(cls, row: dict) -> "ProviderRecord":
         images = row.get("reads_images")
         return cls(**{**{k: row[k] for k in cls.model_fields if k in row}, "is_default": bool(row["is_default"]),
+                      "enabled": bool(row.get("enabled", 1)),
                       "reads_images": None if images is None else bool(images)})
 
 

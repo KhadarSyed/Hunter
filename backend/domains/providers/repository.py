@@ -38,7 +38,8 @@ def orgs_using_model(provider_type: str, model: str) -> set[int]:
 
 
 def newest_for_org(org_id: int) -> dict | None:
-    return _first(select(p).where(p.c.org_id == org_id).order_by(p.c.id.desc()))
+    """The newest model that is switched on (the next default when the default is removed)."""
+    return _first(select(p).where(p.c.org_id == org_id, p.c.enabled == 1).order_by(p.c.id.desc()))
 
 
 def get(provider_id: int) -> dict | None:
@@ -79,6 +80,11 @@ def set_default(org_id: int, provider_id: int | None) -> None:
         conn.execute(sql_update(p).where(p.c.org_id == org_id).values(is_default=0))
         if provider_id is not None:
             conn.execute(sql_update(p).where(p.c.id == provider_id, p.c.org_id == org_id).values(is_default=1))
+
+
+def set_enabled(provider_id: int, enabled: bool) -> None:
+    with sa.begin() as conn:
+        conn.execute(sql_update(p).where(p.c.id == provider_id).values(enabled=int(enabled), updated_at=time.time()))
 
 
 def set_reads_images(provider_id: int, value: int | None) -> None:

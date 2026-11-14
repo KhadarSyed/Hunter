@@ -26,6 +26,7 @@ org_llm_providers = Table(
     Column("updated_at", Double, nullable=False),
     Column("updated_by_user_id", BigInteger),
     Column("reads_images", BigInteger),                 # 1 yes, 0 no, NULL not known (migration 0006)
+    Column("enabled", BigInteger, nullable=False, server_default="1"),   # 0: never called (migration 0007)
 )
 
 org_llm_state = Table(

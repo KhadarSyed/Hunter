@@ -1024,6 +1024,8 @@ export const intelApi = {
   updateLlmProvider: (id: number, body: ProviderFields & { api_key: string }) => put<LlmProvider>(`/llm-providers/${id}`, body),
   deleteLlmProvider: (id: number) => del<{ ok: boolean }>(`/llm-providers/${id}`),
   setDefaultLlmProvider: (id: number) => post<LlmProvider>(`/llm-providers/${id}/default`, {}),
+  /** Off: the model is never called, not even as a fallback (the default cannot be switched off). */
+  setLlmProviderEnabled: (id: number, enabled: boolean) => put<LlmProvider>(`/llm-providers/${id}/enabled`, { enabled }),
   setPlatformAccess: (orgId: number, enabled: boolean) =>
     put<{ ok: boolean; platform_llm: boolean }>("/llm-providers/platform-access", { org_id: orgId, enabled }),
   usePlatformLlm: (orgId?: number) => post<{ ok: boolean }>(`/llm-providers/use-platform${orgId ? `?org_id=${orgId}` : ""}`, {}),
@@ -1159,6 +1161,7 @@ export type ProviderFields = { name: string; provider_type: ProviderType; base_u
   /** can it read images (photo checks)? null = not known yet: learned when it first refuses one */
   reads_images?: boolean | null };
 export type LlmProvider = ProviderFields & { id: number; org_id: number; key_hint: string; is_default: boolean;
+  enabled: boolean;
   status: "untested" | "ok" | "failed"; last_error: string; last_tested_at: number | null; last_latency_ms: number | null;
   updated_at: number };
 export type LlmOutage = { acting_provider_id: number | null; down_since: number; paused: number; last_error: string;

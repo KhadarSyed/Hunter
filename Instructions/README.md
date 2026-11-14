@@ -122,16 +122,19 @@ changed and why. Open the code only for the files a note or the map points to.
   2026-11-11 and is suspended; Render deletes it about 2026-11-25; no upgrade (user's decision, no budget). Work and
   test locally only; never trigger Render/Vercel deploys or change Render env.
 - **Local stack:** Docker `hunter-postgres` (port 5433) + backend `uvicorn backend.main:app --port 8002` (serves the
-  built SPA). Schema at Alembic revision `0006` (0001 stamped 2026-11-12, log 40; 0002 renames `org_subscriptions.payment_ref`
+  built SPA). Schema at Alembic revision `0007` (0001 stamped 2026-11-12, log 40; 0002 renames `org_subscriptions.payment_ref`
   to `source`, log 2026-11-13-10; 0003 stores author_type "Organization", log 2026-11-13-11; 0004 keys
   `intel_research_item_vectors` by (kind, item_id), log 2026-11-13-17; 0005 adds `intel_tag_feedback`, log 2026-11-13-19; 0006 adds `intel_jobs.params_json`,
-  `intel_checkpoints` and `org_llm_providers.reads_images`, log 2026-11-14-01).
+  `intel_checkpoints` and `org_llm_providers.reads_images`, log 2026-11-14-01; 0007 adds `org_llm_providers.enabled`, log
+  2026-11-14-13).
   Local Super Admin = the
   `SEED_SUPER_ADMIN_EMAIL` account (user 2); the `.env` seed password no longer matches it (changed at sign-in).
-- **Local data:** organisations 1 Default Organization, 2 InfoVision (`platform_llm` on), 3 Test Organization
-  (`platform_llm` off); 0 projects. Test Organization's chat models, in failover order: NVIDIA
-  `nemotron-3-ultra-550b-a55b` (default), `minimax-m3.1-flash`, `step-5-preview` (logs 34-35). It has a Starter plan
-  (+ one queued Starter from a test grant) and an Admin user at the seed address with `+testorg` (logs 2026-11-13-03/04).
+- **Local data (log 2026-11-14-13):** organisations 2 InfoVision (the default; `platform_llm` on; own models
+  Azure `gpt-4.1` on + default, `gpt-5` saved but switched off) and 4 Testing Org (`platform_llm` off; NVIDIA
+  `nemotron-3-ultra-550b-a55b` default, `minimax-m3.1-flash`, `step-5-preview`; Starter plan). Users: two Super
+  Admins only, the `SEED_SUPER_ADMIN_EMAIL` account (user 2, member of both orgs) and Harish Thulasiram (user 8,
+  member of InfoVision; signs in first through "Forgot password?"). 0 projects. Test on Testing Org only: InfoVision's
+  GPT-4.1 has its own key, so anything run there spends GPT money.
 - **No GPT spend (finance limit, 2026-11-13):** the local backend runs with `AZURE_OPENAI_API_KEY`,
   `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_MODEL` blanked in the launch command, so nothing can reach the platform
   model; test only on an org's own NVIDIA models. The deck-insight batching A/B (`HUNTER_BATCH_INSIGHTS`) is paused

@@ -44,6 +44,11 @@ def seed_super_admin_if_missing() -> None:
         store.set_platform_llm(org_id, True)
     if org and org.get("archived_at"):
         store.reactivate_organization(org_id)
+    from ..domains.providers import service as providers   # local: avoids a circular import
+    try:     # its own GPT models on a new database (only when it has none); never blocks startup
+        providers.seed_platform_models(org_id)
+    except Exception as e:
+        logger.warning("InfoVision models not added (%s: %s)", type(e).__name__, e)
     if store.has_super_admin():
         return
     email = (os.environ.get("SEED_SUPER_ADMIN_EMAIL") or "").strip().lower()

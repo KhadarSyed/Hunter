@@ -84,12 +84,13 @@ def _client(row: dict):
 
 
 def _rows(org_id: int) -> list[dict]:
-    """The org's providers in failover order: the saved default, then the others newest first."""
+    """The org's providers in failover order: the saved default, then the others newest first. Models switched off
+    are left out, so they are never called."""
     now = time.time()
     with _lock:
         hit = _orgs.get(org_id)
     if not hit or now - hit[0] >= _TTL_S:
-        hit = (now, repo.list_for_org(org_id))
+        hit = (now, [r for r in repo.list_for_org(org_id) if r.get("enabled", 1)])
         with _lock:
             _orgs[org_id] = hit
     return hit[1]
@@ -238,3 +239,34 @@ def test_connection(fields: dict, api_key: str) -> dict:
         logger.info("Provider test failed: %s", type(e).__name__)
         return {"ok": False, "latency_ms": int((time.time() - started) * 1000), "reply": "",
                 "error": (str(e) or type(e).__name__)[:300]}
+
+
+def seed_platform_models(org_id: int, env: dict | None = None) -> int:
+    """The default organisation's own GPT models, at startup, on a database where it has none yet (a new production
+    database): the Azure deployment AZURE_OPENAI_MODEL switched on and default, plus AZURE_OPENAI_GPT5_MODEL saved but
+    switched off (a Super Admin switches it on in Settings → LLM Providers). Both use AZURE_OPENAI_ENDPOINT/_API_KEY
+    (the key stored encrypted). Nothing happens without an endpoint and key. Makes no AI call. Returns models added."""
+    import os
+    env = os.environ if env is None else env
+    endpoint = (env.get("AZURE_OPENAI_ENDPOINT") or "").strip().rstrip("/")
+    key = (env.get("AZURE_OPENAI_API_KEY") or "").strip()
+    if not (endpoint and key) or repo.list_for_org(org_id):
+        return 0
+    version = (env.get("AZURE_OPENAI_API_VERSION") or "").strip()
+    active = (env.get("AZURE_OPENAI_MODEL") or "").strip()
+    spare = (env.get("AZURE_OPENAI_GPT5_MODEL") or "gpt-5").strip()
+    models = [(m, on) for m, on in ((active, True), (spare, False)) if m]
+    if len(models) == 2 and models[0][0] == models[1][0]:
+        models = models[:1]
+    key_enc, hint = secret_box.encrypt(key), secret_box.hint(key)
+    for model, on in models:
+        pid = repo.create(org_id, {"name": f"Azure OpenAI {model}", "provider_type": "azure_openai",
+                                   "base_url": endpoint, "model": model, "api_version": version,
+                                   "reads_images": None}, key_enc, hint, None)
+        if on and not repo.default_for_org(org_id):
+            repo.set_default(org_id, pid)
+        if not on:
+            repo.set_enabled(pid, False)
+    invalidate(org_id)
+    logger.info("Org %s: added %s", org_id, ", ".join(f"{m} ({'on' if on else 'off'})" for m, on in models))
+    return len(models)

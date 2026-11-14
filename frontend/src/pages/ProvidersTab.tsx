@@ -223,7 +223,8 @@ export function ProvidersTab() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="max-w-xl text-sm text-slate-500">
           Connect this organization's own chat models. The default answers every chat call of the organization's
-          projects; when it is down, the next model in this list takes over, in the order shown. When all are down,
+          projects; when it is down, the next model in this list takes over, in the order shown. A model switched off
+          is kept but never called. When all are down,
           calls wait and resume as soon as one is back, and admins are emailed. Keys are encrypted and never shown
           again. Embeddings stay on the platform.
         </p>
@@ -282,13 +283,15 @@ export function ProvidersTab() {
           {data.outage && <OutageBanner outage={data.outage} providers={data.providers} />}
 
           {data.providers.map((p) => (
-            <div key={p.id} className={`rounded-xl border p-4 ${p.is_default ? "border-[#5B2C9D]/40" : "border-slate-200"}`}>
+            <div key={p.id} className={`rounded-xl border p-4 ${p.is_default ? "border-[#5B2C9D]/40" : "border-slate-200"} ${p.enabled ? "" : "bg-slate-50"}`}>
               <div className="flex flex-wrap items-center gap-3">
                 <Icon icon={PROVIDER_ICONS[p.provider_type] ?? "lucide:cpu"} width={26} aria-hidden className="shrink-0" />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-semibold text-slate-900">{p.name}</span>
                     {p.is_default && <span className="rounded bg-[#5B2C9D]/10 px-1.5 py-0.5 text-[11px] font-semibold text-[#5B2C9D]">Default</span>}
+                    {!p.enabled && <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[11px] font-semibold text-slate-600"
+                                          title="Never called, not even when the default is down">Off</span>}
                     <StatusBadge p={p} />
                     {p.reads_images === false && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500">No images</span>}
                     {p.reads_images === true && <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[11px] font-medium text-sky-700">Reads images</span>}
@@ -307,6 +310,12 @@ export function ProvidersTab() {
                     {busy === p.id ? "Working…" : "Test connection"}
                   </button>
                   {!p.is_default && (
+                    <button type="button" onClick={() => act(p.id, () => intelApi.setLlmProviderEnabled(p.id, !p.enabled))} disabled={busy === p.id}
+                            className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40">
+                      {p.enabled ? "Switch off" : "Switch on"}
+                    </button>
+                  )}
+                  {!p.is_default && p.enabled && (
                     <button type="button" onClick={() => act(p.id, () => intelApi.setDefaultLlmProvider(p.id))} disabled={busy === p.id}
                             className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40">
                       Make default
