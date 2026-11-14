@@ -47,7 +47,7 @@ def _who(user: dict) -> str:
 
 
 def _bad_ext(name: str) -> str | None:
-    return None if name.lower().endswith(service.ALLOWED_EXT) else "Unsupported file type (use .csv, .xlsx or .xls)"
+    return None if name.lower().endswith(service.ALLOWED_EXT) else service.UNSUPPORTED
 
 
 @router.post("/articles/{project_id}/upload")

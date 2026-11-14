@@ -150,8 +150,12 @@ def all_articles(project_id: int) -> list[dict]:
                        A.c.syndicated_json).where(A.c.project_id == project_id).order_by(A.c.id))
 
 
-def save_content(article_id: int, content: str, status: str) -> None:
-    _exec(update(A).where(A.c.id == article_id).values(content=content, content_status=status))
+def save_content(article_id: int, content: str, status: str, author: str = "") -> None:
+    """The fetched text; the page's byline fills the author only where the export left it empty."""
+    values = {"content": content, "content_status": status}
+    if author:
+        values["author_name"] = func.coalesce(func.nullif(A.c.author_name, ""), author)
+    _exec(update(A).where(A.c.id == article_id).values(**values))
 
 
 def save_tags(article_id: int, tags: dict | None, error: str | None) -> None:

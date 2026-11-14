@@ -284,8 +284,8 @@ export function DataSet({ onNavigate }: { onNavigate?: (page: string) => void })
       <label onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); if (!uploading) void onFiles(e.dataTransfer.files); }}
         className="flex cursor-pointer flex-col items-center gap-1 rounded-xl border-2 border-dashed px-6 py-6 text-center hover:bg-[#f5f3ff]" style={{ borderColor: "#c4b5fd" }}>
         <span className="text-sm font-medium" style={{ color: V }}>{uploading ? "Uploading…" : "Drop article files here or click to choose"}</span>
-        <span className="text-xs text-slate-500">.csv, .xlsx or .xls — several files at once; a link already uploaded is counted once</span>
-        <input type="file" multiple accept=".csv,.xlsx,.xls" className="sr-only" disabled={uploading} aria-label="Upload article files"
+        <span className="text-xs text-slate-500">.csv, .xlsx, .xls or .json — several files at once; a link already uploaded is counted once</span>
+        <input type="file" multiple accept=".csv,.xlsx,.xls,.json" className="sr-only" disabled={uploading} aria-label="Upload article files"
           onChange={(e) => { void onFiles(e.target.files ?? []); e.target.value = ""; }} />
       </label>
 

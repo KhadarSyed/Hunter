@@ -6,7 +6,7 @@ import json
 import time
 from typing import Optional
 
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import func, insert, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ...core import sa
@@ -19,7 +19,17 @@ __all__ = ["save_background_research", "save_background_research_update", "get_l
            "get_brand_logo", "save_brand_logo", "get_pexels_image", "save_pexels_image", "get_youtube_video",
            "save_youtube_video", "upsert_research_item", "research_item_urls", "get_item_vectors",
            "save_item_classifications", "save_item_vectors", "get_research_item", "get_research_items",
-           "VECTOR_LOOKUP_CHUNK", "get_article_fulltext", "save_article_fulltext"]
+           "VECTOR_LOOKUP_CHUNK", "get_article_fulltext", "save_article_fulltext", "recent_site_statuses"]
+
+
+def recent_site_statuses(host: str, limit: int = 3) -> list[dict]:
+    """The newest cached fetch results (status, error) for any article on this site, newest first."""
+    t = research_article_fulltext
+    host = host.lower().removeprefix("www.")
+    url = func.lower(t.c.url)
+    pats = [f"{s}://{h}/%" for s in ("https", "http") for h in (host, "www." + host)]
+    return _all(select(t.c.status, t.c.error).where(or_(*(url.like(p) for p in pats)))
+                .order_by(t.c.fetched_at.desc()).limit(limit))
 
 R, NA, I, V = intel_background_research, intel_news_approvals, intel_research_items, intel_research_item_vectors
 VECTOR_LOOKUP_CHUNK = 1000

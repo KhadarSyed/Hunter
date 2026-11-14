@@ -14,8 +14,22 @@ from ..execution.service import _load_dataset
 from . import normalize, repository as repo
 
 logger = logging.getLogger(__name__)
-ALLOWED_EXT = (".csv", ".xlsx", ".xls")
+ALLOWED_EXT = (".csv", ".xlsx", ".xls", ".json")
+UNSUPPORTED = "Unsupported file type (use .csv, .xlsx, .xls or .json)"
 MAX_FILE_BYTES = 50 * 1024 * 1024
+
+
+def _json_rows(data: bytes) -> list[dict]:
+    """A JSON upload: a list of article objects, or an object holding one ({"articles": [...]}, Meltwater's
+    {"documents": [...]}, ...). Nested values are kept as text; the columns are mapped like a CSV's."""
+    import json
+    doc = json.loads(data.decode("utf-8-sig"))
+    if isinstance(doc, dict):
+        doc = doc.get("articles") or next((v for v in doc.values() if isinstance(v, list)), [])
+    if not isinstance(doc, list):
+        raise ValueError("The JSON file holds no list of articles")
+    return [{k: v if isinstance(v, (str, int, float)) or v is None else json.dumps(v, ensure_ascii=False)
+             for k, v in row.items()} for row in doc if isinstance(row, dict)]
 
 
 def _safe_name(name: str) -> str:
@@ -24,6 +38,8 @@ def _safe_name(name: str) -> str:
 
 
 def _read(name: str, data: bytes) -> list[dict]:
+    if Path(name).suffix.lower() == ".json":
+        return _json_rows(data)
     config.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     tmp = config.UPLOAD_DIR / f"{uuid.uuid4().hex}{Path(name).suffix.lower()}"
     try:
@@ -39,7 +55,7 @@ def _one(project_id: int, name: str, data: bytes, user: str | None, rules=None) 
     fid = None
     try:
         if Path(safe).suffix.lower() not in ALLOWED_EXT:
-            out["error"] = "Unsupported file type (use .csv, .xlsx or .xls)"
+            out["error"] = UNSUPPORTED
         elif len(data) > MAX_FILE_BYTES:
             out["error"] = "File is larger than 50 MB"
         elif not data:

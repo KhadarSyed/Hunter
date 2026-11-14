@@ -542,21 +542,7 @@ def _text_overlap(summary: str, source: str) -> float:
 
 # ─── Helper: Fetch page and extract metadata ─────────────────────────────
 
-_NON_PERSON_RE = re.compile(
-    r'_|drupal|sso|admin|webmaster|cms|bot|system|noreply|'
-    r'\b(editorial\s*team|staff|desk|bureau|newsroom|editors?|'
-    r'contributor|wire\s*service|associated\s*press|reuters|agency|team)\b',
-    re.IGNORECASE,
-)
-
-def _is_person_name(name: str) -> bool:
-    if _NON_PERSON_RE.search(name):
-        return False
-    if not re.search(r'[a-zA-Z]', name):
-        return False
-    if len(name.split()) < 2 and not re.search(r'[A-Z][a-z]', name):
-        return False
-    return True
+from ..research.article_extractor import extract_author, is_person_name as _is_person_name  # noqa: E402
 
 
 def _fetch_page(url: str) -> dict[str, str]:
@@ -569,50 +555,18 @@ def _fetch_page(url: str) -> dict[str, str]:
         if resp is None or resp.status_code >= 400:
             return result
         html = resp.text[:80000]
-
-        for pattern in [
-            r'<meta\s+name=["\']author["\']\s+content=["\']([^"\']+)["\']',
-            r'<meta\s+content=["\']([^"\']+)["\']\s+name=["\']author["\']',
-            r'<meta\s+property=["\']article:author["\']\s+content=["\']([^"\']+)["\']',
-            r'<meta\s+content=["\']([^"\']+)["\']\s+property=["\']article:author["\']',
-        ]:
-            m = re.search(pattern, html, re.IGNORECASE)
-            if m:
-                author = m.group(1).strip()
-                if author and len(author) < 100 and not author.startswith("http") and _is_person_name(author):
-                    result["author"] = author
-                    break
+        result["author"] = extract_author(html)       # one byline reader for QC and the Data set
 
         for ld_match in re.finditer(r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>', html, re.DOTALL | re.IGNORECASE):
             try:
                 data = _json.loads(ld_match.group(1))
                 if isinstance(data, list):
                     data = data[0]
-                if not result["author"]:
-                    auth = data.get("author")
-                    candidate = ""
-                    if isinstance(auth, dict):
-                        candidate = auth.get("name", "")
-                    elif isinstance(auth, list) and auth:
-                        names = [a.get("name", "") if isinstance(a, dict) else str(a) for a in auth]
-                        candidate = ", ".join(n for n in names if n)
-                    elif isinstance(auth, str):
-                        candidate = auth
-                    if candidate and _is_person_name(candidate):
-                        result["author"] = candidate
                 body = data.get("articleBody", "")
                 if isinstance(body, str) and len(body) > 50:
                     result["text"] = body
             except Exception:
                 continue
-
-        if not result["author"]:
-            byline_match = re.search(r'class=["\'][^"\']*byline[^"\']*["\'][^>]*>([^<]{3,80})<', html, re.IGNORECASE)
-            if byline_match:
-                text = byline_match.group(1).strip()
-                text = re.sub(r'^[Bb]y\s+', '', text).strip()
-                if text and len(text) < 80 and _is_person_name(text):
-                    result["author"] = text
 
         if not result["text"]:
             paragraphs = re.findall(r'<p[^>]*>([^<]{40,})</p>', html)

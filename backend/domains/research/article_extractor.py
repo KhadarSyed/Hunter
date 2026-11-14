@@ -62,12 +62,92 @@ def get_full_text(url: str, force: bool = False) -> dict:
         cached = _get_cached(url)
         if cached:
             return {**cached, "cached": True}
+        skipped = _site_refuses(url)
+        if skipped:          # not cached: the site is checked again once its recent fetches change
+            return {**skipped, "platform": None, "embed_url": None, "cached": False}
 
     result = _extract(url)
     result.setdefault("platform", None)
     result.setdefault("embed_url", None)
     _save_cache(url, result)
     return {**result, "cached": False}
+
+
+SITE_MEMORY = 3     # this many newest fetches from one site all paywalled / blocked: stop scraping that site
+
+
+def _refused(row: dict) -> str | None:
+    if row["status"] == "paywalled":
+        return "paywalled"
+    err = (row.get("error") or "").lower()
+    return "blocked" if row["status"] == "failed" and any(m in err for m in ("401", "403", "429", "blocked")) else None
+
+
+def _site_refuses(url: str) -> dict | None:
+    """The agent's memory of a site that needs a subscription or refuses readers: when its last SITE_MEMORY fetches
+    all came back that way, the next article from it is not scraped (the export's summary is used instead)."""
+    host = (urlparse(url).hostname or "").lower().removeprefix("www.")
+    if not host:
+        return None
+    rows = repository.recent_site_statuses(host, SITE_MEMORY)
+    kinds = {_refused(r) for r in rows}
+    if len(rows) < SITE_MEMORY or None in kinds:
+        return None
+    if kinds == {"paywalled"}:
+        return {"status": "paywalled", "title": None, "blocks": [], "author": "", "error": "site skipped: needs a subscription"}
+    return {"status": "failed", "title": None, "blocks": [], "author": "", "error": "site skipped: blocked readers"}
+
+
+_AUTHOR_META = [r'<meta\s+name=["\']author["\']\s+content=["\']([^"\']+)["\']',
+                r'<meta\s+content=["\']([^"\']+)["\']\s+name=["\']author["\']',
+                r'<meta\s+property=["\']article:author["\']\s+content=["\']([^"\']+)["\']',
+                r'<meta\s+content=["\']([^"\']+)["\']\s+property=["\']article:author["\']']
+
+
+_NON_PERSON_RE = re.compile(
+    r'_|drupal|sso|admin|webmaster|cms|bot|system|noreply|'
+    r'\b(editorial\s*team|staff|desk|bureau|newsroom|editors?|'
+    r'contributor|wire\s*service|associated\s*press|reuters|agency|team)\b',
+    re.IGNORECASE,
+)
+
+
+def is_person_name(name: str) -> bool:
+    """A byline that names a person, not a desk, a CMS account or a wire service (also used by the QC flow)."""
+    name = (name or "").strip()
+    if not name or len(name) >= 100 or name.startswith("http") or _NON_PERSON_RE.search(name):
+        return False
+    if not re.search(r"[a-zA-Z]", name):
+        return False
+    return len(name.split()) >= 2 or bool(re.search(r"[A-Z][a-z]", name))
+
+
+
+
+
+def extract_author(html: str) -> str:
+    """The journalist named on the page: meta author, schema.org author, then a 'byline' element ('' if none).
+    The QC flow and the Data set both use this."""
+    html = (html or "")[:200_000]
+    for pattern in _AUTHOR_META:
+        m = re.search(pattern, html, re.IGNORECASE)
+        if m and is_person_name(m.group(1).strip()) and not m.group(1).startswith("http"):
+            return m.group(1).strip()
+    for ld in re.finditer(r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>', html, re.DOTALL | re.I):
+        try:
+            data = json.loads(ld.group(1))
+        except ValueError:
+            continue
+        for item in data if isinstance(data, list) else [data]:
+            auth = item.get("author") if isinstance(item, dict) else None
+            names = [a.get("name", "") if isinstance(a, dict) else str(a) for a in (auth if isinstance(auth, list) else [auth])
+                     if a]
+            found = ", ".join(n.strip() for n in names if n and is_person_name(n.strip()))
+            if found:
+                return found
+    m = re.search(r'class=["\'][^"\']*byline[^"\']*["\'][^>]*>([^<]{3,80})<', html, re.IGNORECASE)
+    text = re.sub(r"^by\s+", "", m.group(1).strip(), flags=re.I) if m else ""
+    return text if is_person_name(text) else ""
 
 
 def _get_cached(url: str) -> dict | None:
@@ -150,9 +230,9 @@ def _extract(url: str) -> dict:
 
     title, blocks = _parse_article(html, url)
     if not blocks:
-        return {"status": "failed", "title": title, "blocks": [],
+        return {"status": "failed", "title": title, "blocks": [], "author": extract_author(html),
                 "error": "No article content found"}
-    return {"status": "ok", "title": title, "blocks": blocks, "error": None}
+    return {"status": "ok", "title": title, "blocks": blocks, "author": extract_author(html), "error": None}
 
 
 def _extract_title(html: str) -> str | None:
