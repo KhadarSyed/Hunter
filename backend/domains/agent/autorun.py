@@ -79,7 +79,7 @@ def _run(project_id: int, user_id: int) -> None:
 def _drive(project_id: int, user_id: int) -> None:
     api = None
     try:
-        api = ApiClient(user_id)
+        api = ApiClient(user_id, project_id)
         _steps(api, project_id, f"autorun:{user_id}")
         _set(project_id, status="done", step="data-sources", job_id=None)
         notify.notify_matching_label(project_id)      # next: the owner approves the research questions

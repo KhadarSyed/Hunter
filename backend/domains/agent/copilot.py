@@ -53,7 +53,7 @@ def _confirm(ctx: ToolContext, pending_id: str) -> dict:
 def _start_background(project_id: int, user_id: int, tool: str, args: dict) -> None:
     def work() -> None:
         from .autopilot import _llm
-        api = ApiClient(user_id)
+        api = ApiClient(user_id, project_id)
         try:
             run_tool(ToolContext(project_id=project_id, user_id=user_id, actor="copilot", api=api, llm=_llm()), tool, args)
         finally:
@@ -70,7 +70,7 @@ def _no_llm(ctx: ToolContext) -> dict:
 
 def reply(project_id: int, user_id: int, message: str, llm, confirm: str | None = None, api=None) -> dict:
     own = api is None
-    ctx = ToolContext(project_id=project_id, user_id=user_id, actor="copilot", api=api or ApiClient(user_id), llm=llm)
+    ctx = ToolContext(project_id=project_id, user_id=user_id, actor="copilot", api=api or ApiClient(user_id, project_id), llm=llm)
     try:
         return _reply(ctx, message, llm, confirm)
     finally:

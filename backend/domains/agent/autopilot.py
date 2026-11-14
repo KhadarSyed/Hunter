@@ -26,8 +26,8 @@ _SYSTEM = ("You are Hunter's autopilot. You move a research project from client 
            "approve a step whose state is not 'ready'. If a step failed, read why (read_run) before retrying.")
 
 
-def _api(user_id: int):
-    return ApiClient(user_id)
+def _api(user_id: int, project_id: int | None = None):
+    return ApiClient(user_id, project_id)
 
 
 def _llm():
@@ -58,7 +58,7 @@ def decide(project_id: int, llm, status: dict) -> tuple[str, dict, str]:
 
 def drive(project_id: int, user_id: int, llm=None, sleep=time.sleep) -> str:
     failures: dict[str, int] = {}
-    api = _api(user_id)
+    api = _api(user_id, project_id)
     ctx = ToolContext(project_id=project_id, user_id=user_id, actor="autopilot", api=api, llm=llm)
     n, waited = 0, 0
     try:

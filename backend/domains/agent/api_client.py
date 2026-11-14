@@ -16,7 +16,7 @@ class ToolError(RuntimeError):
 
 
 class ApiClient:
-    def __init__(self, user_id: int):
+    def __init__(self, user_id: int, project_id: int | None = None):
         if not store.get_user_by_id(user_id):
             raise ToolError(f"user {user_id} does not exist")
         from fastapi.testclient import TestClient
@@ -24,6 +24,11 @@ class ApiClient:
         from ...main import app                   # lazy: main imports the domains package
         token, _expires = store.create_session(user_id)
         self._token = token
+        # The session works in the project's org, as the UI does after picking it: a Super Admin's fresh session has
+        # no org at all (core/auth.can_access_project). get_session_user still checks the membership.
+        project = store.get_project(project_id) if project_id else None
+        if project and project.get("org_id") is not None:
+            store.set_session_org(token, project["org_id"])
         self._client = TestClient(app, raise_server_exceptions=False)
         self._client.cookies.set(SESSION_COOKIE_NAME, token)
         key = get_app_settings().api_key

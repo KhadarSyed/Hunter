@@ -707,8 +707,14 @@ def _apply_defaults(queries: dict, spec: dict) -> None:
     if "query_modules" not in queries:
         queries["query_modules"] = []
 
-    if "query_versions" not in queries:
+    if not isinstance(queries.get("query_versions"), dict):
         queries["query_versions"] = {}
+    # Some models nest top-level sections inside query_versions (an NVIDIA model did with the RQ list and the
+    # exclusions): they are not versions, and left there every RQ was lost
+    for key in ("research_question_queries", "exclusion_strategy", "filter_recommendations", "quality_assessment"):
+        misplaced = queries["query_versions"].pop(key, None)
+        if misplaced and not queries.get(key):
+            queries[key] = misplaced
     for version_key in ("broad", "balanced", "precise"):
         if version_key not in queries["query_versions"]:
             queries["query_versions"][version_key] = {
