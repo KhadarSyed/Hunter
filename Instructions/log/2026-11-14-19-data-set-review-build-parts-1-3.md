@@ -65,3 +65,24 @@
 - The new tagger stays off until the 60-article side-by-side.
 - Project 41 has not been re-matched with parts 1-2 yet (the backend is stopped). The next start resumes its re-tag
   first.
+
+## Parts 4-5 (same day)
+4. `ae6effc` outlet country: `normalize.outlet_country(url)` maps the country domain (.co.uk, .ca, .in, ...) to the
+   New Project Geography names. `_record` uses it only when the export has no Country value, and never for social
+   posts. A .com site stays empty, and the scope filter keeps it.
+5. `ef6cac4` drill-down API (no migration):
+   - `GET` / `POST /articles/{pid}/{aid}/comments` (`CommentRequest {scope: article|rq, rq_id, text}`). They record
+     feedback kind `comment` (article tagging) or `rq_comment` (that question's tagging), both now in
+     `ARTICLE_KINDS` / `RQ_KINDS` and phrased by `feedback._line`. History comes from
+     `feedback.repository.article_feedback` and `feedback.service.history`.
+   - `PATCH /articles/{pid}/{aid}/enrichment` (`EnrichmentEdit`): validated with `ContentEnrichment`, stored through
+     `tagger.stored` (legacy fields rebuilt, quality.edited_by), and `learn_edit` records it.
+   - `PATCH /articles/{pid}/{aid}/rqs/{rq}` (`RqRowEdit`: confidence, reason, tags, comment):
+     `repo.edit_rq_row` sets decided_by, so a Re-tag never overwrites it.
+   - Approve / Reject (per row, bulk, "all") reuse `POST /decisions`.
+   - `GET /articles/{pid}` adds `brand`, `competitors` and `rq_brands` (the brands each question's query names).
+   - Tests (local): `tests/dataset/test_review_routes.py` 4; dataset + enrichment + feedback 180 passed.
+- "Map" needs no new endpoint: upload already runs the website guardrail, the scope filter and the match; the tag
+  endpoint starts tagging. The frontend button calls both. Step names come from the tagging job's phases.
+- Next: the frontend (DataSet.tsx, columns, ArticleDrawer, scope bar with the two-month calendar, KPIs, pools,
+  per-RQ tabs, Map + live pipeline), then the restart and a live check in Chrome.
