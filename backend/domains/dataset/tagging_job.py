@@ -166,12 +166,25 @@ def _content_phase(pid: int, prog: _Progress) -> None:
     _parallel(content.fetch, todo, CONTENT_WORKERS, save)
 
 
-def _tags_phase(pid: int, llm, prog: _Progress) -> int:
+def _tagger(brand: str, competitors: list[str]):
+    """(tag function, text used for batching, output tokens per article). HUNTER_TAG_FORMAT=2 switches to the rich
+    format ported from media-intelligence-agent (agents/enrichment); the old format stays the default until the
+    side-by-side check on real articles passes."""
+    if os.getenv("HUNTER_TAG_FORMAT", "").strip() == "2":
+        from ...agents.enrichment import tagger
+        return (lambda llm, b, hints: tagger.tag(llm, b, [brand, *competitors], hints=hints),
+                tagger.source_text, tagger.OUT_PER_ARTICLE)
     from ...agents import article_tagging
+    return (lambda llm, b, hints: article_tagging.tag(llm, b, brand, competitors, hints=hints),
+            _body, article_tagging.OUT_PER_ARTICLE)
+
+
+def _tags_phase(pid: int, llm, prog: _Progress) -> int:
     brand, competitors, _ = _brand_context(pid)
+    tag_fn, text_of, out_per_article = _tagger(brand, competitors)
     todo = repo.articles_needing(pid, "tags", ALL)
     prog.begin("article tags", len(todo))
-    batches = batching.pack(todo, _body, out_per_item=article_tagging.OUT_PER_ARTICLE)
+    batches = batching.pack(todo, text_of, out_per_item=out_per_article)
     saved = 0
 
     def save(batch, res):
@@ -183,7 +196,7 @@ def _tags_phase(pid: int, llm, prog: _Progress) -> int:
         prog.advance(len(batch))
     from ..feedback import service as feedback
     learned = lambda arts: feedback.guidance(pid, arts, feedback.ARTICLE_KINDS)  # noqa: E731  (analysts' edits)
-    _parallel(_fresh(lambda b: article_tagging.tag(llm, b, brand, competitors, hints=learned)), batches, _workers(), save,
+    _parallel(_fresh(lambda b: tag_fn(llm, b, learned)), batches, _workers(), save,
               lambda batch: prog.advance(len(batch)))
     return saved
 
