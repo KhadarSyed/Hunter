@@ -143,58 +143,22 @@ def match_terms(query: str) -> list[str]:
     return rq_tagging._terms(query or "") or _plain_terms(_split_not(query or "")[0])
 
 
-def _own_level(text: str) -> str:
-    """The text with its quoted phrases and bracketed groups blanked out (what sits at this bracket level)."""
-    out, i = [], 0
-    while i < len(text):
-        if text[i] in '"(':
-            i = max(_clause_end(text, i), i + 1)
-            out.append(" ")
-            continue
-        out.append(text[i])
-        i += 1
-    return "".join(out)
-
-
-def _without_disambiguations(text: str) -> str:
-    """Drops every bracketed group that has its own NOT, e.g. ("Foxwoods" NOT (casino OR resort)) inside a NOT
-    block: it excludes off-topic uses of a name, which keyword hits cannot express, and read as plain terms it
-    excluded the brand itself (project 41: five RQs matched 0 of 614 articles)."""
-    out, i = [], 0
-    while i < len(text):
-        if text[i] in '"(':
-            end = max(_clause_end(text, i), i + 1)
-            part = text[i:end]
-            if text[i] == "(":
-                inner = part[1:-1] if part.endswith(")") else part[1:]
-                if _NOT.search(_own_level(inner)):
-                    i = end
-                    continue
-                part = "(" + _without_disambiguations(inner) + ")"
-            out.append(part)
-            i = end
-            continue
-        out.append(text[i])
-        i += 1
-    return "".join(out)
-
-
-def not_terms(query: str) -> list[str]:
-    """The terms of the query's NOT clauses (the term, phrase or bracketed group right after each NOT), leaving out
-    nested name-disambiguation groups (_without_disambiguations)."""
-    return _plain_terms(_without_disambiguations(_split_not(query or "")[1]))
-
-
 def query_errors(query: str) -> list[str]:
     from ...agents.meltwater_query_builder import validate_boolean_syntax
     return validate_boolean_syntax(query) + ([] if match_terms(query) else [NO_TERMS])
 
 
 def _matching(query: str, arts: list[dict]) -> set[int]:
-    """Articles with a positive term and none of the NOT terms."""
+    """Articles the Boolean query matches (AND / OR / NOT / NEAR, title:), evaluated in Python. A query that cannot
+    be read falls back to "any positive term" and is logged, so an odd query never silently empties a question."""
+    from . import boolean
+    node = boolean.parse(query)
+    if node is not None:
+        return {a["id"] for a in arts if boolean.matches(node, a.get("text") or "", a.get("title") or "")}
     from ...agents import question_dimensions as qd
-    terms, nots = match_terms(query), not_terms(query)
-    return {a["id"] for a in arts if qd.keyword_hits(a["text"], terms) and not (nots and qd.keyword_hits(a["text"], nots))}
+    logger.warning("Boolean query could not be read; matching any of its terms: %s", (query or "")[:120])
+    terms = match_terms(query)
+    return {a["id"] for a in arts if qd.keyword_hits(a.get("text") or "", terms)}
 
 
 def match_rqs(project_id: int) -> dict:
