@@ -35,7 +35,18 @@
 - `pytest -q tests` (minus e2e_3org): 740 passed. Frontend tsc clean, lint 0 errors, build done.
 - Backend restarted, so new decks get the template.
 
+## Follow-up: "AlphaMetricx logo in decks increase the size matched 1st brand logo"
+- `deck.html.j2`: a small script on the cover sets the AlphaMetricx wordmark to the client logo's drawn height (the
+  `.brand-logo` image's object-fit size, measured in the page, so any logo shape works). It places the wordmark top
+  right (110 px from the edge) and centers it on the brand chip's line.
+- A cover with a product photo in that corner keeps the small corner mark. Other slides keep 28 px.
+- Runs 5 and 7 re-rendered. Browser check on run 5's cover (screen px at the deck's scale): Foxwoods drawn 47 px tall,
+  and the wordmark 47 px. Both are centered at y≈92; other slides are still 28 px.
+- Deck, amcharts and deliverable tests: 219 passed. Backend restarted.
+
 ## Not verified / open
+- The exported PDF/PPTX of a new deck with the larger cover wordmark was not opened. The export takes its screenshots
+  after this script runs.
 - Decks restyled by the creative pass keep `.house` from this template; a restyled slide's own background was not
   checked.
 - The Pinterest pin waits on the user's answer.
