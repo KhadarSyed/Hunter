@@ -40,6 +40,12 @@ folder - make this as Login page background image, Move login card to right side
   - After shortening the query box to 12 rows (at most 45% of the screen height), Save sits inside the window.
 - Frontend: tsc clean, lint 0 errors (32 warnings as before), `npm test` 15 passed, build done. ruff clean.
 
+- Follow-up ("continue"), checked in the same browser on Settings → LLM Providers as the Test Org admin:
+  - The Nemotron 3 Ultra card shows the "No images" badge it learned on its first image refusal (log 2026-11-14-01),
+    and the prices $2.00 / $0.50 / $8.00 since 2026-11-12.
+  - Its edit form's "Reads images" choice reads "No" (options: Not known / Yes / No). It was canceled; nothing was
+    saved.
+
 ## Not verified / open
 - Clicked through Playwright's Chromium only.
 - The original JPEG stays in the repo root, untracked; delete it if it is no longer needed.
